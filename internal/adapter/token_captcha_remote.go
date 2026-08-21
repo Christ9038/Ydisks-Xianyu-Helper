@@ -6,11 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"strings"
 	"time"
 
+	"xianyu-go/internal/netguard"
 	"xianyu-go/internal/xianyu/cookierefresh"
 )
 
@@ -80,21 +80,7 @@ func (a *Adapter) loadRemoteCaptchaConfig(ctx context.Context, cookieID string) 
 
 // newRemoteCaptchaHTTPClient 封装newRemoteCaptchaHTTPClient业务协调。
 func newRemoteCaptchaHTTPClient() *http.Client {
-	// dialer 用于本次流程后续判断的dialer
-	dialer := &net.Dialer{Timeout: 8 * time.Second, KeepAlive: 30 * time.Second}
-	return &http.Client{
-		Transport: &http.Transport{
-			Proxy:                 http.ProxyFromEnvironment,
-			DialContext:           dialer.DialContext,
-			ForceAttemptHTTP2:     true,
-			MaxIdleConns:          20,
-			MaxIdleConnsPerHost:   4,
-			IdleConnTimeout:       30 * time.Second,
-			TLSHandshakeTimeout:   8 * time.Second,
-			ResponseHeaderTimeout: 90 * time.Second,
-		},
-		Timeout: 90 * time.Second,
-	}
+	return netguard.PolicyHTTPClientWithTimeouts(nil, 90*time.Second, 90*time.Second, 8*time.Second)
 }
 
 // callRemoteCaptcha 封装callRemoteCaptcha业务协调。

@@ -19,6 +19,8 @@ type automationImageSenderStub struct {
 	width, height int
 	// imageCalls 记录最终 WebSocket 图片发送次数。
 	imageCalls int
+	// ready 表示模拟账号的 WebSocket 是否完成自动化消息注册。
+	ready bool
 }
 
 // SendText 满足自动化发送契约；本测试只验证图片链路。
@@ -35,6 +37,27 @@ func (s *automationImageSenderStub) SendImage(_ context.Context, _, _, imageURL 
 
 // UpdateCookie 满足自动化发送契约；凭证写回由图片上传适配器自身负责。
 func (s *automationImageSenderStub) UpdateCookie(string) {}
+
+// AutomationReady 返回测试替身配置的 WebSocket 自动化就绪状态。
+func (s *automationImageSenderStub) AutomationReady() bool { return s.ready }
+
+// TestAutomationImageSenderReportsWrappedWebSocketReadiness 验证图片/API 卡密包装器不会掩盖账号运行时的连接未就绪状态。
+func TestAutomationImageSenderReportsWrappedWebSocketReadiness(t *testing.T) {
+	// unavailableSender 是尚未完成 WebSocket 注册的账号发送器。
+	unavailableSender := &automationImageSenderStub{ready: false}
+	// unavailableWrapper 包装未就绪发送器后仍必须报告不可发送。
+	unavailableWrapper := automationImageSender{sender: unavailableSender}
+	if unavailableWrapper.AutomationReady() {
+		t.Fatal("包装器不应把未就绪 WebSocket 误报为可发送")
+	}
+	// readySender 是已经完成 WebSocket 注册的账号发送器。
+	readySender := &automationImageSenderStub{ready: true}
+	// readyWrapper 包装已就绪发送器后必须保留可发送状态。
+	readyWrapper := automationImageSender{sender: readySender}
+	if !readyWrapper.AutomationReady() {
+		t.Fatal("包装器应保留已就绪 WebSocket 状态")
+	}
+}
 
 // automationImageUploaderStub 记录上传输入并返回可控的平台图片结果。
 type automationImageUploaderStub struct {

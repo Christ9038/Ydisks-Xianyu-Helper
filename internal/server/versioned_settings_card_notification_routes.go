@@ -37,6 +37,7 @@ func (s *Server) mountVersionedSettingsCardNotificationRoutes(r chi.Router) {
 
 		r.Get("/api/v1/cards", s.listCards)
 		r.Post("/api/v1/cards", s.createCard)
+		r.Post("/api/v1/cards/test-api", s.testCardAPI)
 		r.Post("/api/v1/cards/batch", s.batchCreateCards)
 		r.Post("/api/v1/cards/{card_id}/append-data", s.appendCardData)
 		r.Get("/api/v1/cards/{card_id}/details", s.getCard)

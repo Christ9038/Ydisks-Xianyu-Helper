@@ -23,11 +23,11 @@ func (c *Center) handleAIPricingMode(ctx context.Context, task Task) (bool, erro
 		return false, nil
 	}
 	if !autoAdjustEnabled {
-		c.logger.Info("AI 议价已接管订单价格，但商家未开启真实自动改价", "account", task.AccountID, "order_id", task.OrderID)
+		c.logger.Debug("AI 议价已接管订单价格，但商家未开启真实自动改价", "account", task.AccountID, "order_id", task.OrderID)
 		return true, nil
 	}
 	if task.OrderID == "" || task.ChatID == "" || task.BuyerID == "" || task.ItemID == "" {
-		c.logger.Warn("订单事实不足，无法匹配 AI 报价", "account", task.AccountID, "order_id", task.OrderID)
+		c.logger.Debug("订单事实不足，无法匹配 AI 报价", "account", task.AccountID, "order_id", task.OrderID)
 		return true, nil
 	}
 	// quote 是与账号、买家、商品、会话和有效期匹配后原子领取的最新报价；claimErr 是领取错误。

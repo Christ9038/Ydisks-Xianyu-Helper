@@ -23,6 +23,8 @@ export interface SystemSettings {
   log_level?: 'debug' | 'info' | 'warn' | 'error' | string;
   /** 服务端日志格式。 */
   log_format?: 'text' | 'json' | string;
+  /** 是否阻止用户配置的服务端 HTTP 请求访问内网地址。 */
+  outbound_http_public_only?: boolean;
   /** 续期日志保留天数。 */
   renewal_log_retention_days?: number;
   /** 远程验证码服务地址。 */

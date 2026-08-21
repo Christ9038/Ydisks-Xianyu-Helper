@@ -2012,6 +2012,42 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/cards/test-api":
+    post:
+      operationId: postApiV1CardsTestApi
+      summary: postApiV1CardsTestApi
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CardAPITestRequest'
+      responses:
+        '200':
+          description: 测试完成
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CardAPITestResponse'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   "/api/v1/cards/{card_id}":
     delete:
       operationId: deleteApiV1CardsBycard_id
@@ -6540,13 +6576,19 @@ paths:
             schema:
               type: string
       security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SystemSettingSingleUpdateRequest'
       responses:
         '200':
           description: 成功
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/OperationResponse'
         '400':
           description: 统一错误响应
           content:
@@ -7278,7 +7320,10 @@ components:
       properties:
         name: {type: string}
         type: {type: string, enum: [api, text, data, image]}
-        api_config: {type: string}
+        api_config:
+          oneOf:
+            - $ref: '#/components/schemas/APICardConfigMutation'
+            - type: string
         text_content: {type: string}
         data_content: {type: string}
         image_url: {type: string}
@@ -7328,12 +7373,15 @@ components:
         id: {type: integer}
     CardResponse:
       type: object
-      required: [id, name, type, api_config, text_content, data_content, image_url, description, enabled, delay_seconds, is_multi_spec, spec_name, spec_value]
+      required: [id, name, type, text_content, data_content, image_url, description, enabled, delay_seconds, is_multi_spec, spec_name, spec_value]
       properties:
         id: {type: integer}
         name: {type: string}
         type: {type: string, enum: [api, text, data, image]}
-        api_config: {type: string}
+        api_config:
+          allOf:
+            - $ref: '#/components/schemas/APICardConfigResponse'
+          nullable: true
         text_content: {type: string}
         data_content: {type: string}
         image_url: {type: string}
@@ -7344,6 +7392,59 @@ components:
         spec_name: {type: string}
         spec_value: {type: string}
         user_id: {type: integer}
+    APICardConfigMutation:
+      type: object
+      required: [url]
+      properties:
+        url: {type: string, format: uri}
+        method: {type: string, enum: [GET, POST], default: GET}
+        timeout_seconds: {type: integer, minimum: 1, maximum: 60, default: 10}
+        headers:
+          type: object
+          additionalProperties: true
+        params:
+          type: object
+          additionalProperties: true
+        body:
+          type: object
+          additionalProperties: true
+        content_type: {type: string, default: application/json}
+        headers_action: {type: string, enum: [retain, replace, clear]}
+        params_action: {type: string, enum: [retain, replace, clear]}
+        response_path: {type: string}
+        retry_enabled: {type: boolean}
+    APICardConfigResponse:
+      type: object
+      required: [url, method, timeout_seconds, content_type, retry_enabled, headers_configured, params_configured, ready]
+      properties:
+        url: {type: string}
+        method: {type: string, enum: [GET, POST]}
+        timeout_seconds: {type: integer}
+        content_type: {type: string}
+        response_path: {type: string}
+        retry_enabled: {type: boolean}
+        headers_configured: {type: boolean}
+        params_configured: {type: boolean}
+        ready: {type: boolean}
+        validation_error: {type: string}
+    CardAPITestRequest:
+      type: object
+      required: [api_config]
+      properties:
+        api_config:
+          oneOf:
+            - $ref: '#/components/schemas/APICardConfigMutation'
+            - type: string
+    CardAPITestResponse:
+      type: object
+      required: [status, status_code, response_content_type, response_fields]
+      properties:
+        status: {type: string, enum: [success, failed]}
+        status_code: {type: integer}
+        response_content_type: {type: string}
+        response_fields: {type: array, items: {type: string}}
+        extracted_value: {type: string}
+        response_preview: {type: string}
     ItemListResponse:
       type: object
       required: [id, cookie_id, item_id, item_title, item_description, item_category, item_price, item_detail, item_image, is_multi_spec, multi_quantity_delivery, is_multi_qty_ship]
@@ -7759,6 +7860,15 @@ components:
           type: object
           additionalProperties:
             $ref: '#/components/schemas/SecretSettingChange'
+    SystemSettingSingleUpdateRequest:
+      type: object
+      required: [value]
+      properties:
+        value:
+          type: string
+        action:
+          type: string
+          enum: [retain, replace, clear]
     SystemSettingsResponse:
       type: object
       additionalProperties:

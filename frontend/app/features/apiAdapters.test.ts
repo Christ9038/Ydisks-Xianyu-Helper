@@ -875,7 +875,7 @@ test('getCards 解析 JSON 和损坏 JSON 的卡密接口配置', /* 当前回�
   stubContractFetch(fetchMock);
   // cards 是卡密配置归一化后的库存列表。
   const cards = await getCards();
-  expect(cards[0].api_config).toEqual({ endpoint: 'https://example.com' });
+  expect(cards[0].api_config).toEqual({ endpoint: 'https://example.com', content_type: 'application/json' });
   expect(cards[1].api_config).toBeUndefined();
 });
 

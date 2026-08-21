@@ -343,16 +343,16 @@ func mustRefundTradeCard(t *testing.T) map[string]any {
 	return m
 }
 
-// mustPaidDeliveryCard 封装mustPaid发货卡密业务协调。
+// mustPaidDeliveryCard 构造卖家收到的完整付款待发货卡片，包含自动化防重和订单归属所需的 updateKey。
 func mustPaidDeliveryCard(t *testing.T) map[string]any {
 	t.Helper()
-	// s 用于本次流程后续判断的s
+	// s 是模拟闲鱼付款系统卡片的 JSON；订单 ID 由 extJson 中的 updateKey 提供。
 	s := "{" +
 		"\"1\":{" +
 		"\"2\":\"63107041124@goofish\"," +
 		"\"10\":{" +
 		"\"bizTag\":\"{\\\"sourceId\\\":\\\"C2C:4Ytd4BSQKIiz\\\",\\\"taskName\\\":\\\"付款完成待发货_卖家-正向升级\\\"}\"," +
-		"\"extJson\":\"{\\\"msgArg1\\\":\\\"MsgCard\\\",\\\"contentType\\\":\\\"26\\\",\\\"messageId\\\":\\\"4e449a32c59c499594c4c5dffa5ddef0\\\"}\"," +
+		"\"extJson\":\"{\\\"msgArg1\\\":\\\"MsgCard\\\",\\\"contentType\\\":\\\"26\\\",\\\"messageId\\\":\\\"4e449a32c59c499594c4c5dffa5ddef0\\\",\\\"updateKey\\\":\\\"63107041124:3310145690545023994:10:TRADE_PAID:26\\\"}\"," +
 		"\"redReminder\":\"等待卖家发货\"," +
 		"\"reminderContent\":\"[我已付款，等待你发货]\"," +
 		"\"senderUserId\":\"2222315258815\"," +

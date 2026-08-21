@@ -91,6 +91,42 @@ describe('useCardActions 卡密动作协调器', /* 当前回调验证卡密筛�
     expect(hook.result.current.showAddModal).toBe(false);
   });
 
+  test('编辑 API 卡替换空模板时明确清空而不是保留旧模板', /* 当前回调验证敏感模板替换空值的显式清除语义。 */ async () => {
+    // apiCard 保存只含脱敏摘要的 API 卡密组。
+    const apiCard: Card = {
+      ...cardFixture,
+      id: 4,
+      name: '接口卡',
+      type: 'api',
+      api_config: {
+        url: 'https://example.test/card',
+        method: 'POST',
+        timeout_seconds: 10,
+        content_type: 'application/json',
+        headers_configured: true,
+        params_configured: true,
+        retry_enabled: false,
+        ready: true,
+      },
+    };
+    // loadCards 是 API 卡编辑完成后的刷新替身。
+    const loadCards = vi.fn().mockResolvedValue(undefined);
+    // hook 是注入 API 卡测试数据的动作 Hook。
+    const hook = renderHook(/* hookFactory 渲染注入 API 卡的动作 Hook。 */ () => useCardActions({ cards: [apiCard], loadCards }));
+    act(/* editAction 打开 API 卡编辑表单。 */ () => hook.result.current.handleEdit(apiCard));
+    act(/* templateAction 将两个敏感模板设置为显式替换。 */ () => hook.result.current.setEditForm(/* formUpdater 清空替换模板的表单值。 */ current => ({
+      ...current,
+      api_headers_action: 'replace',
+      api_params_action: 'replace',
+      api_headers: '',
+      api_params: '',
+    })));
+    await act(/* saveAction 提交 API 卡编辑并等待刷新完成。 */ async () => hook.result.current.handleSaveEdit());
+    expect(cardActionMocks.updateCard).toHaveBeenCalledWith(4, expect.objectContaining({
+      api_config: expect.objectContaining({ headers: {}, params: {} }),
+    }));
+  });
+
   test('删除取消、删除失败和状态切换失败均不制造虚假成功', /* 当前回调验证卡密删除和启停异常分支。 */ async () => {
     // actionContext 保存卡密删除 Hook 和库存刷新替身。
     const { hook, loadCards } = createCardHook();

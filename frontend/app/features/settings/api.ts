@@ -36,6 +36,10 @@ const normalizeSettings = (settings: Record<string, unknown>): SystemSettings =>
     const days = Number(result.renewal_log_retention_days);
     result.renewal_log_retention_days = Number.isFinite(days) ? days : 10;
   }
+  if ('outbound_http_public_only' in result) {
+    // publicOnly 保存统一出站策略的布尔状态，兼容旧服务端返回的字符串。
+    result.outbound_http_public_only = result.outbound_http_public_only === true || result.outbound_http_public_only === 'true';
+  }
   return result as SystemSettings;
 };
 

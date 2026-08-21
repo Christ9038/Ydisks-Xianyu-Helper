@@ -1,8 +1,10 @@
 package adapter
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -379,6 +381,36 @@ func TestHandleSystemEvent_UninjectedSafe(t *testing.T) {
 	if // err 用于本次流程后续判断的err
 	err := a.HandleSystemEvent(context.Background(), automation.Task{AccountID: "cid"}); err != nil {
 		t.Fatalf("未注入 automation 应返回 nil: %v", err)
+	}
+}
+
+// TestHandleSystemEventIngressUsesDebugLog 验证系统卡片入口日志不会把尚未匹配规则的事件伪装成业务 INFO。
+func TestHandleSystemEventIngressUsesDebugLog(t *testing.T) {
+	// store、cleanup 保存自动化中心测试数据库及清理函数。
+	store, cleanup := newAdapterTestStore(t)
+	defer cleanup()
+	// logBuffer 收集适配器入口日志，用于检查日志级别而不依赖全局日志输出。
+	var logBuffer bytes.Buffer
+	// logger 将 DEBUG 及以上日志写入内存，便于断言空订单和完整订单事件的入口记录。
+	logger := slog.New(slog.NewTextHandler(&logBuffer, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	// adapter 是装配自动化中心后的事件转发适配器。
+	adapter := New(store, nil, logger)
+	adapter.automation = automation.New(store, nil, logger)
+	// firstErr 是空订单创建卡片进入自动化中心后不应产生的处理错误。
+	if firstErr := adapter.HandleSystemEvent(context.Background(), automation.Task{AccountID: "cid", TriggerType: automation.TriggerOrderCreated}); firstErr != nil {
+		t.Fatal(firstErr)
+	}
+	// secondErr 是带订单 ID 的无规则付款卡片进入自动化中心后不应产生的处理错误。
+	if secondErr := adapter.HandleSystemEvent(context.Background(), automation.Task{AccountID: "cid", TriggerType: automation.TriggerOrderPaid, OrderID: "order-log"}); secondErr != nil {
+		t.Fatal(secondErr)
+	}
+	// output 是入口和中心日志的文本结果；入口事件必须以 DEBUG 记录，不得出现旧的 INFO 文案。
+	output := logBuffer.String()
+	if !strings.Contains(output, "msg=收到系统自动化事件") || !strings.Contains(output, "level=DEBUG") {
+		t.Fatalf("入口事件应记录为 DEBUG: %s", output)
+	}
+	if strings.Contains(output, "level=INFO msg=系统自动化事件") {
+		t.Fatalf("入口事件不应继续记录旧 INFO 日志: %s", output)
 	}
 }
 

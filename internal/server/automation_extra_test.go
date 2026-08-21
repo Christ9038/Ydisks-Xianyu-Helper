@@ -241,8 +241,8 @@ func TestAutomationRuleBadActionType(t *testing.T) {
 	}
 }
 
-// TestAutomationRuleRejectsAPICard 封装Test自动化规则RejectsAPI卡密业务协调。
-func TestAutomationRuleRejectsAPICard(t *testing.T) {
+// TestAutomationRuleAcceptsAPICard 验证已配置的 API 卡券可以加入自动化规则。
+func TestAutomationRuleAcceptsAPICard(t *testing.T) {
 	// srv、store、cleanup 用于本次流程后续判断的srv、store、cleanup
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
@@ -265,7 +265,7 @@ func TestAutomationRuleRejectsAPICard(t *testing.T) {
 	// rec 用于本次流程后续判断的rec
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "API 卡密暂不支持") {
+	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }

@@ -17,7 +17,7 @@ CREATE TABLE ai_bargain_quotes (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_ai_bargain_quotes_cookie FOREIGN KEY (cookie_id) REFERENCES cookies(id) ON DELETE CASCADE,
     UNIQUE KEY uq_ai_bargain_quotes_order (cookie_id, order_id),
-    KEY idx_ai_bargain_quotes_pending (cookie_id, buyer_id, item_id, chat_id, status, expires_at, id)
+    KEY idx_ai_bargain_quotes_pending (cookie_id(64), buyer_id(64), item_id(64), chat_id(64), status, expires_at, id)
 );
 
 -- +goose Down

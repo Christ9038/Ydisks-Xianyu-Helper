@@ -198,6 +198,8 @@ type RuleFilter struct {
 type CardInfo struct {
 	// Type 是卡密组类型。
 	Type string
+	// APIReady 表示 API 卡券配置已通过完整校验且允许被规则选择。
+	APIReady bool
 }
 
 // RuleRepository 定义规则持久化所需的窄接口。
@@ -408,7 +410,7 @@ func (s *RuleService) normalizeDraftActions(ctx context.Context, userID int64, d
 	return actions, flags, nil
 }
 
-// validateSendCardAction 校验发卡动作的卡密选择、归属和类型限制。
+// validateSendCardAction 校验发卡动作的卡密选择和归属；具体卡券类型由执行器处理。
 func (s *RuleService) validateSendCardAction(ctx context.Context, userID int64, draftAction ActionDraft) error {
 	if draftAction.CardID <= 0 {
 		return errors.New("发送卡密动作必须选择卡密组")
@@ -421,8 +423,8 @@ func (s *RuleService) validateSendCardAction(ctx context.Context, userID int64, 
 		}
 		return errors.New("卡密组不存在或不属于当前用户")
 	}
-	if card.Type == "api" {
-		return errors.New("API 卡密暂不支持自动发货，请选择文本、批量数据或图片卡密")
+	if card.Type == "api" && !card.APIReady {
+		return errors.New("API 卡券配置无效，请重新保存后再选择")
 	}
 	return nil
 }

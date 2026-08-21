@@ -126,6 +126,14 @@ const Settings: React.FC = () => {
                 />
                 <p className="text-xs text-gray-500">0 表示不自动清理续期日志</p>
               </div>
+
+              <label className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 cursor-pointer">
+                <input type="checkbox" className="mt-1" checked={settings.outbound_http_public_only || false} onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setSettings({ ...settings, outbound_http_public_only: event.target.checked })} />
+                <span>
+                  <span className="block text-sm font-bold text-amber-900">限制用户配置的 HTTP 出站请求只能访问公网</span>
+                  <span className="mt-1 block text-xs leading-5 text-amber-800">开启后会同时约束 API 发货、AI、HTTP 通知、远程图片和远程滑块服务；保存后立即生效，可能使内网服务不可用。</span>
+                </span>
+              </label>
             </div>
           </section>
 

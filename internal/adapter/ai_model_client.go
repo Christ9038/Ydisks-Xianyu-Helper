@@ -25,7 +25,7 @@ type AIModelClient struct {
 func NewAIModelClient() *AIModelClient {
 	// client 保存生产环境使用的模型目录客户端。
 	client := &AIModelClient{newHTTPClient: func(baseURL string) (*http.Client, error) {
-		return netguard.TrustedEndpointHTTPClient(baseURL, 20*time.Second)
+		return netguard.ConfiguredEndpointHTTPClient(baseURL, 20*time.Second)
 	}}
 	return client
 }

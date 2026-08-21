@@ -108,11 +108,19 @@ export interface Card {
     /** API 卡券请求方法。 */
     method: 'GET' | 'POST';
     /** API 请求超时时间。 */
-    timeout?: number;
-    /** API 请求头 JSON。 */
-    headers?: string;
-    /** API 请求参数 JSON。 */
-    params?: string;
+    timeout_seconds: number;
+    /** API 响应提取路径。 */
+    response_path?: string;
+    /** 是否启用幂等重试。 */
+    retry_enabled: boolean;
+    /** 是否配置了请求头模板；具体值不会进入前端。 */
+    headers_configured: boolean;
+    /** 是否配置了请求参数模板；具体值不会进入前端。 */
+    params_configured: boolean;
+    /** 配置是否可用于规则发货。 */
+    ready: boolean;
+    /** 配置无效时的脱敏错误说明。 */
+    validation_error?: string;
   };
   // 图片类型
   /** 图片卡券地址。 */

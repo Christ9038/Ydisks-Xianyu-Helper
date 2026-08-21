@@ -33,6 +33,8 @@ type automationActionExecutor struct {
 	cookieSource func(context.Context, string) (string, error)
 	// wakeCredentialBlocked 在 Cookie 更新后唤醒凭证阻塞的自动化任务。
 	wakeCredentialBlocked func(context.Context, string)
+	// apiFetcher 为 API 卡发货提供外部请求能力；业务执行器不直接依赖 net/http。
+	apiFetcher func() APICardFetcher
 	// cardLocks 串行化同一卡密组的数据库存取和消费。
 	cardLocks sync.Map
 }
@@ -502,7 +504,7 @@ func (e *automationActionExecutor) sendCard(ctx context.Context, task Task, acti
 	// count 是当前订单需要发送的卡密数量。
 	count := deliverySendCount(task, action)
 	// card 是待发送的卡密组完整配置。
-	card, err := e.store.Cards.Get(ctx, action.CardID)
+	card, err := e.store.Cards.GetForDelivery(ctx, action.CardID)
 	if err != nil {
 		return 0, err
 	}
@@ -511,6 +513,9 @@ func (e *automationActionExecutor) sendCard(ctx context.Context, task Task, acti
 	}
 	if card.Type == "data" {
 		return e.sendDataCard(ctx, task, card, count)
+	}
+	if card.Type == "api" {
+		return e.sendAPICard(ctx, task, action, card, count)
 	}
 	// sent 是已经成功发送的卡密数量。
 	sent := 0
@@ -535,6 +540,45 @@ func (e *automationActionExecutor) sendCard(ctx context.Context, task Task, acti
 		}
 		if strings.TrimSpace(content) == "" && strings.TrimSpace(imageURL) == "" {
 			return sent, fmt.Errorf("卡密组 %d 没有可发送内容", card.ID)
+		}
+		sent++
+	}
+	return sent, nil
+}
+
+// sendAPICard 按发货单位逐次调用普通 API，并在消息发送失败时保留结果未知状态。
+func (e *automationActionExecutor) sendAPICard(ctx context.Context, task Task, action db.AutomationAction, card *db.CardFull, count int) (int, error) {
+	// fetcher 是构造期固定的 API 卡发货客户端。
+	var fetcher APICardFetcher
+	if e.apiFetcher != nil {
+		fetcher = e.apiFetcher()
+	}
+	if fetcher == nil {
+		return 0, errors.New("API 卡发货客户端未初始化")
+	}
+	// sent 是已经完成 API 获取和买家消息发送的单位数量。
+	sent := 0
+	// unitIndex 表示从 1 开始的当前 API 发货单位序号。
+	for unitIndex := 1; unitIndex <= count; unitIndex++ {
+		// result、fetchErr 保存当前单位的 API 响应与请求错误。
+		result, fetchErr := fetcher.Fetch(ctx, APICardRequest{
+			Config: card.APIConfig, TriggerKey: buildTriggerKey(task), ActionID: action.ID, CardID: card.ID,
+			UnitIndex: unitIndex, TotalUnits: count, AccountID: task.AccountID, OrderID: task.OrderID,
+			ItemID: task.ItemID, BuyerID: task.BuyerID, ChatID: task.ChatID, SpecName: task.SpecName,
+			SpecValue: task.SpecValue, Quantity: task.Quantity, Amount: task.Amount, TriggerType: task.TriggerType,
+		})
+		if fetchErr != nil {
+			if result.Dispatched {
+				return sent, uncertainAction(fetchErr)
+			}
+			return sent, noRetryAction(fetchErr)
+		}
+		if strings.TrimSpace(result.Content) == "" {
+			return sent, uncertainAction(errors.New("API 卡发货响应没有可发送内容"))
+		}
+		// sendErr 保存已取得卡密后向买家发送消息的结果；此时失败不能安全重放 API 请求。
+		if sendErr := e.sendText(ctx, task, result.Content); sendErr != nil {
+			return sent, uncertainAction(sendErr)
 		}
 		sent++
 	}
@@ -626,7 +670,7 @@ func (e *automationActionExecutor) cardContent(_ context.Context, card *db.CardF
 		}
 		return "", card.ImageURL, nil
 	case "api":
-		return "", "", fmt.Errorf("自动化中心暂不支持 API 卡密动作")
+		return "", "", fmt.Errorf("API 卡密必须通过 sendAPICard 发送")
 	default:
 		return "", "", fmt.Errorf("未知卡密类型: %s", card.Type)
 	}

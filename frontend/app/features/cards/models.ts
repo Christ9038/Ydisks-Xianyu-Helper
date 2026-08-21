@@ -15,19 +15,8 @@ export interface Card {
   text_content?: string;
   // 批量数据类型
   data_content?: string;
-  // API 类型配置
-  api_config?: {
-    /** API 卡券请求地址。 */
-    url: string;
-    /** API 卡券请求方法。 */
-    method: 'GET' | 'POST';
-    /** API 请求超时时间。 */
-    timeout?: number;
-    /** API 请求头 JSON。 */
-    headers?: string;
-    /** API 请求参数 JSON。 */
-    params?: string;
-  };
+  // API 类型配置只保存服务端返回的脱敏摘要。
+  api_config?: CardAPIConfigSummary;
   // 图片类型
   /** 图片卡券地址。 */
   image_url?: string;
@@ -42,6 +31,78 @@ export interface Card {
   /** 规格值。 */
   spec_value?: string;
 }
+
+/** API 卡券查询返回的脱敏摘要；请求头和参数永远不在此模型中。 */
+export interface CardAPIConfigSummary {
+  /** API 卡券请求地址。 */
+  url: string;
+  /** API 卡券请求方法。 */
+  method: 'GET' | 'POST';
+  /** API 请求正文的 Content-Type。 */
+  content_type: string;
+  /** API 请求超时时间。 */
+  timeout_seconds: number;
+  /** API 响应提取路径。 */
+  response_path?: string;
+  /** 是否启用幂等重试。 */
+  retry_enabled: boolean;
+  /** 是否已配置请求头模板。 */
+  headers_configured: boolean;
+  /** 是否已配置请求参数模板。 */
+  params_configured: boolean;
+  /** 当前配置是否可以被规则使用。 */
+  ready: boolean;
+  /** 当前配置的非敏感校验错误。 */
+  validation_error?: string;
+}
+
+/** API 卡券提交用的具名配置；敏感模板为空时由服务端保留旧值。 */
+export interface CardAPIConfigInput {
+  /** API 卡券请求地址。 */
+  url: string;
+  /** API 卡券请求方法。 */
+  method: 'GET' | 'POST';
+  /** API 请求超时时间。 */
+  timeout_seconds: number;
+  /** API 请求头 JSON 文本或对象。 */
+  headers?: string | Record<string, unknown>;
+  /** API 请求参数 JSON 文本或对象。 */
+  params?: string | Record<string, unknown>;
+  /** API 请求正文 JSON 文本或对象。 */
+  body?: string | Record<string, unknown>;
+  /** API 请求正文的 Content-Type。 */
+  content_type?: string;
+  /** 请求头的三态变更意图。 */
+  headers_action?: 'retain' | 'replace' | 'clear';
+  /** 请求参数的三态变更意图。 */
+  params_action?: 'retain' | 'replace' | 'clear';
+  /** API 响应提取路径。 */
+  response_path?: string;
+  /** 是否启用幂等重试。 */
+  retry_enabled?: boolean;
+}
+
+/** API 测试请求返回的非敏感诊断结果。 */
+export interface CardAPITestResult {
+  /** 远端请求是否返回 2xx。 */
+  status: 'success' | 'failed';
+  /** 远端 HTTP 状态码。 */
+  status_code: number;
+  /** 远端响应媒体类型。 */
+  response_content_type: string;
+  /** JSON 响应顶层字段名称。 */
+  response_fields: string[];
+  /** 响应提取路径命中的值。 */
+  extracted_value?: string;
+  /** 限长响应预览。 */
+  response_preview?: string;
+}
+
+/** 卡券创建和更新所需的前端提交模型。 */
+export type CardMutation = Omit<Partial<Card>, 'api_config'> & {
+  /** API 卡券具名请求配置或历史 JSON 字符串。 */
+  api_config?: CardAPIConfigInput | string;
+};
 
 /** 卡券批量创建接口的逐行结果。 */
 /** 由当前 feature adapter 归一后的 CardBatchResult UI 模型；不直接暴露 HTTP DTO。 */

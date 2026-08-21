@@ -216,7 +216,7 @@ func ServerDependencies(services *composition.Services, base HTTPDependencies, s
 			AccountSummaries: ports.AccountSummaries, AccountTasks: ports.AccountTasks, Chat: ports.Chat,
 			UncertainNotifications: ports.UncertainNotifications, NotificationChannels: ports.NotificationChannels,
 			Analytics: ports.Analytics, AutomationIssues: ports.AutomationIssues, AutomationRules: ports.AutomationRules,
-			Cards: ports.Cards, PublishAutomationRules: ports.PublishAutomationRules, DefaultReplies: ports.DefaultReplies,
+			Cards: ports.Cards, APIRequestTester: ports.APICardTester, PublishAutomationRules: ports.PublishAutomationRules, DefaultReplies: ports.DefaultReplies,
 			Keywords: ports.Keywords, Settings: ports.Settings, Admin: ports.Admin,
 		}),
 	}, nil

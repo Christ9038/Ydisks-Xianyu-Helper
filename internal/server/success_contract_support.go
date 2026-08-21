@@ -3,7 +3,6 @@ package server
 import (
 	"encoding/json"
 
-	cardsapp "xianyu-go/internal/application/cards"
 	defaultreplyapp "xianyu-go/internal/application/defaultreply"
 	notificationsapp "xianyu-go/internal/application/notifications"
 )
@@ -46,8 +45,8 @@ type cardResponse struct {
 	Name string `json:"name"`
 	// Type 是卡券类型。
 	Type string `json:"type"`
-	// APIConfig 是 API 卡券配置 JSON。
-	APIConfig string `json:"api_config"`
+	// APIConfig 是不含请求头、参数和密钥的 API 配置摘要；非 API 卡券省略该字段。
+	APIConfig *apiCardConfigResponse `json:"api_config,omitempty"`
 	// TextContent 是文本卡券内容。
 	TextContent string `json:"text_content"`
 	// DataContent 是批量数据卡券内容。
@@ -68,27 +67,6 @@ type cardResponse struct {
 	SpecValue string `json:"spec_value"`
 	// UserID 是卡券所属用户标识，保留旧接口字段。
 	UserID int64 `json:"user_id,omitempty"`
-}
-
-// newCardResponse 将应用层卡券模型转换为 HTTP DTO。
-func newCardResponse(card cardsapp.Card) cardResponse {
-	return cardResponse{
-		ID: card.ID, Name: card.Name, Type: card.Type, APIConfig: card.APIConfig,
-		TextContent: card.TextContent, DataContent: card.DataContent, ImageURL: card.ImageURL,
-		Description: card.Description, Enabled: card.Enabled, DelaySeconds: card.DelaySeconds,
-		IsMultiSpec: card.IsMultiSpec, SpecName: card.SpecName, SpecValue: card.SpecValue, UserID: card.UserID,
-	}
-}
-
-// newCardResponses 批量转换应用层卡券列表，避免 HTTP 层暴露数据库模型。
-func newCardResponses(cards []cardsapp.Card) []cardResponse {
-	// result 是转换后的卡券 DTO 列表。
-	result := make([]cardResponse, 0, len(cards))
-	// card 是当前待转换的卡券应用模型。
-	for _, card := range cards {
-		result = append(result, newCardResponse(card))
-	}
-	return result
 }
 
 // cardBatchResponse 是卡券批量创建接口的具名响应 DTO。

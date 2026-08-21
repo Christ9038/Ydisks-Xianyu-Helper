@@ -29,6 +29,20 @@ type settingsRepositoryFake struct {
 	adjustRuleEnabled bool
 }
 
+// outboundPolicyFake 记录应用服务要求立即生效的公网限制状态。
+type outboundPolicyFake struct {
+	// publicOnly 保存最近一次运行时公网限制状态。
+	publicOnly bool
+	// calls 保存策略切换次数，用于确认数据库保存成功后才切换。
+	calls int
+}
+
+// SetPublicOnly 记录测试中的运行时策略切换。
+func (p *outboundPolicyFake) SetPublicOnly(publicOnly bool) {
+	p.publicOnly = publicOnly
+	p.calls++
+}
+
 // IsSensitiveSettingKey 判断测试设置键是否属于敏感集合。
 func (r *settingsRepositoryFake) IsSensitiveSettingKey(key string) bool {
 	// candidate 是测试敏感键集合中的当前候选值。
@@ -189,6 +203,30 @@ func TestServiceRejectsSensitivePlainValue(t *testing.T) {
 	err := service.ApplySystemChanges(context.Background(), 7, map[string]string{"ai_api_key": "secret"}, nil)
 	if err == nil || !strings.Contains(err.Error(), "敏感设置") {
 		t.Fatalf("sensitive plain value should fail: %v", err)
+	}
+}
+
+// TestServiceAppliesOutboundPolicyAfterValidation 验证公网限制设置校验和运行时即时生效边界。
+func TestServiceAppliesOutboundPolicyAfterValidation(t *testing.T) {
+	// repository 是保存系统设置的内存 Port。
+	repository := &settingsRepositoryFake{}
+	// policy 是记录运行时开关状态的测试 Port。
+	policy := &outboundPolicyFake{}
+	// service 是注入策略 Port 的设置应用服务。
+	service := NewService(repository, nil, policy)
+	// err 表示合法公网限制设置的保存错误。
+	if err := service.ApplySystemChanges(context.Background(), 7, map[string]string{"outbound_http_public_only": "true"}, nil); err != nil {
+		t.Fatalf("保存公网限制失败: %v", err)
+	}
+	if !policy.publicOnly || policy.calls != 1 {
+		t.Fatalf("公网限制未即时生效 policy=%+v", policy)
+	}
+	// err 表示非法公网限制设置的保存结果。
+	if err := service.ApplySystemChanges(context.Background(), 7, map[string]string{"outbound_http_public_only": "maybe"}, nil); err == nil {
+		t.Fatal("非法公网限制值必须拒绝")
+	}
+	if policy.calls != 1 {
+		t.Fatalf("非法值不应切换运行时策略 policy=%+v", policy)
 	}
 }
 

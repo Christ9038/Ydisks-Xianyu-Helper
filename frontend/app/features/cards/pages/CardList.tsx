@@ -1,8 +1,9 @@
-import { Copy,CreditCard,Edit,FileText,Image as ImageIcon,Package,Plus,Save,Search,SlidersHorizontal,Trash2,Upload,X } from 'lucide-react';
+import { Copy,CreditCard,Edit,FileText,Globe,Image as ImageIcon,Package,Plus,Save,Search,SlidersHorizontal,Trash2,Upload,X } from 'lucide-react';
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { Card } from '../api';
+import { Card, testCardAPI } from '../api';
 import { useCardActions } from '../cardActions';
+import { APIRequestBuilder } from '../components/APIRequestBuilder';
 import { BatchCardImportModal } from '../components/BatchCardImportModal';
 import { CardIcon } from '../components/CardIcon';
 import { useCardBatchActions,useCardsData } from '../hooks';
@@ -256,71 +257,46 @@ const CardList: React.FC = () => {
                       className="w-full ios-input px-4 py-3 rounded-xl"
                     >
                       <option value="">请选择类型</option>
+                      <option value="data">批量库存</option>
                       <option value="text">固定文字</option>
-                      <option value="data">批量数据</option>
-                      {selectedCard?.type === 'api' && <option value="api">API接口（仅保留现有配置）</option>}
                       <option value="image">图片</option>
+                      <option value="api">API 接口</option>
                     </select>
                   </div>
                 </div>
 
                 {/* API 配置 */}
                 {editForm.type === 'api' && (
-                  <div className="border border-gray-200 rounded-xl p-4 space-y-4 bg-gray-50">
-                    <h3 className="font-bold text-gray-900">API 配置</h3>
-                    <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-2">API 地址</label>
-                      <input
-                        type="url"
-                        value={editForm.api_url || ''}
-                        onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setEditForm({ ...editForm, api_url: e.target.value })}
-                        className="w-full ios-input px-4 py-3 rounded-xl font-mono text-sm"
-                        placeholder="https://api.example.com/get-card"
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-bold text-gray-700 mb-2">请求方法</label>
-                        <select
-                          value={editForm.api_method || 'GET'}
-                          onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setEditForm({ ...editForm, api_method: e.target.value as 'GET' | 'POST' })}
-                          className="w-full ios-input px-4 py-3 rounded-xl"
-                        >
-                          <option value="GET">GET</option>
-                          <option value="POST">POST</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-bold text-gray-700 mb-2">超时时间（秒）</label>
-                        <input
-                          type="number"
-                          value={editForm.api_timeout || 10}
-                          onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setEditForm({ ...editForm, api_timeout: parseInt(e.target.value) || 10 })}
-                          className="w-full ios-input px-4 py-3 rounded-xl"
-                          min="1"
-                          max="60"
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-2">请求头（JSON 格式）</label>
-                      <textarea
-                        value={editForm.api_headers || ''}
-                        onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setEditForm({ ...editForm, api_headers: e.target.value })}
-                        className="w-full ios-input px-4 py-3 rounded-xl h-20 resize-none font-mono text-sm"
-                        placeholder='{"Authorization": "Bearer token"}'
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-2">请求参数（JSON 格式）</label>
-                      <textarea
-                        value={editForm.api_params || ''}
-                        onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setEditForm({ ...editForm, api_params: e.target.value })}
-                        className="w-full ios-input px-4 py-3 rounded-xl h-20 resize-none font-mono text-sm"
-                        placeholder='{"type": "card", "count": 1}'
-                      />
-                    </div>
-                  </div>
+                  <>
+                    <APIRequestBuilder
+                      url={editForm.api_url || ''}
+                      method={editForm.api_method || 'GET'}
+                      timeout={editForm.api_timeout || 10}
+                      headers={editForm.api_headers || ''}
+                      params={editForm.api_params || ''}
+                      contentType={editForm.api_content_type || 'application/json'}
+                      body={editForm.api_body || ''}
+                      responsePath={editForm.api_response_path || ''}
+                      retryEnabled={editForm.api_retry_enabled || false}
+                      headersAction={editForm.api_headers_action || 'retain'}
+                      paramsAction={editForm.api_params_action || 'retain'}
+	                      onTest={/* editAPITest 使用当前编辑草稿发起临时 API 测试，不保存草稿。 */ () => testCardAPI({ url: editForm.api_url || '', method: editForm.api_method || 'GET', timeout_seconds: editForm.api_timeout || 10, headers: editForm.api_headers || undefined, params: editForm.api_params || undefined, content_type: editForm.api_content_type || 'application/json', body: editForm.api_body || undefined, response_path: editForm.api_response_path || undefined, retry_enabled: editForm.api_retry_enabled || false })}
+                      onChange={/* 当前回调把 API 请求编辑器字段写回编辑草稿。 */ (field, value) => setEditForm(/* currentUpdater 基于最新编辑草稿合并 API 字段。 */ current => ({
+                        ...current,
+                        ...(field === 'url' ? { api_url: String(value) } : {}),
+                        ...(field === 'method' ? { api_method: value as 'GET' | 'POST' } : {}),
+                        ...(field === 'timeout' ? { api_timeout: Number(value) } : {}),
+                        ...(field === 'headers' ? { api_headers: String(value) } : {}),
+                        ...(field === 'params' ? { api_params: String(value) } : {}),
+                        ...(field === 'contentType' ? { api_content_type: String(value) } : {}),
+                        ...(field === 'body' ? { api_body: String(value) } : {}),
+                        ...(field === 'responsePath' ? { api_response_path: String(value) } : {}),
+                        ...(field === 'retryEnabled' ? { api_retry_enabled: Boolean(value) } : {}),
+                        ...(field === 'headersAction' ? { api_headers_action: value as 'retain' | 'replace' | 'clear' } : {}),
+                        ...(field === 'paramsAction' ? { api_params_action: value as 'retain' | 'replace' | 'clear' } : {}),
+                      }))}
+                    />
+                  </>
                 )}
 
                 {/* 固定文字配置 */}
@@ -492,7 +468,7 @@ const CardList: React.FC = () => {
 
                 <div className="space-y-2">
                   <label className="block text-sm font-bold text-gray-700 mb-2">类型</label>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  <div className="grid grid-cols-4 gap-2">
                     <button
                       type="button"
                       onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setAddForm({ ...addForm, type: 'data', content: '' })}
@@ -517,22 +493,22 @@ const CardList: React.FC = () => {
                       <ImageIcon className="w-5 h-5 mx-auto mb-1" />
                       图片
                     </button>
+                    <button
+                      type="button"
+                      onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setAddForm({ ...addForm, type: 'api', content: '' })}
+                      className={`p-3 rounded-xl font-bold transition-all ${addForm.type === 'api' ? 'bg-brand text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                    >
+                      <Globe className="w-5 h-5 mx-auto mb-1" />
+                      API 接口
+                    </button>
                   </div>
                 </div>
 
-                <div className="space-y-2">
+                {addForm.type !== 'api' && <div className="space-y-2">
                   <label className="block text-sm font-bold text-gray-700 mb-2">
-                    {addForm.type === 'data' ? '库存内容（一行一个）' : addForm.type === 'text' ? '固定回复内容' : addForm.type === 'image' ? '图片 URL' : 'API 地址'}
+                    {addForm.type === 'data' ? '库存内容（一行一个）' : addForm.type === 'text' ? '固定回复内容' : '图片 URL'}
                   </label>
-                  {addForm.type === 'api' ? (
-                    <input
-                      type="url"
-                      value={addForm.content}
-                      onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setAddForm({ ...addForm, content: e.target.value })}
-                      placeholder="https://api.example.com/get-code"
-                      className="w-full ios-input px-4 py-3 rounded-xl"
-                    />
-                  ) : addForm.type === 'image' ? (
+                  {addForm.type === 'image' ? (
                     <div className="space-y-2">
                       <input
                         type="url"
@@ -554,34 +530,35 @@ const CardList: React.FC = () => {
                   {addForm.type === 'data' && (
                     <p className="text-xs text-gray-500">当前库存：<span className="font-bold text-brand">{addForm.content.split('\n').filter(/* 当前回调处理集合中的单个元素。 */ line => line.trim()).length}</span> 条</p>
                   )}
-                </div>
+                </div>}
 
                 {addForm.type === 'api' && (
-                  <div className="border-t border-gray-100 pt-5 space-y-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <label className="block text-sm font-bold text-gray-700">请求方法</label>
-                        <select value={addForm.api_method} onChange={/* 当前回调处理用户交互或异步状态变化。 */ e => setAddForm({...addForm, api_method: e.target.value as 'GET' | 'POST'})} className="w-full ios-input px-4 py-3 rounded-xl">
-                          <option value="GET">GET</option>
-                          <option value="POST">POST</option>
-                        </select>
-                      </div>
-                      <div className="space-y-2">
-                        <label className="block text-sm font-bold text-gray-700">超时时间（秒）</label>
-                        <input type="number" min="1" max="60" value={addForm.api_timeout} onChange={/* 当前回调处理用户交互或异步状态变化。 */ e => setAddForm({...addForm, api_timeout: parseInt(e.target.value) || 10})} className="w-full ios-input px-4 py-3 rounded-xl" />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <label className="block text-sm font-bold text-gray-700">请求头（JSON）</label>
-                        <textarea value={addForm.api_headers} onChange={/* 当前回调处理用户交互或异步状态变化。 */ e => setAddForm({...addForm, api_headers: e.target.value})} className="w-full ios-input px-4 py-3 rounded-xl h-24 resize-none font-mono text-xs" placeholder='{"Authorization":"Bearer token"}' />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="block text-sm font-bold text-gray-700">请求参数（JSON）</label>
-                        <textarea value={addForm.api_params} onChange={/* 当前回调处理用户交互或异步状态变化。 */ e => setAddForm({...addForm, api_params: e.target.value})} className="w-full ios-input px-4 py-3 rounded-xl h-24 resize-none font-mono text-xs" placeholder='{"order_id":"{order_id}"}' />
-                      </div>
-                    </div>
-                  </div>
+                  <>
+                    <APIRequestBuilder
+                      url={addForm.content}
+                      method={addForm.api_method}
+                      timeout={addForm.api_timeout}
+                      headers={addForm.api_headers}
+                      params={addForm.api_params}
+                      contentType={addForm.api_content_type}
+                      body={addForm.api_body}
+                      responsePath={addForm.api_response_path}
+                      retryEnabled={addForm.api_retry_enabled}
+	                      onTest={/* addAPITest 使用当前新增草稿发起临时 API 测试，不创建卡密。 */ () => testCardAPI({ url: addForm.content, method: addForm.api_method, timeout_seconds: addForm.api_timeout, headers: addForm.api_headers || undefined, params: addForm.api_params || undefined, content_type: addForm.api_content_type, body: addForm.api_body || undefined, response_path: addForm.api_response_path || undefined, retry_enabled: addForm.api_retry_enabled })}
+                      onChange={/* 当前回调把 API 请求编辑器字段写回新增草稿。 */ (field, value) => setAddForm(/* currentUpdater 基于最新新增草稿合并 API 字段。 */ current => ({
+                        ...current,
+                        ...(field === 'url' ? { content: String(value) } : {}),
+                        ...(field === 'method' ? { api_method: value as 'GET' | 'POST' } : {}),
+                        ...(field === 'timeout' ? { api_timeout: Number(value) } : {}),
+                        ...(field === 'headers' ? { api_headers: String(value) } : {}),
+                        ...(field === 'params' ? { api_params: String(value) } : {}),
+                        ...(field === 'contentType' ? { api_content_type: String(value) } : {}),
+                        ...(field === 'body' ? { api_body: String(value) } : {}),
+                        ...(field === 'responsePath' ? { api_response_path: String(value) } : {}),
+                        ...(field === 'retryEnabled' ? { api_retry_enabled: Boolean(value) } : {}),
+                      }))}
+                    />
+                  </>
                 )}
 
                 <div className="grid grid-cols-1 sm:grid-cols-[1fr_180px] gap-4">

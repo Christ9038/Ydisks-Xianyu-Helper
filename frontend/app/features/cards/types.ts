@@ -23,6 +23,14 @@ export interface AddCardForm {
   api_headers: string;
   // api_params 是 API 请求参数 JSON 文本。
   api_params: string;
+  // api_content_type 是 API 请求正文的 Content-Type。
+  api_content_type: string;
+  // api_body 是 API 请求正文 JSON 文本或键值对象 JSON 文本。
+  api_body: string;
+  // api_response_path 是 API 响应提取路径。
+  api_response_path: string;
+  // api_retry_enabled 表示是否启用带幂等键的重试。
+  api_retry_enabled: boolean;
 }
 
 // EditCardForm 描述编辑卡密组时的表单字段和 API 扩展字段。
@@ -37,6 +45,18 @@ export type EditCardForm = Partial<Card> & {
   api_headers?: string;
   // api_params 是编辑中的 API 请求参数 JSON 文本。
   api_params?: string;
+  // api_content_type 是编辑中的 API 请求正文 Content-Type。
+  api_content_type?: string;
+  // api_body 是编辑中的 API 请求正文 JSON 文本或键值对象 JSON 文本。
+  api_body?: string;
+  // api_response_path 是编辑中的 API 响应提取路径。
+  api_response_path?: string;
+  // api_retry_enabled 表示编辑中是否启用带幂等键的重试。
+  api_retry_enabled?: boolean;
+  // api_headers_action 保存请求头模板的三态变更意图。
+  api_headers_action?: 'retain' | 'replace' | 'clear';
+  // api_params_action 保存请求参数模板的三态变更意图。
+  api_params_action?: 'retain' | 'replace' | 'clear';
 };
 
 // CardBatchTab 表示批量导入弹窗当前展示的操作页签。

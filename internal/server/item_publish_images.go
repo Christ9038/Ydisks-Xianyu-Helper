@@ -207,7 +207,7 @@ func downloadImageURL(ctx context.Context, rawURL string) ([]byte, string, error
 
 // publicHTTPClient 只允许连接公网地址，防止批量铺货图片 URL 访问本机或内网服务。
 func publicHTTPClient() *http.Client {
-	return netguard.PublicHTTPClient(30 * time.Second)
+	return netguard.ConfiguredHTTPClient(30 * time.Second)
 }
 
 // validateBatchImageRef 封装validate批次图片Ref业务协调。

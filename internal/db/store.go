@@ -80,7 +80,7 @@ func NewStore(db *sql.DB, dialect Dialect) *Store {
 		Sessions:         &Sessions{DB: db},
 		Cookies:          &Cookies{DB: db, Dialect: dialect, codec: codec},
 		Items:            items,
-		Cards:            &Cards{DB: db, Dialect: dialect},
+		Cards:            &Cards{DB: db, Dialect: dialect, codec: codec},
 		Automation:       &AutomationRules{DB: db, Dialect: dialect},
 		Orders:           orders,
 		OrderWrites:      newOrderWriteUnitOfWork(db, orders, items),

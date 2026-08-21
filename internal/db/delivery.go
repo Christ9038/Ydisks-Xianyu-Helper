@@ -163,6 +163,8 @@ func (i *Items) MultiQuantityDelivery(ctx context.Context, cookieID, itemID stri
 type Cards struct {
 	DB      *sql.DB
 	Dialect Dialect
+	// codec 负责 API 卡请求模板的静态加密与解密；只有完整卡券读取和写入路径使用它。
+	codec *secretCodec
 }
 
 // ConsumeBatchData 原子预留一条批量数据卡券（data 类型），返回内容。

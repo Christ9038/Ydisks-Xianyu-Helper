@@ -44,6 +44,12 @@ func (r *cardRepositoryStub) Get(_ context.Context, cardID int64) (Card, error) 
 	return r.card, r.getErr
 }
 
+// GetFull 返回更新用的完整卡券并复用测试替身的错误控制。
+func (r *cardRepositoryStub) GetFull(_ context.Context, cardID int64) (Card, error) {
+	r.gotCardID = cardID
+	return r.card, r.getErr
+}
+
 // Create 记录待创建卡券并返回预设标识或错误。
 func (r *cardRepositoryStub) Create(_ context.Context, card Card) (int64, error) {
 	r.createdCard = card
@@ -146,13 +152,13 @@ func TestServiceCreateValidation(t *testing.T) {
 			}
 		})
 	}
-	// err 表示创建 API 卡券时的业务限制错误。
-	if _, err := service.Create(context.Background(), 7, Draft{Name: "API", Type: "api"}); !errors.Is(err, ErrUnsupportedAPIType) {
-		t.Fatalf("新建 API 卡券应拒绝，err=%v", err)
+	// err 表示创建合法 API 卡券时的业务校验结果。
+	if _, err := service.Create(context.Background(), 7, Draft{Name: "API", Type: "api", APIConfig: `{"url":"https://example.com/card"}`}); err != nil {
+		t.Fatalf("新建 API 卡券应允许，err=%v", err)
 	}
 }
 
-// TestServiceUpdateAndDeleteOwnership 验证更新、删除不会接受请求覆盖所有者，并覆盖 API 转换限制与错误阶段。
+// TestServiceUpdateAndDeleteOwnership 验证更新、删除不会接受请求覆盖所有者，并覆盖 API 转换与错误阶段。
 func TestServiceUpdateAndDeleteOwnership(t *testing.T) {
 	// updateErr 是更新持久化失败的预设错误。
 	updateErr := errors.New("update failed")
@@ -169,12 +175,13 @@ func TestServiceUpdateAndDeleteOwnership(t *testing.T) {
 	if repository.updatedCard.ID != 5 || repository.updatedCard.UserID != 7 || repository.updatedCard.Name != "new" {
 		t.Fatalf("更新模型未保留标识和所有者：%+v", repository.updatedCard)
 	}
-	// err 表示非 API 卡券转换为 API 类型时的业务错误。
-	if err := service.Update(context.Background(), 7, 5, Draft{Name: "api", Type: "api"}); !errors.Is(err, ErrUnsupportedAPIType) {
-		t.Fatalf("非 API 卡券转换为 API 应拒绝，err=%v", err)
-	}
 	repository.updateErr = nil
+	// err 表示非 API 卡券转换为 API 类型时的业务校验结果。
+	if err := service.Update(context.Background(), 7, 5, Draft{Name: "api", Type: "api", APIConfig: `{"url":"https://example.com/card"}`}); err != nil {
+		t.Fatalf("非 API 卡券转换为 API 应允许，err=%v", err)
+	}
 	repository.card.Type = "api"
+	repository.card.APIConfig = `{"url":"https://example.com/card"}`
 	// err 表示既有 API 卡券继续编辑时的更新结果。
 	if err := service.Update(context.Background(), 7, 5, Draft{Name: "legacy", Type: "api"}); err != nil {
 		t.Fatalf("既有 API 卡券应允许继续编辑，err=%v", err)

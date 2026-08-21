@@ -541,6 +541,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/cards/test-api": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** postApiV1CardsTestApi */
+        post: operations["postApiV1CardsTestApi"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/cards/{card_id}": {
         parameters: {
             query?: never;
@@ -2220,7 +2237,7 @@ export interface components {
             name?: string;
             /** @enum {string} */
             type?: "api" | "text" | "data" | "image";
-            api_config?: string;
+            api_config?: components["schemas"]["APICardConfigMutation"] | string;
             text_content?: string;
             data_content?: string;
             image_url?: string;
@@ -2262,7 +2279,7 @@ export interface components {
             name: string;
             /** @enum {string} */
             type: "api" | "text" | "data" | "image";
-            api_config: string;
+            api_config?: components["schemas"]["APICardConfigResponse"] | null;
             text_content: string;
             data_content: string;
             image_url: string;
@@ -2273,6 +2290,59 @@ export interface components {
             spec_name: string;
             spec_value: string;
             user_id?: number;
+        };
+        APICardConfigMutation: {
+            /** Format: uri */
+            url: string;
+            /**
+             * @default GET
+             * @enum {string}
+             */
+            method: "GET" | "POST";
+            /** @default 10 */
+            timeout_seconds: number;
+            headers?: {
+                [key: string]: unknown;
+            };
+            params?: {
+                [key: string]: unknown;
+            };
+            body?: {
+                [key: string]: unknown;
+            };
+            /** @default application/json */
+            content_type: string;
+            /** @enum {string} */
+            headers_action?: "retain" | "replace" | "clear";
+            /** @enum {string} */
+            params_action?: "retain" | "replace" | "clear";
+            response_path?: string;
+            retry_enabled?: boolean;
+        };
+        APICardConfigResponse: {
+            url: string;
+            /** @enum {string} */
+            method: "GET" | "POST";
+            timeout_seconds: number;
+            content_type: string;
+            response_path?: string;
+            retry_enabled: boolean;
+            headers_configured: boolean;
+            params_configured: boolean;
+            ready: boolean;
+            validation_error?: string;
+        };
+        CardAPITestRequest: {
+            api_config: components["schemas"]["APICardConfigMutation"] | string;
+        };
+        CardAPITestResponse: {
+            /** @enum {string} */
+            status: "success" | "failed";
+            status_code: number;
+            response_content_type: string;
+            response_fields: string[];
+            extracted_value?: string;
+            response_preview?: string;
         };
         ItemListResponse: {
             id: number;
@@ -2501,6 +2571,11 @@ export interface components {
             secrets?: {
                 [key: string]: components["schemas"]["SecretSettingChange"];
             };
+        };
+        SystemSettingSingleUpdateRequest: {
+            value: string;
+            /** @enum {string} */
+            action?: "retain" | "replace" | "clear";
         };
         SystemSettingsResponse: {
             [key: string]: string | number | boolean;
@@ -5664,6 +5739,57 @@ export interface operations {
             };
             /** @description 统一错误响应 */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    postApiV1CardsTestApi: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CardAPITestRequest"];
+            };
+        };
+        responses: {
+            /** @description 测试完成 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardAPITestResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -12119,7 +12245,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SystemSettingSingleUpdateRequest"];
+            };
+        };
         responses: {
             /** @description 成功 */
             200: {
@@ -12127,7 +12257,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["OperationResponse"];
                 };
             };
             /** @description 统一错误响应 */

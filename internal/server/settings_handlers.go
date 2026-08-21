@@ -197,7 +197,15 @@ func validateSystemSettingValues(values map[string]string) error {
 	if level, ok := values["log_level"]; ok {
 		// err 是日志级别解析错误。
 		_, err := logging.ParseLevel(level)
-		return err
+		if err != nil {
+			return err
+		}
+	}
+	// raw、ok 保存公网限制设置的原始值及是否包含该字段。
+	if raw, ok := values["outbound_http_public_only"]; ok {
+		if !strings.EqualFold(strings.TrimSpace(raw), "true") && !strings.EqualFold(strings.TrimSpace(raw), "false") {
+			return errors.New("outbound_http_public_only 必须是布尔值")
+		}
 	}
 	return nil
 }
@@ -273,11 +281,15 @@ func (s *Server) setSetting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if key == "log_level" {
-		if // err 用于本次流程后续判断的err
-		err := logging.SetLevel(req.Value); err != nil {
+		// err 表示单项日志级别校验错误。
+		if _, err := logging.ParseLevel(req.Value); err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
+	}
+	if key == "outbound_http_public_only" && !strings.EqualFold(strings.TrimSpace(req.Value), "true") && !strings.EqualFold(strings.TrimSpace(req.Value), "false") {
+		writeErr(w, http.StatusBadRequest, "outbound_http_public_only 必须是布尔值")
+		return
 	}
 	// sess 保存当前管理员会话，用于应用服务执行普通设置写入。
 	sess := authSess(r)
@@ -289,6 +301,9 @@ func (s *Server) setSetting(w http.ResponseWriter, r *http.Request) {
 	if err := s.settingsApplication().SetSystem(r.Context(), sess.UserID, key, req.Value, ""); err != nil {
 		writeErr(w, http.StatusInternalServerError, "保存失败")
 		return
+	}
+	if key == "log_level" {
+		_ = logging.SetLevel(req.Value)
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }

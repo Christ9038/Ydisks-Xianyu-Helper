@@ -135,20 +135,8 @@ type centerDependencies struct {
 	notifier Notifier
 	// cookieSrc 是构造期注入的 Cookie 读取函数。
 	cookieSrc func(context.Context, string) (string, error)
-}
-
-// CenterDependencies 保存自动化中心启动时必须固定的外部协作依赖。
-type CenterDependencies struct {
-	// MTop 提供确认发货使用的 MTOP 协议客户端；为空时使用默认实现。
-	MTop mtop.Client
-	// AccountTaskClient 提供自动评价与商品擦亮的协议调用；使用默认 MTOP 时可自动复用其任务能力。
-	AccountTaskClient AccountTaskClient
-	// OrderDetailFetcher 提供自动发货前的订单详情查询能力。
-	OrderDetailFetcher OrderDetailFetcher
-	// Notifier 接收发货结果通知；为空时不发送通知。
-	Notifier Notifier
-	// CookieSource 提供自动发货读取 Cookie 的可替换边界；为空时读取仓储。
-	CookieSource func(context.Context, string) (string, error)
+	// apiFetcher 提供普通 API 卡发货请求能力。
+	apiFetcher APICardFetcher
 }
 
 // New 构造使用默认协议实现的自动化中心。
@@ -189,6 +177,7 @@ func NewWithDependencies(store *db.Store, senders SenderProvider, logger *slog.L
 			fetcher:           dependencies.OrderDetailFetcher,
 			notifier:          dependencies.Notifier,
 			cookieSrc:         dependencies.CookieSource,
+			apiFetcher:        dependencies.APICardFetcher,
 		},
 		logger: logger.With("subsys", "automation"),
 	}
@@ -213,6 +202,7 @@ func NewWithDependencies(store *db.Store, senders SenderProvider, logger *slog.L
 			}
 			return center.store.Cookies.GetValue(ctx, cookieID)
 		},
+		apiFetcher:            func() APICardFetcher { return center.dependencies.apiFetcher },
 		wakeCredentialBlocked: center.wakeCredentialBlockedAutomation,
 	}
 	center.notifications = deliveryNotifier{
@@ -236,6 +226,7 @@ func NewWithDependencies(store *db.Store, senders SenderProvider, logger *slog.L
 		prepareTask:              center.prepareTask,
 		actionDelaySeconds:       center.actionDelaySeconds,
 		accountAutomationAllowed: center.accountAutomationAllowed,
+		accountSenderReady:       center.accountSenderReady,
 		deferTask:                center.deferTask,
 		executeAction:            center.executeAction,
 		hasNotifier:              func() bool { return center.dependencies.notifier != nil },
@@ -272,6 +263,11 @@ func (c *Center) handleTask(ctx context.Context, task Task) (bool, error) {
 	}
 	if // err 用于本次流程后续判断的err
 	err := c.facts.record(ctx, task); err != nil {
+		if errors.Is(err, db.ErrForbidden) {
+			// 同一平台交易卡片可能同时送到卖家和买家登录账号；订单已归属其他账号时，绝不能覆盖或执行该副本。
+			c.logger.Debug("跨账号重复订单事件，忽略", "account", task.AccountID, "trigger", task.TriggerType, "order_id", task.OrderID)
+			return false, nil
+		}
 		return false, err
 	}
 	if task.OrderID != "" {
@@ -314,7 +310,7 @@ func (c *Center) handleTask(ctx context.Context, task Task) (bool, error) {
 		return false, err
 	}
 	if len(rules) == 0 {
-		c.logger.Info("无匹配自动化规则，忽略事件", "trigger", task.TriggerType, "order_id", task.OrderID, "item_id", task.ItemID)
+		c.logger.Debug("无匹配自动化规则，忽略事件", "trigger", task.TriggerType, "order_id", task.OrderID, "item_id", task.ItemID)
 		return false, nil
 	}
 	// firstErr 用于本次流程后续判断的firstErr
@@ -593,7 +589,7 @@ func (c *Center) actionDelaySeconds(ctx context.Context, action db.AutomationAct
 	}
 	_ = json.Unmarshal([]byte(action.ConfigJSON), &cfg)
 	// card、err 用于本次流程后续判断的card、err
-	card, err := c.store.Cards.Get(ctx, action.CardID)
+	card, err := c.store.Cards.GetSummary(ctx, action.CardID)
 	if err != nil {
 		return 0, err
 	}

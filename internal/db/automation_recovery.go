@@ -325,7 +325,7 @@ func (a *AutomationRules) WakeCredentialBlocked(ctx context.Context, cookieID st
 	_, err := a.DB.ExecContext(ctx, `UPDATE automation_runs
 		SET next_retry_at=0,updated_at=CURRENT_TIMESTAMP
 		WHERE cookie_id=? AND status='failed' AND action_started=0
-		  AND (sent_count=0 OR error_message LIKE '[safe_retry]%')
+		  AND ((sent_count=0 AND error_message NOT LIKE '[no_retry]%') OR error_message LIKE '[safe_retry]%')
 		  AND (LOWER(error_message) LIKE '%session%' OR error_message LIKE '%登录凭证%'
 		       OR error_message LIKE '%Cookie%' OR error_message LIKE '%cookie%'
 		       OR LOWER(error_message) LIKE '%websocket%' OR LOWER(error_message) LIKE '%token%'

@@ -1,5 +1,5 @@
 import { useCallback,useMemo,useState,type Dispatch,type SetStateAction } from 'react';
-import type { Card } from './api';
+import type { Card,CardMutation } from './api';
 import { createCard,deleteCard,updateCard } from './api';
 import { filterCards } from './batchState';
 import type { AddCardForm,EditCardForm } from './types';
@@ -16,6 +16,10 @@ export const emptyAddForm = (): AddCardForm => ({
   api_timeout: 10,
   api_headers: '',
   api_params: '',
+  api_content_type: 'application/json',
+  api_body: '',
+  api_response_path: '',
+  api_retry_enabled: false,
 });
 
 // CardActionsOptions 描述卡密动作协调器依赖的库存状态和刷新操作。
@@ -110,9 +114,15 @@ export const useCardActions = ({ cards, loadCards }: CardActionsOptions): CardAc
       type: card.type || 'text',
       api_url: card.api_config?.url || '',
       api_method: card.api_config?.method || 'GET',
-      api_timeout: card.api_config?.timeout || 10,
-      api_headers: card.api_config?.headers || '',
-      api_params: card.api_config?.params || '',
+      api_timeout: card.api_config?.timeout_seconds || 10,
+      api_headers: '',
+      api_params: '',
+      api_content_type: card.api_config?.content_type || 'application/json',
+      api_body: '',
+      api_response_path: card.api_config?.response_path || '',
+      api_retry_enabled: card.api_config?.retry_enabled || false,
+      api_headers_action: 'retain',
+      api_params_action: 'retain',
       text_content: card.text_content || '',
       data_content: card.data_content || '',
       image_url: card.image_url || '',
@@ -136,7 +146,7 @@ export const useCardActions = ({ cards, loadCards }: CardActionsOptions): CardAc
     }
     try {
       // updateData 保存映射到卡密更新接口的字段。
-      const updateData: Partial<Card> = {
+      const updateData: CardMutation = {
         name: editForm.name.trim(),
         type: editForm.type,
         description: editForm.description?.trim(),
@@ -147,9 +157,15 @@ export const useCardActions = ({ cards, loadCards }: CardActionsOptions): CardAc
         updateData.api_config = {
           url: editForm.api_url?.trim() || '',
           method: editForm.api_method || 'GET',
-          timeout: editForm.api_timeout || 10,
-          headers: editForm.api_headers?.trim() || undefined,
-          params: editForm.api_params?.trim() || undefined,
+          timeout_seconds: editForm.api_timeout || 10,
+          headers: editForm.api_headers_action === 'clear' ? undefined : editForm.api_headers_action === 'replace' && !editForm.api_headers?.trim() ? {} : editForm.api_headers?.trim() || undefined,
+          params: editForm.api_params_action === 'clear' ? undefined : editForm.api_params_action === 'replace' && !editForm.api_params?.trim() ? {} : editForm.api_params?.trim() || undefined,
+          content_type: editForm.api_content_type || 'application/json',
+          body: editForm.api_body?.trim() || undefined,
+          headers_action: editForm.api_headers_action || 'retain',
+          params_action: editForm.api_params_action || 'retain',
+          response_path: editForm.api_response_path?.trim() || undefined,
+          retry_enabled: editForm.api_retry_enabled || false,
         };
       } else if (editForm.type === 'text') {
         updateData.text_content = editForm.text_content?.trim() || '';
@@ -191,7 +207,7 @@ export const useCardActions = ({ cards, loadCards }: CardActionsOptions): CardAc
     }
     try {
       // payload 保存新增卡密组的接口载荷。
-      const payload: Partial<Card> = {
+      const payload: CardMutation = {
         name: addForm.name.trim(),
         type: addForm.type,
         description: addForm.description.trim(),
@@ -205,9 +221,13 @@ export const useCardActions = ({ cards, loadCards }: CardActionsOptions): CardAc
         payload.api_config = {
           url: addForm.content.trim(),
           method: addForm.api_method,
-          timeout: addForm.api_timeout,
+          timeout_seconds: addForm.api_timeout,
           headers: addForm.api_headers.trim() || undefined,
           params: addForm.api_params.trim() || undefined,
+          content_type: addForm.api_content_type,
+          body: addForm.api_body.trim() || undefined,
+          response_path: addForm.api_response_path.trim() || undefined,
+          retry_enabled: addForm.api_retry_enabled,
         };
       }
       await createCard(payload);

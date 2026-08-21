@@ -86,7 +86,11 @@ func (r *SettingsRepository) ApplySystemChanges(ctx context.Context, values map[
 	for key, change := range secrets {
 		dbSecrets[key] = db.SensitiveSettingChange{Action: change.Action, Value: change.Value}
 	}
-	return r.store.Settings.ApplyChanges(ctx, values, dbSecrets)
+	// err 表示普通设置与敏感设置原子保存错误。
+	if err := r.store.Settings.ApplyChanges(ctx, values, dbSecrets); err != nil {
+		return err
+	}
+	return nil
 }
 
 // SetSystem 保存一项普通系统设置。

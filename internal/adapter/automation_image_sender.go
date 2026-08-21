@@ -85,6 +85,19 @@ func (s automationImageSender) SendText(ctx context.Context, chatID, toUserID, t
 	return s.sender.SendText(ctx, chatID, toUserID, text)
 }
 
+// AutomationReady 透传账号运行时的 WebSocket 就绪状态，使自动化能在请求 API 卡密前阻止尚未完成注册的账号。
+func (s automationImageSender) AutomationReady() bool {
+	if s.sender == nil {
+		return false
+	}
+	// readySender 是实现连接就绪报告能力的账号运行时发送器。
+	readySender, ok := s.sender.(interface{ AutomationReady() bool })
+	if !ok {
+		return true
+	}
+	return readySender.AutomationReady()
+}
+
 // SendImage 将图片卡密 URL 在内存中下载、上传到闲鱼图片服务后，再交给账号运行时发送。
 // 下载或上传失败发生在 WebSocket 写入之前，必须标记为确定未发送以允许自动化安全重试。
 func (s automationImageSender) SendImage(ctx context.Context, chatID, toUserID, imageURL string, cardID int64, _, _ int) error {
@@ -127,7 +140,7 @@ func downloadAutomationImage(ctx context.Context, rawURL string) ([]byte, string
 		return nil, "", "", fmt.Errorf("创建图片下载请求失败")
 	}
 	// client 只允许访问公网地址，并在重定向时重复校验目标，避免卡密 URL 触发 SSRF。
-	client := netguard.PublicHTTPClient(30 * time.Second)
+	client := netguard.ConfiguredHTTPClient(30 * time.Second)
 	// response、err 保存远程图片响应及网络访问失败原因。
 	response, err := client.Do(request)
 	if err != nil {

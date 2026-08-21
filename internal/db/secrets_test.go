@@ -363,6 +363,16 @@ func TestEncryptLegacySecretsUpgradesPlaintextAndValidatesKey(t *testing.T) {
 	_, err := store.DB.ExecContext(ctx, `INSERT INTO cookies (id,value,user_id,password) VALUES (?,?,?,?)`, "legacy-secret", "legacy-cookie", owner.ID, "legacy-password"); err != nil {
 		t.Fatal(err)
 	}
+	// cardResult、cardInsertErr 保存插入历史明文 API 卡券配置的结果。
+	cardResult, cardInsertErr := store.DB.ExecContext(ctx, `INSERT INTO cards (name,type,api_config,user_id) VALUES (?,?,?,?)`, "legacy-api", "api", `{"url":"https://example.com","headers":{"Authorization":"legacy-card-secret"}}`, owner.ID)
+	if cardInsertErr != nil {
+		t.Fatal(cardInsertErr)
+	}
+	// cardID 保存需要启动迁移的历史 API 卡券标识。
+	cardID, cardIDErr := cardResult.LastInsertId()
+	if cardIDErr != nil {
+		t.Fatal(cardIDErr)
+	}
 	if // err 用于本次流程后续判断的err
 	err := store.EncryptLegacySecrets(ctx); err != nil {
 		t.Fatal(err)
@@ -375,6 +385,20 @@ func TestEncryptLegacySecretsUpgradesPlaintextAndValidatesKey(t *testing.T) {
 	}
 	if !strings.HasPrefix(raw, encryptedValuePrefix) {
 		t.Fatalf("legacy value was not upgraded: %q", raw)
+	}
+	// cardRaw 保存 API 卡券数据库中的原始配置，确认请求模板没有以明文留存。
+	var cardRaw string
+	// err 表示读取 API 卡券密文时的数据库错误。
+	if err := store.DB.QueryRowContext(ctx, `SELECT api_config FROM cards WHERE id=?`, cardID).Scan(&cardRaw); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(cardRaw, encryptedValuePrefix) || strings.Contains(cardRaw, "legacy-card-secret") {
+		t.Fatalf("legacy API config was not encrypted: %q", cardRaw)
+	}
+	// card、cardErr 保存专用完整读取路径解密后的 API 配置。
+	card, cardErr := store.Cards.Get(ctx, cardID)
+	if cardErr != nil || card == nil || !strings.Contains(card.APIConfig, "legacy-card-secret") {
+		t.Fatalf("API config decrypt failed card=%+v err=%v", card, cardErr)
 	}
 	// wrongCodec 用于本次流程后续判断的wrongCodec
 	wrongCodec, _ := newSecretCodec("wrong-key")

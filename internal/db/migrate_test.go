@@ -146,13 +146,13 @@ func TestMigrate_UpgradesDatabaseWithMainChatVersions(t *testing.T) {
 	if !tableExists(t, rawDB, "chat_quick_replies") || !tableExists(t, rawDB, "chat_buyer_notes") {
 		t.Fatal("chat quick reply and buyer note tables should be created by the latest migration")
 	}
-	// finalVersion 验证迁移账本已推进到包含聊天元数据的最新 dev schema 版本。
+	// finalVersion 验证迁移账本已推进到包含 API 发货策略的最新 dev schema 版本。
 	finalVersion, versionErr := goose.GetDBVersion(rawDB)
 	if versionErr != nil {
 		t.Fatalf("read final migration version: %v", versionErr)
 	}
-	if finalVersion != 36 {
-		t.Fatalf("final migration version=%d, want 36", finalVersion)
+	if finalVersion != 37 {
+		t.Fatalf("final migration version=%d, want 37", finalVersion)
 	}
 }
 

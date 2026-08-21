@@ -198,14 +198,14 @@ func (r *AutomationRepository) OwnsItem(ctx context.Context, userID int64, accou
 // GetCard 返回用户拥有的卡密组类型，不将卡密内容传入应用层。
 func (r *AutomationRepository) GetCard(ctx context.Context, userID, cardID int64) (automationapp.CardInfo, error) {
 	// card、err 保存卡密组摘要及读取失败原因；卡密正文不会进入应用层。
-	card, err := r.store.Cards.Get(ctx, cardID)
+	card, err := r.store.Cards.GetSummary(ctx, cardID)
 	if errors.Is(err, db.ErrNotFound) || (err == nil && (card == nil || card.UserID != userID)) {
 		return automationapp.CardInfo{}, automationapp.ErrRuleNotFound
 	}
 	if err != nil {
 		return automationapp.CardInfo{}, err
 	}
-	return automationapp.CardInfo{Type: card.Type}, nil
+	return automationapp.CardInfo{Type: card.Type, APIReady: card.Type != "api" || card.APIConfigSummary != nil && card.APIConfigSummary.Ready}, nil
 }
 
 // AIReplyEnabled 判断账号是否启用了 AI 议价，不读取任何 API 密钥或平台凭证。

@@ -114,6 +114,8 @@ type Services struct {
 	automationRules *automationapp.RuleService
 	// cards 是卡券 CRUD、输入校验和所有权编排应用服务。
 	cards *cardsapp.Service
+	// apiCardTester 是卡券 API 测试请求端口。
+	apiCardTester cardsapp.APIRequestTester
 	// publishAutomationRules 是批量发布成功后幂等准备自动化规则的应用服务。
 	publishAutomationRules *automationapp.PublishRuleService
 	// defaultReplies 是默认回复配置与投递记录应用服务。
@@ -311,11 +313,13 @@ type TransportPorts struct {
 	AutomationIssues            *automationapp.IssueService
 	AutomationRules             *automationapp.RuleService
 	Cards                       *cardsapp.Service
-	PublishAutomationRules      *automationapp.PublishRuleService
-	DefaultReplies              *defaultreplyapp.Service
-	Keywords                    *keywordsapp.Service
-	Settings                    *settingsapp.Service
-	Admin                       *adminapp.Service
+	// APICardTester 是卡券 API 测试请求应用端口。
+	APICardTester          cardsapp.APIRequestTester
+	PublishAutomationRules *automationapp.PublishRuleService
+	DefaultReplies         *defaultreplyapp.Service
+	Keywords               *keywordsapp.Service
+	Settings               *settingsapp.Service
+	Admin                  *adminapp.Service
 }
 
 // TransportPorts 返回已完成构造的只读服务引用；调用方不得在运行期替换任何字段。
@@ -335,7 +339,7 @@ func (services *Services) TransportPorts() TransportPorts {
 		AccountSummaries: services.accountSummaries, AccountTasks: services.accountTasks, Chat: services.chat,
 		UncertainNotifications: services.uncertainNotifications, NotificationChannels: services.notificationChannels,
 		Analytics: services.analytics, AutomationIssues: services.automationIssues, AutomationRules: services.automationRules,
-		Cards: services.cards, PublishAutomationRules: services.publishAutomationRules, DefaultReplies: services.defaultReplies,
+		Cards: services.cards, APICardTester: services.apiCardTester, PublishAutomationRules: services.publishAutomationRules, DefaultReplies: services.defaultReplies,
 		Keywords: services.keywords, Settings: services.settings, Admin: services.admin,
 	}
 }
@@ -499,6 +503,7 @@ func New(dependencies Dependencies) (*Services, error) {
 		analytics:              dependencies.TransportApplications.Analytics,
 		automationRules:        dependencies.TransportApplications.AutomationRules,
 		cards:                  dependencies.TransportApplications.Cards,
+		apiCardTester:          dependencies.TransportApplications.APICardTester,
 		publishAutomationRules: dependencies.TransportApplications.PublishAutomationRules,
 		automationIssues:       dependencies.TransportApplications.AutomationIssues,
 		defaultReplies:         dependencies.TransportApplications.DefaultReplies,
@@ -593,7 +598,7 @@ func downloadImageURL(ctx context.Context, rawURL string) ([]byte, string, error
 		return nil, "", fmt.Errorf("图片 URL 无效: %s", rawURL)
 	}
 	// client 是限制内网访问的公网 HTTP 客户端；response、responseErr 是下载响应及其网络错误。
-	client := netguard.PublicHTTPClient(30 * time.Second)
+	client := netguard.ConfiguredHTTPClient(30 * time.Second)
 	// response、responseErr 分别是远端图片响应及网络失败；正文必须在本函数返回前关闭。
 	response, responseErr := client.Do(request)
 	if responseErr != nil {

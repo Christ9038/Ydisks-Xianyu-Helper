@@ -108,12 +108,20 @@ type ModelClient interface {
 	Fetch(ctx context.Context, baseURL, apiKey string) ([]string, error)
 }
 
+// OutboundPolicy 定义系统设置切换用户可配置 HTTP 出站策略所需的最小运行时 Port。
+type OutboundPolicy interface {
+	// SetPublicOnly 立即切换公网地址限制，不负责持久化设置值。
+	SetPublicOnly(publicOnly bool)
+}
+
 // Service 编排设置读取、校验、审计和持久化，不依赖 HTTP 或数据库类型。
 type Service struct {
 	// repository 提供设置持久化与敏感访问审计能力。
 	repository Repository
 	// modelClient 提供远端模型目录读取能力。
 	modelClient ModelClient
+	// outboundPolicy 保存运行时 HTTP 策略端口，数据库仓储不直接依赖基础设施实现。
+	outboundPolicy OutboundPolicy
 }
 
 // IsSensitiveSettingKey 判断 HTTP 兼容层中的设置键是否属于敏感白名单。
@@ -122,9 +130,14 @@ func (s *Service) IsSensitiveSettingKey(key string) bool {
 }
 
 // NewService 构造设置应用服务。
-func NewService(repository Repository, modelClient ModelClient) *Service {
+func NewService(repository Repository, modelClient ModelClient, policies ...OutboundPolicy) *Service {
 	// service 保存调用方提供的设置 Port 与模型客户端。
-	service := &Service{repository: repository, modelClient: modelClient}
+	var policy OutboundPolicy
+	if len(policies) > 0 {
+		policy = policies[0]
+	}
+	// service 保存调用方提供的设置 Port、模型客户端和运行时策略端口。
+	service := &Service{repository: repository, modelClient: modelClient, outboundPolicy: policy}
 	return service
 }
 
@@ -183,7 +196,12 @@ func (s *Service) ApplySystemChanges(ctx context.Context, userID int64, values m
 			return err
 		}
 	}
-	return s.repository.ApplySystemChanges(ctx, values, secrets)
+	// err 表示普通设置和敏感设置原子保存失败。
+	if err := s.repository.ApplySystemChanges(ctx, values, secrets); err != nil {
+		return err
+	}
+	s.applyOutboundPolicy(values)
+	return nil
 }
 
 // SetSystem 保存单项系统设置，并把敏感设置的三态命令统一交给应用层校验。
@@ -208,7 +226,16 @@ func (s *Service) SetSystem(ctx context.Context, userID int64, key, value, actio
 		}
 		return s.repository.ApplySystemChanges(ctx, nil, map[string]SecretChange{key: change})
 	}
-	return s.repository.SetSystem(ctx, key, value)
+	// err 表示单项普通设置的业务值校验错误。
+	if err := validateSystemValue(key, value); err != nil {
+		return err
+	}
+	// err 表示单项普通设置持久化失败。
+	if err := s.repository.SetSystem(ctx, key, value); err != nil {
+		return err
+	}
+	s.applyOutboundPolicy(map[string]string{key: value})
+	return nil
 }
 
 // ListUser 读取当前用户的全部偏好设置。
@@ -380,8 +407,31 @@ func (s *Service) validateValues(values map[string]string) error {
 		if s.repository.IsSensitiveSettingKey(key) {
 			return errors.New("敏感设置必须放入 secrets 命令")
 		}
+		// err 表示批量普通设置的业务值校验错误。
+		if err := validateSystemValue(key, values[key]); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// validateSystemValue 校验具有运行时语义的普通系统设置，避免非法值落库或切换策略。
+func validateSystemValue(key, value string) error {
+	if key == "outbound_http_public_only" && !strings.EqualFold(strings.TrimSpace(value), "true") && !strings.EqualFold(strings.TrimSpace(value), "false") {
+		return errors.New("outbound_http_public_only 必须是布尔值")
+	}
+	return nil
+}
+
+// applyOutboundPolicy 在系统设置成功持久化后立即同步运行时策略。
+func (s *Service) applyOutboundPolicy(values map[string]string) {
+	if s == nil || s.outboundPolicy == nil {
+		return
+	}
+	// raw、ok 保存公网限制值及本次变更是否包含该设置。
+	if raw, ok := values["outbound_http_public_only"]; ok {
+		s.outboundPolicy.SetPublicOnly(strings.EqualFold(strings.TrimSpace(raw), "true"))
+	}
 }
 
 // validSecretAction 判断敏感设置命令是否具有受支持的三态语义。

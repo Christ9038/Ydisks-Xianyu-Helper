@@ -22,6 +22,30 @@ func (i *Items) AllForCookie(ctx context.Context, cookieID string) ([]ItemInfoRo
 	return scanItemInfoRows(rows)
 }
 
+// GetByCookieItem 读取账号下指定商品的详情文本，供 API 发货模板使用；不存在时返回空记录而非猜测商品内容。
+func (i *Items) GetByCookieItem(ctx context.Context, cookieID, itemID string) (ItemInfoRow, error) {
+	// row 保存当前账号与商品标识匹配到的本地商品详情。
+	var row ItemInfoRow
+	// isMulti、multiQty 保存数据库整数标记的布尔转换中间值。
+	var isMulti, multiQty int
+	// err 表示商品详情查询或扫描错误。
+	err := i.DB.QueryRowContext(ctx,
+		`SELECT id, cookie_id, item_id, COALESCE(item_title,''), COALESCE(item_description,''),
+		        COALESCE(item_category,''), COALESCE(item_price,''), COALESCE(item_detail,''),
+		        is_multi_spec, COALESCE(multi_quantity_delivery,0)
+		 FROM item_info WHERE cookie_id=? AND item_id=? AND deleted_at IS NULL`, cookieID, itemID).Scan(
+		&row.ID, &row.CookieID, &row.ItemID, &row.ItemTitle, &row.ItemDescription,
+		&row.ItemCategory, &row.ItemPrice, &row.ItemDetail, &isMulti, &multiQty)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ItemInfoRow{}, ErrNotFound
+		}
+		return ItemInfoRow{}, err
+	}
+	row.IsMultiSpec, row.MultiQuantityDelivery = isMulti != 0, multiQty != 0
+	return row, nil
+}
+
 // ListForUser 一次查询用户范围内的全部商品，可选按账号 ID 过滤。
 func (i *Items) ListForUser(ctx context.Context, userID int64, cookieID string) ([]ItemInfoRow, error) {
 	// rows、err 保存用户范围商品查询结果及错误。

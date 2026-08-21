@@ -1,6 +1,8 @@
 package server
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -17,8 +19,8 @@ type cardMutationRequest struct {
 	Name string `json:"name"`
 	// Type 是 text、data、image 或历史兼容的 api 类型。
 	Type string `json:"type"`
-	// APIConfig 是历史 API 卡券配置文本。
-	APIConfig string `json:"api_config"`
+	// APIConfig 同时接收新版具名对象和历史完整 JSON 字符串。
+	APIConfig json.RawMessage `json:"api_config"`
 	// TextContent 是 text 类型自动发货时发送的文本内容。
 	TextContent string `json:"text_content"`
 	// DataContent 是 data 类型尚未消费的逐行卡密库存。
@@ -45,16 +47,67 @@ type cardAppendRequest struct {
 	Content string `json:"content"`
 }
 
+// cardAPITestRequest 是临时 API 测试请求的具名 DTO。
+type cardAPITestRequest struct {
+	// APIConfig 是与卡券保存接口一致的 API 配置对象或历史 JSON 字符串。
+	APIConfig json.RawMessage `json:"api_config"`
+}
+
+// cardAPITestResponse 是临时 API 测试结果的具名脱敏 DTO。
+type cardAPITestResponse struct {
+	// Status 表示远端请求是否成功。
+	Status string `json:"status"`
+	// StatusCode 是远端 HTTP 状态码。
+	StatusCode int `json:"status_code"`
+	// ResponseContentType 是远端响应媒体类型。
+	ResponseContentType string `json:"response_content_type"`
+	// ResponseFields 是 JSON 顶层字段名称。
+	ResponseFields []string `json:"response_fields"`
+	// ExtractedValue 是按配置路径提取的值。
+	ExtractedValue string `json:"extracted_value,omitempty"`
+	// ResponsePreview 是限长响应预览。
+	ResponsePreview string `json:"response_preview,omitempty"`
+}
+
 // mountCardsReal 挂载卡券 CRUD、批量创建和库存追加路由；发货规则由 automation_rules 负责。
 func (s *Server) mountCardsReal(r chi.Router) {
 	r.Get("/cards", s.listCards)
 	r.Post("/cards", s.createCard)
+	r.Post("/cards/test-api", s.testCardAPI)
 	r.Post("/cards/batch", s.batchCreateCards)
 	r.Post("/cards/{card_id}/append-data", s.appendCardData)
 	r.Get("/cards/{card_id}/details", s.getCard)
 	r.Get("/cards/{card_id}", s.getCard)
 	r.Put("/cards/{card_id}", s.updateCard)
 	r.Delete("/cards/{card_id}", s.deleteCard)
+}
+
+// testCardAPI 发送一次临时 API 请求并返回状态、字段和提取结果诊断。
+func (s *Server) testCardAPI(w http.ResponseWriter, r *http.Request) {
+	if s.applications == nil || s.applications.apiRequestTester == nil {
+		writeErr(w, http.StatusServiceUnavailable, "API 测试服务不可用")
+		return
+	}
+	// request 是当前 API 测试请求的具名 HTTP DTO。
+	var request cardAPITestRequest
+	// err 是当前请求 JSON 解码错误，不包含用户填写的敏感模板值。
+	if err := decodeJSON(r, &request); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// config、err 分别是可供应用 Port 解析的配置文本和兼容解码错误。
+	config, err := decodeCardAPIConfig(request.APIConfig)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// result、err 分别是临时远端调用的脱敏诊断和本地配置或网络错误。
+	result, err := s.applications.apiRequestTester.Test(r.Context(), cardsapp.APIRequestTestInput{Config: config})
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, cardAPITestResponse{Status: result.Status, StatusCode: result.StatusCode, ResponseContentType: result.ResponseContentType, ResponseFields: result.ResponseFields, ExtractedValue: result.ExtractedValue, ResponsePreview: result.ResponsePreview})
 }
 
 // listCards 将认证用户交给应用服务，并把卡券应用模型转换为 HTTP DTO。
@@ -110,8 +163,6 @@ func (s *Server) createCard(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.As(err, &validationError):
 			writeErr(w, http.StatusBadRequest, validationError.Error())
-		case errors.Is(err, cardsapp.ErrUnsupportedAPIType):
-			writeErr(w, http.StatusBadRequest, "API 卡密暂不支持自动发货，不能新建")
 		default:
 			writeErr(w, http.StatusInternalServerError, "创建失败")
 		}
@@ -144,8 +195,6 @@ func (s *Server) updateCard(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.As(err, &validationError):
 			writeErr(w, http.StatusBadRequest, validationError.Error())
-		case errors.Is(err, cardsapp.ErrUnsupportedAPIType):
-			writeErr(w, http.StatusBadRequest, "API 卡密暂不支持自动发货，不能转换为该类型")
 		case errors.Is(err, cardsapp.ErrNotFound) || errors.Is(err, cardsapp.ErrInvalidCardID):
 			writeErr(w, http.StatusNotFound, "卡券不存在")
 		case errors.Is(err, cardsapp.ErrForbidden):
@@ -192,12 +241,47 @@ func decodeCardDraft(r *http.Request) (cardsapp.Draft, error) {
 	if err := decodeJSON(r, &request); err != nil {
 		return cardsapp.Draft{}, err
 	}
+	// apiConfig、apiConfigErr 保存兼容解码后的 API 配置文本及格式错误。
+	apiConfig, apiConfigErr := decodeCardAPIConfig(request.APIConfig)
+	if apiConfigErr != nil {
+		return cardsapp.Draft{}, apiConfigErr
+	}
 	return cardsapp.Draft{
-		Name: request.Name, Type: request.Type, APIConfig: request.APIConfig,
+		Name: request.Name, Type: request.Type, APIConfig: apiConfig,
 		TextContent: request.TextContent, DataContent: request.DataContent, ImageURL: request.ImageURL,
 		Description: request.Description, Enabled: request.Enabled, DelaySeconds: request.DelaySeconds,
 		IsMultiSpec: request.IsMultiSpec, SpecName: request.SpecName, SpecValue: request.SpecValue,
 	}, nil
+}
+
+// decodeCardAPIConfig 兼容历史字符串配置，并把新版对象保持为 JSON 文本交给应用服务校验。
+func decodeCardAPIConfig(raw json.RawMessage) (string, error) {
+	// trimmed 保存去除空白后的请求字段。
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return "", nil
+	}
+	if trimmed[0] == '"' {
+		// legacy 保存旧客户端提交的完整 JSON 字符串。
+		var legacy string
+		// err 表示历史字符串字段解码错误。
+		if err := json.Unmarshal(trimmed, &legacy); err != nil {
+			return "", err
+		}
+		return legacy, nil
+	}
+	// object 保存新版具名 API 配置对象的字段。
+	var object map[string]json.RawMessage
+	// err 表示新版 API 配置对象解码错误。
+	if err := json.Unmarshal(trimmed, &object); err != nil {
+		return "", err
+	}
+	// encoded、err 保存新版 API 配置对象的规范 JSON 和编码错误。
+	encoded, err := json.Marshal(object)
+	if err != nil {
+		return "", err
+	}
+	return string(encoded), nil
 }
 
 // writeCardReadError 将详情查询的应用错误映射为既有 HTTP 状态和统一错误响应。

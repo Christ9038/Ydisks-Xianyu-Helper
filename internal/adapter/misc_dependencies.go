@@ -2,7 +2,9 @@ package adapter
 
 import (
 	"errors"
+	"log/slog"
 
+	cardsapp "xianyu-go/internal/application/cards"
 	notificationsapp "xianyu-go/internal/application/notifications"
 	"xianyu-go/internal/db"
 )
@@ -52,4 +54,12 @@ func (d *MiscDependencies) NewCardsRepository() *CardsRepository {
 		return nil
 	}
 	return NewCardsRepository(d.store)
+}
+
+// NewAPICardTester 创建卡券 API 测试适配器，供组合根投影给 HTTP transport。
+func (d *MiscDependencies) NewAPICardTester(logger *slog.Logger) cardsapp.APIRequestTester {
+	if d == nil {
+		return nil
+	}
+	return NewAPICardTester(d.store, logger)
 }

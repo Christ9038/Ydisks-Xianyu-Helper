@@ -176,6 +176,40 @@ func TestExtractTaskFromWS_OrderCreatedUsesNestedFallbackFacts(t *testing.T) {
 	}
 }
 
+// TestExtractTaskFromWS_OrderEventWithoutOrderIDRetained 验证订单 ID 尚未出现在卡片中时仍保留事件，供后续使用 updateKey 作为防重键完成卡密投递。
+func TestExtractTaskFromWS_OrderEventWithoutOrderIDRetained(t *testing.T) {
+	// raw 是仅含待付款展示文案、没有订单链接或业务键的非完整交易提示。
+	raw := mustMap(t, `{
+	  "1": {"2": "63107041124@goofish", "10": {
+	    "redReminder": "等待买家付款",
+	    "reminderContent": "[我已拍下，待付款]"
+	  }}
+	}`)
+	// task 是解析结果；订单 ID 缺失不应吞掉系统卡片，协调器仍可根据 updateKey 或最终的空键门禁决定是否执行。
+	task := ExtractTaskFromWS("acc1", "cookie", raw)
+	if task == nil || task.TriggerType != TriggerOrderCreated || task.OrderID != "" {
+		t.Fatalf("缺少订单 ID 的交易提示应保留为待协调事件: %+v", task)
+	}
+}
+
+// TestExtractTaskFromWS_NestedBuyerRoleIgnored 验证角色仅存在于备用嵌套链接时，买家侧付款卡片仍不会进入卖家自动化。
+func TestExtractTaskFromWS_NestedBuyerRoleIgnored(t *testing.T) {
+	// raw 保留完整订单事实，但买卖角色位于新版嵌套 targetUrl，而非旧固定路径。
+	raw := mustMap(t, `{
+	  "1": {"2": "63107041124@goofish", "10": {
+	    "redReminder": "等待卖家发货",
+	    "reminderContent": "[我已付款，等待你发货]",
+	    "extJson": "{\"updateKey\":\"63107041124:3310145690545023994:10:TRADE_PAID:26\"}"
+	  }},
+	  "payload": {"targetUrl": "fleamarket://order_detail?id=3310145690545023994&role=buyer"}
+	}`)
+	// task 是解析结果；当前账号作为买家时不能触发其卖家发货规则。
+	task := ExtractTaskFromWS("acc1", "cookie", raw)
+	if task != nil {
+		t.Fatalf("嵌套买家角色不应进入卖家自动化: %+v", task)
+	}
+}
+
 // TestExtractTaskFromWS_PriceModifiedEventIgnored 验证改价确认卡片不会因“等待买家付款”提示被重复识别为订单创建。
 func TestExtractTaskFromWS_PriceModifiedEventIgnored(t *testing.T) {
 	// raw 是闲鱼在卖家改价成功后推送的确认卡片，沿用待付款提醒但业务键明确为改价。

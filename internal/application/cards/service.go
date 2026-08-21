@@ -21,9 +21,6 @@ var ErrNotFound = errors.New("卡券不存在")
 // ErrForbidden 表示卡券组存在但不属于当前用户。
 var ErrForbidden = errors.New("无权操作该卡密组")
 
-// ErrUnsupportedAPIType 表示当前自动发货链路不允许新建或转换为 API 卡券。
-var ErrUnsupportedAPIType = errors.New("API 卡密暂不支持自动发货")
-
 // ErrNotDataType 表示只有 data 类型卡券组允许追加逐行卡密。
 var ErrNotDataType = errors.New("只有 data（批量卡密）类型支持追加卡密")
 
@@ -49,8 +46,10 @@ type Card struct {
 	Name string
 	// Type 是 text、data、image 或历史兼容的 api 类型。
 	Type string
-	// APIConfig 是历史 API 卡券配置；当前仅允许读取或更新既有 API 卡券。
+	// APIConfig 是 API 卡券的规范化 JSON 配置；敏感请求模板由仓储加密保存。
 	APIConfig string
+	// APIConfigSummary 是普通卡券查询可见的 API 配置摘要，不含请求头、参数或密钥。
+	APIConfigSummary *APIConfigSummary
 	// TextContent 是 text 类型自动发货时发送的文本内容。
 	TextContent string
 	// DataContent 是 data 类型尚未消费的逐行卡密库存。
@@ -79,7 +78,7 @@ type Draft struct {
 	Name string
 	// Type 是 text、data、image 或历史兼容的 api 类型。
 	Type string
-	// APIConfig 是历史 API 卡券配置；新建 API 卡券仍被业务规则禁止。
+	// APIConfig 是 API 卡券的规范化 JSON 配置。
 	APIConfig string
 	// TextContent 是 text 类型必须提供的非空发货内容。
 	TextContent string
@@ -107,6 +106,8 @@ type Repository interface {
 	ListForUser(ctx context.Context, userID int64) ([]Card, error)
 	// Get 按标识读取卡券组；资源缺失时返回 ErrNotFound。
 	Get(ctx context.Context, cardID int64) (Card, error)
+	// GetFull 仅供更新时读取需要保留的敏感 API 模板，调用方不得将结果作为普通响应返回。
+	GetFull(ctx context.Context, cardID int64) (Card, error)
 	// Create 持久化已校验且带所有者的卡券组，并返回新标识。
 	Create(ctx context.Context, card Card) (int64, error)
 	// Update 覆盖指定卡券组的可编辑字段，但不得改变所有者。
@@ -168,33 +169,43 @@ func (s *Service) Create(ctx context.Context, userID int64, draft Draft) (int64,
 	if err := s.validateUser(userID); err != nil {
 		return 0, err
 	}
+	if draft.Type == "api" {
+		// normalized、normalizeErr 是新建 API 卡配置的规范化结果和校验错误。
+		normalized, normalizeErr := normalizeAPIConfig(draft.APIConfig, "")
+		if normalizeErr != nil {
+			return 0, &ValidationError{Message: normalizeErr.Error()}
+		}
+		draft.APIConfig = normalized
+	}
 	// err 表示卡券草稿未满足类型、内容或延迟范围约束的校验错误。
 	if err := validateDraft(draft); err != nil {
 		return 0, err
 	}
-	if draft.Type == "api" {
-		return 0, ErrUnsupportedAPIType
-	}
 	return s.repository.Create(ctx, cardFromDraft(0, userID, draft))
 }
 
-// Update 校验 draft 和所有权后更新 cardID；既有 API 卡券可继续编辑，但其他类型不能转换为 API。
+// Update 校验 draft 和所有权后更新 cardID；API 配置未提交的敏感模板会保留原值。
 func (s *Service) Update(ctx context.Context, userID, cardID int64, draft Draft) error {
 	// err 表示用户身份或应用仓储未满足执行条件的错误。
 	if err := s.validateUser(userID); err != nil {
 		return err
 	}
-	// err 表示卡券草稿未满足类型、内容或延迟范围约束的校验错误。
-	if err := validateDraft(draft); err != nil {
-		return err
-	}
 	// existing 是已经通过当前用户归属校验的卡券组。
-	existing, err := s.ownedCard(ctx, userID, cardID)
+	existing, err := s.ownedCardFull(ctx, userID, cardID)
 	if err != nil {
 		return err
 	}
-	if draft.Type == "api" && existing.Type != "api" {
-		return ErrUnsupportedAPIType
+	if draft.Type == "api" {
+		// normalized、normalizeErr 合并脱敏编辑请求与数据库中未展示的旧模板。
+		normalized, normalizeErr := normalizeAPIConfig(draft.APIConfig, existing.APIConfig)
+		if normalizeErr != nil {
+			return &ValidationError{Message: normalizeErr.Error()}
+		}
+		draft.APIConfig = normalized
+	}
+	// err 表示卡券草稿未满足类型、内容或延迟范围约束的校验错误。
+	if err := validateDraft(draft); err != nil {
+		return err
 	}
 	return s.repository.Update(ctx, cardFromDraft(existing.ID, existing.UserID, draft))
 }
@@ -260,6 +271,22 @@ func (s *Service) ownedCard(ctx context.Context, userID, cardID int64) (Card, er
 	return card, nil
 }
 
+// ownedCardFull 读取更新所需的完整卡券配置并验证所有权，敏感内容只在应用内部短暂流转。
+func (s *Service) ownedCardFull(ctx context.Context, userID, cardID int64) (Card, error) {
+	if cardID <= 0 {
+		return Card{}, ErrInvalidCardID
+	}
+	// card 是更新保留敏感模板所需的完整卡券记录。
+	card, err := s.repository.GetFull(ctx, cardID)
+	if err != nil {
+		return Card{}, err
+	}
+	if card.UserID != userID {
+		return Card{}, ErrForbidden
+	}
+	return card, nil
+}
+
 // validateDraft 校验类型、必填内容和延迟范围，保持创建与更新使用同一套规则。
 func validateDraft(draft Draft) error {
 	if draft.Name == "" || draft.Type == "" {
@@ -290,6 +317,10 @@ func validateDraft(draft Draft) error {
 		}
 		if err != nil || imageURL.Hostname() == "" || imageURL.User != nil || (imageURL.Scheme != "http" && imageURL.Scheme != "https") {
 			return &ValidationError{Message: "图片卡密 URL 必须是 HTTP(S) 地址"}
+		}
+	case "api":
+		if strings.TrimSpace(draft.APIConfig) == "" {
+			return &ValidationError{Message: "API 卡密配置不能为空"}
 		}
 	}
 	return nil

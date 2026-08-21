@@ -13,6 +13,7 @@ import (
 	"xianyu-go/internal/browser"
 	composition "xianyu-go/internal/composition"
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/netguard"
 	"xianyu-go/internal/renewal"
 	"xianyu-go/internal/server"
 )
@@ -147,7 +148,7 @@ func BuildRuntime(options RuntimeOptions, infrastructure RuntimeInfrastructure) 
 	// transportApplications、transportErr 分别是通知等共享应用服务集合及其构造错误。
 	transportApplications, transportErr := adapter.NewTransportApplicationServices(adapter.TransportApplicationServiceOptions{
 		AutomationDependencies: automationDependencies, MiscDependencies: miscDependencies, AdminSettingsDependencies: adminSettingsDependencies,
-		AdminRuntime: runtimeBundle.Manager, AccountTaskRunner: adapter.NewAccountTaskRunner(runtimeBundle.Automation), ChannelSender: runtimeBundle.Notifier, ModelClient: adapter.NewAIModelClient(),
+		AdminRuntime: runtimeBundle.Manager, AccountTaskRunner: adapter.NewAccountTaskRunner(runtimeBundle.Automation), ChannelSender: runtimeBundle.Notifier, ModelClient: adapter.NewAIModelClient(), OutboundPolicy: netguard.DefaultPolicy(),
 	})
 	if transportErr != nil {
 		return Runtime{}, fmt.Errorf("构造 transport 应用服务失败: %w", transportErr)

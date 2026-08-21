@@ -89,13 +89,9 @@ func (s *Server) batchCreateCards(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		switch cardType {
-		case "text", "data", "image":
-		case "api":
-			results = append(results, cardBatchResultRow{RowNo: rowNo, Success: false, Name: name, Type: cardType, Error: "API 卡密暂不支持自动发货，不能新建"})
-			failed++
-			continue
+		case "text", "data", "image", "api":
 		default:
-			results = append(results, cardBatchResultRow{RowNo: rowNo, Success: false, Name: name, Type: cardType, Error: "类型必须为 text/data/image"})
+			results = append(results, cardBatchResultRow{RowNo: rowNo, Success: false, Name: name, Type: cardType, Error: "类型必须为 text/data/image/api"})
 			failed++
 			continue
 		}
@@ -132,6 +128,8 @@ func (s *Server) batchCreateCards(w http.ResponseWriter, r *http.Request) {
 			draft.TextContent = content
 		case "data":
 			draft.DataContent = content
+		case "api":
+			draft.APIConfig = content
 		case "image":
 			draft.ImageURL = content
 		}

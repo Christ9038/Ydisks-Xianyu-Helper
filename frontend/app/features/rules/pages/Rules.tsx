@@ -835,7 +835,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                                 className="w-full ios-input px-3 py-2.5 rounded-lg"
                               >
                                 <option value="">请选择卡密库存</option>
-                                {cards.filter(/* 当前回调处理集合中的单个元素。 */ card => card.enabled && card.type !== 'api').map(/* 当前回调处理集合中的单个元素。 */ card => (
+                                {cards.filter(/* 当前回调处理集合中的单个元素。 */ card => card.enabled && (card.type !== 'api' || card.api_config?.ready === true)).map(/* 当前回调处理集合中的单个元素。 */ card => (
                                   <option key={card.id} value={card.id}>{card.name}</option>
                                 ))}
                               </select>

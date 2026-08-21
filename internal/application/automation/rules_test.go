@@ -157,7 +157,7 @@ func TestRuleServiceNormalizeAppliesDefaults(t *testing.T) {
 	}
 }
 
-// TestRuleServiceRejectsInvalidAction 验证不支持的动作和 API 卡密被拒绝。
+// TestRuleServiceRejectsInvalidAction 验证不支持的动作会被拒绝。
 func TestRuleServiceRejectsInvalidAction(t *testing.T) {
 	// cases 保存非法规则输入和预期错误。
 	cases := []struct {
@@ -171,7 +171,6 @@ func TestRuleServiceRejectsInvalidAction(t *testing.T) {
 		want string
 	}{
 		{name: "unknown action", ownership: &ruleOwnershipFake{}, draft: RuleDraft{CookieID: "a", TriggerType: TriggerBuyerReviewed, Actions: []ActionDraft{{ActionType: "unknown"}}}, want: "不支持的动作"},
-		{name: "api card", ownership: &ruleOwnershipFake{cardType: "api"}, draft: RuleDraft{CookieID: "a", TriggerType: TriggerOrderPaid, Actions: []ActionDraft{{ActionType: ActionSendCard, CardID: 1}}}, want: "API 卡密"},
 	}
 	// testCase 是当前非法规则分支及其预期错误的测试样例。
 	for _, testCase /* testCase 是当前非法规则分支及其预期错误的测试样例。 */ := range cases {

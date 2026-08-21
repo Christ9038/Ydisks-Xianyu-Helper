@@ -58,7 +58,7 @@ type Notifier struct {
 }
 
 // newOutboundHTTPClient 用于本次流程后续判断的newOutboundHTTPClient
-var newOutboundHTTPClient = func() *http.Client { return netguard.PublicHTTPClient(10 * time.Second) }
+var newOutboundHTTPClient = func() *http.Client { return netguard.ConfiguredHTTPClient(10 * time.Second) }
 
 // dialPublicSMTP 用于本次流程后续判断的dialPublicSMTP
 var dialPublicSMTP = netguard.DialPublicContext

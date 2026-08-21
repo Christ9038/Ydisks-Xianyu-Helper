@@ -237,6 +237,58 @@ func TestMessageDefinitelyNotSentIsRetried(t *testing.T) {
 	}
 }
 
+// TestCenterDoesNotRequestAPICardBeforeWebSocketReady 验证 API 卡密在账号 WebSocket 未就绪时不会先请求外部供应商，避免领到卡密后无法投递。
+func TestCenterDoesNotRequestAPICardBeforeWebSocketReady(t *testing.T) {
+	// store、cleanup 是本测试使用的 SQLite 自动化存储及资源清理函数。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// ctx 是创建规则、执行事件和查询运行记录共用的上下文。
+	ctx := context.Background()
+	// admin 是 API 卡密组和自动化规则的所属用户。
+	admin, adminErr := store.Users.GetByUsername(ctx, "admin")
+	if adminErr != nil {
+		t.Fatal(adminErr)
+	}
+	// cardID 是供付款后发货规则引用的 API 卡密组标识。
+	cardID, cardErr := store.Cards.Create(ctx, &db.CardFull{Name: "API", Type: "api", APIConfig: `{"url":"https://example.com"}`, Enabled: true, UserID: admin.ID})
+	if cardErr != nil {
+		t.Fatal(cardErr)
+	}
+	// ruleErr 是创建 API 卡密自动发货规则的数据库错误。
+	if _, ruleErr := store.Automation.Create(ctx, db.AutomationRuleInput{
+		UserID: admin.ID, CookieID: "cid", Name: "api-before-websocket", TriggerType: TriggerOrderPaid, Enabled: true,
+		Actions: []db.AutomationActionInput{{ActionType: ActionSendCard, CardID: cardID, DeliveryCount: 1, Enabled: true}},
+	}); ruleErr != nil {
+		t.Fatal(ruleErr)
+	}
+	// fetcher 记录外部 API 是否被执行；未就绪时其请求列表必须保持为空。
+	fetcher := &apiCardFetcherStub{}
+	// sender 模拟存在账号实例但尚未完成闲鱼 WebSocket 注册的短暂状态。
+	sender := &readinessTestSender{testSender: &testSender{}, ready: false}
+	// center 注入可报告连接就绪状态的发送器和记录 API 请求的测试客户端。
+	center := NewWithDependencies(store, readinessTestProvider{sender: sender}, nil, CenterDependencies{APICardFetcher: fetcher})
+	// task 是需要调用 API 卡密发货的付款事件。
+	task := Task{AccountID: "cid", TriggerType: TriggerOrderPaid, OrderID: "api-wait-websocket", ChatID: "chat", BuyerID: "buyer", Quantity: "1"}
+	// runErr 是连接未就绪时的预期安全重试错误。
+	runErr := center.HandleTask(ctx, task)
+	if !errors.Is(runErr, ErrMessageNotSent) {
+		t.Fatalf("连接未就绪应返回确定未发送错误: %v", runErr)
+	}
+	if len(fetcher.requests) != 0 {
+		t.Fatalf("WebSocket 未就绪时不应请求 API 卡密: %+v", fetcher.requests)
+	}
+	// status、errorMessage 分别是持久化运行状态和用于恢复的错误分类标记。
+	var status, errorMessage string
+	// queryErr 是读取本次付款事件运行状态失败的数据库错误。
+	queryErr := store.DB.QueryRowContext(ctx, `SELECT status,error_message FROM automation_runs WHERE order_id=?`, task.OrderID).Scan(&status, &errorMessage)
+	if queryErr != nil {
+		t.Fatal(queryErr)
+	}
+	if status != "failed" || !strings.HasPrefix(errorMessage, db.SafeRetryErrorPrefix) {
+		t.Fatalf("未就绪 API 发货应进入安全重试: status=%q error=%q", status, errorMessage)
+	}
+}
+
 // TestAbortRunActionFailureQuarantinesRun 封装TestAbort运行动作FailureQuarantines运行业务协调。
 func TestAbortRunActionFailureQuarantinesRun(t *testing.T) {
 	// store、cleanup 用于本次流程后续判断的store、cleanup
@@ -1014,10 +1066,12 @@ func TestCenterOrderPaidFetchesOrderDetailMatchesSpecAndQuantity(t *testing.T) {
 		}},
 	})
 
-	err = center.HandleTask(ctx, Task{
+	// task 是模拟 WebSocket 重复投递时保持不变的订单支付事件。
+	task := Task{
 		Source: "ws", AccountID: "cid", CookieStr: "unb=123; _m_h5_tk=tk_1;", TriggerType: TriggerOrderPaid,
 		ChatID: "chat-1", OrderID: "order-1", ItemID: "item-1", BuyerID: "buyer-1", Raw: map[string]any{"message_id": "m1"},
-	})
+	}
+	err = center.HandleTask(ctx, task)
 	if err != nil {
 		t.Fatalf("HandleTask: %v", err)
 	}
@@ -1031,6 +1085,15 @@ func TestCenterOrderPaidFetchesOrderDetailMatchesSpecAndQuantity(t *testing.T) {
 		if sender.texts[i] != want {
 			t.Fatalf("texts[%d]=%q want %q", i, sender.texts[i], want)
 		}
+	}
+	// duplicateErr 是同一支付事件被重复投递时不应出现的执行错误；测试同时确保不会重复发卡。
+	duplicateErr := center.HandleTask(ctx, task)
+	if duplicateErr != nil {
+		t.Fatalf("重复支付事件不应执行或报错: %v", duplicateErr)
+	}
+	// got 与 want 分别是重复事件处理后的实际和预期发卡消息数量。
+	if got, want := len(sender.texts), 4; got != want {
+		t.Fatalf("重复支付事件不应重复发送卡密: got=%d want=%d texts=%v", got, want, sender.texts)
 	}
 	// order、err 用于本次流程后续判断的order、err
 	order, err := store.Orders.Get(ctx, "order-1")
@@ -1829,6 +1892,87 @@ func TestCenterNoNotifyWhenNoMatchingRule(t *testing.T) {
 
 	if len(notifier.messages()) != 0 {
 		t.Fatalf("无匹配规则不应发通知，got %v", notifier.messages())
+	}
+}
+
+// TestCenterSkipsWebSocketOrderEventWithoutIdempotencyKey 验证没有订单 ID 和 updateKey 的卡片不会执行动作，但中心不能因此丢弃含 updateKey 的合法付款事件。
+func TestCenterSkipsWebSocketOrderEventWithoutIdempotencyKey(t *testing.T) {
+	// store、cleanup 保存测试自动化仓储及其关闭函数。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// ctx 是创建规则和处理空订单事件共用的上下文。
+	ctx := context.Background()
+	// admin 是创建测试规则的账号所属用户。
+	admin, adminErr := store.Users.GetByUsername(ctx, "admin")
+	if adminErr != nil {
+		t.Fatal(adminErr)
+	}
+	// ruleErr 是创建本应由空防重键跳过的付款后文本动作失败原因。
+	_, ruleErr := store.Automation.Create(ctx, db.AutomationRuleInput{
+		UserID: admin.ID, CookieID: "cid", Name: "empty-ws-order", TriggerType: TriggerBuyerReviewed, Enabled: true,
+		Actions: []db.AutomationActionInput{{ActionType: ActionSendText, MessageTemplate: "must-not-send", Enabled: true}},
+	})
+	if ruleErr != nil {
+		t.Fatal(ruleErr)
+	}
+	// sender 记录所有实际投递；空订单事件必须使其保持为空。
+	sender := &testSender{}
+	// center 是注入可观察发送器的自动化中心。
+	center := New(store, testSenderProvider{sender: sender}, nil)
+	// handleErr 是空防重键事件被安全跳过时不应出现的处理错误。
+	handleErr := center.HandleTask(ctx, Task{Source: "ws", AccountID: "cid", TriggerType: TriggerOrderPaid})
+	if handleErr != nil {
+		t.Fatalf("空防重键 WebSocket 事件应被安全跳过，err=%v", handleErr)
+	}
+	if len(sender.texts) != 0 {
+		t.Fatalf("空防重键 WebSocket 事件不得触发发送动作: %v", sender.texts)
+	}
+	// updateKeyErr 是只有平台业务键、尚未解析出订单 ID 的合法付款事件处理错误。
+	updateKeyErr := center.HandleTask(ctx, Task{Source: "ws", AccountID: "cid", TriggerType: TriggerBuyerReviewed, ChatID: "chat", BuyerID: "buyer", UpdateKey: "chat:platform-order:10:BUYER_RATE_SELLER:26"})
+	if updateKeyErr != nil {
+		t.Fatalf("带 updateKey 的付款事件不应被空订单门禁拦截，err=%v", updateKeyErr)
+	}
+	if len(sender.texts) != 1 || sender.texts[0] != "must-not-send" {
+		t.Fatalf("带 updateKey 的付款事件应继续执行规则动作: %v", sender.texts)
+	}
+}
+
+// TestCenterIgnoresOrderEventOwnedByAnotherAccount 验证同一平台订单被另一登录账号重复推送时，中心不会把归属保护当作系统错误。
+func TestCenterIgnoresOrderEventOwnedByAnotherAccount(t *testing.T) {
+	// store、cleanup 保存自动化中心使用的 SQLite 仓储及关闭函数。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// ctx 是写入账号、订单和处理重复事件共用的上下文。
+	ctx := context.Background()
+	// admin 是测试中两个账号的共同所有者。
+	admin, adminErr := store.Users.GetByUsername(ctx, "admin")
+	if adminErr != nil {
+		t.Fatal(adminErr)
+	}
+	// saveErr 是创建第二个已连接账号的持久化错误。
+	saveErr := store.Cookies.Save(ctx, "other-account", "unb=456; _m_h5_tk=tk_2;", admin.ID)
+	if saveErr != nil {
+		t.Fatal(saveErr)
+	}
+	// orderErr 是预先归属给实际卖家账号的订单事实写入错误。
+	orderErr := store.Orders.Upsert(ctx, "cross-account-order", db.OrderUpsertOpts{CookieID: "cid", ItemID: "item-owner"})
+	if orderErr != nil {
+		t.Fatal(orderErr)
+	}
+	// center 是处理另一账号收到的重复付款卡片的自动化中心。
+	center := New(store, testSenderProvider{sender: &testSender{}}, nil)
+	// handleErr 是跨账号重复副本被安全忽略时不应出现的处理错误。
+	handleErr := center.HandleTask(ctx, Task{Source: "ws", AccountID: "other-account", TriggerType: TriggerOrderPaid, OrderID: "cross-account-order"})
+	if handleErr != nil {
+		t.Fatalf("跨账号重复订单事件应被忽略，err=%v", handleErr)
+	}
+	// order、getErr 分别是处理后的归属记录和读取它的错误；归属必须仍保留在原卖家账号。
+	order, getErr := store.Orders.Get(ctx, "cross-account-order")
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	if order.CookieID != "cid" {
+		t.Fatalf("跨账号重复事件不应改写订单归属: cookie_id=%q", order.CookieID)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -364,20 +365,22 @@ func (i *Items) AllTitles(ctx context.Context) (map[string]string, error) {
 
 // CardFull 卡券完整信息（CRUD 用）。
 type CardFull struct {
-	ID           int64  `json:"id"`
-	Name         string `json:"name"`
-	Type         string `json:"type"`
-	APIConfig    string `json:"api_config"`
-	TextContent  string `json:"text_content"`
-	DataContent  string `json:"data_content"`
-	ImageURL     string `json:"image_url"`
-	Description  string `json:"description"`
-	Enabled      bool   `json:"enabled"`
-	DelaySeconds int    `json:"delay_seconds"`
-	IsMultiSpec  bool   `json:"is_multi_spec"`
-	SpecName     string `json:"spec_name"`
-	SpecValue    string `json:"spec_value"`
-	UserID       int64  `json:"user_id"`
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	APIConfig string `json:"api_config"`
+	// APIConfigSummary 是脱敏查询路径使用的摘要；数据库层不会把完整模板交给上层。
+	APIConfigSummary *CardAPIConfigSummary `json:"-"`
+	TextContent      string                `json:"text_content"`
+	DataContent      string                `json:"data_content"`
+	ImageURL         string                `json:"image_url"`
+	Description      string                `json:"description"`
+	Enabled          bool                  `json:"enabled"`
+	DelaySeconds     int                   `json:"delay_seconds"`
+	IsMultiSpec      bool                  `json:"is_multi_spec"`
+	SpecName         string                `json:"spec_name"`
+	SpecValue        string                `json:"spec_value"`
+	UserID           int64                 `json:"user_id"`
 }
 
 // ExistsOwned 判断卡密组是否属于指定用户。
@@ -410,7 +413,9 @@ func (c *Cards) Get(ctx context.Context, cardID int64) (*CardFull, error) {
 		}
 		return nil, err
 	}
-	cf.APIConfig = apiCfg.String
+	if cf.APIConfig, err = c.decryptAPIConfig(cf.Type, cf.UserID, apiCfg.String); err != nil {
+		return nil, err
+	}
 	cf.TextContent = textContent.String
 	cf.DataContent = dataContent.String
 	cf.ImageURL = imageURL.String
@@ -447,7 +452,9 @@ func (c *Cards) AllForUser(ctx context.Context, userID int64) ([]CardFull, error
 			&enabled, &cf.DelaySeconds, &isMultiSpec, &specName, &specValue, &cf.UserID); err != nil {
 			return nil, err
 		}
-		cf.APIConfig = apiCfg.String
+		if cf.APIConfig, err = c.decryptAPIConfig(cf.Type, cf.UserID, apiCfg.String); err != nil {
+			return nil, err
+		}
 		cf.TextContent = textContent.String
 		cf.DataContent = dataContent.String
 		cf.ImageURL = imageURL.String
@@ -463,26 +470,52 @@ func (c *Cards) AllForUser(ctx context.Context, userID int64) ([]CardFull, error
 
 // Create 创建卡券，返回新 ID。
 func (c *Cards) Create(ctx context.Context, cf *CardFull) (int64, error) {
+	// apiConfig 保存写入数据库前按用户所有权加密后的 API 请求模板。
+	apiConfig, err := c.encryptAPIConfig(cf.Type, cf.UserID, cf.APIConfig)
+	if err != nil {
+		return 0, err
+	}
 	return insertReturningID(ctx, c.DB, c.Dialect,
 		`INSERT INTO cards (name, type, api_config, text_content, data_content, image_url, description,
 		    enabled, delay_seconds, is_multi_spec, spec_name, spec_value, user_id)
 		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		cf.Name, cf.Type, nullable(cf.APIConfig), nullable(cf.TextContent), nullable(cf.DataContent),
+		cf.Name, cf.Type, nullable(apiConfig), nullable(cf.TextContent), nullable(cf.DataContent),
 		nullable(cf.ImageURL), nullable(cf.Description), boolToInt(cf.Enabled), cf.DelaySeconds,
 		boolToInt(cf.IsMultiSpec), nullable(cf.SpecName), nullable(cf.SpecValue), cf.UserID)
 }
 
 // Update 更新卡券。
 func (c *Cards) Update(ctx context.Context, cf *CardFull) error {
+	// apiConfig 保存更新写入数据库前按用户所有权加密后的 API 请求模板。
+	apiConfig, err := c.encryptAPIConfig(cf.Type, cf.UserID, cf.APIConfig)
+	if err != nil {
+		return err
+	}
 	// err 用于本次流程后续判断的err
-	_, err := c.DB.ExecContext(ctx,
+	_, err = c.DB.ExecContext(ctx,
 		`UPDATE cards SET name=?, type=?, api_config=?, text_content=?, data_content=?, image_url=?,
 		    description=?, enabled=?, delay_seconds=?, is_multi_spec=?, spec_name=?, spec_value=?, updated_at=CURRENT_TIMESTAMP
 		 WHERE id=?`,
-		cf.Name, cf.Type, nullable(cf.APIConfig), nullable(cf.TextContent), nullable(cf.DataContent),
+		cf.Name, cf.Type, nullable(apiConfig), nullable(cf.TextContent), nullable(cf.DataContent),
 		nullable(cf.ImageURL), nullable(cf.Description), boolToInt(cf.Enabled), cf.DelaySeconds,
 		boolToInt(cf.IsMultiSpec), nullable(cf.SpecName), nullable(cf.SpecValue), cf.ID)
 	return err
+}
+
+// encryptAPIConfig 仅对 API 卡券的完整请求模板做静态加密，其他卡券类型保持原有存储语义。
+func (c *Cards) encryptAPIConfig(cardType string, userID int64, value string) (string, error) {
+	if strings.ToLower(strings.TrimSpace(cardType)) != "api" || strings.TrimSpace(value) == "" {
+		return value, nil
+	}
+	return c.codec.encrypt(cardAPIConfigScope, fmt.Sprint(userID), value)
+}
+
+// decryptAPIConfig 读取完整 API 卡券配置；数据库密钥错误时拒绝继续执行自动化。
+func (c *Cards) decryptAPIConfig(cardType string, userID int64, value string) (string, error) {
+	if strings.ToLower(strings.TrimSpace(cardType)) != "api" || strings.TrimSpace(value) == "" {
+		return value, nil
+	}
+	return c.codec.decrypt(cardAPIConfigScope, fmt.Sprint(userID), value)
 }
 
 // Delete 删除卡券。

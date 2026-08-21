@@ -302,6 +302,11 @@ type CardsPort interface {
 	AppendData(context.Context, int64, int64, string) (int, error)
 }
 
+// APIRequestTesterPort 定义卡券 API 测试请求所需的最小应用能力。
+type APIRequestTesterPort interface {
+	Test(context.Context, cardsapp.APIRequestTestInput) (cardsapp.APIRequestTestResult, error)
+}
+
 // DefaultRepliesPort 定义默认回复配置能力。
 type DefaultRepliesPort interface {
 	Get(context.Context, int64, string) (defaultreplyapp.Reply, error)
@@ -415,6 +420,8 @@ type ApplicationPorts struct {
 	automationRules AutomationRulesPort
 	// cards 是卡券库存用例。
 	cards CardsPort
+	// apiRequestTester 执行临时 API 测试请求并返回非敏感诊断。
+	apiRequestTester APIRequestTesterPort
 	// publishAutomationRules 是发布后自动化规则用例。
 	publishAutomationRules PublishAutomationRulesPort
 	// defaultReplies 是默认回复用例。
@@ -462,6 +469,7 @@ type ApplicationPortsInput struct {
 	AutomationIssues            AutomationIssuesPort
 	AutomationRules             AutomationRulesPort
 	Cards                       CardsPort
+	APIRequestTester            APIRequestTesterPort
 	PublishAutomationRules      PublishAutomationRulesPort
 	DefaultReplies              DefaultRepliesPort
 	Keywords                    KeywordsPort
@@ -484,7 +492,7 @@ func NewApplicationPorts(input ApplicationPortsInput) *ApplicationPorts {
 		accountSummaries: input.AccountSummaries, accountTasks: input.AccountTasks, chat: input.Chat,
 		uncertainNotifications: input.UncertainNotifications, notificationChannels: input.NotificationChannels,
 		analytics: input.Analytics, automationIssues: input.AutomationIssues, automationRules: input.AutomationRules,
-		cards: input.Cards, publishAutomationRules: input.PublishAutomationRules, defaultReplies: input.DefaultReplies,
+		cards: input.Cards, apiRequestTester: input.APIRequestTester, publishAutomationRules: input.PublishAutomationRules, defaultReplies: input.DefaultReplies,
 		keywords: input.Keywords, settings: input.Settings, admin: input.Admin,
 	}
 }

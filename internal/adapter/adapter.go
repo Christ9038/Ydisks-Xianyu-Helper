@@ -163,6 +163,7 @@ func NewRuntimeBundle(store *db.Store, bm *browser.Manager, logger *slog.Logger)
 	autoCenter := automation.NewWithDependencies(store, automationSenders, logger, automation.CenterDependencies{
 		OrderDetailFetcher: runtimeAdapter,
 		Notifier:           notifier,
+		APICardFetcher:     newAPIDeliveryClient(store, logger),
 	})
 	runtimeAdapter.chat = chatService
 	runtimeAdapter.automation = autoCenter

@@ -198,5 +198,48 @@ func TestCardCRUD(t *testing.T) {
 	}
 }
 
+// TestCardAPIDTOIsRedacted 验证 API 卡券支持具名配置请求，响应只返回脱敏摘要而不回显模板秘密。
+func TestCardAPIDTOIsRedacted(t *testing.T) {
+	// srv、cleanup 保存契约测试服务器及其清理函数。
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	// handler 是本次测试使用的完整路由处理器。
+	handler := srv.Router()
+	// cookie 是已认证管理员会话。
+	cookie := loginHelper(t, handler)
+	// request 是提交请求头和参数模板的新版 API 卡请求。
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/cards", strings.NewReader(`{"name":"API 脱敏卡","type":"api","api_config":{"url":"https://example.com/card","method":"POST","timeout_seconds":10,"headers":{"Authorization":"Bearer super-secret"},"params":{"code":"{order_id}"},"response_path":"data.card.code"},"enabled":true}`))
+	request.AddCookie(cookie)
+	// response 保存创建请求的 HTTP 响应。
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("API 卡创建失败 status=%d body=%s", response.Code, response.Body.String())
+	}
+	// listRequest 是读取卡券摘要的请求。
+	listRequest := httptest.NewRequest(http.MethodGet, "/api/v1/cards", nil)
+	listRequest.AddCookie(cookie)
+	// listResponse 保存卡券列表响应。
+	listResponse := httptest.NewRecorder()
+	handler.ServeHTTP(listResponse, listRequest)
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("API 卡列表失败 status=%d body=%s", listResponse.Code, listResponse.Body.String())
+	}
+	// rows 保存脱敏卡券列表。
+	var rows []map[string]any
+	// err 表示脱敏卡券列表 JSON 解码错误。
+	if err := json.Unmarshal(listResponse.Body.Bytes(), &rows); err != nil || len(rows) != 1 {
+		t.Fatalf("API 卡列表格式错误 rows=%v err=%v", rows, err)
+	}
+	// summary 保存响应中的 API 脱敏摘要。
+	summary, ok := rows[0]["api_config"].(map[string]any)
+	if !ok || summary["ready"] != true || summary["url"] != "https://example.com/card" {
+		t.Fatalf("API 卡摘要错误: %+v", rows[0]["api_config"])
+	}
+	if strings.Contains(listResponse.Body.String(), "super-secret") || strings.Contains(listResponse.Body.String(), "Authorization") {
+		t.Fatalf("API 卡响应泄漏敏感模板: %s", listResponse.Body.String())
+	}
+}
+
 // itoa 封装itoa业务协调。
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }

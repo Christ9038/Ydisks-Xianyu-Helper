@@ -11,6 +11,7 @@ const cardListMocks = vi.hoisted(/* cardListMockFactory 创建卡密页面共享
   createCard: vi.fn(),
   deleteCard: vi.fn(),
   updateCard: vi.fn(),
+  testCardAPI: vi.fn(),
 }));
 
 vi.mock('../hooks', /* cardsHooksMockFactory 提供卡密库存和批量 Hook 替身。 */ () => ({
@@ -49,6 +50,7 @@ vi.mock('../api', /* cardsApiMockFactory 提供卡密页面动作 API 替身。 
   createCard: cardListMocks.createCard,
   deleteCard: cardListMocks.deleteCard,
   updateCard: cardListMocks.updateCard,
+  testCardAPI: cardListMocks.testCardAPI,
 }));
 
 vi.mock('../components/BatchCardImportModal', /* batchModalMockFactory 提供批量弹窗替身。 */ () => ({
@@ -86,6 +88,7 @@ describe('CardList 页面组合行为', /* 当前回调验证卡密筛选、批�
     cardListMocks.createCard.mockResolvedValue({ success: true, id: 3 });
     cardListMocks.deleteCard.mockResolvedValue({ success: true });
     cardListMocks.updateCard.mockResolvedValue({ success: true });
+    cardListMocks.testCardAPI.mockResolvedValue({ status: 'success', status_code: 200, response_content_type: 'application/json', response_fields: ['data', 'message'], extracted_value: 'TEST-CODE' });
     vi.spyOn(window, 'alert').mockImplementation(/* alertImplementation 屏蔽卡密页面提示。 */ () => undefined);
     vi.spyOn(window, 'confirm').mockReturnValue(true);
   });
@@ -121,6 +124,33 @@ describe('CardList 页面组合行为', /* 当前回调验证卡密筛选、批�
     fireEvent.click(screen.getByText('保存更改'));
     await waitFor(/* editAssertion 等待卡密更新请求完成。 */ () => expect(cardListMocks.updateCard).toHaveBeenCalledWith(1, expect.objectContaining({ name: '库存更新', data_content: 'A\nB' })));
     expect(cardListMocks.loadCards).toHaveBeenCalledTimes(2);
+  });
+
+  test('API 卡密使用三段请求编辑器并支持切换正文类型', /* 当前回调验证 API 地址、Headers、Params、Body 和 Content-Type 控件。 */ () => {
+    render(<CardList />);
+    fireEvent.click(screen.getByText('添加新卡密'));
+    fireEvent.click(screen.getByRole('button', { name: 'API 接口' }));
+    expect(screen.getByRole('heading', { name: 'API 请求配置' })).toBeTruthy();
+    expect(screen.getByLabelText('Headers / 请求头第1行键名')).toBeTruthy();
+    expect(screen.getByLabelText('Params / 查询参数第1行键名')).toBeTruthy();
+    expect(screen.getByLabelText('JSON 请求正文')).toBeTruthy();
+    fireEvent.change(screen.getByRole('combobox', { name: '请求正文 Content-Type' }), { target: { value: 'application/x-www-form-urlencoded' } });
+    expect(screen.getByLabelText('Body 字段第1行键名')).toBeTruthy();
+    fireEvent.click(screen.getByTitle('添加Headers / 请求头字段'));
+    expect(screen.getByLabelText('Headers / 请求头第2行键名')).toBeTruthy();
+  });
+
+  test('新增卡密类型单行排列且 API 测试展示远端诊断', /* 当前回调验证类型顺序和 API 测试结果可见。 */ async () => {
+    render(<CardList />);
+    fireEvent.click(screen.getByText('添加新卡密'));
+    // typeButtons 保存新增弹窗中按显示顺序排列的四种卡密类型按钮。
+    const typeButtons = ['批量库存', '文本', '图片', 'API 接口'].map(/* typeButtonMapper 查找当前类型按钮。 */ typeName => screen.getByRole('button', { name: typeName }));
+    expect(typeButtons.map(/* typeNameMapper 读取当前类型按钮名称。 */ button => button.textContent?.trim())).toEqual(['批量库存', '文本', '图片', 'API 接口']);
+    fireEvent.click(typeButtons[3]);
+    fireEvent.click(screen.getByRole('button', { name: '测试请求' }));
+    await waitFor(/* testResultAssertion 等待 API 测试结果展示。 */ () => expect(screen.getByText('HTTP 状态：200')).toBeTruthy());
+    expect(screen.getByText('响应字段：data、message')).toBeTruthy();
+    expect(screen.getByText('提取结果：TEST-CODE')).toBeTruthy();
   });
 
   test('启停、复制和删除按钮调用对应页面动作', /* 当前回调验证卡密行级动作边界。 */ async () => {

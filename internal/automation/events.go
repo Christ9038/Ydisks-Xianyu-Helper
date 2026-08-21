@@ -66,7 +66,7 @@ type OrderDetail struct {
 }
 
 // ExtractTaskFromWS 从一条解密后的 WS 消息中提取系统事件。
-// 这里只做事实解析：识别平台告诉了我们什么；是否执行自动化由 Center 根据规则决定。
+// 这里只做事实解析：识别平台告诉了我们什么；是否执行自动化由 Center 根据规则和可用的订单或 updateKey 防重键决定。
 // ExtractTaskFromWS 封装Extract任务FromWS业务协调。
 func ExtractTaskFromWS(accountID, cookieStr string, raw map[string]any) *Task {
 	if raw == nil {
@@ -203,11 +203,9 @@ func fieldsFromRaw(raw map[string]any) rawFields {
 			f.orderID = matchOrderID(f.reminderURL)
 		}
 	}
-	// 平台交易卡片会随客户端版本把订单事实移动到不同嵌套层级或 JSON 字符串中；
-	// 固定路径未命中时，只补齐仍为空的明确业务字段，不能覆盖已按优先路径解析出的事实。
-	if f.chatID == "" || f.orderID == "" || f.itemID == "" || f.buyerID == "" {
-		supplementEventFacts(&f, raw, 0)
-	}
+	// 平台交易卡片会随客户端版本把订单事实或买卖角色移动到不同嵌套层级或 JSON 字符串中；
+	// 固定路径已取到全部事实时仍需识别角色，避免买家侧卡片被误投递为卖家自动化。
+	supplementEventFacts(&f, raw, 0)
 	return f
 }
 
@@ -288,6 +286,18 @@ func supplementEventFactByKey(fields *rawFields, key string, value any) {
 		if fields.buyerID == "" {
 			fields.buyerID = text
 		}
+	case "role", "orderrole":
+		if fields.orderRole == "" {
+			fields.orderRole = normalizedOrderRole(text)
+		}
+	case "taskname":
+		if fields.orderRole == "" {
+			fields.orderRole = orderRoleFromTaskName(text)
+		}
+	case "biztag":
+		if fields.orderRole == "" {
+			fields.orderRole = orderRoleFromTaskName(bizTaskName(text))
+		}
 	case "reminderurl", "targeturl", "url", "deeplink", "link":
 		supplementEventFactsFromURL(fields, text)
 	}
@@ -314,7 +324,7 @@ func directOrderID(value string) string {
 	return value
 }
 
-// supplementEventFactsFromURL 从交易跳转链接补齐订单、商品、买家和会话标识。
+// supplementEventFactsFromURL 从交易跳转链接补齐订单、商品、买家、会话和买卖角色。
 func supplementEventFactsFromURL(fields *rawFields, rawURL string) {
 	if fields == nil || strings.TrimSpace(rawURL) == "" {
 		return
@@ -330,6 +340,9 @@ func supplementEventFactsFromURL(fields *rawFields, rawURL string) {
 	}
 	if fields.orderID == "" {
 		fields.orderID = matchOrderID(rawURL)
+	}
+	if fields.orderRole == "" {
+		fields.orderRole = orderRoleFromURL(rawURL)
 	}
 }
 
@@ -515,9 +528,16 @@ func orderRoleFromURL(rawURL string) string {
 	if err != nil {
 		return ""
 	}
-	switch strings.ToLower(strings.TrimSpace(u.Query().Get("role"))) {
+	return normalizedOrderRole(u.Query().Get("role"))
+}
+
+// normalizedOrderRole 只接受平台协议中可识别的买卖双方角色，未知值不得影响事件归属判断。
+func normalizedOrderRole(value string) string {
+	// role 是去除大小写和空白差异后的平台角色字段。
+	role := strings.ToLower(strings.TrimSpace(value))
+	switch role {
 	case "seller", "buyer":
-		return strings.ToLower(strings.TrimSpace(u.Query().Get("role")))
+		return role
 	default:
 		return ""
 	}

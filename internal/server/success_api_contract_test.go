@@ -9,8 +9,17 @@ import (
 	"strings"
 	"testing"
 
+	cardsapp "xianyu-go/internal/application/cards"
 	"xianyu-go/internal/db"
 )
+
+// apiRequestTesterStub 是卡券 API 测试请求的确定性替身，避免 OpenAPI 契约测试访问真实远端地址。
+type apiRequestTesterStub struct{}
+
+// Test 返回固定的非敏感测试诊断结果。
+func (apiRequestTesterStub) Test(context.Context, cardsapp.APIRequestTestInput) (cardsapp.APIRequestTestResult, error) {
+	return cardsapp.APIRequestTestResult{Status: "success", StatusCode: http.StatusOK, ResponseContentType: "application/json", ResponseFields: []string{"code", "data"}, ExtractedValue: "TEST-CODE", ResponsePreview: `{"data":{"code":"TEST-CODE"}}`}, nil
+}
 
 // TestNamedSuccessResponseContracts 验证认证、订单和聊天主链路使用具名成功响应 DTO。
 func TestNamedSuccessResponseContracts(t *testing.T) {
@@ -198,6 +207,8 @@ func TestSettingsCardsNotificationsBatchContracts(t *testing.T) {
 	defer cleanup()
 	// handler 是当前测试使用的完整路由树。
 	handler := contractRecordingHandler(t, srv.Router())
+	// apiRequestTester 使用确定性替身验证 HTTP DTO 和 OpenAPI 响应契约。
+	srv.applications.apiRequestTester = apiRequestTesterStub{}
 	// sessionCookie 是管理员登录后得到的认证会话。
 	sessionCookie := loginHelper(t, handler)
 
@@ -275,6 +286,25 @@ func TestSettingsCardsNotificationsBatchContracts(t *testing.T) {
 	}
 	if !cardCreateResponse.Success || cardCreateResponse.ID == 0 {
 		t.Fatalf("card response=%+v", cardCreateResponse)
+	}
+
+	// apiTestReq 是使用临时卡券配置执行 API 测试的版本化请求。
+	apiTestReq := httptest.NewRequest(http.MethodPost, "/api/v1/cards/test-api", strings.NewReader(`{"api_config":{"url":"https://example.com/test","method":"GET","timeout_seconds":10}}`))
+	apiTestReq.AddCookie(sessionCookie)
+	// apiTestRecorder 捕获测试请求的具名诊断响应。
+	apiTestRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(apiTestRecorder, apiTestReq)
+	if apiTestRecorder.Code != http.StatusOK {
+		t.Fatalf("api test status=%d body=%s", apiTestRecorder.Code, apiTestRecorder.Body.String())
+	}
+	// apiTestResponse 是 API 测试响应 DTO。
+	var apiTestResponse cardAPITestResponse
+	// apiTestDecodeErr 是 API 测试响应解码失败原因。
+	if apiTestDecodeErr := json.Unmarshal(apiTestRecorder.Body.Bytes(), &apiTestResponse); apiTestDecodeErr != nil {
+		t.Fatalf("decode api test response: %v", apiTestDecodeErr)
+	}
+	if apiTestResponse.Status != "success" || apiTestResponse.StatusCode != http.StatusOK || apiTestResponse.ExtractedValue != "TEST-CODE" {
+		t.Fatalf("api test response=%+v", apiTestResponse)
 	}
 
 	// cardGetReq 是读取卡券详情的请求。

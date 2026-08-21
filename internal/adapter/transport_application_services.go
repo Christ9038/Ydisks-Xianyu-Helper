@@ -2,6 +2,7 @@ package adapter
 
 import (
 	"fmt"
+	"log/slog"
 
 	adminapp "xianyu-go/internal/application/admin"
 	analyticsapp "xianyu-go/internal/application/analytics"
@@ -29,6 +30,8 @@ type TransportApplicationServiceOptions struct {
 	ChannelSender notificationsapp.ChannelSender
 	// ModelClient 读取远端 AI 模型目录，不得记录 API 密钥。
 	ModelClient settingsapp.ModelClient
+	// OutboundPolicy 提供系统设置切换用户可配置 HTTP 出站策略的运行时 Port。
+	OutboundPolicy settingsapp.OutboundPolicy
 }
 
 // TransportApplicationServices 是由进程组合根一次性构造并注入 Server 的应用服务集合。
@@ -52,6 +55,8 @@ type TransportApplicationServices struct {
 	AutomationRules *automationapp.RuleService
 	// Cards 提供卡券库存 CRUD 用例。
 	Cards *cardsapp.Service
+	// APICardTester 提供卡券 API 临时测试请求能力。
+	APICardTester cardsapp.APIRequestTester
 	// PublishAutomationRules 提供发布后自动化规则准备流程。
 	PublishAutomationRules *automationapp.PublishRuleService
 	// DefaultReplies 提供默认回复配置与投递记录用例。
@@ -84,7 +89,7 @@ func NewTransportApplicationServices(options TransportApplicationServiceOptions)
 	}
 	// services 是进程启动期完成构造、随后作为只读依赖交给 Server 的服务集合。
 	services := &TransportApplicationServices{
-		Settings:               settingsapp.NewService(options.AdminSettingsDependencies.NewSettingsRepository(), options.ModelClient),
+		Settings:               settingsapp.NewService(options.AdminSettingsDependencies.NewSettingsRepository(), options.ModelClient, options.OutboundPolicy),
 		Admin:                  adminapp.NewServiceWithRuntime(options.AdminSettingsDependencies.NewAdminRepository(), options.AdminRuntime),
 		AccountTasks:           automationapp.NewService(options.AutomationDependencies.NewAccountTaskRepository(), options.AccountTaskRunner),
 		UncertainNotifications: notificationsapp.New(options.MiscDependencies.NewNotificationUncertainRepository()),
@@ -93,6 +98,7 @@ func NewTransportApplicationServices(options TransportApplicationServiceOptions)
 		AutomationIssues:       automationapp.NewIssueService(automationRepository),
 		AutomationRules:        automationapp.NewRuleService(automationRepository, automationRepository),
 		Cards:                  cardsapp.NewService(options.MiscDependencies.NewCardsRepository()),
+		APICardTester:          options.MiscDependencies.NewAPICardTester(slog.Default()),
 		PublishAutomationRules: automationapp.NewPublishRuleService(automationRepository),
 		DefaultReplies:         defaultreplyapp.NewService(options.AutomationDependencies.NewDefaultReplyRepository()),
 		Keywords:               keywordsapp.NewService(options.AutomationDependencies.NewKeywordRepository()),
@@ -109,7 +115,7 @@ func (services *TransportApplicationServices) Validate() error {
 	if services == nil {
 		return fmt.Errorf("transport 应用服务集合不能为空")
 	}
-	if services.Settings == nil || services.Admin == nil || services.AccountTasks == nil || services.UncertainNotifications == nil || services.NotificationChannels == nil || services.Analytics == nil || services.AutomationIssues == nil || services.AutomationRules == nil || services.Cards == nil || services.PublishAutomationRules == nil || services.DefaultReplies == nil || services.Keywords == nil {
+	if services.Settings == nil || services.Admin == nil || services.AccountTasks == nil || services.UncertainNotifications == nil || services.NotificationChannels == nil || services.Analytics == nil || services.AutomationIssues == nil || services.AutomationRules == nil || services.Cards == nil || services.APICardTester == nil || services.PublishAutomationRules == nil || services.DefaultReplies == nil || services.Keywords == nil {
 		return fmt.Errorf("transport 应用服务集合存在未装配服务")
 	}
 	return nil

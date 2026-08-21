@@ -19,6 +19,7 @@ import (
 const (
 	encryptedValuePrefix = "enc:v1:"
 	cookieMetadataScope  = "cookie-metadata"
+	cardAPIConfigScope   = "card-api-config"
 )
 
 // secretCodec 对数据库敏感字段做 AES-256-GCM 信封加密。未配置密钥时保持
@@ -95,172 +96,26 @@ func (s *Store) EncryptLegacySecrets(ctx context.Context) error {
 		return nil
 	}
 	defer tx.Rollback()
-	// cookieSecret 用于本次流程后续判断的登录凭证Secret
-	type cookieSecret struct{ id, value, password, metadata string }
-	// rows、err 用于本次流程后续判断的rows、err
-	rows, err := tx.QueryContext(ctx, `SELECT id,value,COALESCE(password,''),COALESCE(metadata_json,'') FROM cookies`)
-	if err != nil {
+	// err 表示历史账号秘密迁移错误。
+	if err := migrateLegacyCookies(ctx, tx, codec); err != nil {
 		return err
 	}
-	// cookies 用于本次流程后续判断的cookies
-	var cookies []cookieSecret
-	for rows.Next() {
-		// row 用于本次流程后续判断的row
-		var row cookieSecret
-		if // err 用于本次流程后续判断的err
-		err := rows.Scan(&row.id, &row.value, &row.password, &row.metadata); err != nil {
-			rows.Close()
-			return err
-		}
-		cookies = append(cookies, row)
-	}
-	if // err 用于本次流程后续判断的err
-	err := rows.Close(); err != nil {
+	// err 表示历史账号令牌迁移错误。
+	if err := migrateLegacyTokens(ctx, tx, codec); err != nil {
 		return err
 	}
-	// row 表示当前遍历过程中的row
-	for _, row := range cookies {
-		// value、err 用于本次流程后续判断的value、err
-		value, err := codec.encrypt("cookie", row.id, row.value)
-		if err != nil {
-			return fmt.Errorf("校验账号 %s Cookie: %w", row.id, err)
-		}
-		// password、err 用于本次流程后续判断的password、err
-		password, err := codec.encrypt("login-password", row.id, row.password)
-		if err != nil {
-			return fmt.Errorf("校验账号 %s 登录密码: %w", row.id, err)
-		}
-		// metadata、err 用于本次流程后续判断的metadata、err
-		metadata, err := codec.encrypt(cookieMetadataScope, row.id, row.metadata)
-		if err != nil {
-			return fmt.Errorf("校验账号 %s Cookie metadata: %w", row.id, err)
-		}
-		if value != row.value || password != row.password || metadata != row.metadata {
-			if // err 用于本次流程后续判断的err
-			_, err := tx.ExecContext(ctx, `UPDATE cookies SET value=?,password=?,metadata_json=? WHERE id=?`, value, password, metadata, row.id); err != nil {
-				return err
-			}
-		}
-	}
-	// tokenSecret 用于本次流程后续判断的令牌Secret
-	type tokenSecret struct{ cookieID, deviceID, accessToken string }
-	rows, err = tx.QueryContext(ctx, `SELECT cookie_id,device_id,access_token FROM account_tokens`)
-	if err != nil {
+	// err 表示历史敏感系统设置迁移错误。
+	if err := migrateLegacySettings(ctx, tx, codec, s.Dialect); err != nil {
 		return err
 	}
-	// tokens 用于本次流程后续判断的tokens
-	var tokens []tokenSecret
-	for rows.Next() {
-		// row 用于本次流程后续判断的row
-		var row tokenSecret
-		if // err 用于本次流程后续判断的err
-		err := rows.Scan(&row.cookieID, &row.deviceID, &row.accessToken); err != nil {
-			rows.Close()
-			return err
-		}
-		tokens = append(tokens, row)
-	}
-	if // err 用于本次流程后续判断的err
-	err := rows.Close(); err != nil {
+	// err 表示历史通知渠道迁移错误。
+	if err := migrateLegacyNotificationChannels(ctx, tx, codec); err != nil {
 		return err
-	}
-	// row 表示当前遍历过程中的row
-	for _, row := range tokens {
-		// deviceID、err 用于本次流程后续判断的deviceID、err
-		deviceID, err := codec.encrypt("device-id", row.cookieID, row.deviceID)
-		if err != nil {
-			return err
-		}
-		// accessToken、err 用于本次流程后续判断的accessToken、err
-		accessToken, err := codec.encrypt("access-token", row.cookieID, row.accessToken)
-		if err != nil {
-			return err
-		}
-		if deviceID != row.deviceID || accessToken != row.accessToken {
-			if // err 用于本次流程后续判断的err
-			_, err := tx.ExecContext(ctx, `UPDATE account_tokens SET device_id=?,access_token=? WHERE cookie_id=?`, deviceID, accessToken, row.cookieID); err != nil {
-				return err
-			}
-		}
 	}
 
-	// keyCol 用于本次流程后续判断的keyCol
-	keyCol := dialectQuote(s.Dialect, "key")
-	rows, err = tx.QueryContext(ctx, `SELECT `+keyCol+`,value FROM system_settings`)
-	if err != nil {
+	// err 表示历史 API 卡券配置迁移错误。
+	if err := migrateLegacyCardAPIConfigs(ctx, tx, codec); err != nil {
 		return err
-	}
-	// settings 用于本次流程后续判断的设置
-	settings := make(map[string]string)
-	for rows.Next() {
-		// key、value 用于本次流程后续判断的key、value
-		var key, value string
-		if // err 用于本次流程后续判断的err
-		err := rows.Scan(&key, &value); err != nil {
-			rows.Close()
-			return err
-		}
-		if isSensitiveSettingKey(key) {
-			settings[key] = value
-		}
-	}
-	if // err 用于本次流程后续判断的err
-	err := rows.Close(); err != nil {
-		return err
-	}
-	// key、value 表示当前遍历过程中的key、value
-	for key, value := range settings {
-		// encrypted、err 用于本次流程后续判断的encrypted、err
-		encrypted, err := codec.encrypt("system-setting", key, value)
-		if err != nil {
-			return err
-		}
-		if encrypted != value {
-			if // err 用于本次流程后续判断的err
-			_, err := tx.ExecContext(ctx, `UPDATE system_settings SET value=? WHERE `+keyCol+`=?`, encrypted, key); err != nil {
-				return err
-			}
-		}
-	}
-
-	// channelSecret 用于本次流程后续判断的渠道Secret
-	type channelSecret struct {
-		id, userID int64
-		config     string
-	}
-	rows, err = tx.QueryContext(ctx, `SELECT id,COALESCE(user_id,1),config FROM notification_channels`)
-	if err != nil {
-		return err
-	}
-	// channels 用于本次流程后续判断的渠道列表
-	var channels []channelSecret
-	for rows.Next() {
-		// row 用于本次流程后续判断的row
-		var row channelSecret
-		if // err 用于本次流程后续判断的err
-		err := rows.Scan(&row.id, &row.userID, &row.config); err != nil {
-			rows.Close()
-			return err
-		}
-		channels = append(channels, row)
-	}
-	if // err 用于本次流程后续判断的err
-	err := rows.Close(); err != nil {
-		return err
-	}
-	// row 表示当前遍历过程中的row
-	for _, row := range channels {
-		// encrypted、err 用于本次流程后续判断的encrypted、err
-		encrypted, err := codec.encrypt("notification-config", fmt.Sprint(row.userID), row.config)
-		if err != nil {
-			return err
-		}
-		if encrypted != row.config {
-			if // err 用于本次流程后续判断的err
-			_, err := tx.ExecContext(ctx, `UPDATE notification_channels SET config=? WHERE id=?`, encrypted, row.id); err != nil {
-				return err
-			}
-		}
 	}
 
 	return tx.Commit()

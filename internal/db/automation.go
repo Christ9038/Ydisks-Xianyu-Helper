@@ -14,6 +14,9 @@ var ErrAutomationRunActive = errors.New("规则仍有待处理的自动化运行
 // SafeRetryErrorPrefix 标记当前动作明确没有产生外部副作用，可以从动作游标安全恢复。
 const SafeRetryErrorPrefix = "[safe_retry]"
 
+// NoRetryErrorPrefix 标记当前动作明确不应进入自动化恢复队列。
+const NoRetryErrorPrefix = "[no_retry]"
+
 // AutomationRules 管理自动化规则、动作和执行记录。
 //
 // 自动化中心不区分触发来源：WS 系统事件、计划任务、后台手动触发都通过
@@ -466,7 +469,7 @@ func (a *AutomationRules) Delete(ctx context.Context, userID, ruleID int64) erro
 		SET deleted_at=CURRENT_TIMESTAMP, enabled=0, updated_at=CURRENT_TIMESTAMP
 		WHERE id=? AND user_id=? AND deleted_at IS NULL AND NOT EXISTS (
 			SELECT 1 FROM automation_runs ar WHERE ar.rule_id=automation_rules.id
-			  AND (ar.status IN ('running','needs_review') OR (ar.status='failed' AND ar.sent_count=0 AND ar.attempt_count<3)))`, ruleID, userID)
+			  AND (ar.status IN ('running','needs_review') OR (ar.status='failed' AND ar.sent_count=0 AND ar.attempt_count<3 AND ar.error_message NOT LIKE '[no_retry]%')))`, ruleID, userID)
 	if err != nil {
 		return err
 	}
@@ -575,7 +578,7 @@ func (a *AutomationRules) reclaimRun(ctx context.Context, ruleID int64, triggerK
 	 WHERE rule_id=? AND trigger_key=?
 	   AND ((status='running' AND action_started=0 AND (lease_expires_at=0 OR lease_expires_at<?))
 	        OR (status='failed' AND action_started=0 AND attempt_count<3 AND next_retry_at<=?
-	            AND (sent_count=0 OR error_message LIKE '[safe_retry]%')))`,
+	            AND ((sent_count=0 AND error_message NOT LIKE '[no_retry]%') OR error_message LIKE '[safe_retry]%')))`,
 		leaseExpiresAt, ruleID, triggerKey, now, now)
 	if err != nil {
 		return 0, false, err
@@ -708,7 +711,7 @@ func (a *AutomationRules) ClaimRecoveryRun(ctx context.Context, runID, leaseExpi
 		SET status='running',error_message='',lease_expires_at=?,next_retry_at=0,attempt_count=attempt_count+1,updated_at=CURRENT_TIMESTAMP
 		 WHERE id=? AND action_started=0 AND ((status='running' AND (lease_expires_at=0 OR lease_expires_at<?))
 		 OR (status='failed' AND attempt_count<3 AND next_retry_at<=?
-		     AND (sent_count=0 OR error_message LIKE '[safe_retry]%')))`, leaseExpiresAt, runID, now, now)
+		     AND ((sent_count=0 AND error_message NOT LIKE '[no_retry]%') OR error_message LIKE '[safe_retry]%')))`, leaseExpiresAt, runID, now, now)
 	if err != nil {
 		return false, err
 	}
@@ -721,7 +724,7 @@ func (a *AutomationRules) ClaimRecoveryRun(ctx context.Context, runID, leaseExpi
 func (a *AutomationRules) FinishRun(ctx context.Context, id int64, attempt int, status string, sentCount int, errMsg string) error {
 	// nextRetryAt 用于本次流程后续判断的next重试At
 	nextRetryAt := int64(0)
-	if status == "failed" && (sentCount == 0 || strings.HasPrefix(errMsg, SafeRetryErrorPrefix)) {
+	if status == "failed" && (strings.HasPrefix(errMsg, SafeRetryErrorPrefix) || sentCount == 0 && !strings.HasPrefix(errMsg, NoRetryErrorPrefix)) {
 		nextRetryAt = time.Now().UTC().Add(time.Minute).Unix()
 	}
 	// res、err 用于本次流程后续判断的res、err
@@ -764,7 +767,7 @@ SELECT id,rule_id,cookie_id,item_id,order_id,buyer_id,chat_id,trigger_type,trigg
   FROM automation_runs
  WHERE (status='running' AND (lease_expires_at=0 OR lease_expires_at<?))
 	    OR (status='failed' AND action_started=0 AND attempt_count<3 AND next_retry_at<=?
-	        AND (sent_count=0 OR error_message LIKE '[safe_retry]%'))
+	        AND ((sent_count=0 AND error_message NOT LIKE '[no_retry]%') OR error_message LIKE '[safe_retry]%'))
  ORDER BY updated_at,id LIMIT ?`, now, now, limit)
 	if err != nil {
 		return nil, err

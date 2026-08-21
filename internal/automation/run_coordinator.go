@@ -25,6 +25,8 @@ type automationRunCoordinator struct {
 	actionDelaySeconds func(context.Context, db.AutomationAction) (int, error)
 	// accountAutomationAllowed 检查账号是否仍允许执行外部自动化动作。
 	accountAutomationAllowed func(context.Context, string) (bool, error)
+	// accountSenderReady 判断账号是否已具备可立即发送消息的闲鱼 WebSocket 连接。
+	accountSenderReady func(string) bool
 	// deferTask 持久化等待延迟后继续执行的任务。
 	deferTask func(context.Context, Task, int64) error
 	// executeAction 执行一个已经通过账号门禁的具体外部动作。
@@ -44,6 +46,9 @@ func (r automationRunCoordinator) executeRule(ctx context.Context, task Task, ru
 	}
 	if skipped {
 		return nil
+	}
+	if run == nil {
+		return errors.New("自动化运行记录缺失，已停止执行外部动作")
 	}
 	task = preparedTask
 	// status 是运行完成时写入数据库的结果状态。
@@ -190,8 +195,12 @@ func (r automationRunCoordinator) prepareRuleRun(ctx context.Context, task Task,
 	}
 	// runID 是新建运行的数据库主键；started 表示当前事件是否抢到唯一执行权。
 	runID, started, startErr := r.store.Automation.TryStartRun(ctx, newRun)
-	if startErr != nil || !started {
+	if startErr != nil {
 		return Task{}, nil, false, startErr
+	}
+	if !started {
+		// 同一规则的同一事件已由其他投递处理或已完成，不能把空运行记录交给执行阶段。
+		return preparedTask, nil, true, nil
 	}
 	// createdRun 是重新读取的完整运行状态，包含动作游标和累计发送数。
 	createdRun, getErr := r.store.Automation.GetRun(ctx, runID)
@@ -297,5 +306,18 @@ func (r automationRunCoordinator) executeActionNow(ctx context.Context, task Tas
 	if !allowed {
 		return 0, fmt.Errorf("账号已暂停或停用，取消自动化动作")
 	}
+	if actionNeedsOnlineSender(action) && r.accountSenderReady != nil && !r.accountSenderReady(task.AccountID) {
+		return 0, fmt.Errorf("%w: 账号 %s 的 WebSocket 尚未就绪，未执行消息或卡密动作", ErrMessageNotSent, task.AccountID)
+	}
 	return r.executeAction(ctx, task, action)
+}
+
+// actionNeedsOnlineSender 判断动作是否会向买家发送消息；这类动作必须先确认账号 WebSocket 已就绪，避免 API 卡密已领取但无法投递。
+func actionNeedsOnlineSender(action db.AutomationAction) bool {
+	switch action.ActionType {
+	case ActionSendCard, ActionSendText:
+		return true
+	default:
+		return false
+	}
 }

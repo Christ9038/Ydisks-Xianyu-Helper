@@ -26,6 +26,7 @@ import (
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/logging"
 	"xianyu-go/internal/logsafe"
+	"xianyu-go/internal/netguard"
 	appversion "xianyu-go/internal/version"
 )
 
@@ -351,6 +352,13 @@ func openServerInfrastructure(ctx context.Context, startup serverStartupConfig, 
 		_ = database.Close()
 		closeLog()
 		return serverInfrastructure{}, fmt.Errorf("校验或升级数据库敏感字段失败: %w", err)
+	}
+	// outboundPublicOnly 保存用户可配置 HTTP 请求的启动期公网限制快照。
+	if raw, settingErr := store.Settings.Get(ctx, "outbound_http_public_only"); settingErr == nil {
+		netguard.SetDefaultPublicOnly(strings.EqualFold(strings.TrimSpace(raw), "true"))
+	} else {
+		logger.Warn("读取统一 HTTP 出站策略失败，按默认关闭处理", "err", settingErr)
+		netguard.SetDefaultPublicOnly(false)
 	}
 	if !startup.explicitLogLevel {
 		// level、levelErr 分别是数据库保存的日志等级及其读取错误；读取失败时保留进程默认值。

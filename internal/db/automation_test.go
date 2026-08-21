@@ -537,6 +537,50 @@ func TestAutomation_TryStartRunRecoversStaleAndUnsentFailedRuns(t *testing.T) {
 	}
 }
 
+// TestAutomation_NoRetryFailureIsNotRecovered 验证明确不可重试的外部失败不会因零发送量重新入队。
+func TestAutomation_NoRetryFailureIsNotRecovered(t *testing.T) {
+	// s、cleanup 是本测试使用的临时 SQLite 数据库及清理函数。
+	s, cleanup := newTestDB(t)
+	defer cleanup()
+	// ctx 是本测试数据库操作使用的非取消上下文。
+	ctx := context.Background()
+	// userID、cookieID 是规则所属用户和账号标识。
+	userID, cookieID := seedAccount(t, s)
+	// ruleID 是用于创建自动化运行的规则标识。
+	ruleID, err := s.Automation.Create(ctx, makeAutomationRule(cookieID, userID, "i-no-retry", "paid", true, 100))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// runID、started 是新建运行记录的标识和启动结果。
+	runID, started, err := s.Automation.TryStartRun(ctx, AutomationRun{
+		RuleID: ruleID, CookieID: cookieID, OrderID: "order-no-retry", TriggerType: "paid", TriggerKey: "paid:order-no-retry",
+	})
+	if err != nil || !started {
+		t.Fatalf("TryStartRun: id=%d started=%v err=%v", runID, started, err)
+	}
+	// run 是当前运行的尝试信息。
+	run, err := s.Automation.GetRun(ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// err 表示完成不可重试运行的持久化错误。
+	if err := s.Automation.FinishRun(ctx, runID, run.AttemptCount, "failed", 0, NoRetryErrorPrefix+": HTTP 400"); err != nil {
+		t.Fatal(err)
+	}
+	// err 表示清除退避时间测试数据的 SQL 错误。
+	if _, err := s.DB.ExecContext(ctx, `UPDATE automation_runs SET next_retry_at=0 WHERE id=?`, runID); err != nil {
+		t.Fatal(err)
+	}
+	// recoveredStarted 表示清除退避时间后是否错误地重新启动了不可重试运行。
+	_, recoveredStarted, err := s.Automation.TryStartRun(ctx, AutomationRun{RuleID: ruleID, CookieID: cookieID, OrderID: "order-no-retry", TriggerType: "paid", TriggerKey: "paid:order-no-retry"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recoveredStarted {
+		t.Fatal("不可重试失败不应被自动恢复")
+	}
+}
+
 // TestAutomationRunAttemptFencesStaleWorker 封装Test自动化运行尝试次数FencesStale工作器业务协调。
 func TestAutomationRunAttemptFencesStaleWorker(t *testing.T) {
 	// s、cleanup 用于本次流程后续判断的s、cleanup

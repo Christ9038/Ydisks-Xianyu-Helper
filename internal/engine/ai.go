@@ -28,7 +28,7 @@ const (
 
 // newAIHTTPClient 用于本次流程后续判断的newAIHTTPClient
 var newAIHTTPClient = func(baseURL string) (*http.Client, error) {
-	return netguard.TrustedEndpointHTTPClient(baseURL, 30*time.Second)
+	return netguard.ConfiguredEndpointHTTPClient(baseURL, 30*time.Second)
 }
 
 // AIReplierImpl AI 回复实现。
