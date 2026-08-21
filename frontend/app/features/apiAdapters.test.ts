@@ -29,7 +29,7 @@ import { appendCardData,batchCreateCards,createCard,deleteCard,getCardDetails,ge
 import { getChatMessagePage,getChatMessages,getChatSessionPage,getChatSessions,markChatRead,sendChatImage,sendChatMessage } from './chat/api';
 import { getDashboardStats,getOrderAnalytics,getValidOrders } from './dashboard/api';
 import { cancelItemPublishBatch,createItem,deleteItem,deleteItemPublishBatch,getItemDetail,getItemPublishBatch,getItemPublishBatches,getItems,previewItemPublishBatch,publishItem,recommendPublishCategory,retryFailedItemPublishBatch,startItemPublishBatch,syncItemsFromAccount,updateItem } from './items/api';
-import { createNotificationChannel,deleteAccountNotifications,deleteMessageNotification,deleteNotificationChannel,getAccountBindings,getMessageNotifications,getNotificationChannels,setAccountBindings,setMessageNotification,testNotificationChannel,updateNotificationChannel } from './notifications/api';
+import { createNotificationChannel,deleteAccountNotifications,deleteMessageNotification,deleteNotificationChannel,getAccountBindings,getMessageNotifications,getNotificationChannels,setAccountBindings,setMessageNotification,testNotificationChannel,updateNotificationChannel,updateSystemSettings as updateNotificationSystemSettings } from './notifications/api';
 import { cancelOrderRefreshJob,deleteOrder,getAdminStats,getOrderDetail,getOrders,importOrders,manualShipOrder,syncOrders,syncSingleOrder,updateOrder } from './orders/api';
 import { clearDefaultReplyRecords,deleteDefaultReply,deleteReplyRule,deleteShippingRule,getAutomationIssues,getDefaultReplies,getDefaultReply,getReplyRules,getShippingRules,getShippingRulesPage,resolveAutomationRun,resolveDeferredAutomationTask,updateDefaultReply,updateReplyRule,updateShippingRule } from './rules/api';
 import { initializeAdmin,login,logout,verifySession } from './session/api';
@@ -87,6 +87,18 @@ test('updateSystemSettings separates sensitive values into explicit commands', /
     ai_api_key: { action: 'replace', value: 'new-secret' },
     smtp_password: { action: 'clear' },
   });
+});
+
+test('notification SMTP settings separate the authorization code into a secret command', /* 当前回调验证通知页不会把 SMTP 授权码写入普通设置。 */ async () => {
+  // fetchMock 是通知页系统设置更新请求的 HTTP 替身。
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }));
+  stubContractFetch(fetchMock);
+  await updateNotificationSystemSettings({ smtp_server: 'smtp.example.com', smtp_port: 465, smtp_user: 'sender@example.com', smtp_password: 'test-smtp-secret' });
+  // payload 是通知页适配器分流后的普通设置和敏感命令。
+  const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
+  expect(payload.values).toEqual({ smtp_server: 'smtp.example.com', smtp_port: 465, smtp_user: 'sender@example.com' });
+  expect(payload.secrets).toEqual({ smtp_password: { action: 'replace', value: 'test-smtp-secret' } });
+  expect(payload.values).not.toHaveProperty('smtp_password');
 });
 
 test('health API exposes build metadata through the request boundary', async () => {
