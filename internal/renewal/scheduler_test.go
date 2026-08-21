@@ -225,8 +225,18 @@ func TestPendingAPIRenewLogsPendingAndRestartsAfterLateCookie(t *testing.T) {
 	if !strings.Contains(detail.Value, "sdkSilent=") {
 		t.Fatalf("迟到 Cookie 未保存: %q", detail.Value)
 	}
-	if // got 用于本次流程后续判断的got
-	got := lastAPIRenewLog(t, store, account.ID).status; got != "cookie_updated" {
+	// finalDeadline 限制 watcher 写入终态日志的等待时间；Restart 返回早于终态日志持久化，不能把重启完成当作 watcher 已收束。
+	finalDeadline := time.Now().Add(time.Second)
+	for time.Now().Before(finalDeadline) {
+		// status 保存当前轮询到的续期日志状态；在迟到响应 watcher 尚未收束时可暂时保持 pending。
+		status := lastAPIRenewLog(t, store, account.ID).status
+		if status == "cookie_updated" {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	// got 保存等待截止后最后一次读取到的状态，便于失败时区分 watcher 未完成和写入错误。
+	if got := lastAPIRenewLog(t, store, account.ID).status; got != "cookie_updated" {
 		t.Fatalf("迟到响应最终状态=%q want cookie_updated", got)
 	}
 }

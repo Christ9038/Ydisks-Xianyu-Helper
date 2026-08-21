@@ -1,7 +1,5 @@
 # Ydisks闲鱼助手
 
-![Ydisks闲鱼助手Slogan](https://raw.githubusercontent.com/Christ9038/Ydisks-Xianyu-Helper/main/docs/img/slogan.png)
-
 基于 Go 与 React 构建的闲鱼多账号管理、消息回复与自动发货系统
 
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)](go.mod)
@@ -16,9 +14,15 @@
 在线聊天、账号自动任务、批量铺货、自动化发货、AI、通知和运维流程。
 
 > [!IMPORTANT]
-> 本项目是社区维护的非官方工具，与闲鱼、阿里巴巴集团及其关联公司无隶属、合作或
-> 授权关系。请仅在遵守当地法律法规、闲鱼平台规则及账号授权范围的前提下使用。
-> 使用自动化能力可能触发平台风控，请自行评估风险并妥善保护账号凭证。
+> 本项目仅用于个人技术学习研究，**未获得闲鱼/阿里巴巴任何官方授权**。
+>
+> 本项目调用闲鱼网页端非公开接口，使用本软件将违反闲鱼用户协议，可能造成闲鱼账号封禁。
+>
+> 本项目是社区维护的非官方工具，与闲鱼、阿里巴巴集团及其关联公司无隶属、合作或授权关系。
+>
+> 请仅在遵守当地法律法规的前提下使用，所有使用该代码造成的一切后果，全部由使用者自行承担，项目作者不承担任何责任。
+>
+> 收到平台下架通知时，本项目会随时删除归档。
 >
 > **有账号登录时，不要频繁重启本程序!**
 >
@@ -32,7 +36,7 @@ Ydisks闲鱼助手是一个面向闲鱼卖家的自托管管理系统。它将�
 
 项目采用 Go 语言实现闲鱼登录、Cookie 续期、MTOP 请求和 WebSocket 消息链路。
 扫码登录、人脸验证流程、消息连接、凭证更新和绝大部分业务逻辑均由 Go 客户端完成。
-使用 Chromium 处理必须依赖浏览器环境的滑块风控。
+使用 Chromium 处理必须依赖浏览器环境的相关功能。
 
 ### 与 Ydisks 网盘拉新助手协同使用
 
@@ -53,7 +57,6 @@ Ydisks 支持管理渠道、推广账号、原始链接、推广短链与域名�
 - 付款后发货、评价赠品、超时求评价等自动化流程
 - 商品与订单同步、单商品发布及支持逐行/默认类目、自动识别和最终兜底的表格批量铺货
 - 接入 OpenAI 兼容接口实现可控的 AI 客服回复
-- 账号掉线、风控、续期和发货结果的多渠道通知
 
 ## 功能特性
 
@@ -74,8 +77,6 @@ Ydisks 支持管理渠道、推广账号、原始链接、推广短链与域名�
 | 安全能力 | 管理端会话、敏感字段 AES-256-GCM 加密、日志脱敏和出站地址校验 |
 | 容器部署 | PostgreSQL 17、健康检查、持久化卷、GHCR amd64/arm64 多架构镜像 |
 
-批量铺货的类目优先级为：表格当前行指定类目 > 上传页通过关键词获取的默认类目 > 闲鱼按标题、描述和图片自动识别 > “电子资料”最终兜底。模板类目字段可全部留空；如填写，类目 ID、名称和频道类目 ID 必须同时填写，淘宝类目 ID 按闲鱼响应提供的值填写。
-
 ## 系统架构
 
 ```mermaid
@@ -88,7 +89,7 @@ flowchart LR
     Engine --> MTOP["闲鱼 MTOP"]
     Engine --> Automation["自动化中心"]
     Automation --> Notify["通知渠道"]
-    Engine -. "仅指纹与滑块风控" .-> Chromium["Playwright / Chromium"]
+    Engine -. "浏览器能力" .-> Chromium["Playwright / Chromium"]
 ```
 
 核心职责划分：
@@ -98,7 +99,7 @@ flowchart LR
 - `internal/xianyu`：登录协议、Cookie、MTOP、WebSocket 和消息协议
 - `internal/engine`：单账号生命周期、消息处理、回复与交付行为
 - `internal/automation`：发货、评价赠品、求评价和任务调度
-- `internal/browser`：Chromium 指纹读取与滑块验证
+- `internal/browser`：Chromium 指纹读取
 - `internal/db`：多数据库访问、敏感字段加密和嵌入式迁移
 - `internal/server`：HTTP/SPA transport、管理端鉴权和前端静态资源
 
@@ -301,8 +302,7 @@ go run ./cmd/server -db data/xianyu_data.db -addr :59188
 go run ./cmd/server -db data/xianyu_data.db -addr :59188 -no-browser
 ```
 
-此模式仍可运行管理后台，但浏览器指纹读取和滑块风控处理不可用，不建议用于需要登录
-和长期运行账号的生产环境。
+此模式仍可运行管理后台，但由于缺少UA，无法登陆账号。
 
 ## 初次使用
 
@@ -387,7 +387,7 @@ Docker Compose 还支持：
 | `-playwright-browser-dir` | 空 | Playwright 浏览器缓存目录，会设置为当前进程的 browser 路径 |
 | `-data-key-file` | 空 | `XIANYU_DATA_KEY` 持久化文件；文件不存在时自动生成 |
 | `-secure` | `false` | 为管理端 Cookie 添加 `Secure` 属性，HTTPS 部署应启用 |
-| `-no-browser` | `false` | 禁用 Chromium 指纹读取和滑块处理 |
+| `-no-browser` | `false` | 禁用 Chromium 指纹读取 |
 | `-log-level` | 环境变量或系统设置 | 覆盖日志等级 |
 | `-log-format` | 环境变量或系统设置 | 覆盖日志格式 |
 | `-v` | `false` | 启用调试日志，等价于未显式配置时使用 debug |
@@ -426,7 +426,6 @@ DATABASE_URL="postgres://user:pass@127.0.0.1:5432/xianyu?sslmode=disable" ./xian
 - **议价策略**：最大折扣比例、最大折扣金额和最多议价轮次
 - **通知设置**：Bark、钉钉、飞书、企业微信、Telegram、邮件和 Webhook
 - **日志设置**：日志等级、输出格式和续期日志保留天数
-- **远程滑块服务**：服务地址、密钥及是否允许传递 Cookie；默认不传递 Cookie
 - **管理凭据**：管理员用户名、密码和邮箱
 
 AI Base URL 支持 OpenAI 兼容接口，可连接 OpenAI、通义千问、Ollama、vLLM、
@@ -600,7 +599,7 @@ services:
 │   ├── application/      # 用例编排、事务与补偿
 │   ├── adapter/          # 业务模块接线层
 │   ├── automation/       # 自动化中心与调度器
-│   ├── browser/          # Chromium 指纹和滑块验证
+│   ├── browser/          # Chromium 指纹验证
 │   ├── composition/      # 唯一生产组合根
 │   ├── db/               # 数据访问、加密与迁移
 │   ├── engine/           # 单账号消息和交付运行时
@@ -732,7 +731,7 @@ go run ./cmd/server -init-admin -db data/xianyu_data.db -admin-password '新密�
 - 不要提交 `.env`、数据库文件、Cookie、二维码、日志或浏览器数据目录。
 - 定期备份 PostgreSQL，并实际验证恢复流程。
 - 使用版本或 SHA 镜像标签部署生产环境。
-- 仅向可信的 AI、SMTP、Webhook 和远程滑块服务发送数据。
+- 仅向可信的 AI、SMTP、Webhook 发送数据。
 - 发现账号异常时先停用账号，再检查登录审计和续期日志。
 
 ## 贡献
@@ -743,7 +742,6 @@ go run ./cmd/server -init-admin -db data/xianyu_data.db -admin-password '新密�
 2. 为协议、数据库和关键业务行为补充测试。
 3. 运行 `make check` 和前端测试。
 4. 不要提交真实账号、Cookie、订单、卡密、密钥或其他敏感数据。
-5. 不要在未说明原因和验证证据的情况下修改风控与滑块行为。
 
 提交安全问题时，请避免在公开 Issue 中附带真实凭证或用户数据。
 
