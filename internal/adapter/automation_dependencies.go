@@ -37,6 +37,14 @@ func (d *AutomationDependencies) NewAutomationRepository() *AutomationRepository
 	return NewAutomationRepository(d.store)
 }
 
+// NewDeliveryTemplateRepository 创建发货模板数据库适配器。
+func (d *AutomationDependencies) NewDeliveryTemplateRepository() *DeliveryTemplateRepository {
+	if d == nil {
+		return nil
+	}
+	return NewDeliveryTemplateRepository(d.store)
+}
+
 // NewAccountTaskRepository 创建账号自动化任务设置与运行记录适配器。
 func (d *AutomationDependencies) NewAccountTaskRepository() *AccountTaskRepository {
 	if d == nil {

@@ -24,7 +24,9 @@ const (
 
 	ActionConfirmShipment = "confirm_shipment"
 	ActionSendCard        = "send_card"
-	ActionSendText        = "send_text"
+	// ActionSendTemplate 表示按发货模板渲染并发送多条消息。
+	ActionSendTemplate = "send_template"
+	ActionSendText     = "send_text"
 	// ActionAdjustPrice 表示把待付款订单价格修改为动作配置中的目标价格。
 	ActionAdjustPrice = "adjust_price"
 )
@@ -39,13 +41,15 @@ type Task struct {
 	OrderID     string
 	ItemID      string
 	BuyerID     string
-	SpecName    string
-	SpecValue   string
-	Quantity    string
-	Amount      string
-	OrderStatus string
-	Text        string
-	UpdateKey   string
+	// BuyerNickname 是购买用户昵称，来自本地聊天会话的非敏感摘要。
+	BuyerNickname string
+	SpecName      string
+	SpecValue     string
+	Quantity      string
+	Amount        string
+	OrderStatus   string
+	Text          string
+	UpdateKey     string
 	// ForceConfirmShipment 仅供明确的人工“完整发货”使用；自动事件仍遵循账号自动确认开关。
 	ForceConfirmShipment bool
 	// ActionPlan 是运行创建时冻结的动作计划。延迟恢复和失败重试必须使用该快照，

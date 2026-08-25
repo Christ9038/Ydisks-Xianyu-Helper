@@ -82,6 +82,8 @@ func (e *automationActionExecutor) executeAction(ctx context.Context, task Task,
 		return e.adjustOrderPrice(ctx, task, action)
 	case ActionSendCard:
 		return e.sendCard(ctx, task, action)
+	case ActionSendTemplate:
+		return e.sendTemplate(ctx, task, action)
 	case ActionSendText:
 		// text 是渲染后的文字动作内容。
 		text := renderTemplate(action.MessageTemplate, task)

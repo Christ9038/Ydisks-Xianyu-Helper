@@ -168,7 +168,47 @@ export interface Item {
 /** 由当前 feature adapter 归一后的 AutomationTriggerType UI 模型；不直接暴露 HTTP DTO。 */
 export type AutomationTriggerType = 'order_created' | 'order_paid' | 'buyer_reviewed' | 'review_missing_timeout';
 /** 由当前 feature adapter 归一后的 AutomationActionType UI 模型；不直接暴露 HTTP DTO。 */
-export type AutomationActionType = 'confirm_shipment' | 'send_card' | 'send_text' | 'adjust_price';
+export type AutomationActionType = 'confirm_shipment' | 'send_card' | 'send_template' | 'send_text' | 'adjust_price';
+
+/** 发货模板中的一条顺序消息。 */
+export interface DeliveryTemplateMessage {
+  /** 消息主键。 */
+  id: number;
+  /** 消息在模板中的发送顺序。 */
+  sort_order: number;
+  /** 消息正文，可包含模板变量。 */
+  content: string;
+}
+
+/** 当前用户可用于自动化规则的发货模板。 */
+export interface DeliveryTemplate {
+  /** 模板主键。 */
+  id: number;
+  /** 模板名称。 */
+  name: string;
+  /** 模板是否允许被自动化使用。 */
+  enabled: boolean;
+  /** 模板按顺序发送的消息。 */
+  messages: DeliveryTemplateMessage[];
+  /** 模板正文中出现的变量键。 */
+  keys: string[];
+  /** 模板正文中引用的自定义变量键。 */
+  custom_keys?: string[];
+  /** 创建时间。 */
+  created_at: string;
+  /** 最后更新时间。 */
+  updated_at: string;
+}
+
+/** 发货模板变量与卡密库存的绑定。 */
+export interface DeliveryTemplateBinding {
+  /** 模板变量键。 */
+  variable_key: string;
+  /** 变量使用的卡密库存 ID。 */
+  card_id: number;
+  /** 每个订单为该变量取出的卡密数量。 */
+  delivery_count: number;
+}
 
 // Rules
 /** 由当前 feature adapter 归一后的 ShippingRule UI 模型；不直接暴露 HTTP DTO。 */
@@ -225,6 +265,16 @@ export interface AutomationAction {
   enabled: boolean;
   /** 动作排序序号。 */
   sort_order?: number;
+  /** 动作使用的发货模板 ID。 */
+  delivery_template_id?: number;
+  /** 动作使用的发货模板名称。 */
+  delivery_template_name?: string;
+  /** 动作引用的模板变量键。 */
+  template_keys?: string[];
+  /** 动作的模板变量卡密绑定。 */
+  template_bindings?: DeliveryTemplateBinding[];
+  /** 传给发货模板的自定义字符串键值表。 */
+  custom_variables?: Record<string, string>;
 }
 
 /** 由当前 feature adapter 归一后的 ShippingVariant UI 模型；不直接暴露 HTTP DTO。 */
@@ -251,6 +301,14 @@ export interface ShippingVariant {
   delay_seconds?: number;
   /** 变体原始配置 JSON。 */
   config_json?: string;
+  /** 发货方式，默认为单卡密库存。 */
+  delivery_mode?: 'card' | 'template';
+  /** 变体使用的发货模板 ID。 */
+  delivery_template_id?: number;
+  /** 发货模板变量绑定。 */
+  template_bindings?: DeliveryTemplateBinding[];
+  /** 传给发货模板的自定义字符串键值表，按 custom.<键名> 对应。 */
+  custom_variables?: Record<string, string>;
 }
 
 /** 由当前 feature adapter 归一后的 ReplyRule UI 模型；不直接暴露 HTTP DTO。 */

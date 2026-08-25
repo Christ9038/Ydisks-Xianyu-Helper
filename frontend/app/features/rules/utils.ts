@@ -59,6 +59,10 @@ export const emptyVariant = (): ShippingVariant => ({
   enabled: true,
   delay_override: false,
   delay_seconds: 0,
+  delivery_mode: 'card',
+  delivery_template_id: 0,
+  template_bindings: [],
+  custom_variables: {},
 });
 
 // parseJSONObject 安全解析规则配置 JSON，异常或非对象值统一返回空对象。
@@ -173,15 +177,15 @@ export const actionSummary = (rule: ShippingRule) => {
       action => action.action_type === 'send_text',
     )?.message_template || '发送求评价文案';
   }
-  // cards 是当前规则中的卡密动作列表。
+  // cards 是当前规则中的卡密或模板动作列表。
   const cards = (rule.actions || []).filter(
-    // 卡密动作筛选器只保留发送卡片类型。
-    action => action.action_type === 'send_card',
+    // 卡密动作筛选器保留两种可发货动作。
+    action => action.action_type === 'send_card' || action.action_type === 'send_template',
   );
   if (!cards.length) return '未配置卡密库存';
   return cards.map(
-    // 卡密动作格式化器优先展示库存名称。
-    action => action.card_name || `卡密 ${action.card_id}`,
+    // 卡密动作格式化器优先展示模板名称或库存名称。
+    action => action.action_type === 'send_template' ? action.delivery_template_name || `模板 ${action.delivery_template_id}` : action.card_name || `卡密 ${action.card_id}`,
   ).join(' / ');
 };
 

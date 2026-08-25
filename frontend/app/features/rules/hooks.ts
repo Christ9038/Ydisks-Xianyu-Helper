@@ -2,8 +2,9 @@ import { useCallback,useRef,useState } from 'react';
 import type {
 AccountDetail,
 AutomationTriggerType,
-Card,
-DefaultReply,
+  Card,
+  DefaultReply,
+  DeliveryTemplate,
 Item,
 ReplyRule,
 ShippingRule,
@@ -12,7 +13,8 @@ import {
 getAccountDetails,
 getAutomationIssues,
 getCards,
-getDefaultReplies,
+  getDefaultReplies,
+  getDeliveryTemplates,
 getItems,
 getReplyRules,
 getShippingRulesPage,
@@ -36,6 +38,8 @@ export const useRulesData = (options: RulesDataOptions): RulesDataResult => {
   const [cards, setCards] = useState<Card[]>([]);
   // items 保存规则编辑器可绑定的商品。
   const [items, setItems] = useState<Item[]>([]);
+  // deliveryTemplates 保存规则编辑器可选的发货模板。
+  const [deliveryTemplates, setDeliveryTemplates] = useState<DeliveryTemplate[]>([]);
   // loading 表示当前规则页是否有刷新请求正在执行。
   const [loading, setLoading] = useState(false);
   // automationRulesRequest 保存自动化列表请求的最新代次。
@@ -60,13 +64,15 @@ export const useRulesData = (options: RulesDataOptions): RulesDataResult => {
       getCards(),
       getItems(),
       getDefaultReplies(),
+      getDeliveryTemplates(),
     ]);
-    // referenceData 是并行请求完成后的四类参考数据。
-    const [accountList, cardList, itemList, defaultReplyMap] = await referenceDataPromise;
+    // referenceData 是并行请求完成后的五类参考数据。
+    const [accountList, cardList, itemList, defaultReplyMap, deliveryTemplateList] = await referenceDataPromise;
     setAccounts(accountList);
     setCards(cardList);
     setItems(itemList);
     setDefaultReplies(defaultReplyMap);
+    setDeliveryTemplates(deliveryTemplateList);
     options.setSelectedAccountId(
       // 账号选择器保留用户已有选择，否则回填首个账号。
       current => current || accountList[0]?.id || '',
@@ -181,6 +187,7 @@ export const useRulesData = (options: RulesDataOptions): RulesDataResult => {
     accounts,
     cards,
     items,
+    deliveryTemplates,
     automationTotal,
     automationTotalPages,
     automationTriggerCounts,

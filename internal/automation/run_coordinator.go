@@ -315,7 +315,7 @@ func (r automationRunCoordinator) executeActionNow(ctx context.Context, task Tas
 // actionNeedsOnlineSender 判断动作是否会向买家发送消息；这类动作必须先确认账号 WebSocket 已就绪，避免 API 卡密已领取但无法投递。
 func actionNeedsOnlineSender(action db.AutomationAction) bool {
 	switch action.ActionType {
-	case ActionSendCard, ActionSendText:
+	case ActionSendCard, ActionSendTemplate, ActionSendText:
 		return true
 	default:
 		return false

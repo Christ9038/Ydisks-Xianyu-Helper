@@ -12,6 +12,7 @@ import (
 	cardsapp "xianyu-go/internal/application/cards"
 	chatapp "xianyu-go/internal/application/chat"
 	defaultreplyapp "xianyu-go/internal/application/defaultreply"
+	deliveryapp "xianyu-go/internal/application/deliverytemplate"
 	itemapp "xianyu-go/internal/application/items"
 	keywordsapp "xianyu-go/internal/application/keywords"
 	notificationsapp "xianyu-go/internal/application/notifications"
@@ -286,6 +287,15 @@ type AutomationRulesPort interface {
 	Delete(context.Context, int64, int64) error
 }
 
+// DeliveryTemplatesPort 定义发货模板管理 HTTP transport 所需的最小用例能力。
+type DeliveryTemplatesPort interface {
+	List(context.Context, int64) ([]deliveryapp.Template, error)
+	Get(context.Context, int64, int64) (deliveryapp.Template, error)
+	Create(context.Context, int64, deliveryapp.Draft) (int64, error)
+	Update(context.Context, int64, int64, deliveryapp.Draft) error
+	Delete(context.Context, int64, int64) error
+}
+
 // PublishAutomationRulesPort 定义发布后自动化规则的幂等准备能力。
 type PublishAutomationRulesPort interface {
 	Ensure(context.Context, automationapp.RuleInput) error
@@ -418,6 +428,8 @@ type ApplicationPorts struct {
 	automationIssues AutomationIssuesPort
 	// automationRules 是自动化规则用例。
 	automationRules AutomationRulesPort
+	// deliveryTemplates 是发货模板管理用例。
+	deliveryTemplates DeliveryTemplatesPort
 	// cards 是卡券库存用例。
 	cards CardsPort
 	// apiRequestTester 执行临时 API 测试请求并返回非敏感诊断。
@@ -468,6 +480,7 @@ type ApplicationPortsInput struct {
 	Analytics                   AnalyticsPort
 	AutomationIssues            AutomationIssuesPort
 	AutomationRules             AutomationRulesPort
+	DeliveryTemplates           DeliveryTemplatesPort
 	Cards                       CardsPort
 	APIRequestTester            APIRequestTesterPort
 	PublishAutomationRules      PublishAutomationRulesPort
@@ -492,7 +505,7 @@ func NewApplicationPorts(input ApplicationPortsInput) *ApplicationPorts {
 		accountSummaries: input.AccountSummaries, accountTasks: input.AccountTasks, chat: input.Chat,
 		uncertainNotifications: input.UncertainNotifications, notificationChannels: input.NotificationChannels,
 		analytics: input.Analytics, automationIssues: input.AutomationIssues, automationRules: input.AutomationRules,
-		cards: input.Cards, apiRequestTester: input.APIRequestTester, publishAutomationRules: input.PublishAutomationRules, defaultReplies: input.DefaultReplies,
+		cards: input.Cards, deliveryTemplates: input.DeliveryTemplates, apiRequestTester: input.APIRequestTester, publishAutomationRules: input.PublishAutomationRules, defaultReplies: input.DefaultReplies,
 		keywords: input.Keywords, settings: input.Settings, admin: input.Admin,
 	}
 }
@@ -593,6 +606,11 @@ func (server *Server) automationIssuesApplication() AutomationIssuesPort {
 // automationRulesApplication 返回自动化规则用例。
 func (server *Server) automationRulesApplication() AutomationRulesPort {
 	return server.applicationServiceSet().automationRules
+}
+
+// deliveryTemplatesApplication 返回发货模板管理用例。
+func (server *Server) deliveryTemplatesApplication() DeliveryTemplatesPort {
+	return server.applicationServiceSet().deliveryTemplates
 }
 
 // itemBatchPreviewApplication 返回批量发布预检用例。

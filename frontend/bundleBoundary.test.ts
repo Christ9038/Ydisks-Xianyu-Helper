@@ -14,7 +14,10 @@ const PAGE_CHUNK_BUDGETS: Record<string, number> = {
   CardList: 45 * 1024,
   ItemList: 65 * 1024,
   Settings: 30 * 1024,
-  Rules: 65 * 1024,
+  // Rules 页面现在包含模板发货模式入口和模板变量编辑器。
+  Rules: 70 * 1024,
+  // DeliveryTemplates 页面承载模板 CRUD 编辑器。
+  DeliveryTemplates: 12 * 1024,
   Notifications: 45 * 1024,
   Chat: 50 * 1024,
 };
@@ -33,10 +36,10 @@ describe('frontend production bundle boundary', /* 当前回调验证生产入�
     expect(preloadedAssets.some(/* 当前回调判断图表依赖是否被首屏预加载。 */ asset => asset.startsWith('charts-vendor-'))).toBe(false);
   });
 
-  test('九个业务页面都生成独立页面 chunk', /* 当前回调验证各页面可按路由延迟下载。 */ () => {
+  test('十个业务页面都生成独立页面 chunk', /* 当前回调验证各页面可按路由延迟下载。 */ () => {
     // pageChunkNames 保存 Vite 输出的业务页面 chunk 文件名。
-    const pageChunkNames = readdirSync(resolve(staticRoot, 'assets')).filter(/* 当前回调筛选业务页面分片文件。 */ fileName => /^(Dashboard|AccountList|OrderList|CardList|ItemList|Settings|Rules|Notifications|Chat)-.+\.js$/.test(fileName));
-    expect(pageChunkNames).toHaveLength(9);
+    const pageChunkNames = readdirSync(resolve(staticRoot, 'assets')).filter(/* 当前回调筛选业务页面分片文件。 */ fileName => /^(Dashboard|AccountList|OrderList|CardList|ItemList|Settings|Rules|Notifications|Chat|DeliveryTemplates)-.+\.js$/.test(fileName));
+    expect(pageChunkNames).toHaveLength(10);
   });
 
   test('每个业务页面 chunk 都保持在独立预算内', /* 当前回调验证单个页面不会重新膨胀首屏后的按需下载。 */ () => {

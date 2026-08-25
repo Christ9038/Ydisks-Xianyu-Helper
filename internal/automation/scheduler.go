@@ -310,7 +310,7 @@ func recoveryNeedsSender(task Task, rule db.AutomationRule, cursor int) bool {
 		return false
 	}
 	switch actions[cursor].ActionType {
-	case ActionSendText, ActionSendCard:
+	case ActionSendText, ActionSendCard, ActionSendTemplate:
 		return true
 	default:
 		return false

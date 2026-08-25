@@ -147,6 +147,33 @@ func (s *ChatStore) LatestUnmaskedPeerName(ctx context.Context, cookieID, chatID
 	return strings.TrimSpace(name), err
 }
 
+// BuyerNicknameForAutomation 返回自动化模板可使用的买家昵称，并优先回退到未遮罩的历史消息昵称。
+func (s *ChatStore) BuyerNicknameForAutomation(ctx context.Context, cookieID, chatID string) (string, error) {
+	// name 保存会话摘要中的买家昵称。
+	var name string
+	// err 保存会话摘要查询错误。
+	err := s.DB.QueryRowContext(ctx, `SELECT buyer_name FROM chat_sessions WHERE cookie_id=? AND chat_id=?`, cookieID, chatID).Scan(&name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return s.LatestUnmaskedPeerName(ctx, cookieID, chatID)
+	}
+	if err != nil {
+		return "", err
+	}
+	name = strings.TrimSpace(name)
+	if name != "" && !strings.Contains(name, "***") {
+		return name, nil
+	}
+	// fallback 保存消息历史中可直接展示的昵称。
+	fallback, fallbackErr := s.LatestUnmaskedPeerName(ctx, cookieID, chatID)
+	if fallbackErr != nil {
+		return "", fallbackErr
+	}
+	if fallback != "" {
+		return fallback, nil
+	}
+	return name, nil
+}
+
 // SaveMessage inserts a message idempotently and updates its conversation only
 // when the message was new. This keeps retries from inflating unread counters.
 // SaveMessage 保存消息。

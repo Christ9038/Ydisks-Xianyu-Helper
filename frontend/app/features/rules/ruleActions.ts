@@ -15,7 +15,7 @@ updateReplyRule,
 updateShippingRule,
 } from './api';
 import { finishRuleSubmission,idleRuleSubmitState,startRuleSubmission,type RuleSubmitState } from './interactionState';
-import type { AutomationTriggerType,Card,DefaultReplyForm,Item,ReplyRule,RulesProps,RulesTab,ShippingRule,ShippingVariant } from './types';
+import type { AutomationTriggerType,Card,DefaultReplyForm,DeliveryTemplate,Item,ReplyRule,RulesProps,RulesTab,ShippingRule,ShippingVariant } from './types';
 import { adjustPriceTarget,boolFlag,buildAdjustPriceConfig,buildReviewConfig,cardActionsForTrigger,defaultRuleName,emptyVariant,isValidAdjustPrice,parseJSONObject,shouldReplaceGeneratedName,triggerMeta } from './utils';
 
 // RuleActionsOptions 描述规则动作协调器依赖的页面数据、刷新函数和外部联动目标。
@@ -28,6 +28,8 @@ export interface RuleActionsOptions {
   setActiveTab: Dispatch<SetStateAction<RulesTab>>;
   // items 保存规则编辑器可绑定的商品列表。
   items: Item[];
+  // deliveryTemplates 保存发货模板编辑器可选的模板列表。
+  deliveryTemplates?: DeliveryTemplate[];
   // setAutomationRules 写入外部联动场景加载的自动化规则。
   setAutomationRules: Dispatch<SetStateAction<ShippingRule[]>>;
   // setCards 写入外部联动场景加载的卡密库存。
@@ -144,6 +146,7 @@ export const useRuleActions = ({
   setSelectedAccountId,
   setActiveTab,
   items,
+  deliveryTemplates = [],
   setAutomationRules,
   setCards,
   setItems,
@@ -366,7 +369,15 @@ export const useRuleActions = ({
     // variants 保存当前规格列表。
     const variants = editingAutomationRule.variants?.length ? editingAutomationRule.variants : [];
     if (trigger !== 'review_missing_timeout' && trigger !== 'order_created') {
-      if (!variants.length || variants.some(/* 当前回调校验卡密组是否已选择。 */ variant => !variant.card_id)) return alert(trigger === 'buyer_reviewed' ? '请选择评价赠品卡密库存' : '请选择发货卡密库存');
+      if (!variants.length || variants.some(/* 当前回调校验卡密组或模板是否已选择。 */ variant => variant.delivery_mode === 'template' ? !variant.delivery_template_id : !variant.card_id)) return alert('请选择发货卡密库存或发货模板');
+      if (variants.some(/* 当前回调校验模板变量是否绑定完整。 */ variant => variant.delivery_mode === 'template' && (!variant.template_bindings?.length || (deliveryTemplates.find(/* 模板候选项查找器定位当前变体模板。 */ template => template.id === variant.delivery_template_id)?.keys || []).some(/* 模板键校验器确认每个变量都已绑定。 */ key => !variant.template_bindings?.some(/* 绑定查找器定位变量对应的库存。 */ binding => binding.variable_key === key && binding.card_id > 0))))) return alert('请为发货模板的每个变量绑定卡密库存');
+      if (variants.some(/* 当前回调校验模板自定义变量键值是否完整。 */ variant => {
+        // template 保存当前变体选择的发货模板摘要。
+        const template = deliveryTemplates.find(/* templateCandidate 定位当前模板。 */ templateCandidate => templateCandidate.id === variant.delivery_template_id);
+        // customKeys 保存模板引用的自定义变量键。
+        const customKeys = template?.custom_keys || [];
+        return variant.delivery_mode === 'template' && customKeys.some(/* key 检查规则是否填写了对应的自定义字符串。 */ key => !variant.custom_variables?.[key]?.trim());
+      })) return alert('请填写发货模板要求的全部自定义变量');
       if (isMultiSpecRule && variants.some(/* 当前回调校验多规格字段。 */ variant => !variant.spec_name.trim() || !variant.spec_value.trim())) return alert('多规格商品必须填写每一行的规格名称和规格值');
     }
     if (trigger === 'review_missing_timeout') {
@@ -397,7 +408,7 @@ export const useRuleActions = ({
     } finally {
       setAutomationSubmitState(/* current 保存自动化提交状态。 */ current => finishRuleSubmission(current, succeeded));
     }
-  }, [automationSubmitState, editingAutomationRule, isMultiSpecRule, loadAutomationRules, loadReferenceData, selectedRuleItem]);
+  }, [automationSubmitState, deliveryTemplates, editingAutomationRule, isMultiSpecRule, loadAutomationRules, loadReferenceData, selectedRuleItem]);
 
   // handleDeleteAutomation 删除自动化规则并刷新列表。
   const handleDeleteAutomation = useCallback(/* deleteRuleAction 删除自动化规则。 */ async (id: string) => {

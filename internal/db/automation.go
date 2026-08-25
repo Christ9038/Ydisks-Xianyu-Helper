@@ -72,21 +72,6 @@ type AutomationRule struct {
 	Actions     []AutomationAction
 }
 
-// AutomationAction 是规则下的一步动作。
-type AutomationAction struct {
-	ID              int64
-	RuleID          int64
-	ActionType      string
-	CardID          int64
-	CardName        string
-	DeliveryCount   int
-	MessageTemplate string
-	DelaySeconds    int
-	ConfigJSON      string
-	Enabled         bool
-	SortOrder       int
-}
-
 // AutomationRun 是一次自动化执行记录。trigger_key 是持久化防重键。
 type AutomationRun struct {
 	ID             int64
@@ -205,18 +190,6 @@ func automationRuleWhere(f AutomationRuleListFilter) (string, []any) {
 		args = append(args, pattern, pattern, pattern)
 	}
 	return strings.Join(where, " AND "), args
-}
-
-// AutomationActionInput 是创建动作的输入。
-type AutomationActionInput struct {
-	ActionType      string
-	CardID          int64
-	DeliveryCount   int
-	MessageTemplate string
-	DelaySeconds    int
-	ConfigJSON      string
-	Enabled         bool
-	SortOrder       int
 }
 
 // ListForUser 返回用户下全部自动化规则和动作。
@@ -455,7 +428,7 @@ UPDATE automation_rules
 	// act 表示当前遍历过程中的act
 	for _, act := range in.Actions {
 		if // err 用于本次流程后续判断的err
-		err := insertAutomationActionTx(ctx, tx, ruleID, act); err != nil {
+		_, err := insertAutomationActionTx(ctx, tx, a.Dialect, ruleID, act); err != nil {
 			return err
 		}
 	}
@@ -494,9 +467,11 @@ func (a *AutomationRules) Actions(ctx context.Context, ruleID int64) ([]Automati
 	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := a.DB.QueryContext(ctx, `
 SELECT a.id,a.rule_id,a.action_type,COALESCE(a.card_id,0),COALESCE(c.name,''),a.delivery_count,
-       a.message_template,a.delay_seconds,a.config_json,a.enabled,a.sort_order
+       a.message_template,a.delay_seconds,a.config_json,a.enabled,a.sort_order,
+       COALESCE(a.delivery_template_id,0),COALESCE(t.name,'')
   FROM automation_rule_actions a
   LEFT JOIN cards c ON c.id=a.card_id
+  LEFT JOIN delivery_templates t ON t.id=a.delivery_template_id
  WHERE a.rule_id=?
  ORDER BY a.sort_order ASC,a.id ASC`, ruleID)
 	if err != nil {
@@ -513,10 +488,16 @@ SELECT a.id,a.rule_id,a.action_type,COALESCE(a.card_id,0),COALESCE(c.name,''),a.
 		if // err 用于本次流程后续判断的err
 		err := rows.Scan(&act.ID, &act.RuleID, &act.ActionType, &act.CardID, &act.CardName,
 			&act.DeliveryCount, &act.MessageTemplate, &act.DelaySeconds, &act.ConfigJSON, &enabled,
-			&act.SortOrder); err != nil {
+			&act.SortOrder, &act.DeliveryTemplateID, &act.DeliveryTemplateName); err != nil {
 			return nil, err
 		}
 		act.Enabled = enabled != 0
+		if act.DeliveryTemplateID > 0 {
+			// err 保存模板动作详情加载错误。
+			if err := a.loadTemplateAction(ctx, &act); err != nil {
+				return nil, err
+			}
+		}
 		out = append(out, act)
 	}
 	return out, rows.Err()

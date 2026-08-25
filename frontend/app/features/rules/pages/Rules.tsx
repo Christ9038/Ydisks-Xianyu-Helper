@@ -22,6 +22,7 @@ Zap,
 import React,{ useEffect,useMemo,useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AutomationIssuePanel } from '../components/AutomationIssuePanel';
+import TemplateVariantEditor from '../components/TemplateVariantEditor';
 import { useRulesData } from '../hooks';
 import { filterAutomationIssues } from '../issueState';
 import { useRuleActions } from '../ruleActions';
@@ -68,6 +69,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
     accounts,
     cards,
     items,
+    deliveryTemplates,
     loading,
     setLoading,
     automationTotal,
@@ -89,6 +91,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
     setSelectedAccountId,
     setActiveTab,
     items,
+    deliveryTemplates,
     setAutomationRules,
     setCards,
     setItems,
@@ -626,7 +629,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
               </button>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] min-h-0">
+            <div className="grid min-w-0 grid-cols-1 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)] min-h-0">
               <aside className="bg-slate-900 text-white p-5 overflow-y-auto">
                 <div className="text-xs font-bold text-slate-400 mb-3">选择自动化类型</div>
                 <div className="space-y-3">
@@ -671,7 +674,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                 </div>
               </aside>
 
-              <div className="p-6 overflow-y-auto bg-surface-subtle">
+              <div className="min-w-0 overflow-x-hidden overflow-y-auto bg-surface-subtle p-6">
                 <div className="space-y-5">
                   <section className="bg-white rounded-3xl border border-gray-100 p-5">
                     <div className="flex items-center gap-2 mb-4">
@@ -803,7 +806,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                         {displayVariants.map((variant, index) => (/* 当前回调处理集合中的单个元素。 */
                           <div
                             key={variant.id || index}
-                            className={`grid grid-cols-1 gap-3 items-end rounded-2xl border border-gray-200 p-4 ${isMultiSpecRule ? 'md:grid-cols-[1fr_1fr_1.4fr_110px_40px]' : 'md:grid-cols-[1.4fr_110px_40px]'}`}
+                            className={`grid min-w-0 grid-cols-1 gap-3 items-end rounded-2xl border border-gray-200 p-4 ${isMultiSpecRule ? 'md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.4fr)_110px_40px]' : 'md:grid-cols-[minmax(0,1.4fr)_110px_40px]'}`}
                           >
                             {isMultiSpecRule && (
                               <>
@@ -828,18 +831,33 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                               </>
                             )}
                             <div>
-                              <label className="block text-xs font-bold text-gray-600 mb-2">卡密库存</label>
+                              <label className="block text-xs font-bold text-gray-600 mb-2">发货方式</label>
                               <select
-                                value={variant.card_id || ''}
-                                onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => updateVariant(index, { card_id: Number(event.target.value) })}
+                                value={variant.delivery_mode || 'card'}
+                                onChange={/* 当前回调切换卡密库存和模板两种发货模式。 */ event => updateVariant(index, { delivery_mode: event.target.value as 'card' | 'template', card_id: 0, delivery_template_id: 0, template_bindings: [] })}
                                 className="w-full ios-input px-3 py-2.5 rounded-lg"
                               >
-                                <option value="">请选择卡密库存</option>
-                                {cards.filter(/* 当前回调处理集合中的单个元素。 */ card => card.enabled && (card.type !== 'api' || card.api_config?.ready === true)).map(/* 当前回调处理集合中的单个元素。 */ card => (
-                                  <option key={card.id} value={card.id}>{card.name}</option>
-                                ))}
+                                <option value="card">卡密库存</option>
+                                <option value="template">发货模板</option>
                               </select>
                             </div>
+                            {variant.delivery_mode === 'template' ? (
+                              <TemplateVariantEditor index={index} variant={variant} cards={cards} deliveryTemplates={deliveryTemplates} updateVariant={updateVariant} />
+                            ) : (
+                              <div>
+                                <label className="block text-xs font-bold text-gray-600 mb-2">卡密库存</label>
+                                <select
+                                  value={variant.card_id || ''}
+                                  onChange={/* 当前回调选择卡密库存。 */ event => updateVariant(index, { card_id: Number(event.target.value) })}
+                                  className="w-full ios-input px-3 py-2.5 rounded-lg"
+                                >
+                                  <option value="">请选择卡密库存</option>
+                                  {cards.filter(/* 当前回调处理集合中的单个元素。 */ card => card.enabled && (card.type !== 'api' || card.api_config?.ready === true)).map(/* 当前回调处理集合中的单个元素。 */ card => (
+                                    <option key={card.id} value={card.id}>{card.name}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
                             <div>
                               <label className="block text-xs font-bold text-gray-600 mb-2">每件份数</label>
                               <input

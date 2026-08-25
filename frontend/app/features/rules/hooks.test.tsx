@@ -7,6 +7,7 @@ getAccountDetails,
 getAutomationIssues,
 getCards,
 getDefaultReplies,
+getDeliveryTemplates,
 getItems,
 getReplyRules,
 getShippingRulesPage,
@@ -18,6 +19,7 @@ vi.mock('./api', /* rulesApiMockFactory 提供规则数据 Hook 的确定性 API
   getAutomationIssues: vi.fn(),
   getCards: vi.fn(),
   getDefaultReplies: vi.fn(),
+  getDeliveryTemplates: vi.fn(),
   getItems: vi.fn(),
   getReplyRules: vi.fn(),
   getShippingRulesPage: vi.fn(),
@@ -31,6 +33,8 @@ const issuesMock = vi.mocked(getAutomationIssues);
 const cardsMock = vi.mocked(getCards);
 // defaultsMock 是默认回复请求的可控替身。
 const defaultsMock = vi.mocked(getDefaultReplies);
+// deliveryTemplatesMock 是发货模板参考数据请求的可控替身。
+const deliveryTemplatesMock = vi.mocked(getDeliveryTemplates);
 // itemsMock 是商品参考数据请求的可控替身。
 const itemsMock = vi.mocked(getItems);
 // repliesMock 是关键词回复规则请求的可控替身。
@@ -58,6 +62,7 @@ describe('useRulesData', /* 当前回调处理规则页参考数据、分页和�
     cardsMock.mockResolvedValue([cardFixture]);
     itemsMock.mockResolvedValue([itemFixture]);
     defaultsMock.mockResolvedValue({ 'account-1': defaultReplyFixture });
+    deliveryTemplatesMock.mockResolvedValue([]);
     issuesMock.mockResolvedValue({ runs: [], pending_tasks: [] });
     repliesMock.mockResolvedValue([replyFixture]);
     shippingPageMock.mockResolvedValue({ success: true, data: [shippingFixture], total: 1, page: 1, page_size: 10, total_pages: 1, trigger_counts: { order_paid: 1 } });
