@@ -803,6 +803,53 @@ func TestMultiDB_OrdersUpsertNullScan(t *testing.T) {
 	}
 }
 
+// TestMultiDB_OrdersUpsertManyTargetScope 验证批量订单 UPSERT 在 PostgreSQL 的目标表列限定下仍保持三方言行为一致。
+func TestMultiDB_OrdersUpsertManyTargetScope(t *testing.T) {
+	// target 表示当前批量订单回归使用的数据库目标。
+	for _, target := range allTestTargets(t) {
+		// target 保存当前子测试闭包独占的数据库目标，避免循环变量复用。
+		target := target
+		t.Run(target.name, func(t *testing.T) {
+			defer target.cleanup()
+			// ctx 保存当前数据库目标的订单写入上下文。
+			ctx := context.Background()
+			// store 保存当前数据库目标的仓储集合。
+			store := target.store
+			// _, cookieID 保存订单外键所需的测试账号及其账号标识。
+			_, cookieID := seedAccount(t, store)
+			// bargain 表示批量订单携带的砍价标记，覆盖 is_bargain 的保留逻辑。
+			bargain := true
+			// seedErr 保存已有订单初始化错误；已有状态用于验证状态防倒退。
+			seedErr := store.Orders.Upsert(ctx, "multidb-batch-existing", OrderUpsertOpts{
+				CookieID: cookieID, OrderStatus: "shipped", Amount: "10", IsBargain: &bargain,
+			})
+			if seedErr != nil {
+				t.Fatalf("seed order: %v", seedErr)
+			}
+			// rows 保存一次多值 UPSERT 要写入的已有订单详情。
+			rows := []BatchOrderUpsert{{
+				OrderID: "multidb-batch-existing",
+				Options: OrderUpsertOpts{
+					CookieID: cookieID, OrderStatus: "pending_ship", Amount: "12.50", SpecValue: "蓝",
+				},
+			}}
+			// batchErr 保存批量 UPSERT 执行错误；PostgreSQL 会在此处验证目标表列限定。
+			batchErr := store.Orders.UpsertMany(ctx, rows)
+			if batchErr != nil {
+				t.Fatalf("batch upsert: %v", batchErr)
+			}
+			// got、getErr 保存批量写入后的订单及读取错误。
+			got, getErr := store.Orders.Get(ctx, "multidb-batch-existing")
+			if getErr != nil {
+				t.Fatalf("get batch order: %v", getErr)
+			}
+			if got.OrderStatus != "shipped" || got.Amount != "12.50" || got.SpecValue != "蓝" || got.IsBargain != 1 || got.Version < 2 {
+				t.Fatalf("batch order=%+v", got)
+			}
+		})
+	}
+}
+
 // TestMultiDB_OrderPatchUpdatesTimestampOnce 验证订单补丁在三方言不会重复赋值同一时间列。
 func TestMultiDB_OrderPatchUpdatesTimestampOnce(t *testing.T) {
 	// tg 表示当前执行订单补丁回归的数据库方言目标。
