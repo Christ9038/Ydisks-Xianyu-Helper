@@ -1082,10 +1082,10 @@ func stringPtrForOrderTest(value string) *string {
 func TestOrderResponseMappingAndErrorClassification(t *testing.T) {
 	// row 用于本次流程后续判断的row
 	// row 保存应用层订单列表模型，模拟适配器已经完成数据库转换。
-	row := orderapp.OrderRow{OrderID: "mapped-order", ItemID: "mapped-item", ItemTitle: "测试商品", ItemDetail: `{"pic_info":{"picUrl":"https://img.example/mapped.png"}}`, OrderStatus: "2"}
+	row := orderapp.OrderRow{OrderID: "mapped-order", ItemID: "mapped-item", ItemTitle: "测试商品", ItemDetail: `{"pic_info":{"picUrl":"https://img.example/mapped.png"}}`, OrderStatus: "2", CreatedAt: "2026-08-25 16:00:00"}
 	// view 用于本次流程后续判断的view
 	view := orderDTOFromRow(row)
-	if view.OrderStatus != "pending_ship" || view.Status != "pending_ship" || view.ItemImage != "https://img.example/mapped.png" {
+	if view.OrderStatus != "pending_ship" || view.Status != "pending_ship" || view.ItemImage != "https://img.example/mapped.png" || view.CreatedAt != "2026-08-25T16:00:00Z" {
 		t.Fatalf("订单响应映射异常: %+v", view)
 	}
 	// validationErr 用于本次流程后续判断的validationErr

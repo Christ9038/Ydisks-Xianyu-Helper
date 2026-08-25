@@ -138,7 +138,7 @@ func validOrdersResponseFromApplication(result analyticsapp.ValidOrders) validOr
 		orders = append(orders, validOrderResponse{
 			OrderID: item.OrderID, ItemID: item.ItemID, BuyerID: item.BuyerID, ItemTitle: item.ItemTitle,
 			ItemImage: item.ItemImage, Quantity: item.Quantity, Amount: item.Amount, OrderStatus: item.OrderStatus,
-			Status: item.Status, CookieID: item.CookieID, CreatedAt: item.CreatedAt,
+			Status: item.Status, CookieID: item.CookieID, CreatedAt: normalizeOrderTimestamp(item.CreatedAt),
 		})
 	}
 	return validOrdersResponse{Orders: orders, Total: result.Total, Page: result.Page, PageSize: result.PageSize, Truncated: result.Truncated}

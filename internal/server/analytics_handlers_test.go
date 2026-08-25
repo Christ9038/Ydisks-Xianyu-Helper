@@ -122,6 +122,10 @@ func TestValidOrdersIncludesPaidAndReportsPagination(t *testing.T) {
 	if len(result.Orders) != 1 || result.Total != 2 || !result.Truncated {
 		t.Fatalf("result=%+v", result)
 	}
+	// createdAt 是有效订单接口对数据库 UTC 时间的明确时区输出。
+	if result.Orders[0]["created_at"] != "2026-06-28T11:00:00Z" {
+		t.Fatalf("订单时间未规范为 UTC: %+v", result.Orders[0])
+	}
 }
 
 // TestDashboardStatsAreAvailableAndScopedToCurrentUser 封装TestDashboardStatsAreAvailableAndScopedToCurrent用户业务协调。
