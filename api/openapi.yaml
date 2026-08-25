@@ -1670,6 +1670,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DeliveryTemplateListResponse'
+        '400':
+          description: 统一错误响应
+          content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
         '401':
           description: 统一错误响应
           content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
@@ -1769,6 +1772,9 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/DeliveryTemplateMutationResponse'}
+        '400':
+          description: 统一错误响应
+          content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
         '401':
           description: 统一错误响应
           content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}

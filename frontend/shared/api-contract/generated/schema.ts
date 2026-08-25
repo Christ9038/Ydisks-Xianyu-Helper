@@ -5390,6 +5390,15 @@ export interface operations {
                 };
             };
             /** @description 统一错误响应 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -5580,6 +5589,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DeliveryTemplateMutationResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description 统一错误响应 */
