@@ -22,8 +22,12 @@ type fakeMTop struct {
 	consignCalls    int
 	consignCookieIn string
 	consignOrderIn  string
-	consignCookies  []string
-	consignResults  []fakeConsignResult
+	// consignTradeTextIn 记录确认发货请求携带的文本凭证。
+	consignTradeTextIn string
+	// consignPicListIn 记录确认发货请求携带的图片凭证。
+	consignPicListIn []string
+	consignCookies   []string
+	consignResults   []fakeConsignResult
 	// consignStarted 通知测试外部 Consign 调用已经开始。
 	consignStarted chan struct{}
 	// consignRelease 控制测试外部 Consign 调用何时返回。
@@ -100,6 +104,11 @@ func (f *fakeMTop) AdjustOrderPriceContext(_ context.Context, cookiesStr, orderI
 
 // ConsignContext 封装Consign上下文业务协调。
 func (f *fakeMTop) ConsignContext(_ context.Context, cookiesStr, orderID string) (bool, []string, string, error) {
+	return f.ConsignContextWithDelivery(context.Background(), cookiesStr, orderID, "", nil)
+}
+
+// ConsignContextWithDelivery 返回测试预置的确认发货结果并记录发货凭证。
+func (f *fakeMTop) ConsignContextWithDelivery(_ context.Context, cookiesStr, orderID, tradeText string, picList []string) (bool, []string, string, error) {
 	if f.consignStarted != nil {
 		close(f.consignStarted)
 	}
@@ -109,6 +118,8 @@ func (f *fakeMTop) ConsignContext(_ context.Context, cookiesStr, orderID string)
 	f.consignCalls++
 	f.consignCookieIn = cookiesStr
 	f.consignOrderIn = orderID
+	f.consignTradeTextIn = tradeText
+	f.consignPicListIn = append([]string(nil), picList...)
 	f.consignCookies = append(f.consignCookies, cookiesStr)
 	if len(f.consignResults) > 0 {
 		// result 用于本次流程后续判断的结果

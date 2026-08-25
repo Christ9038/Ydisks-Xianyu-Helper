@@ -2,6 +2,7 @@ package mtop
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -41,6 +42,39 @@ func TestConsignSuccess(t *testing.T) {
 	}
 	if requests.Load() != 1 {
 		t.Fatalf("requests=%d want 1", requests.Load())
+	}
+}
+
+// TestConsignWithDeliveryContentWritesProof 验证确认发货请求会携带已发送的文本和图片凭证。
+func TestConsignWithDeliveryContentWritesProof(t *testing.T) {
+	// server 用于读取测试请求中的 consign 数据。
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// parseErr 保存请求表单解析错误。
+		if parseErr := r.ParseForm(); parseErr != nil {
+			t.Fatalf("解析请求表单失败: %v", parseErr)
+		}
+		// payload 保存确认发货接口的 JSON 凭证载荷。
+		var payload struct {
+			TradeText string   `json:"tradeText"`
+			PicList   []string `json:"picList"`
+		}
+		// unmarshalErr 表示测试请求中的确认发货数据无法解析。
+		if unmarshalErr := json.Unmarshal([]byte(r.FormValue("data")), &payload); unmarshalErr != nil {
+			t.Fatalf("解析 consign 数据失败: %v", unmarshalErr)
+		}
+		if payload.TradeText != "卡密\"A" || len(payload.PicList) != 1 || payload.PicList[0] != "https://img.example/proof.png" {
+			t.Fatalf("确认发货凭证错误: %+v", payload)
+		}
+		fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"]}`)
+	}))
+	defer server.Close()
+
+	// client 保存注入本地测试端点的 MTOP 客户端。
+	client := &ClientImpl{HTTPClient: server.Client(), ConsignURL: server.URL + "/"}
+	// ok、ret、_, err 保存带凭证确认发货的调用结果。
+	ok, ret, _, err := client.ConsignContextWithDelivery(context.Background(), consignCookies, "order-1", "卡密\"A", []string{"https://img.example/proof.png"})
+	if err != nil || !ok || len(ret) == 0 {
+		t.Fatalf("ok=%v ret=%v err=%v", ok, ret, err)
 	}
 }
 

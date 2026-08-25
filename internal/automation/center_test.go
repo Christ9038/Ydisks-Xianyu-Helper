@@ -1569,6 +1569,9 @@ func TestManualFullDeliveryIsImmediateIdempotentAndForcesConfirmation(t *testing
 	if err != nil || sent != 1 || len(sender.texts) != 1 || mtopMock.consignCalls != 1 {
 		t.Fatalf("first manual delivery sent=%d texts=%v consign=%d err=%v", sent, sender.texts, mtopMock.consignCalls, err)
 	}
+	if mtopMock.consignTradeTextIn != "MANUAL-CARD" {
+		t.Fatalf("确认发货应携带已发送的卡密文本: %q", mtopMock.consignTradeTextIn)
+	}
 	if // err 用于本次流程后续判断的err
 	_, err := center.ManualFullDelivery(ctx, order); err == nil || !strings.Contains(err.Error(), "执行过") {
 		t.Fatalf("duplicate manual delivery should be rejected: %v", err)
