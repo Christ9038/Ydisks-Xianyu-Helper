@@ -8019,8 +8019,8 @@ components:
         receiver_phone: {type: string}
         receiver_address: {type: string}
         receiver_city: {type: string}
-        created_at: {type: string}
-        updated_at: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
     OrderListResponse:
       type: object
       required: [success, data, total, page, page_size, total_pages]

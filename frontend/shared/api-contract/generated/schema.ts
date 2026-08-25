@@ -2696,7 +2696,9 @@ export interface components {
             receiver_phone?: string;
             receiver_address?: string;
             receiver_city?: string;
+            /** Format: date-time */
             created_at: string;
+            /** Format: date-time */
             updated_at?: string;
         };
         OrderListResponse: {

@@ -187,7 +187,7 @@ func orderDTOFromRow(row orderapp.OrderRow) orderDTO {
 		IsBargain: row.IsBargain, SystemShipped: row.SystemShipped,
 		ReceiverName: row.ReceiverName, ReceiverPhone: row.ReceiverPhone,
 		ReceiverAddress: row.ReceiverAddr, ReceiverCity: row.ReceiverCity,
-		CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+		CreatedAt: normalizeOrderTimestamp(row.CreatedAt), UpdatedAt: normalizeOrderTimestamp(row.UpdatedAt),
 	}
 }
 
@@ -208,7 +208,7 @@ func orderDTOFromOrder(order *orderapp.Order, item *orderapp.ItemInfo) orderDTO 
 		CookieID: order.CookieID, IsBargain: order.IsBargain, SystemShipped: order.SystemShipped,
 		ReceiverName: order.ReceiverName, ReceiverPhone: order.ReceiverPhone,
 		ReceiverAddress: order.ReceiverAddress, ReceiverCity: order.ReceiverCity,
-		CreatedAt: order.CreatedAt, UpdatedAt: order.UpdatedAt,
+		CreatedAt: normalizeOrderTimestamp(order.CreatedAt), UpdatedAt: normalizeOrderTimestamp(order.UpdatedAt),
 	}
 }
 
