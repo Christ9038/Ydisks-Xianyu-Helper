@@ -228,7 +228,7 @@ func NewWithDependencies(store *db.Store, senders SenderProvider, logger *slog.L
 		accountAutomationAllowed: center.accountAutomationAllowed,
 		accountSenderReady:       center.accountSenderReady,
 		deferTask:                center.deferTask,
-		executeAction:            center.executeAction,
+		executeAction:            center.executeActionWithProof,
 		hasNotifier:              func() bool { return center.dependencies.notifier != nil },
 		notifyResult:             center.notifyResult,
 	}
@@ -696,6 +696,11 @@ func (c *Center) prepareTask(ctx context.Context, task Task) (Task, error) {
 // executeAction 将具体动作委托给发货动作执行器。
 func (c *Center) executeAction(ctx context.Context, task Task, action db.AutomationAction) (int, error) {
 	return c.actions.executeAction(ctx, task, action)
+}
+
+// executeActionWithProof 执行动作并把当前运行内已成功投递的凭证传给确认发货动作。
+func (c *Center) executeActionWithProof(ctx context.Context, task Task, action db.AutomationAction, proof shipmentDeliveryProof) (actionExecutionResult, error) {
+	return c.actions.executeActionWithProof(ctx, task, action, proof)
 }
 
 // confirmShipment 将确认发货委托给发货动作执行器。

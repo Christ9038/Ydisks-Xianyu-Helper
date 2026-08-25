@@ -16,15 +16,19 @@ import (
 
 // Consign 调用 mtop.taobao.idle.logistic.consign.dummy 确认发货（虚拟发货）。
 // data_val 形如 {"orderId":"...","tradeText":"","picList":[],"newUnconsign":true}。
-// 返回成功标志、响应 ret 列表、可能更新后的 cookie。
+// 返回成功标志、响应 ret 列表、可能更新后的 cookie；不带额外凭证内容时保持历史请求语义。
 // 移植自 secure_confirm_decrypted.auto_confirm。
-// Consign 封装Consign业务协调。
 func (c *ClientImpl) Consign(cookiesStr, orderID string) (ok bool, ret []string, updatedCookies string, err error) {
-	return c.ConsignContext(context.Background(), cookiesStr, orderID)
+	return c.ConsignContextWithDelivery(context.Background(), cookiesStr, orderID, "", nil)
 }
 
 // ConsignContext 确认发货；签名 token 过期时使用响应下发的新 Cookie 重签并重试。
 func (c *ClientImpl) ConsignContext(ctx context.Context, cookiesStr, orderID string) (ok bool, ret []string, updatedCookies string, err error) {
+	return c.ConsignContextWithDelivery(ctx, cookiesStr, orderID, "", nil)
+}
+
+// ConsignContextWithDelivery 确认虚拟发货并携带已发送给买家的文本或图片凭证；凭证只存在于本次请求内，不写入日志或任务快照。
+func (c *ClientImpl) ConsignContextWithDelivery(ctx context.Context, cookiesStr, orderID, tradeText string, picList []string) (ok bool, ret []string, updatedCookies string, err error) {
 	// currentCookies 用于本次流程后续判断的currentCookies
 	currentCookies := cookiesStr
 	if // session 用于本次流程后续判断的会话
@@ -38,7 +42,7 @@ func (c *ClientImpl) ConsignContext(ctx context.Context, cookiesStr, orderID str
 		// previousCookies 用于本次流程后续判断的previousCookies
 		previousCookies := currentCookies
 		// ok、ret、updated、requestErr 用于本次流程后续判断的ok、ret、updated、requestErr
-		ok, ret, updated, requestErr := c.consignOnce(ctx, currentCookies, orderID)
+		ok, ret, updated, requestErr := c.consignOnce(ctx, currentCookies, orderID, tradeText, picList)
 		if requestErr != nil {
 			return false, ret, currentCookies, requestErr
 		}
@@ -80,7 +84,8 @@ func (c *ClientImpl) ConsignContext(ctx context.Context, cookiesStr, orderID str
 }
 
 // consignOnce 封装consignOnce业务协调。
-func (c *ClientImpl) consignOnce(ctx context.Context, cookiesStr, orderID string) (ok bool, ret []string, updatedCookies string, err error) {
+// consignOnce 发送一次带发货凭证的确认发货请求；调用方负责在 token 过期时重试。
+func (c *ClientImpl) consignOnce(ctx context.Context, cookiesStr, orderID, tradeText string, picList []string) (ok bool, ret []string, updatedCookies string, err error) {
 	// hc 用于本次流程后续判断的hc
 	hc := c.httpClient()
 	// consignURL 用于本次流程后续判断的consignURL
@@ -94,8 +99,27 @@ func (c *ClientImpl) consignOnce(ctx context.Context, cookiesStr, orderID string
 	token := protocol.SignToken(signingCookies)
 	// t 用于本次流程后续判断的t
 	t := strconv.FormatInt(time.Now().UnixMilli(), 10)
-	// dataVal 用于本次流程后续判断的数据Val
-	dataVal := `{"orderId":"` + orderID + `", "tradeText":"","picList":[],"newUnconsign":true}`
+	// payload 保存确认发货接口需要的订单号、发货文本和图片凭证；图片切片只在当前请求中使用。
+	payload := struct {
+		// OrderID 是平台确认发货使用的订单号。
+		OrderID string `json:"orderId"`
+		// TradeText 是买家实际收到的文本发货凭证。
+		TradeText string `json:"tradeText"`
+		// PictureList 是买家实际收到的图片发货凭证地址。
+		PictureList []string `json:"picList"`
+		// NewUnconsign 表示本次请求按虚拟商品确认发货处理。
+		NewUnconsign bool `json:"newUnconsign"`
+	}{OrderID: orderID, TradeText: tradeText, PictureList: append([]string(nil), picList...), NewUnconsign: true}
+	if payload.PictureList == nil {
+		payload.PictureList = []string{}
+	}
+	// dataVal 是签名和请求体共同使用的 JSON；序列化确保订单号和凭证中的特殊字符不会破坏请求结构。
+	dataBytes, marshalErr := json.Marshal(payload)
+	if marshalErr != nil {
+		return false, nil, cookiesStr, fmt.Errorf("构造 consign 请求数据失败: %w", marshalErr)
+	}
+	// dataVal 是序列化后的确认发货数据，参与签名并作为表单值提交。
+	dataVal := string(dataBytes)
 	// sign 用于本次流程后续判断的sign
 	sign := protocol.GenerateSign(t, token, dataVal)
 

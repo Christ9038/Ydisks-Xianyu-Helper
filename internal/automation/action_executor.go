@@ -63,6 +63,27 @@ type shipmentConsignResult struct {
 	callErr error
 }
 
+// shipmentDeliveryProof 保存本次自动发货已经成功投递的文本和图片凭证；它只在当前运行内存中流转，不进入任务快照、日志或通知。
+type shipmentDeliveryProof struct {
+	// tradeText 是已成功发送给买家的文本凭证，多个发货单位按换行合并。
+	tradeText string
+	// picList 是已成功发送给买家的图片地址，顺序与发送顺序一致。
+	picList []string
+}
+
+// actionExecutionResult 保存动作成功产生的数量和可供后续确认发货使用的短暂凭证。
+type actionExecutionResult struct {
+	// sent 是本动作已明确完成的外部结果数量。
+	sent int
+	// proof 是本动作成功投递的发货凭证。
+	proof shipmentDeliveryProof
+}
+
+// consignWithDeliveryClient 是自动化确认发货需要的可选 MTOP 能力；旧客户端仍可通过无凭证接口兼容运行。
+type consignWithDeliveryClient interface {
+	ConsignContextWithDelivery(context.Context, string, string, string, []string) (bool, []string, string, error)
+}
+
 // shipmentCookiePersistence 保存响应 Cookie 的条件写回结果；errors 中的失败需要与远端动作结果一并向调用方报告。
 type shipmentCookiePersistence struct {
 	// errors 收集读取、冲突检测或写回账号凭证时的本地持久化错误。
@@ -75,36 +96,50 @@ type shipmentCookiePersistence struct {
 
 // executeAction 执行一个动作，并把消息发送错误分类为可安全重试或结果未知。
 func (e *automationActionExecutor) executeAction(ctx context.Context, task Task, action db.AutomationAction) (int, error) {
+	// result 保存不带发货凭证的兼容动作结果；直接调用该入口的旧调用方不附加确认发货内容。
+	result, err := e.executeActionWithProof(ctx, task, action, shipmentDeliveryProof{})
+	return result.sent, err
+}
+
+// executeActionWithProof 执行动作并把已发送的发货凭证传递给后续确认发货动作；凭证不跨运行持久化。
+func (e *automationActionExecutor) executeActionWithProof(ctx context.Context, task Task, action db.AutomationAction, proof shipmentDeliveryProof) (actionExecutionResult, error) {
 	switch action.ActionType {
 	case ActionConfirmShipment:
-		return 0, e.confirmShipment(ctx, task)
+		return actionExecutionResult{}, e.confirmShipmentWithProof(ctx, task, proof)
 	case ActionAdjustPrice:
-		return e.adjustOrderPrice(ctx, task, action)
+		// sent、err 保存订单改价动作的结果数量和错误。
+		sent, err := e.adjustOrderPrice(ctx, task, action)
+		return actionExecutionResult{sent: sent}, err
 	case ActionSendCard:
-		return e.sendCard(ctx, task, action)
+		return e.sendCardWithProof(ctx, task, action)
 	case ActionSendTemplate:
 		return e.sendTemplate(ctx, task, action)
 	case ActionSendText:
 		// text 是渲染后的文字动作内容。
 		text := renderTemplate(action.MessageTemplate, task)
 		if strings.TrimSpace(text) == "" {
-			return 0, nil
+			return actionExecutionResult{}, nil
 		}
 		// sendErr 保存文字消息发送错误。
 		if sendErr := e.sendText(ctx, task, text); sendErr != nil {
 			if errors.Is(sendErr, ErrMessageNotSent) {
-				return 0, sendErr
+				return actionExecutionResult{}, sendErr
 			}
-			return 0, uncertainAction(sendErr)
+			return actionExecutionResult{}, uncertainAction(sendErr)
 		}
-		return 1, nil
+		return actionExecutionResult{sent: 1}, nil
 	default:
-		return 0, fmt.Errorf("未知自动化动作: %s", action.ActionType)
+		return actionExecutionResult{}, fmt.Errorf("未知自动化动作: %s", action.ActionType)
 	}
 }
 
 // confirmShipment 根据账号设置和任务强制标记决定是否确认订单发货。
 func (e *automationActionExecutor) confirmShipment(ctx context.Context, task Task) error {
+	return e.confirmShipmentWithProof(ctx, task, shipmentDeliveryProof{})
+}
+
+// confirmShipmentWithProof 使用已成功投递的凭证确认订单发货；会话恢复重试沿用同一份短暂凭证。
+func (e *automationActionExecutor) confirmShipmentWithProof(ctx context.Context, task Task, proof shipmentDeliveryProof) error {
 	if task.OrderID == "" {
 		return fmt.Errorf("确认发货缺少订单ID")
 	}
@@ -116,18 +151,33 @@ func (e *automationActionExecutor) confirmShipment(ctx context.Context, task Tas
 	if !enabled && !task.ForceConfirmShipment {
 		return nil
 	}
-	return e.confirmShipmentAttempt(ctx, task, true)
+	return e.confirmShipmentAttempt(ctx, task, proof, true)
 }
 
 // confirmShipmentAttempt 使用凭证快照调用 Consign，并以指纹条件写回 Cookie；远端成功但订单事实落库失败时创建可重试补偿记录。
-func (e *automationActionExecutor) confirmShipmentAttempt(ctx context.Context, task Task, allowCredentialRecovery bool) error {
+func (e *automationActionExecutor) confirmShipmentAttempt(ctx context.Context, task Task, proof shipmentDeliveryProof, allowCredentialRecovery bool) error {
 	// session 固定本次 MTOP 请求的最小凭证视图，外部调用期间不持有账号凭证锁。
 	session, err := e.openShipmentConsignSession(ctx, task.AccountID)
 	if err != nil {
 		return err
 	}
 	// succeeded、returns、updatedCookie、callErr 分别保存 MTOP 的业务成功标记、业务返回、扁平 Cookie 更新和调用错误。
-	succeeded, returns, updatedCookie, callErr := e.mtop().ConsignContext(session.requestContext, session.cookieStr, task.OrderID)
+	// client 保存当前确认发货使用的平台客户端；带凭证能力只由新实现提供，旧实现继续发送空凭证。
+	client := e.mtop()
+	// succeeded 表示平台是否明确确认订单已发货。
+	var succeeded bool
+	// returns 保存平台返回的确认发货业务信息。
+	var returns []string
+	// updatedCookie 保存平台响应下发的扁平 Cookie 更新。
+	var updatedCookie string
+	// callErr 保存确认发货请求或响应解析错误。
+	var callErr error
+	// deliveryClient、ok 保存可选的带发货凭证能力及其是否可用。
+	if deliveryClient, ok := client.(consignWithDeliveryClient); ok {
+		succeeded, returns, updatedCookie, callErr = deliveryClient.ConsignContextWithDelivery(session.requestContext, session.cookieStr, task.OrderID, proof.tradeText, proof.picList)
+	} else {
+		succeeded, returns, updatedCookie, callErr = client.ConsignContext(session.requestContext, session.cookieStr, task.OrderID)
+	}
 	// result 归并 MTOP 远端结果，Cookie 写回与订单状态写入随后独立处理。
 	result := shipmentConsignResult{succeeded: succeeded, returns: returns, updatedCookie: updatedCookie, callErr: callErr}
 	// cookiePersistence 收集响应 Cookie 的条件写回结果，并在锁外同步在线运行时。
@@ -147,7 +197,7 @@ func (e *automationActionExecutor) confirmShipmentAttempt(ctx context.Context, t
 		recoverer := e.recoverer()
 		if allowCredentialRecovery && recoverer != nil && recoverer.RecoverExpiredCredential(ctx, task.AccountID) {
 			e.logger.Info("确认发货凭证恢复成功，重新执行确认发货", "account", task.AccountID, "order_id", task.OrderID)
-			return e.confirmShipmentAttempt(ctx, task, false)
+			return e.confirmShipmentAttempt(ctx, task, proof, false)
 		}
 		if !allowCredentialRecovery {
 			return fmt.Errorf("%w: 确认发货在凭证恢复后仍返回 Session 失效: %v", errActionNotPerformed, sessionErr)
@@ -497,69 +547,91 @@ func consignAlreadyDelivered(returns []string) bool {
 
 // sendCard 按规格和购买数量分配文本、图片或数据卡密。
 func (e *automationActionExecutor) sendCard(ctx context.Context, task Task, action db.AutomationAction) (int, error) {
+	// result 保存卡密动作的发送数量和短暂凭证；旧入口只返回数量以保持测试及兼容调用方稳定。
+	result, err := e.sendCardWithProof(ctx, task, action)
+	return result.sent, err
+}
+
+// sendCardWithProof 发送卡密并收集实际成功投递的文本或图片凭证，供同一运行的确认发货动作使用。
+func (e *automationActionExecutor) sendCardWithProof(ctx context.Context, task Task, action db.AutomationAction) (actionExecutionResult, error) {
 	if !actionMatchesOrderSpec(task, action) {
-		return 0, nil
+		return actionExecutionResult{}, nil
 	}
 	if action.CardID <= 0 {
-		return 0, fmt.Errorf("发送卡密动作缺少卡密组ID")
+		return actionExecutionResult{}, fmt.Errorf("发送卡密动作缺少卡密组ID")
 	}
 	// count 是当前订单需要发送的卡密数量。
 	count := deliverySendCount(task, action)
 	// card 是待发送的卡密组完整配置。
 	card, err := e.store.Cards.GetForDelivery(ctx, action.CardID)
 	if err != nil {
-		return 0, err
+		return actionExecutionResult{}, err
 	}
 	if !card.Enabled {
-		return 0, fmt.Errorf("卡密组 %d 已停用", card.ID)
+		return actionExecutionResult{}, fmt.Errorf("卡密组 %d 已停用", card.ID)
 	}
 	if card.Type == "data" {
-		return e.sendDataCard(ctx, task, card, count)
+		return e.sendDataCardWithProof(ctx, task, card, count)
 	}
 	if card.Type == "api" {
-		return e.sendAPICard(ctx, task, action, card, count)
+		return e.sendAPICardWithProof(ctx, task, action, card, count)
 	}
 	// sent 是已经成功发送的卡密数量。
 	sent := 0
+	// proof 保存已经成功发送的文本和图片凭证。
+	proof := shipmentDeliveryProof{}
 	// i 表示当前卡密发送序号。
 	for i := 0; i < count; i++ {
 		// content、imageURL、readErr 分别是当前卡密组可发送的文本、图片地址和读取配置失败原因。
 		content, imageURL, readErr := e.cardContent(ctx, card)
 		if readErr != nil {
-			return sent, readErr
+			return actionExecutionResult{sent: sent, proof: proof}, readErr
 		}
 		if imageURL != "" {
 			// sendErr 保存图片消息发送错误。
 			if sendErr := e.sendImage(ctx, task, imageURL, card.ID); sendErr != nil {
-				return sent, classifyMessageSendError(sendErr)
+				return actionExecutionResult{sent: sent, proof: proof}, classifyMessageSendError(sendErr)
 			}
+			proof.picList = append(proof.picList, imageURL)
 		}
 		if strings.TrimSpace(content) != "" {
+			// renderedContent 是实际发送给买家的文本，也作为确认发货凭证提交。
+			renderedContent := renderTemplate(content, task)
 			// sendErr 保存文字消息发送错误。
-			if sendErr := e.sendText(ctx, task, renderTemplate(content, task)); sendErr != nil {
-				return sent, classifyMessageSendError(sendErr)
+			if sendErr := e.sendText(ctx, task, renderedContent); sendErr != nil {
+				return actionExecutionResult{sent: sent, proof: proof}, classifyMessageSendError(sendErr)
 			}
+			proof.tradeText = appendTradeText(proof.tradeText, renderedContent)
 		}
 		if strings.TrimSpace(content) == "" && strings.TrimSpace(imageURL) == "" {
-			return sent, fmt.Errorf("卡密组 %d 没有可发送内容", card.ID)
+			return actionExecutionResult{sent: sent, proof: proof}, fmt.Errorf("卡密组 %d 没有可发送内容", card.ID)
 		}
 		sent++
 	}
-	return sent, nil
+	return actionExecutionResult{sent: sent, proof: proof}, nil
 }
 
 // sendAPICard 按发货单位逐次调用普通 API，并在消息发送失败时保留结果未知状态。
 func (e *automationActionExecutor) sendAPICard(ctx context.Context, task Task, action db.AutomationAction, card *db.CardFull, count int) (int, error) {
+	// result 保存 API 卡密发送的数量和短暂凭证；旧入口只返回数量。
+	result, err := e.sendAPICardWithProof(ctx, task, action, card, count)
+	return result.sent, err
+}
+
+// sendAPICardWithProof 逐单位获取并发送 API 卡密，同时收集确认发货所需的文本凭证。
+func (e *automationActionExecutor) sendAPICardWithProof(ctx context.Context, task Task, action db.AutomationAction, card *db.CardFull, count int) (actionExecutionResult, error) {
 	// fetcher 是构造期固定的 API 卡发货客户端。
 	var fetcher APICardFetcher
 	if e.apiFetcher != nil {
 		fetcher = e.apiFetcher()
 	}
 	if fetcher == nil {
-		return 0, errors.New("API 卡发货客户端未初始化")
+		return actionExecutionResult{}, errors.New("API 卡发货客户端未初始化")
 	}
 	// sent 是已经完成 API 获取和买家消息发送的单位数量。
 	sent := 0
+	// proof 保存已经成功发送的 API 卡密文本。
+	proof := shipmentDeliveryProof{}
 	// unitIndex 表示从 1 开始的当前 API 发货单位序号。
 	for unitIndex := 1; unitIndex <= count; unitIndex++ {
 		// result、fetchErr 保存当前单位的 API 响应与请求错误。
@@ -571,26 +643,36 @@ func (e *automationActionExecutor) sendAPICard(ctx context.Context, task Task, a
 		})
 		if fetchErr != nil {
 			if result.Dispatched {
-				return sent, uncertainAction(fetchErr)
+				return actionExecutionResult{sent: sent, proof: proof}, uncertainAction(fetchErr)
 			}
-			return sent, noRetryAction(fetchErr)
+			return actionExecutionResult{sent: sent, proof: proof}, noRetryAction(fetchErr)
 		}
 		if strings.TrimSpace(result.Content) == "" {
-			return sent, uncertainAction(errors.New("API 卡发货响应没有可发送内容"))
+			return actionExecutionResult{sent: sent, proof: proof}, uncertainAction(errors.New("API 卡发货响应没有可发送内容"))
 		}
 		// sendErr 保存已取得卡密后向买家发送消息的结果；此时失败不能安全重放 API 请求。
 		if sendErr := e.sendText(ctx, task, result.Content); sendErr != nil {
-			return sent, uncertainAction(sendErr)
+			return actionExecutionResult{sent: sent, proof: proof}, uncertainAction(sendErr)
 		}
+		proof.tradeText = appendTradeText(proof.tradeText, result.Content)
 		sent++
 	}
-	return sent, nil
+	return actionExecutionResult{sent: sent, proof: proof}, nil
 }
 
 // sendDataCard 只在卡券锁内完成库存预留与恢复，把外部消息发送放到锁外。
 func (e *automationActionExecutor) sendDataCard(ctx context.Context, task Task, card *db.CardFull, count int) (int, error) {
+	// result 保存数据卡密发送的数量和短暂凭证；旧入口只返回数量。
+	result, err := e.sendDataCardWithProof(ctx, task, card, count)
+	return result.sent, err
+}
+
+// sendDataCardWithProof 发送库存卡密并收集确认发货所需的文本凭证。
+func (e *automationActionExecutor) sendDataCardWithProof(ctx context.Context, task Task, card *db.CardFull, count int) (actionExecutionResult, error) {
 	// sent 是已经成功发送的数据卡密数量。
 	sent := 0
+	// proof 保存已经成功发送的数据卡密文本。
+	proof := shipmentDeliveryProof{}
 	// i 表示当前数据卡密消费序号。
 	for i := 0; i < count; i++ {
 		// unlock 释放当前卡密组的并发消费锁；锁只覆盖本地库存操作。
@@ -599,7 +681,7 @@ func (e *automationActionExecutor) sendDataCard(ctx context.Context, task Task, 
 		content, err := e.store.Cards.ConsumeBatchData(ctx, card.ID)
 		unlock()
 		if err != nil {
-			return sent, err
+			return actionExecutionResult{sent: sent, proof: proof}, err
 		}
 		if strings.TrimSpace(content) != "" {
 			// sendErr 保存数据卡密消息发送错误。
@@ -611,17 +693,30 @@ func (e *automationActionExecutor) sendDataCard(ctx context.Context, task Task, 
 					restoreErr := e.store.Cards.RestoreBatchData(ctx, card.ID, content)
 					restoreUnlock()
 					if restoreErr != nil {
-						return sent, uncertainAction(errors.Join(sendErr, fmt.Errorf("恢复未发送卡密库存: %w", restoreErr)))
+						return actionExecutionResult{sent: sent, proof: proof}, uncertainAction(errors.Join(sendErr, fmt.Errorf("恢复未发送卡密库存: %w", restoreErr)))
 					}
-					return sent, sendErr
+					return actionExecutionResult{sent: sent, proof: proof}, sendErr
 				}
 				// 请求已交给传输层后无法判断远端是否收到，保留消费状态并人工核对。
-				return sent, uncertainAction(sendErr)
+				return actionExecutionResult{sent: sent, proof: proof}, uncertainAction(sendErr)
 			}
+			proof.tradeText = appendTradeText(proof.tradeText, content)
 		}
 		sent++
 	}
-	return sent, nil
+	return actionExecutionResult{sent: sent, proof: proof}, nil
+}
+
+// appendTradeText 按实际投递顺序合并多个发货单位，避免确认发货凭证丢失中间卡密内容。
+func appendTradeText(current, next string) string {
+	next = strings.TrimSpace(next)
+	if next == "" {
+		return current
+	}
+	if current == "" {
+		return next
+	}
+	return current + "\n" + next
 }
 
 // sendText 向账号在线发送器发送文字消息，并保留确定未发送的错误标记。
