@@ -2,6 +2,8 @@ import { useCallback,useEffect,useRef,useState } from 'react';
 import type { ChatMessage } from './api';
 import { getAccountDetails,getChatSessionPage } from './api';
 import { publishChatConnectionState,publishChatLiveMessage,subscribeToChatUnreadStatus } from './liveEvents';
+import { showBrowserNotification } from '../../../shared/browser/browserNotifications';
+import type { BrowserNotificationPayload } from '../../../shared/browser/browserNotifications';
 
 /** titleFlashIntervalMs 定义浏览器标题在提示文本与原始标题间切换的周期，单位为毫秒。 */
 const titleFlashIntervalMs = 1_000;
@@ -9,6 +11,29 @@ const titleFlashIntervalMs = 1_000;
 /** formatChatNewMessageTitle 根据原始标题生成不暴露消息数量的浏览器新消息提示文本。 */
 export const formatChatNewMessageTitle = (baseTitle: string): string => {
   return `【新消息】${baseTitle}`;
+};
+
+/** formatChatBrowserNotification 将入站聊天消息转换为不包含凭证的系统通知内容。 */
+export const formatChatBrowserNotification = (message: ChatMessage): BrowserNotificationPayload => {
+  // senderName 保存平台提供的发送者名称；缺失时使用稳定的通用标题。
+  const senderName = String(message.sender_name || '').trim() || '闲鱼买家';
+  // content 保存文本消息正文；缺失内容时使用稳定的占位文案而不是展示 undefined。
+  const content = String(message.content || '').trim();
+  // body 保存适合系统通知栏的短文本，媒体消息不把远程地址直接展示给用户。
+  const body = message.message_type === 'text'
+    ? content.slice(0, 120) || '发来了一条新消息'
+    : message.message_type === 'image'
+      ? '[图片]'
+      : message.message_type === 'video'
+        ? '[视频]'
+        : message.message_type === 'audio'
+          ? '[语音]'
+          : '发来了一条新消息';
+  return {
+    title: `${senderName}发来新消息`,
+    body,
+    tag: `chat-${message.account_id}-${message.chat_id}`,
+  };
 };
 
 /** ChatTitleNotifierResult 描述标题闪烁与侧边栏新消息标记的受控状态。 */
@@ -104,6 +129,7 @@ export const useChatTitleNotifier = (): ChatTitleNotifierResult => {
     realtimeUnreadVersionRef.current += 1;
     setNewMessageCount(/* 当前状态更新基于上一条实时消息计数累计，避免同一批 WebSocket 帧丢失数量。 */ current => current + 1);
     setHasUnreadChatMessage(true);
+    if (document.visibilityState !== 'visible') showBrowserNotification(formatChatBrowserNotification(message));
   }, []);
 
   return { notifyIncomingMessage, hasUnreadChatMessage };

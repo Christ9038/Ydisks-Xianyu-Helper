@@ -4,7 +4,7 @@ import { afterEach,beforeEach,describe,expect,test,vi } from 'vitest';
 import type { ChatMessage } from './api';
 import { getAccountDetails,getChatSessionPage } from './api';
 import { publishChatUnreadStatus } from './liveEvents';
-import { formatChatNewMessageTitle,useChatTitleNotification,useChatTitleNotifier } from './titleNotification';
+import { formatChatBrowserNotification,formatChatNewMessageTitle,useChatTitleNotification,useChatTitleNotifier } from './titleNotification';
 
 vi.mock('./api', /* chatApiMockFactory 提供标题通知初始化未读状态读取的确定性 API 替身。 */ () => ({
   getAccountDetails: vi.fn(),
@@ -55,6 +55,16 @@ describe('chat title notification', /* 当前测试组验证后台实时消息�
 
   test('格式化标题不会暴露新消息数量', /* 当前回调验证标题只展示固定的新消息标记。 */ () => {
     expect(formatChatNewMessageTitle('应用')).toBe('【新消息】应用');
+  });
+
+  test('系统通知按消息类型生成简洁正文和会话标签', /* 当前回调验证文本和媒体消息不会把远程地址直接展示到通知栏。 */ () => {
+    expect(formatChatBrowserNotification({
+      account_id: 'account-1',
+      chat_id: 'chat-1',
+      sender_name: '买家',
+      message_type: 'image',
+      direction: 'incoming',
+    } as ChatMessage)).toEqual({ title: '买家发来新消息', body: '[图片]', tag: 'chat-account-1-chat-1' });
   });
 
   test('新消息会累计闪烁标题并在重新聚焦后恢复', /* 当前回调验证前后台一致的实时计数、闪烁周期与用户确认后的清除行为。 */ () => {
