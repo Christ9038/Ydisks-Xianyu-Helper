@@ -1,10 +1,11 @@
 import type { Dispatch,ElementType,SetStateAction } from 'react';
 import type {
 AccountDetail,
-AutomationAction,
-AutomationTriggerType,
-Card,
-DefaultReply,
+  AutomationAction,
+  AutomationTriggerType,
+  Card,
+  DefaultReply,
+  DeliveryTemplate,
 Item,
 ReplyRule,
 ShippingRule,
@@ -15,10 +16,11 @@ import type { AutomationRunIssue,DeferredAutomationIssue } from './api';
 // Rules feature 通过此类型入口重导出共享领域模型，避免页面直接依赖全局类型文件。
 export type {
 AccountDetail,
-AutomationAction,
-AutomationTriggerType,
-Card,
-DefaultReply,
+  AutomationAction,
+  AutomationTriggerType,
+  Card,
+  DefaultReply,
+  DeliveryTemplate,
 Item,
 ReplyRule,
 ShippingRule,
@@ -89,6 +91,8 @@ export interface RulesReferenceData {
   cards: Card[];
   // items 是可绑定自动化规则的商品列表。
   items: Item[];
+  // deliveryTemplates 是可用于模板动作的用户发货模板。
+  deliveryTemplates: DeliveryTemplate[];
   // defaultReplies 是按账号索引的默认回复配置。
   defaultReplies: Record<string, DefaultReply>;
 }

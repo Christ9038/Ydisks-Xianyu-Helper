@@ -99,6 +99,11 @@ func (m ruleMatcher) match(ctx context.Context, task Task) ([]db.AutomationRule,
 // actionPlanner 用于本次流程后续判断的动作Planner
 type actionPlanner struct{}
 
+// isDeliveryAction 判断动作是否会产生订单发货消息。
+func isDeliveryAction(action db.AutomationAction) bool {
+	return action.ActionType == ActionSendCard || action.ActionType == ActionSendTemplate
+}
+
 // plan 根据触发类型筛选可执行动作，并保留付款事件的发卡优先顺序。
 func (actionPlanner) plan(task Task, actions []db.AutomationAction) []db.AutomationAction {
 	// out 用于本次流程后续判断的out
@@ -106,7 +111,7 @@ func (actionPlanner) plan(task Task, actions []db.AutomationAction) []db.Automat
 	if task.TriggerType == TriggerOrderPaid {
 		// action 表示当前遍历过程中的动作
 		for _, action := range actions {
-			if action.Enabled && action.ActionType == ActionSendCard && actionMatchesOrderSpec(task, action) {
+			if action.Enabled && isDeliveryAction(action) && actionMatchesOrderSpec(task, action) {
 				out = append(out, action)
 			}
 		}
@@ -131,7 +136,7 @@ func (actionPlanner) plan(task Task, actions []db.AutomationAction) []db.Automat
 func (actionPlanner) hasMatchingSendCard(task Task, actions []db.AutomationAction) bool {
 	// action 表示当前遍历过程中的动作
 	for _, action := range actions {
-		if action.Enabled && action.ActionType == ActionSendCard && actionMatchesOrderSpec(task, action) {
+		if action.Enabled && isDeliveryAction(action) && actionMatchesOrderSpec(task, action) {
 			return true
 		}
 	}
@@ -146,7 +151,7 @@ func (actionPlanner) immediateManualActions(actions []db.AutomationAction) []db.
 	// i 表示当前遍历过程中的i
 	for i := range out {
 		out[i].DelaySeconds = 0
-		if out[i].ActionType != ActionSendCard {
+		if out[i].ActionType != ActionSendCard && out[i].ActionType != ActionSendTemplate {
 			continue
 		}
 		// config 用于本次流程后续判断的配置

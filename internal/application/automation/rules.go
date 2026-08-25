@@ -36,6 +36,9 @@ const ActionConfirmShipment = "confirm_shipment"
 // ActionSendCard 表示发送卡密动作。
 const ActionSendCard = "send_card"
 
+// ActionSendTemplate 表示按可复用模板发送多条发货消息。
+const ActionSendTemplate = "send_template"
+
 // ActionSendText 表示发送文本动作。
 const ActionSendText = "send_text"
 
@@ -60,6 +63,12 @@ type ActionDraft struct {
 	Enabled *bool
 	// SortOrder 是动作在规则中的顺序。
 	SortOrder int
+	// DeliveryTemplateID 是模板发货动作引用的模板标识。
+	DeliveryTemplateID int64
+	// TemplateBindings 是模板变量到卡密组的绑定列表。
+	TemplateBindings []TemplateBinding
+	// CustomVariables 是规则传给模板的自定义字符串键值表。
+	CustomVariables map[string]string
 }
 
 // RuleDraft 是创建或更新自动化规则的业务输入。
@@ -122,6 +131,12 @@ type ActionInput struct {
 	Enabled bool
 	// SortOrder 是动作在规则中的顺序。
 	SortOrder int
+	// DeliveryTemplateID 是模板发货动作引用的模板标识。
+	DeliveryTemplateID int64
+	// TemplateBindings 是已经校验的模板变量绑定列表。
+	TemplateBindings []TemplateBinding
+	// CustomVariables 是经过校验并持久化的模板自定义字符串键值表。
+	CustomVariables map[string]string
 }
 
 // Rule 是返回给 HTTP 适配层的非数据库规则模型。
@@ -174,6 +189,40 @@ type Action struct {
 	Enabled bool
 	// SortOrder 是动作顺序。
 	SortOrder int
+	// DeliveryTemplateID 是模板发货动作引用的模板标识。
+	DeliveryTemplateID int64
+	// DeliveryTemplateName 是模板名称展示字段。
+	DeliveryTemplateName string
+	// TemplateMessages 是模板动作的有序消息。
+	TemplateMessages []string
+	// TemplateKeys 是模板动作需要绑定的变量键。
+	TemplateKeys []string
+	// TemplateBindings 是模板变量绑定展示列表。
+	TemplateBindings []TemplateBinding
+	// CustomVariables 是规则保存时传入模板的自定义字符串键值表。
+	CustomVariables map[string]string
+}
+
+// TemplateBinding 是应用层模板变量到卡密组的绑定。
+type TemplateBinding struct {
+	// VariableKey 是模板变量键。
+	VariableKey string
+	// CardID 是绑定的卡密组标识。
+	CardID int64
+	// CardName 是卡密组名称。
+	CardName string
+	// DeliveryCount 是每件商品准备的卡密份数。
+	DeliveryCount int
+}
+
+// TemplateInfo 是规则校验所需的模板非敏感摘要。
+type TemplateInfo struct {
+	// Enabled 表示模板是否可供规则引用。
+	Enabled bool
+	// Keys 是模板需要绑定的变量键。
+	Keys []string
+	// CustomKeys 是模板需要规则提供的自定义变量键。
+	CustomKeys []string
 }
 
 // RuleFilter 是用户范围规则分页查询条件。
@@ -196,6 +245,8 @@ type RuleFilter struct {
 
 // CardInfo 是规则校验所需的最小卡密组信息。
 type CardInfo struct {
+	// Enabled 表示卡密组当前是否允许被发货动作使用。
+	Enabled bool
 	// Type 是卡密组类型。
 	Type string
 	// APIReady 表示 API 卡券配置已通过完整校验且允许被规则选择。
@@ -318,7 +369,7 @@ func (s *RuleService) Normalize(ctx context.Context, userID int64, draft RuleDra
 		draft.Name = defaultRuleName(draft.TriggerType, draft.ItemID)
 	}
 	// actions 是规范化后的动作列表；flags 汇总启用动作类型，供触发类型组合校验使用。
-	actions, flags, actionsErr := s.normalizeDraftActions(ctx, userID, draft.Actions)
+	actions, flags, actionsErr := s.normalizeDraftActions(ctx, userID, draft.TriggerType, draft.Actions)
 	if actionsErr != nil {
 		return RuleInput{}, actionsErr
 	}
@@ -345,6 +396,8 @@ func (s *RuleService) Normalize(ctx context.Context, userID int64, draft RuleDra
 type ruleActionFlags struct {
 	// hasSendCard 表示是否存在启用的发卡动作。
 	hasSendCard bool
+	// hasSendTemplate 表示是否存在启用的模板发货动作。
+	hasSendTemplate bool
 	// hasSendText 表示是否存在启用的文本动作。
 	hasSendText bool
 	// hasConfirmShipment 表示是否存在启用的确认发货动作。
@@ -354,7 +407,7 @@ type ruleActionFlags struct {
 }
 
 // normalizeDraftActions 逐个校验并规范化规则草稿中的动作，同时汇总启用动作类型标志。
-func (s *RuleService) normalizeDraftActions(ctx context.Context, userID int64, draftActions []ActionDraft) ([]ActionInput, ruleActionFlags, error) {
+func (s *RuleService) normalizeDraftActions(ctx context.Context, userID int64, triggerType string, draftActions []ActionDraft) ([]ActionInput, ruleActionFlags, error) {
 	// actions 保存规范化后的动作；flags 记录启用动作类型，供规则完整性校验使用。
 	actions := make([]ActionInput, 0, len(draftActions))
 	// flags 汇总当前草稿中启用的动作类型。
@@ -367,6 +420,9 @@ func (s *RuleService) normalizeDraftActions(ctx context.Context, userID int64, d
 			enabled = *draftAction.Enabled
 		}
 		draftAction.ActionType = strings.TrimSpace(draftAction.ActionType)
+		if draftAction.CustomVariables == nil {
+			draftAction.CustomVariables = customVariablesFromConfig(draftAction.ConfigJSON)
+		}
 		switch draftAction.ActionType {
 		case ActionConfirmShipment:
 			flags.hasConfirmShipment = flags.hasConfirmShipment || enabled
@@ -376,6 +432,37 @@ func (s *RuleService) normalizeDraftActions(ctx context.Context, userID int64, d
 				return nil, flags, cardErr
 			}
 			flags.hasSendCard = flags.hasSendCard || enabled
+		case ActionSendTemplate:
+			if triggerType != TriggerOrderPaid && triggerType != TriggerBuyerReviewed {
+				return nil, flags, errors.New("发货模板动作仅支持付款发货或评价赠品")
+			}
+			if draftAction.DeliveryTemplateID <= 0 {
+				return nil, flags, errors.New("发货模板动作必须选择发货模板")
+			}
+			// templateOwnership 保存可选的模板归属能力，兼容只支持旧动作的测试仓储。
+			templateOwnership, ok := s.ownership.(interface {
+				GetDeliveryTemplate(context.Context, int64, int64) (TemplateInfo, error)
+			})
+			if !ok {
+				return nil, flags, errors.New("发货模板能力未装配")
+			}
+			// template 保存模板变量摘要和启用状态。
+			template, templateErr := templateOwnership.GetDeliveryTemplate(ctx, userID, draftAction.DeliveryTemplateID)
+			if templateErr != nil {
+				return nil, flags, templateErr
+			}
+			if !template.Enabled {
+				return nil, flags, errors.New("发货模板不存在或已停用")
+			}
+			// bindingErr 保存模板变量绑定校验失败原因。
+			if bindingErr := validateTemplateBindings(ctx, s.ownership, userID, template.Keys, draftAction.TemplateBindings); bindingErr != nil {
+				return nil, flags, bindingErr
+			}
+			// customErr 保存模板自定义变量数量校验失败原因。
+			if customErr := validateTemplateCustomVariables(template.CustomKeys, draftAction.CustomVariables); customErr != nil {
+				return nil, flags, customErr
+			}
+			flags.hasSendTemplate = flags.hasSendTemplate || enabled
 		case ActionSendText:
 			if strings.TrimSpace(draftAction.MessageTemplate) == "" {
 				return nil, flags, errors.New("发送文本动作必须填写文案")
@@ -402,12 +489,95 @@ func (s *RuleService) normalizeDraftActions(ctx context.Context, userID int64, d
 		if !isJSONObject(draftAction.ConfigJSON) {
 			return nil, flags, errors.New("动作配置必须是 JSON 对象")
 		}
+		// configErr 保存把规则自定义变量写入动作配置的错误。
+		configErr := error(nil)
+		if draftAction.ActionType == ActionSendTemplate {
+			draftAction.ConfigJSON, configErr = withCustomVariables(draftAction.ConfigJSON, draftAction.CustomVariables)
+			if configErr != nil {
+				return nil, flags, configErr
+			}
+		}
 		actions = append(actions, ActionInput{ActionType: draftAction.ActionType, CardID: draftAction.CardID,
 			DeliveryCount: draftAction.DeliveryCount, MessageTemplate: draftAction.MessageTemplate,
 			DelaySeconds: draftAction.DelaySeconds, ConfigJSON: draftAction.ConfigJSON, Enabled: enabled,
-			SortOrder: firstRuleNonZero(draftAction.SortOrder, index+1)})
+			SortOrder: firstRuleNonZero(draftAction.SortOrder, index+1), DeliveryTemplateID: draftAction.DeliveryTemplateID,
+			TemplateBindings: append([]TemplateBinding(nil), draftAction.TemplateBindings...),
+			CustomVariables:  copyCustomVariables(draftAction.CustomVariables)})
 	}
 	return actions, flags, nil
+}
+
+// validateTemplateCustomVariables 校验模板使用的自定义变量键都能从规则键值表中取到非空字符串。
+func validateTemplateCustomVariables(keys []string, values map[string]string) error {
+	for /* key 表示模板引用的自定义变量键。 */ _, key := range keys {
+		if strings.TrimSpace(values[key]) == "" {
+			return fmt.Errorf("请填写发货模板自定义变量 %q", key)
+		}
+	}
+	return nil
+}
+
+// withCustomVariables 把规则页提交的自定义字符串键值表写入动作配置，保证延迟运行仍能使用原始值。
+func withCustomVariables(configJSON string, values map[string]string) (string, error) {
+	// config 保存动作配置对象，保留已有规格和延迟字段。
+	config := make(map[string]any)
+	// err 保存动作配置 JSON 解码错误。
+	if err := json.Unmarshal([]byte(configJSON), &config); err != nil {
+		return "", errors.New("动作配置必须是 JSON 对象")
+	}
+	// normalized 保存去除键和值首尾空白后的自定义变量键值表。
+	normalized := make(map[string]string, len(values))
+	for /* key 表示自定义变量键；value 表示规则页输入的字符串。 */ key, value := range values {
+		normalized[strings.TrimSpace(key)] = strings.TrimSpace(value)
+	}
+	config["custom_variables"] = normalized
+	// encoded 保存包含自定义变量的规范化 JSON 配置。
+	encoded, err := json.Marshal(config)
+	if err != nil {
+		return "", errors.New("保存发货模板自定义变量失败")
+	}
+	return string(encoded), nil
+}
+
+// customVariablesFromConfig 从动作配置 JSON 中读取键值表，并兼容历史字符串数组格式。
+func customVariablesFromConfig(configJSON string) map[string]string {
+	// config 保存动作配置中与模板相关的非敏感字段原文。
+	var config map[string]json.RawMessage
+	// err 保存动作配置解析错误。
+	if err := json.Unmarshal([]byte(configJSON), &config); err != nil {
+		return nil
+	}
+	// raw 保存自定义变量字段的 JSON 原文，便于兼容对象和历史数组两种格式。
+	raw := config["custom_variables"]
+	// values 保存新格式的自定义变量键值表。
+	var values map[string]string
+	if json.Unmarshal(raw, &values) == nil && values != nil {
+		return copyCustomVariables(values)
+	}
+	// legacyValues 保存历史数组格式的自定义变量值。
+	var legacyValues []string
+	if json.Unmarshal(raw, &legacyValues) != nil {
+		return nil
+	}
+	// converted 保存按数组下标转换得到的兼容键值表。
+	converted := make(map[string]string, len(legacyValues))
+	for /* index 表示历史数组下标；value 表示历史自定义字符串。 */ index, value := range legacyValues {
+		converted[strconv.Itoa(index)] = value
+	}
+	return converted
+}
+
+// copyCustomVariables 复制自定义变量键值表，避免应用模型与调用方共享可变 map。
+func copyCustomVariables(values map[string]string) map[string]string {
+	if values == nil {
+		return nil
+	}
+	// copied 保存自定义变量键值表的独立副本。
+	copied := make(map[string]string, len(values))
+	for /* key 表示自定义变量键；value 表示自定义字符串。 */ key, value := range values {
+		copied[key] = value
+	}
+	return copied
 }
 
 // validateSendCardAction 校验发卡动作的卡密选择和归属；具体卡券类型由执行器处理。
@@ -429,6 +599,41 @@ func (s *RuleService) validateSendCardAction(ctx context.Context, userID int64, 
 	return nil
 }
 
+// validateTemplateBindings 校验模板变量覆盖完整且每个卡密组属于当前用户。
+func validateTemplateBindings(ctx context.Context, ownership RuleOwnership, userID int64, keys []string, bindings []TemplateBinding) error {
+	if len(keys) != len(bindings) {
+		return errors.New("发货模板的卡密变量绑定不完整")
+	}
+	// expected 保存模板变量键集合，避免重复绑定或遗漏。
+	expected := make(map[string]bool, len(keys))
+	for /* key 表示模板要求绑定的变量键。 */ _, key := range keys {
+		expected[key] = true
+	}
+	// seen 保存已经出现的绑定键。
+	seen := make(map[string]bool, len(bindings))
+	for /* binding 表示当前变量到卡密组的绑定。 */ _, binding := range bindings {
+		if !expected[binding.VariableKey] || seen[binding.VariableKey] || binding.CardID <= 0 {
+			return errors.New("发货模板的卡密变量绑定无效")
+		}
+		seen[binding.VariableKey] = true
+		// card 保存绑定卡密组的非敏感摘要。
+		card, err := ownership.GetCard(ctx, userID, binding.CardID)
+		if err != nil {
+			return err
+		}
+		if card.Type != "text" && card.Type != "data" {
+			return errors.New("发货模板只能绑定文本或批量数据卡密组")
+		}
+		if !card.Enabled {
+			return errors.New("发货模板不能绑定已停用的卡密组")
+		}
+	}
+	if len(seen) != len(expected) {
+		return errors.New("发货模板的卡密变量绑定不完整")
+	}
+	return nil
+}
+
 // validateTriggerActionCombination 校验触发类型允许的动作组合和必需动作。
 func validateTriggerActionCombination(triggerType string, flags ruleActionFlags) error {
 	switch triggerType {
@@ -443,8 +648,8 @@ func validateTriggerActionCombination(triggerType string, flags ruleActionFlags)
 		if flags.hasAdjustPrice {
 			return errors.New("改价动作只能用于拍下未付款规则")
 		}
-		if !flags.hasSendCard {
-			return errors.New("付款后自动发货至少需要一个已启用的发送卡密动作")
+		if !flags.hasSendCard && !flags.hasSendTemplate {
+			return errors.New("付款后自动发货至少需要一个已启用的发送卡密或模板动作")
 		}
 	case TriggerBuyerReviewed:
 		if flags.hasConfirmShipment {
@@ -453,7 +658,7 @@ func validateTriggerActionCombination(triggerType string, flags ruleActionFlags)
 		if flags.hasAdjustPrice {
 			return errors.New("改价动作只能用于拍下未付款规则")
 		}
-		if !flags.hasSendCard && !flags.hasSendText {
+		if !flags.hasSendCard && !flags.hasSendTemplate && !flags.hasSendText {
 			return errors.New("评价后规则至少需要一个已启用的发送动作")
 		}
 	case TriggerReviewMissingTimeout:

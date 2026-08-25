@@ -121,6 +121,36 @@ func TestSendAPICardDeliversEachUnit(t *testing.T) {
 	}
 }
 
+// TestSendTemplateRendersBoundCards 验证模板变量按订单数量展开并按消息顺序发送。
+func TestSendTemplateRendersBoundCards(t *testing.T) {
+	// store、cleanup 保存模板动作测试使用的数据库和清理函数。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// ctx 保存模板动作共用的测试上下文。
+	ctx := context.Background()
+	// admin 保存创建测试卡密组所需的用户。
+	admin, err := store.Users.GetByUsername(ctx, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// cardID 保存模板变量绑定的文本卡密组。
+	cardID, err := store.Cards.Create(ctx, &db.CardFull{Name: "模板文本库存", Type: "text", TextContent: "授权码", Enabled: true, UserID: admin.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// sender 保存模板动作实际发出的消息。
+	sender := &testSender{}
+	// executor 是注入测试数据库和消息发送器的执行器。
+	executor := automationActionExecutor{store: store, senders: testSenderProvider{sender: sender}}
+	// action 保存包含订单、库存和规则变量的两条模板消息动作。
+	action := db.AutomationAction{ActionType: ActionSendTemplate, ConfigJSON: "{}", TemplateMessages: []string{"第一条 {{buyer_nickname}}/{{order_id}}/{{buyer_id}}/{{card_name}} {{cards.code}}", "第二条 {{custom.remark}} {{cards.code}}"}, TemplateBindings: []db.DeliveryTemplateBinding{{VariableKey: "code", CardID: cardID, CardName: "模板文本库存", DeliveryCount: 1}}, CustomVariables: map[string]string{"remark": "规则备注"}}
+	// sent、sendErr 保存模板消息执行统计和错误。
+	sent, sendErr := executor.sendTemplate(ctx, Task{AccountID: "cid", OrderID: "order", ChatID: "chat", BuyerID: "buyer", BuyerNickname: "小鱼", Quantity: "2", TriggerType: TriggerOrderPaid}, action)
+	if sendErr != nil || sent != 2 || len(sender.texts) != 2 || sender.texts[0] != "第一条 小鱼/order/buyer/模板文本库存 授权码\n授权码" || sender.texts[1] != "第二条 规则备注 授权码\n授权码" {
+		t.Fatalf("模板动作渲染错误 sent=%d texts=%v err=%v", sent, sender.texts, sendErr)
+	}
+}
+
 // TestSendDataCardReleasesInventoryLockBeforeExternalSend 验证第二个库存操作不会等待第一个外部发送完成。
 func TestSendDataCardReleasesInventoryLockBeforeExternalSend(t *testing.T) {
 	// store、cleanup 保存测试数据库及其清理函数。

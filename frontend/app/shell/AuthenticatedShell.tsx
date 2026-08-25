@@ -51,6 +51,8 @@ const ItemList = lazy(/* ItemList 页面按路由激活时加载。 */ () => imp
 const Settings = lazy(/* Settings 页面按路由激活时加载。 */ () => import('../features/settings/pages/Settings'));
 // Rules 是按需加载的自动化规则页面，避免首屏载入规则编辑器代码。
 const Rules = lazy(/* Rules 页面按路由激活时加载。 */ () => import('../features/rules/pages/Rules'));
+// DeliveryTemplates 是按需加载的发货模板管理页面。
+const DeliveryTemplates = lazy(/* DeliveryTemplates 页面按路由激活时加载。 */ () => import('../features/delivery-templates/pages/DeliveryTemplates'));
 // Notifications 是按需加载的通知页面，避免首屏载入通知配置代码。
 const Notifications = lazy(/* Notifications 页面按路由激活时加载。 */ () => import('../features/notifications/pages/Notifications'));
 // Chat 是按需加载的聊天页面，避免未访问时载入聊天历史和 WebSocket 视图。
@@ -107,6 +109,7 @@ export const AppContent: React.FC<AppContentProps> = ({
         initialDeliveryTarget={deliveryRuleTarget}
         onDeliveryTargetHandled={onDeliveryTargetHandled}
       />;
+      case 'delivery-templates': return <DeliveryTemplates />;
       case 'notifications': return <Notifications isAdmin={isAdmin} />;
       case 'settings': return isAdmin ? <Settings /> : <Dashboard />;
       default: return <Dashboard />;

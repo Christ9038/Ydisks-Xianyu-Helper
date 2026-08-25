@@ -1128,10 +1128,39 @@ test('updateShippingRule posts every matching card action before confirm shipmen
       sort_order: 3,
     }),
   ]);
-  expect(JSON.parse(body.actions[0].config_json)).toEqual({ spec_name: '套餐', spec_value: '30天', delay_override: false });
-  expect(JSON.parse(body.actions[1].config_json)).toEqual({ spec_name: '套餐', spec_value: '30天', delay_override: true });
+  expect(JSON.parse(body.actions[0].config_json)).toEqual({ spec_name: '套餐', spec_value: '30天', delay_override: false, custom_variables: {} });
+  expect(JSON.parse(body.actions[1].config_json)).toEqual({ spec_name: '套餐', spec_value: '30天', delay_override: true, custom_variables: {} });
   expect(body.actions[1].delay_seconds).toBe(0);
 } /* 测试回调验证：updateShippingRule posts every matching card action before confirm shipment。 */);
+
+test('updateShippingRule serializes template custom variables as key-value strings', /* 测试回调验证自定义变量按键值表序列化。 */ async () => {
+  // fetchMock 是自动化规则保存接口的网络替身。
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true, id: 5 }));
+  stubContractFetch(fetchMock);
+
+  await updateShippingRule({
+    cookie_id: 'cookie-1',
+    item_id: 'item-1',
+    trigger_type: 'order_paid',
+    enabled: true,
+    variants: [{
+      spec_name: '',
+      spec_value: '',
+      card_id: 0,
+      delivery_count: 1,
+      enabled: true,
+      delivery_mode: 'template',
+      delivery_template_id: 9,
+      template_bindings: [],
+      custom_variables: { remark: '请联系客服', tier: 'VIP' },
+    }],
+  });
+
+  // body 是规则保存请求体，用于验证自定义变量没有退化成数组。
+  const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+  expect(body.actions[0].custom_variables).toEqual({ remark: '请联系客服', tier: 'VIP' });
+  expect(JSON.parse(body.actions[0].config_json).custom_variables).toEqual({ remark: '请联系客服', tier: 'VIP' });
+});
 
 test('updateShippingRule preserves text actions while editing card variants', async () => {
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true, id: 4 })); /* fetchMock 表示fetchMock。 */

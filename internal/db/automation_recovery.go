@@ -489,26 +489,60 @@ VALUES (?,?,?,?,?,?,?,?)`,
 	// act 表示当前遍历过程中的act
 	for _, act := range in.Actions {
 		if // err 用于本次流程后续判断的err
-		err := insertAutomationActionTx(ctx, tx, id, act); err != nil {
+		_, err := insertAutomationActionTx(ctx, tx, dialect, id, act); err != nil {
 			return 0, err
 		}
 	}
 	return id, nil
 }
 
-// insertAutomationActionTx 封装insert自动化动作Tx业务协调。
-func insertAutomationActionTx(ctx context.Context, tx *sql.Tx, ruleID int64, act AutomationActionInput) error {
+// insertAutomationActionTx 写入动作及其模板变量绑定，并返回动作主键。
+func insertAutomationActionTx(ctx context.Context, tx *sql.Tx, dialect Dialect, ruleID int64, act AutomationActionInput) (int64, error) {
 	if act.DeliveryCount <= 0 {
 		act.DeliveryCount = 1
 	}
-	// err 用于本次流程后续判断的err
-	_, err := tx.ExecContext(ctx, `
+	// configJSON 保存含有自定义变量的动作配置快照。
+	configJSON := validJSON(act.ConfigJSON)
+	if act.CustomVariables != nil {
+		// config 保存原有动作配置对象，避免覆盖规格和延迟设置。
+		config := make(map[string]any)
+		// err 保存动作配置 JSON 解码错误。
+		if err := json.Unmarshal([]byte(configJSON), &config); err != nil {
+			return 0, err
+		}
+		// customVariables 保存待写回动作快照的自定义字符串键值表。
+		customVariables := make(map[string]string, len(act.CustomVariables))
+		for /* key 表示自定义变量键；value 表示自定义字符串。 */ key, value := range act.CustomVariables {
+			customVariables[key] = value
+		}
+		config["custom_variables"] = customVariables
+		// encodedConfig、encodeErr 保存写回动作配置的 JSON 文本和编码错误。
+		encodedConfig, encodeErr := json.Marshal(config)
+		if encodeErr != nil {
+			return 0, encodeErr
+		}
+		configJSON = string(encodedConfig)
+	}
+	// id、err 保存新动作主键和动作写入错误。
+	id, err := insertReturningID(ctx, tx, dialect, `
 INSERT INTO automation_rule_actions
-    (rule_id,action_type,card_id,delivery_count,message_template,delay_seconds,config_json,enabled,sort_order)
-VALUES (?,?,?,?,?,?,?,?,?)`,
+	    (rule_id,action_type,card_id,delivery_count,message_template,delay_seconds,config_json,enabled,sort_order,delivery_template_id)
+VALUES (?,?,?,?,?,?,?,?,?,?)`,
 		ruleID, act.ActionType, nullInt64(act.CardID), act.DeliveryCount, act.MessageTemplate,
-		act.DelaySeconds, validJSON(act.ConfigJSON), boolToInt(act.Enabled), act.SortOrder)
-	return err
+		act.DelaySeconds, configJSON, boolToInt(act.Enabled), act.SortOrder, nullInt64(act.DeliveryTemplateID))
+	if err != nil {
+		return 0, err
+	}
+	for /* binding 表示当前动作的模板变量绑定。 */ _, binding := range act.TemplateBindings {
+		if binding.DeliveryCount <= 0 {
+			binding.DeliveryCount = 1
+		}
+		// err 保存模板变量绑定写入错误。
+		if _, err := tx.ExecContext(ctx, `INSERT INTO automation_action_template_bindings (action_id,variable_key,card_id,delivery_count) VALUES (?,?,?,?)`, id, binding.VariableKey, binding.CardID, binding.DeliveryCount); err != nil {
+			return 0, err
+		}
+	}
+	return id, nil
 }
 
 // nullInt64 封装nullInt64业务协调。

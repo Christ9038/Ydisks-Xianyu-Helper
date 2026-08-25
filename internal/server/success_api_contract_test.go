@@ -920,6 +920,20 @@ func TestOpenAPILocalResourceMutationResponses(t *testing.T) {
 	automationRuleID := strconv.FormatInt(automationCreateResponse.ID, 10)
 	serveOpenAPISuccess(t, handler, finalCookie, http.MethodPut, "/api/v1/automation-rules/"+automationRuleID, `{"cookie_id":"acc1","item_id":"contract-automation-item","trigger_type":"order_paid","enabled":false,"actions":[{"action_type":"send_card","card_id":`+strconv.FormatInt(automationCardID, 10)+`,"delivery_count":1}]}`)
 	serveOpenAPISuccess(t, handler, finalCookie, http.MethodDelete, "/api/v1/automation-rules/"+automationRuleID, "")
+	// deliveryTemplateCreateRecorder 保存包含订单和自定义变量占位符的模板创建响应。
+	deliveryTemplateCreateRecorder := serveOpenAPISuccess(t, handler, finalCookie, http.MethodPost, "/api/v1/delivery-templates", `{"name":"契约发货模板","enabled":true,"messages":[{"content":"订单 {{order_id}} {{custom.remark}}"}]}`)
+	// deliveryTemplateCreateResponse 保存新建模板的数值主键。
+	var deliveryTemplateCreateResponse deliveryTemplateMutationResponse
+	// decodeErr 保存模板创建响应解码错误。
+	if decodeErr := json.Unmarshal(deliveryTemplateCreateRecorder.Body.Bytes(), &deliveryTemplateCreateResponse); decodeErr != nil || deliveryTemplateCreateResponse.ID == 0 {
+		t.Fatalf("decode delivery template create: id=%d err=%v body=%s", deliveryTemplateCreateResponse.ID, decodeErr, deliveryTemplateCreateRecorder.Body.String())
+	}
+	// deliveryTemplateID 是后续模板读取、更新和删除操作使用的路径标识。
+	deliveryTemplateID := strconv.FormatInt(deliveryTemplateCreateResponse.ID, 10)
+	serveOpenAPISuccess(t, handler, finalCookie, http.MethodGet, "/api/v1/delivery-templates", "")
+	serveOpenAPISuccess(t, handler, finalCookie, http.MethodGet, "/api/v1/delivery-templates/"+deliveryTemplateID, "")
+	serveOpenAPISuccess(t, handler, finalCookie, http.MethodPut, "/api/v1/delivery-templates/"+deliveryTemplateID, `{"name":"契约发货模板更新","enabled":true,"messages":[{"content":"买家 {{buyer_id}}"}]}`)
+	serveOpenAPISuccess(t, handler, finalCookie, http.MethodDelete, "/api/v1/delivery-templates/"+deliveryTemplateID, "")
 	serveOpenAPISuccess(t, handler, finalCookie, http.MethodPut, "/api/v1/default-replies/acc1", `{"enabled":true,"reply_content":"契约默认回复","reply_once":true}`)
 	serveOpenAPISuccess(t, handler, finalCookie, http.MethodGet, "/api/v1/default-replies/acc1", "")
 	serveOpenAPISuccess(t, handler, finalCookie, http.MethodGet, "/api/v1/default-replies", "")

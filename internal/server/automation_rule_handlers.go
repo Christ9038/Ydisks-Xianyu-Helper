@@ -13,7 +13,17 @@ import (
 	"xianyu-go/internal/auth"
 )
 
-// automationActionRequest 用于本次流程后续判断的自动化动作请求
+// automationTemplateBindingRequest 是模板变量绑定请求 DTO。
+type automationTemplateBindingRequest struct {
+	// Key 是模板变量键。
+	Key string `json:"key"`
+	// CardID 是绑定卡密组标识。
+	CardID int64 `json:"card_id"`
+	// DeliveryCount 是每件商品准备的卡密份数。
+	DeliveryCount int `json:"delivery_count"`
+}
+
+// automationActionRequest 是自动化动作请求 DTO。
 type automationActionRequest struct {
 	ActionType      string `json:"action_type"`
 	CardID          int64  `json:"card_id"`
@@ -23,6 +33,12 @@ type automationActionRequest struct {
 	ConfigJSON      string `json:"config_json"`
 	Enabled         *bool  `json:"enabled"`
 	SortOrder       int    `json:"sort_order"`
+	// DeliveryTemplateID 是模板发货动作引用的模板标识。
+	DeliveryTemplateID int64 `json:"delivery_template_id"`
+	// TemplateBindings 是模板变量绑定列表。
+	TemplateBindings []automationTemplateBindingRequest `json:"template_bindings"`
+	// CustomVariables 是传给发货模板的自定义字符串键值表。
+	CustomVariables map[string]string `json:"custom_variables"`
 }
 
 // automationRuleRequest 用于本次流程后续判断的自动化规则请求
@@ -153,7 +169,9 @@ func automationRulesJSON(rules []automationapp.Rule) []automationRuleResponse {
 				ID: action.ID, ActionType: action.ActionType, CardID: action.CardID, CardName: action.CardName,
 				DeliveryCount: action.DeliveryCount, MessageTemplate: action.MessageTemplate,
 				DelaySeconds: action.DelaySeconds, ConfigJSON: action.ConfigJSON, Enabled: action.Enabled,
-				SortOrder: action.SortOrder,
+				SortOrder: action.SortOrder, DeliveryTemplateID: action.DeliveryTemplateID,
+				DeliveryTemplateName: action.DeliveryTemplateName, TemplateKeys: append([]string(nil), action.TemplateKeys...),
+				TemplateBindings: automationTemplateBindingResponses(action.TemplateBindings), CustomVariables: copyAutomationCustomVariables(action.CustomVariables),
 			})
 		}
 		out = append(out, automationRuleResponse{
@@ -163,6 +181,16 @@ func automationRulesJSON(rules []automationapp.Rule) []automationRuleResponse {
 		})
 	}
 	return out
+}
+
+// automationTemplateBindingResponses 将应用层模板绑定转换为响应 DTO。
+func automationTemplateBindingResponses(bindings []automationapp.TemplateBinding) []automationTemplateBindingResponse {
+	// responses 保存模板绑定响应列表。
+	responses := make([]automationTemplateBindingResponse, 0, len(bindings))
+	for /* binding 表示当前待转换的应用模板绑定。 */ _, binding := range bindings {
+		responses = append(responses, automationTemplateBindingResponse{Key: binding.VariableKey, CardID: binding.CardID, CardName: binding.CardName, DeliveryCount: binding.DeliveryCount})
+	}
+	return responses
 }
 
 // createAutomationRule 创建自动化规则并返回数值主键 DTO。
@@ -274,12 +302,28 @@ func automationRuleDraft(req automationRuleRequest) automationapp.RuleDraft {
 	actions := make([]automationapp.ActionDraft, 0, len(req.Actions))
 	// action 是当前待转换的 HTTP 动作请求。
 	for _, action := range req.Actions {
+		// bindings 保存当前动作的模板变量绑定。
+		bindings := make([]automationapp.TemplateBinding, 0, len(action.TemplateBindings))
+		for /* binding 表示请求中的模板变量绑定。 */ _, binding := range action.TemplateBindings {
+			bindings = append(bindings, automationapp.TemplateBinding{VariableKey: strings.TrimSpace(binding.Key), CardID: binding.CardID, DeliveryCount: binding.DeliveryCount})
+		}
 		actions = append(actions, automationapp.ActionDraft{ActionType: action.ActionType, CardID: action.CardID,
 			DeliveryCount: action.DeliveryCount, MessageTemplate: action.MessageTemplate, DelaySeconds: action.DelaySeconds,
-			ConfigJSON: action.ConfigJSON, Enabled: action.Enabled, SortOrder: action.SortOrder})
+			ConfigJSON: action.ConfigJSON, Enabled: action.Enabled, SortOrder: action.SortOrder,
+			DeliveryTemplateID: action.DeliveryTemplateID, TemplateBindings: bindings, CustomVariables: copyAutomationCustomVariables(action.CustomVariables)})
 	}
 	return automationapp.RuleDraft{CookieID: req.CookieID, ItemID: req.ItemID, Name: req.Name, TriggerType: req.TriggerType,
 		Enabled: req.Enabled, Priority: req.Priority, ConfigJSON: req.ConfigJSON, Actions: actions}
+}
+
+// copyAutomationCustomVariables 复制规则自定义变量，避免响应和应用模型共享可变 map。
+func copyAutomationCustomVariables(values map[string]string) map[string]string {
+	// copied 保存自定义变量键值表的独立副本。
+	copied := make(map[string]string, len(values))
+	for /* key 表示自定义变量键；value 表示自定义字符串。 */ key, value := range values {
+		copied[key] = value
+	}
+	return copied
 }
 
 // defaultAutomationRuleName 保留旧测试和兼容调用所需的默认名称函数。

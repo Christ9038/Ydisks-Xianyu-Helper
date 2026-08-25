@@ -580,6 +580,9 @@ func (c *Center) notifyRunNeedsReview(ctx context.Context, run db.AutomationRun,
 // delay_override 字段时自动使用卡密上的默认延时。
 // actionDelaySeconds 封装动作延迟秒数业务协调。
 func (c *Center) actionDelaySeconds(ctx context.Context, action db.AutomationAction) (int, error) {
+	if action.ActionType == ActionSendTemplate {
+		return action.DelaySeconds, nil
+	}
 	if action.ActionType != ActionSendCard || action.CardID <= 0 {
 		return action.DelaySeconds, nil
 	}
@@ -604,6 +607,11 @@ func (c *Center) actionDelaySeconds(ctx context.Context, action db.AutomationAct
 
 // prepareTask 封装prepare任务业务协调。
 func (c *Center) prepareTask(ctx context.Context, task Task) (Task, error) {
+	// task、err 分别表示补全买家信息后的任务快照与准备阶段错误。
+	task, err := c.prepareBuyerNickname(ctx, task)
+	if err != nil {
+		return task, err
+	}
 	if task.OrderID == "" {
 		return task, nil
 	}
@@ -683,35 +691,6 @@ func (c *Center) prepareTask(ctx context.Context, task Task) (Task, error) {
 		return task, fmt.Errorf("保存订单详情事实: %w", err)
 	}
 	return task, nil
-}
-
-// mergeOrderIntoTask 封装merge订单Into任务业务协调。
-func mergeOrderIntoTask(task Task, order *db.Order) Task {
-	if task.ItemID == "" {
-		task.ItemID = order.ItemID
-	}
-	if task.BuyerID == "" {
-		task.BuyerID = order.BuyerID
-	}
-	if task.ChatID == "" {
-		task.ChatID = order.ChatID
-	}
-	if task.SpecName == "" {
-		task.SpecName = order.SpecName
-	}
-	if task.SpecValue == "" {
-		task.SpecValue = order.SpecValue
-	}
-	if task.Quantity == "" {
-		task.Quantity = order.Quantity
-	}
-	if task.Amount == "" {
-		task.Amount = order.Amount
-	}
-	if task.OrderStatus == "" {
-		task.OrderStatus = order.OrderStatus
-	}
-	return task
 }
 
 // executeAction 将具体动作委托给发货动作执行器。

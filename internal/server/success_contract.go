@@ -476,28 +476,16 @@ type itemPageSyncResponse struct {
 	SavedCount int `json:"saved_count"`
 }
 
-// automationActionResponse 是自动化规则动作的具名响应 DTO。
-type automationActionResponse struct {
-	// ID 是动作稳定标识。
-	ID int64 `json:"id"`
-	// ActionType 是动作类型。
-	ActionType string `json:"action_type"`
-	// CardID 是动作关联卡券组标识。
+// automationTemplateBindingResponse 是自动化规则响应中的模板绑定 DTO。
+type automationTemplateBindingResponse struct {
+	// Key 是模板变量键。
+	Key string `json:"key"`
+	// CardID 是绑定卡密组标识。
 	CardID int64 `json:"card_id"`
-	// CardName 是动作关联卡券组名称。
+	// CardName 是绑定卡密组名称。
 	CardName string `json:"card_name"`
-	// DeliveryCount 是动作发送数量。
+	// DeliveryCount 是每件商品准备的卡密份数。
 	DeliveryCount int `json:"delivery_count"`
-	// MessageTemplate 是动作消息模板。
-	MessageTemplate string `json:"message_template"`
-	// DelaySeconds 是动作延迟秒数。
-	DelaySeconds int `json:"delay_seconds"`
-	// ConfigJSON 是动作扩展配置 JSON。
-	ConfigJSON string `json:"config_json"`
-	// Enabled 表示动作是否启用。
-	Enabled bool `json:"enabled"`
-	// SortOrder 是动作执行顺序。
-	SortOrder int `json:"sort_order"`
 }
 
 // automationRuleResponse 是自动化规则的具名响应 DTO。
