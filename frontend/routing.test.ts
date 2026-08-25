@@ -78,6 +78,15 @@ describe('frontend navigation routing', () => {
     expect(settings).toContain('保存后需重启服务生效');
   } /* 测试回调断言已登录应用的路由、访问控制或延迟加载契约。 */);
 
+  test('settings page exposes the browser notification switch', () => {
+    const settings = readFrontendFile('app/features/settings/pages/Settings.tsx'); /* settings 表示设置页源码，用于确认浏览器通知入口仍可见。 */
+
+    expect(settings).toContain('新消息系统通知');
+    expect(settings).toContain('role="switch"');
+    expect(settings).toContain('useBrowserNotificationPreference');
+    expect(settings).toContain('仅保存在当前浏览器');
+  } /* 测试回调断言设置页包含浏览器通知开关及其本地偏好说明。 */);
+
   test('admin-only settings navigation is gated by session role', () => {
     const app = readFrontendFile('app/router/AppRouter.tsx'); /* app 表示认证后路由组合器源码。 */
     const sessionProvider = readFrontendFile('app/providers/SessionProvider.tsx'); /* sessionProvider 表示认证 Provider 源码。 */
