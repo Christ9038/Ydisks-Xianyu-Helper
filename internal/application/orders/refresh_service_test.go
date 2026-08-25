@@ -117,7 +117,7 @@ func (f *refreshRepositoryFake) UpsertOrder(_ context.Context, orderID string, o
 		order = &Order{OrderID: orderID}
 		f.orders[orderID] = order
 	}
-	order.CookieID, order.OrderStatus, order.Amount = options.CookieID, options.OrderStatus, options.Amount
+	order.CookieID, order.CreatedAt, order.OrderStatus, order.Amount = options.CookieID, options.CreatedAt, options.OrderStatus, options.Amount
 	return nil
 }
 
@@ -296,11 +296,11 @@ func TestPersistSoldOrdersBatchesLookupAndWrite(t *testing.T) {
 	service := &RefreshService{repository: repository}
 	// discovered、updated、newIDs、remoteIDs、err 保存批量发现结果。
 	discovered, updated, newIDs, remoteIDs, err := service.persistSoldOrders(context.Background(), "cookie-1", []RefreshSoldOrder{
-		{OrderID: " existing ", OrderStatus: "unknown", Amount: "2.00"},
-		{OrderID: "new-order", OrderStatus: "processing", Amount: "3.00"},
-		{OrderID: "new-order", OrderStatus: "processing", Amount: "3.00"},
+		{OrderID: " existing ", CreatedAt: "2024-01-02T03:04:05Z", OrderStatus: "unknown", Amount: "2.00"},
+		{OrderID: "new-order", CreatedAt: "2024-01-03T03:04:05Z", OrderStatus: "processing", Amount: "3.00"},
+		{OrderID: "new-order", CreatedAt: "2024-01-03T03:04:05Z", OrderStatus: "processing", Amount: "3.00"},
 	})
-	if err != nil || discovered != 1 || updated != 1 || len(newIDs) != 1 || len(remoteIDs) != 2 || repository.batchFindCount != 1 || repository.batchUpsertCount != 1 || repository.upsertCount != 2 || repository.orders["existing"].OrderStatus != "processing" {
+	if err != nil || discovered != 1 || updated != 1 || len(newIDs) != 1 || len(remoteIDs) != 2 || repository.batchFindCount != 1 || repository.batchUpsertCount != 1 || repository.upsertCount != 2 || repository.orders["existing"].OrderStatus != "processing" || repository.orders["existing"].CreatedAt != "2024-01-02T03:04:05Z" || repository.orders["new-order"].CreatedAt != "2024-01-03T03:04:05Z" {
 		t.Fatalf("批量订单发现结果异常: discovered=%d updated=%d new=%v remote=%v repository=%+v err=%v", discovered, updated, newIDs, remoteIDs, repository, err)
 	}
 }

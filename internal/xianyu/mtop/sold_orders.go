@@ -31,9 +31,11 @@ type SoldOrdersPage struct {
 
 // SoldOrder 是订单列表可直接落库的字段。
 type SoldOrder struct {
-	OrderID        string
-	ItemID         string
-	BuyerID        string
+	OrderID string
+	ItemID  string
+	BuyerID string
+	// CreatedAt 是平台记录的买家下单时间，缺失时保持空值让本地数据库沿用默认时间。
+	CreatedAt      string
 	OrderStatus    string
 	Quantity       string
 	Amount         string
@@ -198,6 +200,8 @@ func parseSoldOrder(raw any) (SoldOrder, bool) {
 	status := normalizeSoldOrderStatus(rawStatus, mtopBool(common["inRefund"]))
 	// amount 用于本次流程后续判断的amount
 	amount := firstMTopString(price, "totalPrice", "confirmFee", "auctionPrice")
+	// createdAt 保存平台订单创建时间，优先兼容卖家订单响应中常见的时间字段命名。
+	createdAt := soldOrderCreatedAt(item, common)
 	// quantity 用于本次流程后续判断的quantity
 	quantity := firstMTopString(price, "buyNum", "quantity")
 	if quantity == "" || quantity == "0" {
@@ -220,6 +224,7 @@ func parseSoldOrder(raw any) (SoldOrder, bool) {
 		OrderID:        orderID,
 		ItemID:         strings.TrimSpace(mtopString(common["itemId"])),
 		BuyerID:        strings.TrimSpace(mtopString(buyer["buyerId"])),
+		CreatedAt:      createdAt,
 		OrderStatus:    status,
 		Quantity:       quantity,
 		Amount:         amount,
@@ -230,6 +235,72 @@ func parseSoldOrder(raw any) (SoldOrder, bool) {
 		IsBargain:      isBargain,
 		PlatformStatus: rawStatus,
 	}, true
+}
+
+// soldOrderCreatedAt 从平台订单列表响应提取并规范化买家下单时间。
+// 平台不同版本可能把时间放在 commonData、订单根对象或嵌套订单对象中，数值时间统一保存为 UTC RFC3339 文本。
+func soldOrderCreatedAt(item, common map[string]any) string {
+	// timeKeys 保存卖家订单接口可能返回的创建时间字段名，顺序体现优先级。
+	timeKeys := []string{"orderCreateTime", "order_create_time", "createTime", "create_time", "gmtCreate", "gmt_create", "orderTime", "order_time"}
+	// candidates 保存按平台响应层级排列的候选对象。
+	candidates := []map[string]any{common, item}
+	// container 表示当前遍历的订单响应容器。
+	for _, container := range []map[string]any{common, item} {
+		// nestedKey 表示可能承载订单时间的嵌套对象字段名。
+		for _, nestedKey := range []string{"orderInfo", "orderVO", "tradeInfo"} {
+			// nested 保存可能承载订单时间的嵌套对象。
+			nested, _ := container[nestedKey].(map[string]any)
+			if nested != nil {
+				candidates = append(candidates, nested)
+			}
+		}
+	}
+	// candidate 表示当前尝试读取订单创建时间的响应对象。
+	for _, candidate := range candidates {
+		// key 表示当前尝试读取的订单创建时间字段名。
+		for _, key := range timeKeys {
+			// value 保存当前候选字段规范化后的订单创建时间。
+			value := normalizeSoldOrderTime(mtopString(candidate[key]))
+			if value != "" {
+				return value
+			}
+		}
+	}
+	return ""
+}
+
+// normalizeSoldOrderTime 将平台订单时间转换为可排序且可被前端解析的时间文本。
+// 数字时间按秒或毫秒解释；带时区文本转换为 UTC，未带时区文本保留平台展示时区。
+func normalizeSoldOrderTime(raw string) string {
+	// value 保存去除空白后的平台时间值。
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return ""
+	}
+	// timestamp、parseErr 保存数字时间解析结果及错误；解析成功后按秒或毫秒解释。
+	timestamp, parseErr := strconv.ParseInt(value, 10, 64)
+	if parseErr == nil {
+		// instant 保存按平台约定解析出的绝对时间点。
+		instant := time.Unix(timestamp, 0)
+		if len(strings.TrimLeft(value, "-")) >= 13 {
+			instant = time.UnixMilli(timestamp)
+		}
+		return instant.UTC().Format(time.RFC3339)
+	}
+	// layouts 保存卖家接口可能返回的标准文本时间格式。
+	layouts := []string{time.RFC3339Nano, "2006-01-02 15:04:05.999999999", "2006-01-02 15:04:05", "2006/01/02 15:04:05"}
+	// layout 表示当前尝试解析的平台时间格式。
+	for _, layout := range layouts {
+		// parsed、parseErr 保存当前格式解析出的时间点及错误。
+		parsed, parseErr := time.Parse(layout, value)
+		if parseErr == nil {
+			if strings.ContainsAny(layout, "Z-07") && strings.Contains(value, "T") {
+				return parsed.UTC().Format(time.RFC3339)
+			}
+			return parsed.Format("2006-01-02 15:04:05")
+		}
+	}
+	return ""
 }
 
 // normalizeSoldOrderStatus 封装normalizeSold订单状态业务协调。

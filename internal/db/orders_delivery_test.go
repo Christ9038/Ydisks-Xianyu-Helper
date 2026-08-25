@@ -151,7 +151,7 @@ func TestOrdersUpsertMany(t *testing.T) {
 	// bargain 保存已有订单的砍价标记。
 	bargain := true
 	// err 表示初始订单写入错误。
-	if err := store.Orders.Upsert(ctx, "batch-existing", OrderUpsertOpts{CookieID: cookieID, OrderStatus: "shipped", Amount: "10", IsBargain: &bargain}); err != nil {
+	if err := store.Orders.Upsert(ctx, "batch-existing", OrderUpsertOpts{CookieID: cookieID, CreatedAt: "2024-01-01 00:00:00", OrderStatus: "shipped", Amount: "10", IsBargain: &bargain}); err != nil {
 		t.Fatalf("seed existing order: %v", err)
 	}
 	// before 保存批量写入前的订单版本。
@@ -161,8 +161,8 @@ func TestOrdersUpsertMany(t *testing.T) {
 	}
 	// rows 保存待一次性写入的订单详情。
 	rows := []BatchOrderUpsert{
-		{OrderID: "batch-existing", Options: OrderUpsertOpts{CookieID: cookieID, OrderStatus: "pending_ship", SpecName: "颜色", SpecValue: "蓝", Amount: "¥12.50"}},
-		{OrderID: "batch-new", Options: OrderUpsertOpts{CookieID: cookieID, OrderStatus: "pending_ship", Quantity: "2", Amount: "5.00", IsBargain: &bargain}},
+		{OrderID: "batch-existing", Options: OrderUpsertOpts{CookieID: cookieID, CreatedAt: "2024-02-01 00:00:00", OrderStatus: "pending_ship", SpecName: "颜色", SpecValue: "蓝", Amount: "¥12.50"}},
+		{OrderID: "batch-new", Options: OrderUpsertOpts{CookieID: cookieID, CreatedAt: "2024-03-01 00:00:00", OrderStatus: "pending_ship", Quantity: "2", Amount: "5.00", IsBargain: &bargain}},
 	}
 	// err 保存批量订单写入错误。
 	if err := store.Orders.UpsertMany(ctx, rows); err != nil {
@@ -179,10 +179,10 @@ func TestOrdersUpsertMany(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read batch new order: %v", err)
 	}
-	if existing.OrderStatus != "shipped" || existing.SpecValue != "蓝" || existing.Amount != "12.50" || existing.IsBargain != 1 || existing.Version <= before.Version {
+	if existing.OrderStatus != "shipped" || existing.SpecValue != "蓝" || existing.Amount != "12.50" || existing.CreatedAt != "2024-02-01T00:00:00Z" || existing.IsBargain != 1 || existing.Version <= before.Version {
 		t.Fatalf("batch existing order=%+v before=%+v", existing, before)
 	}
-	if newOrder.OrderStatus != "pending_ship" || newOrder.Quantity != "2" || newOrder.Amount != "5.00" || newOrder.IsBargain != 1 {
+	if newOrder.OrderStatus != "pending_ship" || newOrder.Quantity != "2" || newOrder.Amount != "5.00" || newOrder.CreatedAt != "2024-03-01T00:00:00Z" || newOrder.IsBargain != 1 {
 		t.Fatalf("batch new order=%+v", newOrder)
 	}
 	// err 保存空状态批量写入错误。

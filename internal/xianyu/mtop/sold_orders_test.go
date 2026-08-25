@@ -35,7 +35,7 @@ func TestFetchSoldOrdersPageRequestAndParse(t *testing.T) {
 			t.Errorf("payload=%+v", payload)
 		}
 		_, _ = io.WriteString(w, `{"ret":["SUCCESS::调用成功"],"data":{"module":{"nextPage":"true","totalCount":"31","items":[{`+
-			`"commonData":{"orderId":"order-1","itemId":"item-1","orderStatus":"待发货","inRefund":"false"},`+
+			`"commonData":{"orderId":"order-1","itemId":"item-1","orderStatus":"待发货","inRefund":"false","orderCreateTime":"1700000000000"},`+
 			`"buyerInfoVO":{"buyerId":"buyer-1","name":"李四","phone":"13900000000","address":"杭州市"},`+
 			`"priceVO":{"totalPrice":"29.90","buyNum":"3"},"rightVO":{"btnList":[{"tradeAction":"SKIP_PIN"}]}}]}}}`)
 	}))
@@ -54,8 +54,27 @@ func TestFetchSoldOrdersPageRequestAndParse(t *testing.T) {
 	// item 用于本次流程后续判断的商品
 	item := page.Items[0]
 	if item.OrderID != "order-1" || item.ItemID != "item-1" || item.OrderStatus != "pending_ship" ||
-		item.Quantity != "3" || item.Amount != "29.90" || !item.IsBargain || item.ReceiverName != "李四" {
+		item.Quantity != "3" || item.Amount != "29.90" || item.CreatedAt != "2023-11-14T22:13:20Z" || !item.IsBargain || item.ReceiverName != "李四" {
 		t.Fatalf("item=%+v", item)
+	}
+}
+
+// TestNormalizeSoldOrderTimeSupportsPlatformFormats 验证平台秒级、毫秒级和文本时间都能转换为稳定时间格式。
+func TestNormalizeSoldOrderTimeSupportsPlatformFormats(t *testing.T) {
+	// cases 保存平台时间输入及其规范化结果。
+	cases := map[string]string{
+		"1700000000":                "2023-11-14T22:13:20Z",
+		"1700000000000":             "2023-11-14T22:13:20Z",
+		"2026-08-25 10:20:30":       "2026-08-25 10:20:30",
+		"2026-08-25T10:20:30+08:00": "2026-08-25T02:20:30Z",
+	}
+	// input、want 分别表示平台时间输入和期望的规范化结果。
+	for input, want := range cases {
+		// got 保存当前平台时间输入的规范化结果。
+		got := normalizeSoldOrderTime(input)
+		if got != want {
+			t.Errorf("normalizeSoldOrderTime(%q)=%q, want %q", input, got, want)
+		}
 	}
 }
 

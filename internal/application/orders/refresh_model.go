@@ -28,6 +28,7 @@ func refreshSoldOrderChanged(existing *Order, remote RefreshSoldOrder) bool {
 		return true
 	}
 	return (remote.OrderStatus != "" && remote.OrderStatus != "unknown" && NormalizeOrderStatus(existing.OrderStatus) != remote.OrderStatus) ||
+		(remote.CreatedAt != "" && existing.CreatedAt != remote.CreatedAt) ||
 		(remote.ItemID != "" && existing.ItemID != remote.ItemID) ||
 		(remote.BuyerID != "" && existing.BuyerID != remote.BuyerID) ||
 		(remote.Quantity != "" && existing.Quantity != remote.Quantity) ||

@@ -54,6 +54,8 @@ type UpsertOptions struct {
 	BuyerID string
 	// CookieID 是订单所属账号标识。
 	CookieID string
+	// CreatedAt 是平台订单创建时间；为空时由数据库生成本地写入时间。
+	CreatedAt string
 	// OrderStatus 是订单状态。
 	OrderStatus string
 	// SpecName 是规格名称。

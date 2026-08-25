@@ -231,21 +231,52 @@ func upsertManyOrders(ctx context.Context, execer sqlQueryExecer, dialect Dialec
 		}
 	}
 
-	// columns 保存多值 INSERT 的公共列集合。
-	columns := []string{"order_id", "item_id", "buyer_id", "cookie_id", "order_status", "is_bargain", "spec_name", "spec_value", "quantity", "amount", "receiver_name", "receiver_phone", "receiver_address", "receiver_city", "version"}
+	// includeCreatedAt 表示本批次是否至少有一条平台订单携带创建时间。
+	includeCreatedAt := false
+	// row 表示当前检查是否包含平台创建时间的批量订单。
+	for _, row := range normalizedRows {
+		if row.Options.CreatedAt != "" {
+			includeCreatedAt = true
+			break
+		}
+	}
+	// columns 保存多值 INSERT 的公共列集合；没有平台时间时沿用旧 SQL 以保留数据库默认时间行为。
+	columns := []string{"order_id", "item_id", "buyer_id", "cookie_id"}
+	if includeCreatedAt {
+		columns = append(columns, "created_at")
+	}
+	columns = append(columns, "order_status", "is_bargain", "spec_name", "spec_value", "quantity", "amount", "receiver_name", "receiver_phone", "receiver_address", "receiver_city", "version")
 	// values 保存多行占位符和参数。
 	values := make([]string, 0, len(normalizedRows))
 	// args 保存批量插入参数。
 	args := make([]any, 0, len(normalizedRows)*len(columns))
 	// row 是当前待插入的批量订单。
 	for _, row := range normalizedRows {
-		values = append(values, "("+strings.TrimRight(strings.Repeat("?,", len(columns)), ",")+")")
+		// valueExpressions 保存当前批量行的 SQL 占位表达式；空平台时间的新订单使用数据库当前时间。
+		valueExpressions := make([]string, len(columns))
+		// columnIndex 表示当前 SQL 占位表达式在订单列集合中的下标。
+		for columnIndex := range valueExpressions {
+			valueExpressions[columnIndex] = "?"
+		}
+		if includeCreatedAt {
+			valueExpressions[4] = "COALESCE(?, CURRENT_TIMESTAMP)"
+		}
+		values = append(values, "("+strings.Join(valueExpressions, ",")+")")
 		// isBargain 保存批量订单是否包含砍价标记。
 		isBargain := 0
 		if row.Options.IsBargain != nil && *row.Options.IsBargain {
 			isBargain = 1
 		}
-		args = append(args, row.OrderID, row.Options.ItemID, row.Options.BuyerID, row.Options.CookieID, row.Options.OrderStatus, isBargain, row.Options.SpecName, row.Options.SpecValue, row.Options.Quantity, row.Options.Amount, row.Options.ReceiverName, row.Options.ReceiverPhone, row.Options.ReceiverAddr, row.Options.ReceiverCity, 1)
+		args = append(args, row.OrderID, row.Options.ItemID, row.Options.BuyerID, row.Options.CookieID)
+		if includeCreatedAt {
+			// createdAt 为空时传入 nil，让数据库表达式回退到当前时间。
+			createdAt := any(nil)
+			if row.Options.CreatedAt != "" {
+				createdAt = row.Options.CreatedAt
+			}
+			args = append(args, createdAt)
+		}
+		args = append(args, row.Options.OrderStatus, isBargain, row.Options.SpecName, row.Options.SpecValue, row.Options.Quantity, row.Options.Amount, row.Options.ReceiverName, row.Options.ReceiverPhone, row.Options.ReceiverAddr, row.Options.ReceiverCity, 1)
 	}
 	// excludedValue 返回当前数据库方言读取插入候选值的表达式。
 	excludedValue := func(column string) string {
@@ -284,6 +315,10 @@ func upsertManyOrders(ctx context.Context, execer sqlQueryExecer, dialect Dialec
 		"deleted_at":       "NULL",
 		"version":          "version+1",
 		"updated_at":       "CURRENT_TIMESTAMP",
+	}
+	if includeCreatedAt {
+		// created_at 仅在平台提供时间的批次中参与更新，避免详情补全覆盖原有创建时间。
+		assignments["created_at"] = mergeValue("created_at")
 	}
 	// query 保存多值 UPSERT SQL。
 	query := "INSERT INTO orders (" + strings.Join(columns, ",") + ") VALUES " + strings.Join(values, ",") + dialectUpsert(dialect, []string{"order_id"}, assignments)
@@ -439,6 +474,7 @@ func orderUpsertAssignments(opts OrderUpsertOpts) ([]string, []any) {
 	add("item_id", opts.ItemID, opts.ItemID != "")
 	add("buyer_id", opts.BuyerID, opts.BuyerID != "")
 	add("cookie_id", opts.CookieID, opts.CookieID != "")
+	add("created_at", opts.CreatedAt, opts.CreatedAt != "")
 	add("order_status", opts.OrderStatus, opts.OrderStatus != "")
 	add("spec_name", opts.SpecName, opts.SpecName != "")
 	add("spec_value", opts.SpecValue, opts.SpecValue != "")
@@ -502,9 +538,11 @@ func shouldUpdateOrderStatus(current, incoming string) bool {
 
 // OrderUpsertOpts Upsert 的可选字段。
 type OrderUpsertOpts struct {
-	ItemID        string
-	BuyerID       string
-	CookieID      string
+	ItemID   string
+	BuyerID  string
+	CookieID string
+	// CreatedAt 是平台订单创建时间；为空时不覆盖数据库已有时间。
+	CreatedAt     string
 	OrderStatus   string
 	SpecName      string
 	SpecValue     string
