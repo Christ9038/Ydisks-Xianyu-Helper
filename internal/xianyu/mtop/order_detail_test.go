@@ -32,6 +32,54 @@ func TestFetchOrderDetailSuccessWithSpecAndStatus(t *testing.T) {
 	}
 }
 
+// TestFetchOrderDetailSuccessWithCombinedSKUText 验证多规格订单以 skuText 返回时仍能提取规则匹配字段。
+func TestFetchOrderDetailSuccessWithCombinedSKUText(t *testing.T) {
+	// server 返回闲鱼多规格订单详情的组合 SKU 文本形状。
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// w、r 分别用于写回本地订单详情响应和读取测试请求。
+		fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"components":[{"render":"orderInfoVO","data":{"itemInfo":{"buyAmount":"1","skuInfo":{"skuText":"总量：月卡"}},"priceInfo":{"amount":{"value":"9.90"}}}}]}}`)
+	}))
+	defer server.Close()
+
+	// client 使用本地服务替代闲鱼接口，验证解析逻辑而不触发真实平台请求。
+	client := &ClientImpl{HTTPClient: server.Client(), OrderDetailURL: server.URL + "/"}
+	// result、err 保存订单详情解析结果及错误。
+	result, err := client.FetchOrderDetail(context.Background(), consignCookies, "order-1")
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if result.SpecName != "总量" || result.SpecValue != "月卡" {
+		t.Fatalf("spec=(%q,%q) want (总量,月卡)", result.SpecName, result.SpecValue)
+	}
+}
+
+// TestOrderSpecFromItemInfoSupportsPlatformShapes 验证订单规格解析兼容平台字段、嵌套对象和空格格式。
+func TestOrderSpecFromItemInfoSupportsPlatformShapes(t *testing.T) {
+	// cases 覆盖当前订单详情接口已知的规格字段形状及无效文本。
+	cases := []struct {
+		name     string
+		itemInfo map[string]any
+		wantName string
+		wantVal  string
+	}{
+		{name: "explicit fields", itemInfo: map[string]any{"specName": "总量", "specValue": "年卡"}, wantName: "总量", wantVal: "年卡"},
+		{name: "snake case fields", itemInfo: map[string]any{"spec_name": "总量", "spec_value": "永久"}, wantName: "总量", wantVal: "永久"},
+		{name: "sku text", itemInfo: map[string]any{"skuText": "总量:月卡"}, wantName: "总量", wantVal: "月卡"},
+		{name: "nested sku", itemInfo: map[string]any{"skuInfo": map[string]any{"skuText": "总量 月卡"}}, wantName: "总量", wantVal: "月卡"},
+		{name: "invalid text", itemInfo: map[string]any{"skuText": "月卡"}},
+	}
+	// tc 表示当前规格解析测试场景。
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// gotName、gotValue 保存当前响应形状解析出的规格名称和值。
+			gotName, gotValue := orderSpecFromItemInfo(tc.itemInfo)
+			if gotName != tc.wantName || gotValue != tc.wantVal {
+				t.Fatalf("spec=(%q,%q) want (%q,%q)", gotName, gotValue, tc.wantName, tc.wantVal)
+			}
+		})
+	}
+}
+
 // TestFetchOrderDetailMissingBuyAmountDefaultsTo1: components 无 buyAmount 时 Quantity 默认 "1"。
 func TestFetchOrderDetailMissingBuyAmountDefaultsTo1(t *testing.T) {
 	// server 用于本次流程后续判断的server

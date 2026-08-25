@@ -150,8 +150,8 @@ func (c *ClientImpl) fetchOrderDetailOnce(ctx context.Context, cookiesStr, order
 			value := mtopString(itemInfo["buyAmount"]); value != "" {
 				result.Quantity = value
 			}
-			result.SpecName = mtopString(itemInfo["specName"])
-			result.SpecValue = mtopString(itemInfo["specValue"])
+			// specName、specValue 兼容订单详情接口对单独规格字段和组合 SKU 文本的不同返回形状。
+			result.SpecName, result.SpecValue = orderSpecFromItemInfo(itemInfo)
 		}
 		if // priceInfo、ok 用于本次流程后续判断的priceInfo、ok
 		priceInfo, ok := componentData["priceInfo"].(map[string]any); ok {
@@ -162,6 +162,85 @@ func (c *ClientImpl) fetchOrderDetailOnce(ctx context.Context, cookiesStr, order
 		}
 	}
 	return result, decoded.Ret, updated, nil
+}
+
+// orderSpecFromItemInfo 从订单商品信息中提取自动发货需要的规格名称和值。
+// 闲鱼不同商品类型可能返回 specName/specValue，也可能把规格放在 skuInfo 或 skuText 中；
+// 统一在 MTOP 边界归一，避免自动化层被平台响应形状耦合。
+func orderSpecFromItemInfo(itemInfo map[string]any) (string, string) {
+	if itemInfo == nil {
+		return "", ""
+	}
+	// pair 表示平台返回的规格名称字段与规格值字段候选组合。
+	for _, pair := range [][2]string{
+		{"specName", "specValue"},
+		{"spec_name", "spec_value"},
+		{"skuName", "skuValue"},
+		{"sku_name", "sku_value"},
+		{"propName", "propValue"},
+		{"propertyName", "propertyValue"},
+	} {
+		// specName、specValue 保存当前候选组合解析出的规格字段。
+		specName := strings.TrimSpace(mtopString(itemInfo[pair[0]]))
+		// specValue 保存当前候选组合解析出的规格值。
+		specValue := strings.TrimSpace(mtopString(itemInfo[pair[1]]))
+		if specName != "" || specValue != "" {
+			return specName, specValue
+		}
+	}
+	// key 表示可能承载“规格名:规格值”组合文本的平台字段名。
+	for _, key := range []string{"skuText", "sku_text", "specText", "spec_text", "skuDesc", "skuDescText"} {
+		// specName、specValue 保存组合规格文本拆分后的名称和值。
+		specName, specValue := splitOrderSpecText(mtopString(itemInfo[key]))
+		if specName != "" || specValue != "" {
+			return specName, specValue
+		}
+	}
+	// key 表示可能嵌套规格对象的平台字段名。
+	for _, key := range []string{"skuInfo", "sku_info", "specInfo", "spec_info", "sku"} {
+		// nested、ok 保存当前嵌套对象及其类型断言结果。
+		nested, ok := itemInfo[key].(map[string]any)
+		if !ok {
+			continue
+		}
+		// specName、specValue 保存嵌套对象解析出的规格名称和值。
+		specName, specValue := orderSpecFromItemInfo(nested)
+		if specName != "" || specValue != "" {
+			return specName, specValue
+		}
+	}
+	return "", ""
+}
+
+// splitOrderSpecText 将平台返回的组合规格文本拆为名称和值。
+// 目前自动化规则以一组名称和值描述规格，因此多字段 SKU 只取第一个带分隔符的规格对。
+func splitOrderSpecText(raw string) (string, string) {
+	// text 保存去除首尾空白后的组合规格文本。
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return "", ""
+	}
+	// separator 表示平台可能使用的规格名称和值分隔符。
+	for _, separator := range []string{"：", ":", "="} {
+		// separatorIndex 表示当前分隔符在组合文本中的位置。
+		separatorIndex := strings.Index(text, separator)
+		if separatorIndex <= 0 || separatorIndex >= len(text)-len(separator) {
+			continue
+		}
+		// specName、specValue 保存当前分隔符两侧的规格名称和值。
+		specName := strings.TrimSpace(text[:separatorIndex])
+		// specValue 保存当前分隔符右侧的规格值。
+		specValue := strings.TrimSpace(text[separatorIndex+len(separator):])
+		if specName != "" && specValue != "" {
+			return specName, specValue
+		}
+	}
+	// fields 兼容平台以单个空格连接规格名和值的简化返回格式。
+	fields := strings.Fields(text)
+	if len(fields) == 2 {
+		return fields[0], fields[1]
+	}
+	return "", ""
 }
 
 // buildOrderDetailQuery 封装build订单Detail查询业务协调。
