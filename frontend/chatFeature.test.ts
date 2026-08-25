@@ -50,7 +50,13 @@ describe('online chat UI contract', () => {
 		const chat = source('app/features/chat/pages/Chat.tsx'); /* chat 表示chat。 */
 		expect(chat).toContain("message.message_type === 'system'");
 		expect(chat).toContain('justify-center py-1');
+		expect(chat).toContain('whitespace-pre-wrap break-words rounded-xl border border-slate-200');
 	} /* 测试回调断言平台通知以居中的系统消息呈现。 */);
+
+	test('preserves line breaks and wraps long chat text', () => {
+		const chat = source('app/features/chat/pages/Chat.tsx'); /* chat 表示聊天页源码，用于验证消息文本的换行样式不会回退。 */
+		expect(chat).toContain('whitespace-pre-wrap break-words rounded-2xl px-4 py-2.5');
+	} /* 测试回调断言普通消息保留服务端换行并避免超长文本撑破气泡。 */);
 
 	test('keeps the active chat at the bottom when new messages arrive', () => {
 		const chat = source('app/features/chat/pages/Chat.tsx'); /* chat 表示chat。 */

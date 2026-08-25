@@ -159,7 +159,7 @@ const Chat: React.FC = () => {
                     if (system) {
                       return (
                         <div key={message.message_key} className="flex justify-center py-1">
-                          <div className="max-w-[82%] rounded-xl border border-slate-200 bg-slate-100 px-4 py-2 text-center text-xs leading-5 text-slate-500">
+                          <div className="max-w-[82%] whitespace-pre-wrap break-words rounded-xl border border-slate-200 bg-slate-100 px-4 py-2 text-center text-xs leading-5 text-slate-500">
                             {renderXianyuText(message.content)}
                             <div className="mt-1 text-[10px] text-slate-400">{messageTime(message.sent_at)}</div>
                           </div>
@@ -182,7 +182,7 @@ const Chat: React.FC = () => {
                           ) : message.message_type === 'audio' ? (
                             <AudioMessage messageKey={message.message_key} src={message.content} outgoing={outgoing} initialDuration={message.media_duration} />
                           ) : (
-                            <div className={`rounded-2xl px-4 py-2.5 text-sm leading-6 shadow-sm ${outgoing ? 'rounded-br-md bg-sky-500 text-white' : 'rounded-bl-md border border-slate-200 bg-white text-slate-800'}`}>{renderXianyuText(message.content)}</div>
+                            <div className={`whitespace-pre-wrap break-words rounded-2xl px-4 py-2.5 text-sm leading-6 shadow-sm ${outgoing ? 'rounded-br-md bg-sky-500 text-white' : 'rounded-bl-md border border-slate-200 bg-white text-slate-800'}`}>{renderXianyuText(message.content)}</div>
                           )}
                           <div className="mt-1 flex items-center gap-1 text-[10px] text-slate-400">
                             {messageTime(message.sent_at)}
