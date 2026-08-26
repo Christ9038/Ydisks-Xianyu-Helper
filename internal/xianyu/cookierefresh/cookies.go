@@ -87,6 +87,9 @@ func MergeSetCookies(original string, setCookies []string) string {
 		}
 		// name 用于本次流程后续判断的名称
 		name := strings.TrimSpace(first[:eq])
+		if name == "" {
+			continue
+		}
 		m[name] = strings.TrimSpace(first[eq+1:])
 	}
 	return MarshalCookieString(m)
@@ -529,6 +532,9 @@ func CookieStringFromSnapshot(cookies []BrowserCookie) string {
 	parts := make([]string, 0, len(cookies))
 	// c 表示当前遍历过程中的c
 	for _, c := range NormalizeSnapshot(cookies) {
+		if c.Name == "" {
+			continue
+		}
 		parts = append(parts, c.Name+"="+c.Value)
 	}
 	return strings.Join(parts, "; ")

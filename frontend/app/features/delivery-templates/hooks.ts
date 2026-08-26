@@ -133,11 +133,15 @@ export const useDeliveryTemplates = (): DeliveryTemplatesHookResult => {
     }
   }, [loadTemplates, saving]);
 
-  useEffect(/* 当前副作用卸载时取消列表和变更请求，避免旧响应触发页面状态更新。 */ () => /* 当前清理函数释放所有请求控制器并推进代次。 */ () => {
-    mountedRef.current = false;
-    ++generationRef.current;
-    listControllerRef.current?.abort();
-    actionControllerRef.current?.abort();
+  useEffect(/* 当前副作用管理组件挂载状态，并在卸载时取消请求和推进代次。 */ () => {
+    // mountedRef 在 effect 重新建立时恢复为可写状态，兼容 React StrictMode 的开发期模拟重挂载。
+    mountedRef.current = true;
+    return /* 当前清理函数释放所有请求控制器并推进代次。 */ () => {
+      mountedRef.current = false;
+      ++generationRef.current;
+      listControllerRef.current?.abort();
+      actionControllerRef.current?.abort();
+    };
   }, []);
 
   return { templates, loading, saving, error, loadTemplates, saveTemplate, removeTemplate };
