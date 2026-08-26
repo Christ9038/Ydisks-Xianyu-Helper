@@ -354,7 +354,9 @@ func upsertManyOrderGroup(ctx context.Context, execer sqlQueryExecer, dialect Di
 	}
 	if includeCreatedAt {
 		// created_at 仅在平台提供时间的批次中参与更新，避免详情补全覆盖原有创建时间。
-		assignments["created_at"] = mergeValue("created_at")
+		// incomingCreatedAt 保存显式时间批次中的候选创建时间表达式；时间类型不能与空字符串比较。
+		incomingCreatedAt := excludedValue("created_at")
+		assignments["created_at"] = "CASE WHEN " + incomingCreatedAt + " IS NOT NULL THEN " + incomingCreatedAt + " ELSE " + currentColumn("created_at") + " END"
 	}
 	// query 保存多值 UPSERT SQL。
 	query := "INSERT INTO orders (" + strings.Join(columns, ",") + ") VALUES " + strings.Join(values, ",") + dialectUpsert(dialect, []string{"order_id"}, assignments)

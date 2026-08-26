@@ -121,6 +121,15 @@ func (e *automationActionExecutor) sendTemplate(ctx context.Context, task Task, 
 		result.sent++
 		result.proof.tradeText = appendTradeText(result.proof.tradeText, text)
 	}
+	if result.sent == 0 {
+		// notSentErr 表示模板渲染后没有任何可确认发送的消息，必须阻止后续确认发货动作。
+		notSentErr := fmt.Errorf("%w: 发货模板渲染后没有可发送内容", ErrMessageNotSent)
+		// restoreErr 保存零消息场景下回滚已预留批量卡密时产生的错误。
+		if restoreErr := restoreReserved(); restoreErr != nil {
+			return actionExecutionResult{}, uncertainAction(errors.Join(notSentErr, restoreErr))
+		}
+		return actionExecutionResult{}, notSentErr
+	}
 	return result, nil
 }
 

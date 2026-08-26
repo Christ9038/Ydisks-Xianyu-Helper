@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 
 	automationapp "xianyu-go/internal/application/automation"
@@ -79,7 +80,10 @@ func TestAutomationRuleHandlersCoverPaginationAndUpdateErrors(t *testing.T) {
 	defer cleanup()
 	// port 是当前测试注入的自动化规则应用端口。
 	port := &automationRuleHandlerCoveragePort{
-		listRules:   []automationapp.Rule{{ID: 1, CookieID: "acc1", Name: "规则", TriggerType: automationapp.TriggerOrderPaid}},
+		listRules: []automationapp.Rule{{ID: 1, CookieID: "acc1", Name: "规则", TriggerType: automationapp.TriggerOrderPaid, Actions: []automationapp.Action{{
+			ActionType:       automationapp.ActionSendTemplate,
+			TemplateBindings: []automationapp.TemplateBinding{{VariableKey: "main", CardID: 7, DeliveryCount: 2}},
+		}}}},
 		pageRules:   []automationapp.Rule{{ID: 2, CookieID: "acc1", Name: "分页规则", TriggerType: automationapp.TriggerBuyerReviewed}},
 		pageTotal:   2,
 		countResult: map[string]int{automationapp.TriggerOrderPaid: 1},
@@ -98,6 +102,9 @@ func TestAutomationRuleHandlersCoverPaginationAndUpdateErrors(t *testing.T) {
 	listRecorder := serveChatCoverageRequest(handler, cookie, http.MethodGet, "/api/v1/automation-rules", "")
 	if listRecorder.Code != http.StatusOK {
 		t.Fatalf("list status=%d body=%s", listRecorder.Code, listRecorder.Body.String())
+	}
+	if !strings.Contains(listRecorder.Body.String(), `"variable_key":"main"`) || strings.Contains(listRecorder.Body.String(), `"key":"main"`) {
+		t.Fatalf("模板绑定响应字段不符合契约：%s", listRecorder.Body.String())
 	}
 	// listErrorCases 保存非分页规则列表错误场景。
 	listErrorCases := []struct {
@@ -170,6 +177,12 @@ func TestAutomationRuleHandlersCoverPaginationAndUpdateErrors(t *testing.T) {
 	if createConflictRecorder.Code != http.StatusConflict {
 		t.Fatalf("create conflict status=%d", createConflictRecorder.Code)
 	}
+	port.createErr = automationapp.ErrDeliveryTemplateUnavailable
+	// createTemplateConflictRecorder 保存模板状态变化时的统一 409 响应。
+	createTemplateConflictRecorder := serveChatCoverageRequest(handler, cookie, http.MethodPost, "/api/v1/automation-rules", createBody)
+	if createTemplateConflictRecorder.Code != http.StatusConflict || !strings.Contains(createTemplateConflictRecorder.Body.String(), "发货模板状态已变化，请重新选择后保存") {
+		t.Fatalf("create template conflict status=%d body=%s", createTemplateConflictRecorder.Code, createTemplateConflictRecorder.Body.String())
+	}
 	port.createErr = errors.New("create failed")
 	// createErrorRecorder 保存规则创建内部错误响应。
 	createErrorRecorder := serveChatCoverageRequest(handler, cookie, http.MethodPost, "/api/v1/automation-rules", createBody)
@@ -189,6 +202,7 @@ func TestAutomationRuleHandlersCoverPaginationAndUpdateErrors(t *testing.T) {
 		status int
 	}{
 		{"pricing conflict", automationapp.ErrPricingModeConflict, http.StatusConflict},
+		{"template conflict", automationapp.ErrDeliveryTemplateUnavailable, http.StatusConflict},
 		{"not found", automationapp.ErrRuleNotFound, http.StatusNotFound},
 		{"internal", errors.New("update failed"), http.StatusInternalServerError},
 	}

@@ -157,6 +157,14 @@ func TestAutomationRepositoryPricingModeAndSensitiveSummary(t *testing.T) {
 	if !errors.Is(createErr, automationapp.ErrPricingModeConflict) {
 		t.Fatalf("pricing conflict create err=%v", createErr)
 	}
+	// _, unavailableErr 保存引用缺失模板时适配器应返回的应用层冲突错误。
+	_, unavailableErr := repository.Create(ctx, automationapp.RuleInput{
+		UserID: 1, CookieID: "cid", Name: "缺失模板", TriggerType: automationapp.TriggerOrderPaid, Enabled: true,
+		Actions: []automationapp.ActionInput{{ActionType: automationapp.ActionSendTemplate, DeliveryTemplateID: 999999, Enabled: true}},
+	})
+	if !errors.Is(unavailableErr, automationapp.ErrDeliveryTemplateUnavailable) {
+		t.Fatalf("missing delivery template err=%v", unavailableErr)
+	}
 	// nilRepository 表示未装配数据库存储的适配器。
 	var nilRepository *AutomationRepository
 	// nilAIEnabled、nilAIError 保存未初始化适配器的 AI 查询结果和稳定错误。

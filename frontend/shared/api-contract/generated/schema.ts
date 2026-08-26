@@ -5795,7 +5795,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description AI 议价与固定规则改价配置冲突 */
+            /** @description 配置冲突或发货模板状态已变化 */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -5875,7 +5875,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description AI 议价与固定规则改价配置冲突 */
+            /** @description 配置冲突或发货模板状态已变化 */
             409: {
                 headers: {
                     [name: string]: unknown;

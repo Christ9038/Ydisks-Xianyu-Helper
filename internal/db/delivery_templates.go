@@ -234,6 +234,13 @@ func (d *DeliveryTemplateStore) Update(ctx context.Context, userID, templateID i
 		return err
 	}
 	defer tx.Rollback()
+	// err 保存模板行锁定和有效性校验错误，防止更新契约检查与软删除并发交错。
+	if err := lockLiveDeliveryTemplatesTx(ctx, tx, d.Dialect, userID, []int64{templateID}); err != nil {
+		if errors.Is(err, ErrDeliveryTemplateUnavailable) {
+			return ErrNotFound
+		}
+		return err
+	}
 	// owned 表示事务内确认模板归属，避免更新前泄露或修改其他用户的数据。
 	var owned bool
 	// err 保存事务内模板归属查询错误。
@@ -336,17 +343,21 @@ func (d *DeliveryTemplateStore) Delete(ctx context.Context, userID, templateID i
 	if err := d.validate(); err != nil {
 		return err
 	}
-	// owned 保存模板是否属于当前用户，先做归属校验避免泄露其他用户的引用状态。
-	var owned bool
-	// err 保存模板归属查询错误。
-	if err := d.DB.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM delivery_templates WHERE id=? AND user_id=? AND deleted_at IS NULL)`, templateID, userID).Scan(&owned); err != nil {
+	// tx、err 保存模板删除事务及开启错误；所有权、引用检查和软删除必须使用同一事务。
+	tx, err := d.DB.BeginTx(ctx, nil)
+	if err != nil {
 		return err
 	}
-	if !owned {
-		return ErrNotFound
+	defer tx.Rollback()
+	// err 保存模板行锁定和有效性校验错误，避免删除检查与规则写入并发交错。
+	if err := lockLiveDeliveryTemplatesTx(ctx, tx, d.Dialect, userID, []int64{templateID}); err != nil {
+		if errors.Is(err, ErrDeliveryTemplateUnavailable) {
+			return ErrNotFound
+		}
+		return err
 	}
 	// referenced、referenceErr 表示当前模板是否仍被未删除规则引用及查询错误。
-	referenced, referenceErr := deliveryTemplateHasLiveRuleReferences(ctx, d.DB, templateID)
+	referenced, referenceErr := deliveryTemplateHasLiveRuleReferences(ctx, tx, templateID)
 	if referenceErr != nil {
 		return referenceErr
 	}
@@ -354,7 +365,7 @@ func (d *DeliveryTemplateStore) Delete(ctx context.Context, userID, templateID i
 		return ErrDeliveryTemplateReferenced
 	}
 	// res、err 保存模板逻辑删除结果及错误。
-	res, err := d.DB.ExecContext(ctx, `UPDATE delivery_templates SET deleted_at=CURRENT_TIMESTAMP,enabled=0,updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=? AND deleted_at IS NULL`, templateID, userID)
+	res, err := tx.ExecContext(ctx, `UPDATE delivery_templates SET deleted_at=CURRENT_TIMESTAMP,enabled=0,updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=? AND deleted_at IS NULL`, templateID, userID)
 	if err != nil {
 		return err
 	}
@@ -363,7 +374,7 @@ func (d *DeliveryTemplateStore) Delete(ctx context.Context, userID, templateID i
 	if affected == 0 {
 		return ErrNotFound
 	}
-	return nil
+	return tx.Commit()
 }
 
 // deliveryTemplateHasLiveRuleReferences 判断模板是否仍被未逻辑删除的规则动作引用。

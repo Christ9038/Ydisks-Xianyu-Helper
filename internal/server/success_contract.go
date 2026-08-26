@@ -478,8 +478,8 @@ type itemPageSyncResponse struct {
 
 // automationTemplateBindingResponse 是自动化规则响应中的模板绑定 DTO。
 type automationTemplateBindingResponse struct {
-	// Key 是模板变量键。
-	Key string `json:"key"`
+	// VariableKey 是模板变量键；响应字段必须与 OpenAPI 的 variable_key 保持一致。
+	VariableKey string `json:"variable_key"`
 	// CardID 是绑定卡密组标识。
 	CardID int64 `json:"card_id"`
 	// CardName 是绑定卡密组名称。

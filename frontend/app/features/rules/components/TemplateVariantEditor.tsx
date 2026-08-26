@@ -19,8 +19,8 @@ export interface TemplateVariantEditorProps {
 const TemplateVariantEditor: React.FC<TemplateVariantEditorProps> = ({ index, variant, cards, deliveryTemplates, updateVariant }) => {
   // template 保存当前选择的发货模板。
   const template = deliveryTemplates.find(/* templateCandidate 是待匹配的发货模板。 */ templateCandidate => templateCandidate.id === variant.delivery_template_id);
-  // availableCards 保存启用且可发货的卡密库存。
-  const availableCards = cards.filter(/* card 是当前待筛选的卡密库存。 */ card => card.enabled && (card.type !== 'api' || card.api_config?.ready === true));
+  // availableCards 保存模板执行器支持的启用文本或批量卡密库存；API 和图片卡券由普通卡券动作单独处理。
+  const availableCards = cards.filter(/* card 是当前待筛选的卡密库存。 */ card => card.enabled && (card.type === 'text' || card.type === 'data'));
   // customKeys 保存当前模板要求规则提供的自定义变量键。
   const customKeys = template?.custom_keys || [];
   return (

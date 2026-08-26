@@ -18,6 +18,9 @@ var ErrRuleActive = errors.New("规则仍有待处理的自动化运行")
 // ErrPricingModeConflict 表示启用的 AI 议价账号不能再启用固定规则改价。
 var ErrPricingModeConflict = errors.New("该账号已启用 AI 议价，不能同时启用自动化规则改价")
 
+// ErrDeliveryTemplateUnavailable 表示规则写入时引用的发货模板状态已发生并发变化。
+var ErrDeliveryTemplateUnavailable = errors.New("发货模板不存在或已不可用")
+
 // TriggerOrderCreated 表示买家拍下未付款触发器。
 const TriggerOrderCreated = "order_created"
 

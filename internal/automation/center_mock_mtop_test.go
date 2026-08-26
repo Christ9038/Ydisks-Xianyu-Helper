@@ -580,6 +580,69 @@ func TestCenterConfirmShipment_MockMTopConsigError(t *testing.T) {
 	}
 }
 
+// TestPaidTemplateWithZeroRenderedMessagesDoesNotConfirmShipment 验证模板渲染零消息时不会推进到确认发货动作。
+func TestPaidTemplateWithZeroRenderedMessagesDoesNotConfirmShipment(t *testing.T) {
+	// store、cleanup 保存本次付款规则流程使用的数据库及清理函数。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// ctx 保存规则创建、任务执行和运行状态读取共用的上下文。
+	ctx := context.Background()
+	// admin、adminErr 保存创建发货模板所需的用户。
+	admin, adminErr := store.Users.GetByUsername(ctx, "admin")
+	if adminErr != nil {
+		t.Fatal(adminErr)
+	}
+	// templateID、templateErr 保存只引用缺失买家昵称变量的合法模板。
+	templateID, templateErr := store.DeliveryTemplates.Create(ctx, db.DeliveryTemplateInput{
+		UserID: admin.ID, Name: "零消息模板", Enabled: true, Messages: []string{"{{buyer_nickname}}"},
+	})
+	if templateErr != nil {
+		t.Fatal(templateErr)
+	}
+	// ruleID、ruleErr 保存模板动作后接确认发货动作的付款规则。
+	ruleID, ruleErr := store.Automation.Create(ctx, db.AutomationRuleInput{
+		UserID: admin.ID, CookieID: "cid", ItemID: "zero-message-item", Name: "零消息规则",
+		TriggerType: TriggerOrderPaid, Enabled: true, Actions: []db.AutomationActionInput{
+			{ActionType: ActionSendTemplate, DeliveryTemplateID: templateID, Enabled: true, SortOrder: 1},
+			{ActionType: ActionConfirmShipment, Enabled: true, SortOrder: 2},
+		},
+	})
+	if ruleErr != nil || ruleID == 0 {
+		t.Fatalf("create zero-message rule id=%d err=%v", ruleID, ruleErr)
+	}
+	// sender 记录模板消息发送次数，确认发货没有发送器副作用。
+	sender := &testSender{}
+	// mtopMock 记录确认发货调用次数，正常情况下不应被调用。
+	mtopMock := &fakeMTop{consignOk: true, consignRet: []string{"SUCCESS"}}
+	// center 是注入测试发送器和 MTOP 客户端的自动化中心。
+	center := NewWithDependencies(store, testSenderProvider{sender: sender}, nil, CenterDependencies{
+		MTop:               mtopMock,
+		OrderDetailFetcher: testFetcher{detail: &OrderDetail{Quantity: "1", Amount: "9.9"}},
+	})
+	// task 是缺少买家昵称、会把模板渲染为空的付款订单任务。
+	task := Task{Source: "ws", AccountID: "cid", CookieStr: "unb=1; _m_h5_tk=tk;", TriggerType: TriggerOrderPaid,
+		ChatID: "chat-zero", OrderID: "order-zero-message", ItemID: "zero-message-item", BuyerID: "buyer-zero", Quantity: "1"}
+	// runErr 保存规则执行错误；零消息是确定未发送，应允许安全重试而不确认发货。
+	runErr := center.HandleTask(ctx, task)
+	if runErr == nil || !errors.Is(runErr, ErrMessageNotSent) {
+		t.Fatalf("零消息模板应返回确定未发送错误：%v", runErr)
+	}
+	if len(sender.texts) != 0 || mtopMock.consignCalls != 0 {
+		t.Fatalf("零消息模板不应产生发送或确认副作用：texts=%v consign=%d", sender.texts, mtopMock.consignCalls)
+	}
+	// status、errMessage、cursor 保存失败运行的可重试状态和动作检查点。
+	var status, errMessage string
+	// cursor 保存失败时停留在模板动作之前的动作游标。
+	var cursor int
+	// scanErr 保存失败运行状态读取错误。
+	if scanErr := store.DB.QueryRowContext(ctx, `SELECT status,error_message,action_cursor FROM automation_runs WHERE order_id=?`, task.OrderID).Scan(&status, &errMessage, &cursor); scanErr != nil {
+		t.Fatal(scanErr)
+	}
+	if status != "failed" || !strings.HasPrefix(errMessage, db.SafeRetryErrorPrefix) || cursor != 0 {
+		t.Fatalf("零消息运行状态错误：status=%q error=%q cursor=%d", status, errMessage, cursor)
+	}
+}
+
 // TestConfirmShipmentAlreadyDeliveredIsIdempotentSuccess 验证平台明确返回已发货时，确认发货按幂等成功补写本地状态。
 func TestConfirmShipmentAlreadyDeliveredIsIdempotentSuccess(t *testing.T) {
 	// store、cleanup 保存测试数据库及其清理函数。

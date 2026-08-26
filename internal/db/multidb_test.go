@@ -1090,8 +1090,8 @@ func TestMultiDB_OrdersUpsertManyMixedCreatedAt(t *testing.T) {
 			if seedErr := store.Orders.Upsert(ctx, "multidb-mixed-empty", OrderUpsertOpts{CookieID: cookieID, CreatedAt: "2024-01-01 00:00:00", OrderStatus: "paid"}); seedErr != nil {
 				t.Fatal(seedErr)
 			}
-			// clearErr 保存模拟历史空创建时间的更新错误。
-			if _, clearErr := store.DB.ExecContext(ctx, `UPDATE orders SET created_at='' WHERE order_id=?`, "multidb-mixed-empty"); clearErr != nil {
+			// clearErr 保存使用跨数据库 NULL 模拟历史缺少创建时间的更新错误。
+			if _, clearErr := store.DB.ExecContext(ctx, `UPDATE orders SET created_at=NULL WHERE order_id=?`, "multidb-mixed-empty"); clearErr != nil {
 				t.Fatal(clearErr)
 			}
 			// rows 保存同时包含空和显式创建时间的三方言批次。

@@ -416,6 +416,10 @@ func (a *AutomationRules) Create(ctx context.Context, in AutomationRuleInput) (i
 		return 0, err
 	}
 	defer tx.Rollback()
+	// err 保存模板锁定及变量契约复核错误，规则写入必须与该校验处于同一事务。
+	if err := validateAutomationTemplateContractsTx(ctx, tx, a.Dialect, in.UserID, in.Actions); err != nil {
+		return 0, err
+	}
 	// id、err 用于本次流程后续判断的id、err
 	id, err := createAutomationRuleTx(ctx, tx, a.Dialect, in)
 	if err != nil {
@@ -436,6 +440,10 @@ func (a *AutomationRules) Update(ctx context.Context, userID, ruleID int64, in A
 		return err
 	}
 	defer tx.Rollback()
+	// err 保存新动作模板锁定及变量契约复核错误，必须先于旧动作删除执行。
+	if err := validateAutomationTemplateContractsTx(ctx, tx, a.Dialect, userID, in.Actions); err != nil {
+		return err
+	}
 	// res、err 用于本次流程后续判断的res、err
 	res, err := tx.ExecContext(ctx, `
 UPDATE automation_rules

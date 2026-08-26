@@ -921,7 +921,7 @@ func TestOpenAPILocalResourceMutationResponses(t *testing.T) {
 	serveOpenAPISuccess(t, handler, finalCookie, http.MethodPut, "/api/v1/automation-rules/"+automationRuleID, `{"cookie_id":"acc1","item_id":"contract-automation-item","trigger_type":"order_paid","enabled":false,"actions":[{"action_type":"send_card","card_id":`+strconv.FormatInt(automationCardID, 10)+`,"delivery_count":1}]}`)
 	serveOpenAPISuccess(t, handler, finalCookie, http.MethodDelete, "/api/v1/automation-rules/"+automationRuleID, "")
 	// deliveryTemplateCreateRecorder 保存包含订单和自定义变量占位符的模板创建响应。
-	deliveryTemplateCreateRecorder := serveOpenAPISuccess(t, handler, finalCookie, http.MethodPost, "/api/v1/delivery-templates", `{"name":"契约发货模板","enabled":true,"messages":[{"content":"订单 {{order_id}} {{custom.remark}}"}]}`)
+	deliveryTemplateCreateRecorder := serveOpenAPISuccess(t, handler, finalCookie, http.MethodPost, "/api/v1/delivery-templates", `{"name":"契约发货模板","enabled":true,"messages":[{"content":"订单 {{order_id}} {{cards.code}}"}]}`)
 	// deliveryTemplateCreateResponse 保存新建模板的数值主键。
 	var deliveryTemplateCreateResponse deliveryTemplateMutationResponse
 	// decodeErr 保存模板创建响应解码错误。
@@ -932,6 +932,24 @@ func TestOpenAPILocalResourceMutationResponses(t *testing.T) {
 	deliveryTemplateID := strconv.FormatInt(deliveryTemplateCreateResponse.ID, 10)
 	serveOpenAPISuccess(t, handler, finalCookie, http.MethodGet, "/api/v1/delivery-templates", "")
 	serveOpenAPISuccess(t, handler, finalCookie, http.MethodGet, "/api/v1/delivery-templates/"+deliveryTemplateID, "")
+	// templateRuleRecorder 保存带模板变量绑定的真实规则创建响应，用于验证请求 key 字段和响应 variable_key 字段的非对称契约。
+	templateRuleRecorder := serveOpenAPISuccess(t, handler, finalCookie, http.MethodPost, "/api/v1/automation-rules", `{"cookie_id":"acc1","item_id":"contract-automation-item","trigger_type":"order_paid","enabled":true,"actions":[{"action_type":"send_template","card_id":0,"delivery_count":1,"delivery_template_id":`+deliveryTemplateID+`,"template_bindings":[{"key":"code","card_id":`+strconv.FormatInt(automationCardID, 10)+`,"delivery_count":1}]}]}`)
+	// templateRuleResponse 保存模板规则创建响应，供后续列表校验使用。
+	var templateRuleResponse mutationIDResponse
+	// decodeErr 保存模板规则创建响应解码错误。
+	if decodeErr := json.Unmarshal(templateRuleRecorder.Body.Bytes(), &templateRuleResponse); decodeErr != nil || templateRuleResponse.ID == 0 {
+		t.Fatalf("decode template rule create: id=%d err=%v body=%s", templateRuleResponse.ID, decodeErr, templateRuleRecorder.Body.String())
+	}
+	// templateRulesRecorder 保存真实模板规则列表响应；contractRecordingHandler 同时按 OpenAPI schema 校验其结构。
+	templateRulesRecorder := serveOpenAPISuccess(t, handler, finalCookie, http.MethodGet, "/api/v1/automation-rules", "")
+	if !strings.Contains(templateRulesRecorder.Body.String(), `"variable_key":"code"`) || strings.Contains(templateRulesRecorder.Body.String(), `"key":"code"`) {
+		t.Fatalf("模板规则响应字段不符合 OpenAPI 契约：%s", templateRulesRecorder.Body.String())
+	}
+	// deleteTemplateRuleRecorder 保存清理模板规则的成功响应，释放模板删除的引用保护。
+	deleteTemplateRuleRecorder := serveOpenAPISuccess(t, handler, finalCookie, http.MethodDelete, "/api/v1/automation-rules/"+strconv.FormatInt(templateRuleResponse.ID, 10), "")
+	if deleteTemplateRuleRecorder.Code != http.StatusOK {
+		t.Fatalf("delete template rule status=%d body=%s", deleteTemplateRuleRecorder.Code, deleteTemplateRuleRecorder.Body.String())
+	}
 	serveOpenAPISuccess(t, handler, finalCookie, http.MethodPut, "/api/v1/delivery-templates/"+deliveryTemplateID, `{"name":"契约发货模板更新","enabled":true,"messages":[{"content":"买家 {{buyer_id}}"}]}`)
 	serveOpenAPISuccess(t, handler, finalCookie, http.MethodDelete, "/api/v1/delivery-templates/"+deliveryTemplateID, "")
 	serveOpenAPISuccess(t, handler, finalCookie, http.MethodPut, "/api/v1/default-replies/acc1", `{"enabled":true,"reply_content":"契约默认回复","reply_once":true}`)

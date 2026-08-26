@@ -115,7 +115,9 @@ func (r *AutomationRepository) Create(ctx context.Context, input automationapp.R
 			return 0, automationapp.ErrPricingModeConflict
 		}
 	}
-	return r.store.Automation.Create(ctx, automationRuleInputDB(input))
+	// id、err 保存数据库规则创建结果及基础设施错误，随后转换为应用层错误。
+	id, err := r.store.Automation.Create(ctx, automationRuleInputDB(input))
+	return id, mapAutomationRuleError(err)
 }
 
 // EnsurePublishRule 将发布自动化规则输入转换为数据库模型并执行幂等创建。
@@ -327,6 +329,9 @@ func copyStringMap(values map[string]string) map[string]string {
 
 // mapAutomationRuleError 将数据库规则错误转换为应用层错误。
 func mapAutomationRuleError(err error) error {
+	if errors.Is(err, db.ErrDeliveryTemplateUnavailable) {
+		return automationapp.ErrDeliveryTemplateUnavailable
+	}
 	if errors.Is(err, db.ErrNotFound) {
 		return automationapp.ErrRuleNotFound
 	}

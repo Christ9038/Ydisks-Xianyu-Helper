@@ -65,6 +65,88 @@ interface CustomVariableConfig {
   custom_variables?: unknown;
 }
 
+/** 模板绑定请求 DTO，保留请求使用 key、响应使用 variable_key 的契约差异。 */
+interface AutomationTemplateBindingRequestPayload {
+  /** 请求绑定的模板变量键。 */
+  key: string;
+  /** 绑定的卡密库存 ID。 */
+  card_id: number;
+  /** 每件订单取出的卡密数量。 */
+  delivery_count: number;
+}
+
+/** 自动化动作请求的本地 transport DTO，明确模板绑定使用 key 字段。 */
+interface AutomationActionRequestPayload {
+  /** 动作类型。 */
+  action_type: string;
+  /** 普通卡券动作使用的库存 ID。 */
+  card_id: number;
+  /** 普通卡券动作的发货数量。 */
+  delivery_count: number;
+  /** 文本动作正文。 */
+  message_template: string;
+  /** 动作延迟秒数。 */
+  delay_seconds: number;
+  /** 动作扩展配置 JSON。 */
+  config_json: string;
+  /** 动作是否启用。 */
+  enabled: boolean;
+  /** 动作执行顺序。 */
+  sort_order: number;
+  /** 模板发货动作使用的模板 ID。 */
+  delivery_template_id: number;
+  /** 模板变量绑定请求列表。 */
+  template_bindings: AutomationTemplateBindingRequestPayload[];
+  /** 模板自定义变量键值表。 */
+  custom_variables: Record<string, string>;
+}
+
+/** 自动化规则请求的本地 transport DTO，隔离规则 UI 模型与 OpenAPI 请求字段。 */
+interface AutomationRuleRequestPayload {
+  /** 规则绑定的账号标识。 */
+  cookie_id: string;
+  /** 规则匹配的商品标识。 */
+  item_id: string;
+  /** 规则名称。 */
+  name: string;
+  /** 规则触发类型。 */
+  trigger_type: string;
+  /** 规则是否启用。 */
+  enabled: boolean;
+  /** 规则优先级。 */
+  priority: number;
+  /** 规则扩展配置 JSON。 */
+  config_json: string;
+  /** 规则动作请求列表。 */
+  actions: AutomationActionRequestPayload[];
+}
+
+/** 将自动化规则响应中的模板绑定 DTO 归一为规则页使用的 UI 模型。 */
+const normalizeTemplateBindings = (raw: unknown): DeliveryTemplateBinding[] => {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap(/* item 是服务端返回的单个模板绑定 DTO。 */ item => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+    // dto 保存经过对象边界检查的服务端模板绑定字段集合。
+    const dto = item as Record<string, unknown>;
+    // variableKey 保存服务端响应中的模板变量键；缺失时丢弃该绑定以避免伪造 UI 状态。
+    const variableKey = typeof dto.variable_key === 'string' ? dto.variable_key : '';
+		// cardID、deliveryCount 保存模板绑定对应的库存主键和每件订单取货份数。
+		const cardID = Number(dto.card_id || 0);
+		// deliveryCount 保存每件订单为该模板变量准备的卡券份数。
+		const deliveryCount = Number(dto.delivery_count || 1);
+    if (!variableKey || !Number.isFinite(cardID) || !Number.isFinite(deliveryCount)) return [];
+    return [{ variable_key: variableKey, card_id: cardID, delivery_count: deliveryCount }];
+  });
+};
+
+/** 将规则页模板绑定 UI 模型序列化为 OpenAPI 请求要求的 key 字段。 */
+const serializeTemplateBindings = (bindings?: DeliveryTemplateBinding[]) =>
+  (bindings || []).map(/* binding 是当前待提交的模板变量绑定 UI 模型。 */ binding => ({
+    key: binding.variable_key,
+    card_id: binding.card_id,
+    delivery_count: binding.delivery_count,
+  }));
+
 // parseCustomVariables 从动作配置中恢复规则页保存的自定义字符串键值表。
 const parseCustomVariables = (raw?: string): Record<string, string> => {
   // config 保存动作配置 JSON 对象。
@@ -124,7 +206,7 @@ const normalizeShippingRules = (rules: any[]): ShippingRule[] => rules.map(/* �
           delivery_template_id: Number(action.delivery_template_id || 0),
           delivery_template_name: action.delivery_template_name || '',
           template_keys: Array.isArray(action.template_keys) ? action.template_keys : [],
-          template_bindings: Array.isArray(action.template_bindings) ? action.template_bindings as DeliveryTemplateBinding[] : [],
+          template_bindings: normalizeTemplateBindings(action.template_bindings),
           custom_variables: action.custom_variables && typeof action.custom_variables === 'object' && !Array.isArray(action.custom_variables) ? action.custom_variables as Record<string, string> : {},
         })),
         variants: (item.actions || [])
@@ -146,7 +228,7 @@ const normalizeShippingRules = (rules: any[]): ShippingRule[] => rules.map(/* �
               config_json: action.config_json || '{}',
               delivery_mode: action.action_type === 'send_template' ? 'template' : 'card',
               delivery_template_id: Number(action.delivery_template_id || 0),
-              template_bindings: Array.isArray(action.template_bindings) ? action.template_bindings as DeliveryTemplateBinding[] : [],
+              template_bindings: normalizeTemplateBindings(action.template_bindings),
               custom_variables: parseCustomVariables(action.config_json),
             };
           }),
@@ -264,7 +346,7 @@ export const updateShippingRule = async (rule: Partial<ShippingRule>): Promise<O
     // actions 动作列表，用于当前 API 处理流程。
     const actions = orderAutomationActions(triggerType, baseActions);
     // payload 请求载荷，用于当前 API 处理流程。
-    const payload = {
+    const payload: AutomationRuleRequestPayload = {
         cookie_id: rule.cookie_id || '',
         item_id: rule.item_id || '',
         name: (rule.name || '').trim() || generatedName || '自动化规则',
@@ -282,13 +364,13 @@ export const updateShippingRule = async (rule: Partial<ShippingRule>): Promise<O
           enabled: action.enabled !== false,
           sort_order: action.sort_order || index + 1,
           delivery_template_id: action.delivery_template_id || 0,
-          template_bindings: action.template_bindings || [],
+          template_bindings: serializeTemplateBindings(action.template_bindings),
           custom_variables: action.custom_variables && typeof action.custom_variables === 'object' && !Array.isArray(action.custom_variables) ? action.custom_variables : {},
         })),
     };
     return rule.id
-      ? runContractRequest(/* signal 控制自动化规则更新请求的取消和超时。 */ signal => contractClient.PUT('/api/v1/automation-rules/{rule_id}', { params: { path: { rule_id: String(rule.id) } }, body: payload as never, signal }))
-      : runContractRequest(/* signal 控制自动化规则创建请求的取消和超时。 */ signal => contractClient.POST('/api/v1/automation-rules', { body: payload as never, signal }));
+      ? runContractRequest(/* signal 控制自动化规则更新请求的取消和超时。 */ signal => contractClient.PUT('/api/v1/automation-rules/{rule_id}', { params: { path: { rule_id: String(rule.id) } }, body: payload, signal }))
+      : runContractRequest(/* signal 控制自动化规则创建请求的取消和超时。 */ signal => contractClient.POST('/api/v1/automation-rules', { body: payload, signal }));
 }
 
 // deleteShippingRule 删除发货规则。

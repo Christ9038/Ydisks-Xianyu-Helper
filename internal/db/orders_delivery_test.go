@@ -224,8 +224,8 @@ func TestOrdersUpsertManyPreservesCreatedAtInMixedBatch(t *testing.T) {
 	if seedErr := store.Orders.Upsert(ctx, "mixed-empty-existing", OrderUpsertOpts{CookieID: cookieID, CreatedAt: "2024-01-01 00:00:00", OrderStatus: "paid"}); seedErr != nil {
 		t.Fatal(seedErr)
 	}
-	// clearErr 模拟历史数据中合法的空创建时间，验证空批次不会把它变成当前时间。
-	if _, clearErr := store.DB.ExecContext(ctx, `UPDATE orders SET created_at='' WHERE order_id=?`, "mixed-empty-existing"); clearErr != nil {
+	// clearErr 使用跨数据库通用的 NULL 模拟历史数据中缺少创建时间，验证空批次不会把它变成当前时间。
+	if _, clearErr := store.DB.ExecContext(ctx, `UPDATE orders SET created_at=NULL WHERE order_id=?`, "mixed-empty-existing"); clearErr != nil {
 		t.Fatal(clearErr)
 	}
 	// explicitSeedErr 保存显式创建时间订单初始化错误。

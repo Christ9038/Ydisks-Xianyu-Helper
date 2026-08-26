@@ -188,7 +188,7 @@ func automationTemplateBindingResponses(bindings []automationapp.TemplateBinding
 	// responses 保存模板绑定响应列表。
 	responses := make([]automationTemplateBindingResponse, 0, len(bindings))
 	for /* binding 表示当前待转换的应用模板绑定。 */ _, binding := range bindings {
-		responses = append(responses, automationTemplateBindingResponse{Key: binding.VariableKey, CardID: binding.CardID, CardName: binding.CardName, DeliveryCount: binding.DeliveryCount})
+		responses = append(responses, automationTemplateBindingResponse{VariableKey: binding.VariableKey, CardID: binding.CardID, CardName: binding.CardName, DeliveryCount: binding.DeliveryCount})
 	}
 	return responses
 }
@@ -217,6 +217,10 @@ func (s *Server) createAutomationRule(w http.ResponseWriter, r *http.Request) {
 	// id、err 用于本次流程后续判断的id、err
 	id, err := s.automationRulesApplication().Create(r.Context(), in)
 	if err != nil {
+		if errors.Is(err, automationapp.ErrDeliveryTemplateUnavailable) {
+			writeErr(w, http.StatusConflict, "发货模板状态已变化，请重新选择后保存")
+			return
+		}
 		if errors.Is(err, automationapp.ErrPricingModeConflict) {
 			writeErr(w, http.StatusConflict, err.Error())
 			return
@@ -256,6 +260,10 @@ func (s *Server) updateAutomationRule(w http.ResponseWriter, r *http.Request) {
 	}
 	if // err 用于本次流程后续判断的err
 	err := s.automationRulesApplication().Update(r.Context(), sess.UserID, ruleID, in); err != nil {
+		if errors.Is(err, automationapp.ErrDeliveryTemplateUnavailable) {
+			writeErr(w, http.StatusConflict, "发货模板状态已变化，请重新选择后保存")
+			return
+		}
 		if errors.Is(err, automationapp.ErrPricingModeConflict) {
 			writeErr(w, http.StatusConflict, err.Error())
 			return

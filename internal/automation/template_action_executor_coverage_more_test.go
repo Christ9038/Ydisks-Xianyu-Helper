@@ -34,8 +34,13 @@ func TestSendTemplateHandlesEmptyAndUnavailableActions(t *testing.T) {
 	}
 	// blankResult、blankErr 保存模板消息全部为空白时的执行结果。
 	blankResult, blankErr := executor.sendTemplate(ctx, task, db.AutomationAction{ConfigJSON: "{}", TemplateMessages: []string{" ", "\n"}})
-	if blankErr != nil || blankResult.sent != 0 {
-		t.Fatalf("空白模板消息应跳过：result=%+v err=%v", blankResult, blankErr)
+	if !errors.Is(blankErr, ErrMessageNotSent) || blankResult.sent != 0 {
+		t.Fatalf("空白模板消息应阻止后续动作：result=%+v err=%v", blankResult, blankErr)
+	}
+	// missingNicknameResult、missingNicknameErr 保存合法订单变量为空时的零消息结果。
+	missingNicknameResult, missingNicknameErr := executor.sendTemplate(ctx, Task{AccountID: "cid"}, db.AutomationAction{ConfigJSON: "{}", TemplateMessages: []string{"{{buyer_nickname}}"}})
+	if !errors.Is(missingNicknameErr, ErrMessageNotSent) || missingNicknameResult.sent != 0 || len(sender.texts) != 0 {
+		t.Fatalf("缺失买家昵称应阻止后续动作：result=%+v err=%v texts=%v", missingNicknameResult, missingNicknameErr, sender.texts)
 	}
 	// admin、adminErr 保存创建测试卡券所需的管理员用户。
 	admin, adminErr := store.Users.GetByUsername(ctx, "admin")
@@ -114,6 +119,31 @@ func TestSendTemplateRestoresReservedBatchData(t *testing.T) {
 	restoredAfterSend, restoreSendErr := store.Cards.ConsumeBatchData(ctx, restoreID)
 	if restoreSendErr != nil || restoredAfterSend != "待恢复" {
 		t.Fatalf("首条消息未发送后库存未恢复：content=%q err=%v", restoredAfterSend, restoreSendErr)
+	}
+	// zeroOutputID、zeroOutputErr 保存零消息模板使用的批量卡券库存。
+	zeroOutputID, zeroOutputErr := store.Cards.Create(ctx, &db.CardFull{Name: "zero-output", Type: "data", DataContent: "零消息待恢复", Enabled: true, UserID: admin.ID})
+	if zeroOutputErr != nil {
+		t.Fatalf("create zero-output card error: %v", zeroOutputErr)
+	}
+	// triggerErr 保存仅阻止恢复更新的数据库触发器创建错误，用来模拟历史脏数据导致的恢复失败。
+	if _, triggerErr := store.DB.ExecContext(ctx, `CREATE TRIGGER fail_zero_output_restore
+		BEFORE UPDATE OF data_content ON cards
+		WHEN OLD.data_content='' AND NEW.data_content LIKE '零消息待恢复%'
+		BEGIN SELECT RAISE(FAIL, 'forced restore failure'); END`); triggerErr != nil {
+		t.Fatal(triggerErr)
+	}
+	// uncertainZeroExecutor 是用于验证零消息库存恢复失败分类的模板执行器。
+	uncertainZeroExecutor := automationActionExecutor{store: store, senders: testSenderProvider{sender: &testSender{}}}
+	// uncertainZeroResult、uncertainZeroErr 保存零消息且库存恢复失败后的人工核对结果。
+	uncertainZeroResult, uncertainZeroErr := uncertainZeroExecutor.sendTemplate(ctx, Task{AccountID: "cid"}, db.AutomationAction{ConfigJSON: "{}", TemplateMessages: []string{"{{buyer_nickname}}"}, TemplateBindings: []db.DeliveryTemplateBinding{{VariableKey: "code", CardID: zeroOutputID}}})
+	// uncertainZero 保存零消息恢复失败时应返回的人工核对错误包装。
+	var uncertainZero *uncertainActionError
+	if uncertainZeroResult.sent != 0 || !errors.As(uncertainZeroErr, &uncertainZero) || !errors.Is(uncertainZeroErr, ErrMessageNotSent) {
+		t.Fatalf("零消息恢复失败应进入人工核对：result=%+v err=%v", uncertainZeroResult, uncertainZeroErr)
+	}
+	// dropErr 保存一次性恢复故障触发器清理错误。
+	if _, dropErr := store.DB.ExecContext(ctx, `DROP TRIGGER fail_zero_output_restore`); dropErr != nil {
+		t.Fatal(dropErr)
 	}
 }
 
