@@ -10,6 +10,11 @@ import (
 )
 
 var (
+	// readBatchLeaseRandomBytes 是批次租约令牌的随机读取器；测试可替换它验证降级令牌语义。
+	readBatchLeaseRandomBytes = rand.Read
+)
+
+var (
 	// ErrBatchNotFound 表示批次不存在或不属于当前用户。
 	ErrBatchNotFound = errors.New("商品批量任务不存在")
 	// ErrBatchConflict 表示批次租约或状态发生并发冲突。
@@ -338,7 +343,7 @@ func randomBatchToken() string {
 	// bytes 保存租约令牌的随机字节，令牌不携带用户或商品信息。
 	bytes := make([]byte, 16)
 	// _, err 保存随机源读取结果；系统随机源失败时回退到时间戳以保持旧接口可用。
-	if _, err := rand.Read(bytes); err == nil {
+	if _, err := readBatchLeaseRandomBytes(bytes); err == nil {
 		return hex.EncodeToString(bytes)
 	}
 	return time.Now().UTC().Format("20060102150405.000000000")

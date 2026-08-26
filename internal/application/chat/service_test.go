@@ -15,6 +15,8 @@ type fakeSubscriptionProvider struct {
 	mu sync.Mutex
 	// cancelCalls 记录底层订阅清理次数，验证应用层不会重复释放。
 	cancelCalls int
+	// err 保存订阅端口需要返回的错误。
+	err error
 }
 
 // fakeRefreshProvider 记录刷新应用端口收到的请求参数，并返回预设分页结果。
@@ -25,18 +27,20 @@ type fakeRefreshProvider struct {
 	history HistoryPage
 	// calls 记录联系人与历史刷新调用次数。
 	calls int
+	// err 保存刷新端口需要返回的错误。
+	err error
 }
 
 // RefreshConversations 返回测试联系人页并记录调用次数。
 func (p *fakeRefreshProvider) RefreshConversations(context.Context, string, int64, int) (ConversationPage, error) {
 	p.calls++
-	return p.conversation, nil
+	return p.conversation, p.err
 }
 
 // RefreshHistory 返回测试历史页并记录调用次数。
 func (p *fakeRefreshProvider) RefreshHistory(context.Context, string, string, int64, int, Session) (HistoryPage, error) {
 	p.calls++
-	return p.history, nil
+	return p.history, p.err
 }
 
 // TestRefreshDelegatesOnlyValidRequests 验证刷新应用服务只向已装配端口转发有效请求。
@@ -66,10 +70,27 @@ func TestRefreshDelegatesOnlyValidRequests(t *testing.T) {
 	if !errors.Is(err, ErrRefreshUnavailable) {
 		t.Fatalf("invalid request error=%v", err)
 	}
+	// wantErr 是刷新端口返回的确定性错误。
+	wantErr := errors.New("refresh failed")
+	// failingProvider 是刷新失败场景使用的端口替身。
+	failingProvider := &fakeRefreshProvider{err: wantErr}
+	// failingService 是绑定失败刷新端口的聊天服务。
+	failingService := NewWithSendingSubscriptionAndRefresh(nil, nil, nil, nil, nil, failingProvider)
+	// refreshErr 保存历史刷新端口返回的错误。
+	if _, refreshErr := failingService.RefreshHistory(context.Background(), "account", "chat", 0, 10, Session{}); !errors.Is(refreshErr, wantErr) {
+		t.Fatalf("history error=%v", refreshErr)
+	}
+	// invalidHistoryErr 保存非法历史刷新参数的错误。
+	if _, invalidHistoryErr := failingService.RefreshHistory(context.Background(), "account", "chat", 0, 0, Session{}); !errors.Is(invalidHistoryErr, ErrRefreshUnavailable) {
+		t.Fatalf("invalid history error=%v", invalidHistoryErr)
+	}
 }
 
 // Subscribe 返回测试事件流，并提供可重复调用的清理函数。
 func (p *fakeSubscriptionProvider) Subscribe(context.Context, int64) (<-chan Event, func(), error) {
+	if p.err != nil {
+		return nil, nil, p.err
+	}
 	return p.events, func() {
 		p.mu.Lock()
 		p.cancelCalls++
@@ -93,6 +114,16 @@ func TestSubscribeRejectsUnavailableAndInvalidUser(t *testing.T) {
 	_, _, err = service.Subscribe(context.Background(), 0)
 	if !errors.Is(err, ErrSubscriptionUnavailable) {
 		t.Fatalf("invalid user error=%v", err)
+	}
+	// wantErr 是底层订阅端口返回的确定性错误。
+	wantErr := errors.New("subscription failed")
+	// failingProvider 是订阅失败场景使用的端口替身。
+	failingProvider := &fakeSubscriptionProvider{events: make(chan Event), err: wantErr}
+	// failingService 是绑定失败订阅端口的聊天服务。
+	failingService := NewWithSendingAndSubscription(nil, nil, nil, nil, failingProvider)
+	// subscribeErr 保存底层实时订阅端口返回的错误。
+	if _, _, subscribeErr := failingService.Subscribe(context.Background(), 1); !errors.Is(subscribeErr, wantErr) {
+		t.Fatalf("subscription error=%v", subscribeErr)
 	}
 }
 
@@ -219,6 +250,36 @@ type fakeIdentityResolver struct {
 	identity Identity
 	// err 是模拟平台身份查询失败的错误。
 	err error
+}
+
+// readMessageRepository 在基础聊天仓储上增加旧版消息关联标识诊断查询能力。
+type readMessageRepository struct {
+	// fakeRepository 保存聊天历史和会话归属测试行为。
+	*fakeRepository
+	// values 保存待解析的有限诊断 JSON 文本。
+	values []string
+	// err 保存诊断查询需要返回的错误。
+	err error
+}
+
+// FindInboundParsedJSONContaining 返回预设的旧版消息关联诊断帧。
+func (r *readMessageRepository) FindInboundParsedJSONContaining(context.Context, string, string, int) ([]string, error) {
+	return r.values, r.err
+}
+
+// blockingIdentityResolver 用于让所有身份工作器停在平台查询阶段，稳定触发排队上下文取消分支。
+type blockingIdentityResolver struct {
+	// started 通知已经进入平台查询的工作器数量。
+	started chan<- struct{}
+	// release 控制阻塞查询统一结束。
+	release <-chan struct{}
+}
+
+// Resolve 等待测试释放信号后返回空的非敏感身份。
+func (r blockingIdentityResolver) Resolve(context.Context, string, string) (Identity, error) {
+	r.started <- struct{}{}
+	<-r.release
+	return Identity{}, nil
 }
 
 // historyOnlyRepository 仅实现历史读取端口，用于验证可选会话维护能力缺失时的错误。
@@ -399,6 +460,197 @@ func TestSessionPortRejectsMissingCapabilities(t *testing.T) {
 	err := service.CleanupEmptySessions(context.Background(), "account-1")
 	if !errors.Is(err, ErrSessionUnavailable) {
 		t.Fatalf("CleanupEmptySessions() error = %v, want %v", err, ErrSessionUnavailable)
+	}
+}
+
+// TestSessionQueriesAndLegacyReadIDResolution 验证会话查询、旧版消息标识迁移和嵌套协议解析。
+func TestSessionQueriesAndLegacyReadIDResolution(t *testing.T) {
+	// repository 保存可供查询和诊断解析的聊天数据。
+	repository := &readMessageRepository{
+		fakeRepository: &fakeRepository{sessions: []Session{{ChatID: "chat-1", BuyerName: "买家"}}},
+		values:         []string{"not-json", `{"outer":[{"2":"chat-1@goofish","3":"platform.PNM","10":{"message_id":"legacy-1"}}]}`},
+	}
+	// service 是绑定查询仓储的聊天应用服务。
+	service := New(repository)
+	// sessions、err 保存账号会话列表和查询错误。
+	sessions, err := service.ListSessions(context.Background(), 7, " account-1 ", 20)
+	if err != nil || len(sessions) != 1 || sessions[0].BuyerName != "买家" {
+		t.Fatalf("sessions=%+v err=%v", sessions, err)
+	}
+	// found、err 保存命中的会话和查询错误。
+	found, err := service.FindSession(context.Background(), 7, "account-1", " chat-1 ")
+	if err != nil || found.BuyerName != "买家" {
+		t.Fatalf("found=%+v err=%v", found, err)
+	}
+	// missing、err 保存未命中的零值会话及查询错误。
+	missing, err := service.FindSession(context.Background(), 7, "account-1", "missing")
+	if err != nil || missing.ChatID != "" {
+		t.Fatalf("missing=%+v err=%v", missing, err)
+	}
+	// invalidCases 描述会话查询的输入边界。
+	invalidCases := []struct {
+		// name 标识当前输入边界。
+		name string
+		// run 执行当前输入边界对应的查询。
+		run func() error
+	}{
+		{name: "list-user", run: func() error {
+			// queryErr 保存列表查询输入错误。
+			_, queryErr := service.ListSessions(context.Background(), 0, "account-1", 20)
+			return queryErr
+		}},
+		{name: "find-chat", run: func() error {
+			// queryErr 保存会话查询输入错误。
+			_, queryErr := service.FindSession(context.Background(), 7, "account-1", "")
+			return queryErr
+		}},
+	}
+	// testCase 表示当前会话查询输入边界。
+	for _, testCase := range invalidCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// err 保存当前输入边界返回的应用错误。
+			// queryErr 保存当前输入边界返回的应用错误。
+			queryErr := testCase.run()
+			if !errors.Is(queryErr, ErrInvalidInput) {
+				t.Fatalf("error=%v", queryErr)
+			}
+		})
+	}
+	// resolvedID 保存从嵌套诊断帧解析出的平台消息标识。
+	resolvedID := service.ResolveReadMessageID(context.Background(), "account-1", "chat-1", " legacy-1 ")
+	if resolvedID != "platform.PNM" {
+		t.Fatalf("resolvedID=%q", resolvedID)
+	}
+	if service.ResolveReadMessageID(context.Background(), "account-1", "chat-1", "") != "" || service.ResolveReadMessageID(context.Background(), "account-1", "chat-1", "already.PNM") != "already.PNM" {
+		t.Fatal("empty and PNM IDs should remain stable")
+	}
+	// noResolverService 是不支持旧版诊断查询的历史仓储服务。
+	noResolverService := New(historyOnlyRepository{})
+	if noResolverService.ResolveReadMessageID(context.Background(), "account-1", "chat-1", "legacy") != "" {
+		t.Fatal("missing diagnostic capability should return empty ID")
+	}
+	// errorService 是诊断查询失败的聊天服务。
+	errorService := New(&readMessageRepository{fakeRepository: &fakeRepository{}, err: errors.New("diagnostic unavailable")})
+	if errorService.ResolveReadMessageID(context.Background(), "account-1", "chat-1", "legacy") != "" {
+		t.Fatal("diagnostic error should return empty ID")
+	}
+	// nestedValue 保存包含协议数组、错误会话和嵌入 JSON 的动态结构。
+	nestedValue := map[string]any{"nodes": []any{
+		map[string]any{"2": "other", "3": "wrong.PNM", "10": map[string]any{"messageId": "legacy"}},
+		`{"2":"chat-1@goofish","3":"nested.PNM","10":{"message_id":"legacy"}}`,
+	}}
+	if FindPlatformMessageID(nestedValue, "chat-1", "legacy") != "nested.PNM" {
+		t.Fatal("nested platform message ID was not found")
+	}
+	if FindPlatformMessageID(map[string]any{"3": "not-pnm", "10": map[string]any{"messageId": "legacy"}}, "chat-1", "legacy") != "" {
+		t.Fatal("non-PNM candidate should be ignored")
+	}
+	// containsCases 描述旧版诊断字段的递归容器和非法文本边界。
+	containsCases := []struct {
+		// name 标识当前递归输入。
+		name string
+		// value 保存待检查的动态字段。
+		value any
+		// want 保存预期的旧关联标识命中结果。
+		want bool
+	}{
+		{name: "map-key", value: map[string]any{"messageId": "legacy"}, want: true},
+		{name: "nested-array", value: []any{map[string]any{"message_id": "legacy"}}, want: true},
+		{name: "json-string", value: `{"messageId":"legacy"}`, want: true},
+		{name: "invalid-string", value: "not-json", want: false},
+		{name: "other-type", value: 1, want: false},
+	}
+	// testCase 表示当前递归字段输入。
+	for _, testCase := range containsCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// got 保存递归字段是否命中旧消息标识的结果。
+			if got := readValueContainsID(testCase.value, "legacy"); got != testCase.want {
+				t.Fatalf("readValueContainsID()=%v want=%v", got, testCase.want)
+			}
+		})
+	}
+	// nilService 表示未初始化的聊天服务指针。
+	var nilService *Service
+	if nilService.ResolveReadMessageID(context.Background(), "account", "chat", "legacy") != "legacy" {
+		t.Fatal("nil service should preserve legacy ID")
+	}
+}
+
+// TestSessionOwnershipAndRefreshBoundaries 验证会话维护错误、身份刷新失败和上下文取消边界。
+func TestSessionOwnershipAndRefreshBoundaries(t *testing.T) {
+	// wantErr 是测试仓储需要返回的维护错误。
+	wantErr := errors.New("session maintenance failed")
+	// repository 是返回维护错误的聊天仓储。
+	repository := &fakeRepository{deleteErr: wantErr, ownedErr: wantErr}
+	// service 是绑定身份解析端口的聊天服务。
+	service := NewWithIdentity(repository, fakeIdentityResolver{err: wantErr})
+	// cleanupErr 保存空会话清理端口错误。
+	if cleanupErr := service.CleanupEmptySessions(context.Background(), "account-1"); !errors.Is(cleanupErr, wantErr) {
+		t.Fatalf("cleanup error=%v", cleanupErr)
+	}
+	// owned、err 保存账号归属错误结果。
+	owned, err := service.OwnsAccount(context.Background(), 7, "account-1")
+	if owned || !errors.Is(err, wantErr) {
+		t.Fatalf("owned=%v err=%v", owned, err)
+	}
+	// invalidErr 保存无效账号归属请求的输入错误。
+	if _, invalidErr := service.OwnsAccount(context.Background(), 7, ""); !errors.Is(invalidErr, ErrInvalidInput) {
+		t.Fatalf("invalid ownership error=%v", invalidErr)
+	}
+	// identitySession、identityErr 保存平台身份失败时的缓存会话和错误。
+	identitySession, identityErr := service.ResolveSessionIdentity(context.Background(), Session{AccountID: "account-1", ChatID: "chat-1", BuyerID: "buyer-1"})
+	if !errors.Is(identityErr, wantErr) || identitySession.ChatID != "chat-1" {
+		t.Fatalf("identitySession=%+v err=%v", identitySession, identityErr)
+	}
+	// noIdentityService 是未装配平台身份解析器的服务。
+	noIdentityService := New(&fakeRepository{})
+	// sessions、refreshErr 保存无解析器时原样返回的会话集合。
+	sessions := []Session{{AccountID: "account-1", ChatID: "chat-1", BuyerID: "buyer-1"}}
+	// refreshed、refreshErr 保存无解析器时原样返回的会话集合和错误。
+	refreshed, refreshErr := noIdentityService.RefreshSessionIdentities(context.Background(), "account-1", sessions)
+	if refreshErr != nil || len(refreshed) != 1 {
+		t.Fatalf("no identity refresh=%+v err=%v", refreshed, refreshErr)
+	}
+	// started、release 控制八个身份工作器进入阻塞查询并统一放行。
+	started, release := make(chan struct{}, 8), make(chan struct{})
+	// blockingService 是稳定验证排队取消分支的身份刷新服务。
+	blockingService := NewWithIdentity(&fakeRepository{}, blockingIdentityResolver{started: started, release: release})
+	// refreshContext、cancel 保存刷新生命周期上下文及取消函数。
+	refreshContext, cancel := context.WithCancel(context.Background())
+	// resultChannel 保存异步刷新结果，避免测试线程在释放工作器前阻塞。
+	resultChannel := make(chan struct {
+		// sessions 保存异步刷新后的会话集合。
+		sessions []Session
+		// err 保存异步刷新返回的首个错误。
+		err error
+	})
+	// blockedSessions 保存足以占满八个身份工作器的会话队列。
+	blockedSessions := make([]Session, 9)
+	// index 表示当前需要填充的阻塞会话下标。
+	for index := range blockedSessions {
+		blockedSessions[index] = sessions[0]
+	}
+	go func() {
+		// refreshed、refreshErr 保存异步刷新调用结果。
+		refreshed, refreshErr := blockingService.RefreshSessionIdentities(refreshContext, "account-1", blockedSessions)
+		resultChannel <- struct {
+			sessions []Session
+			err      error
+		}{sessions: refreshed, err: refreshErr}
+	}()
+	for range 8 {
+		<-started
+	}
+	cancel()
+	close(release)
+	// canceled 保存排队取消后的刷新结果。
+	canceled := <-resultChannel
+	if canceled.err != nil || len(canceled.sessions) != len(blockedSessions) {
+		t.Fatalf("canceled refresh=%+v", canceled)
+	}
+	// invalidRefreshErr 保存空账号刷新返回的输入错误。
+	if _, invalidRefreshErr := service.RefreshSessionIdentities(context.Background(), "", sessions); !errors.Is(invalidRefreshErr, ErrInvalidInput) {
+		t.Fatalf("invalid refresh error=%v", invalidRefreshErr)
 	}
 }
 

@@ -86,6 +86,57 @@ func TestAutomation_ListForUserAndActions(t *testing.T) {
 	}
 }
 
+// TestAutomationDeliveryProofIsEncryptedAndRestored 验证确认发货凭证会加密落库并能在运行恢复时解密。
+func TestAutomationDeliveryProofIsEncryptedAndRestored(t *testing.T) {
+	t.Setenv("XIANYU_DATA_KEY", "automation-proof-test-key")
+	// store、cleanup 保存启用数据密钥的测试数据库及清理函数。
+	store, cleanup := newTestDB(t)
+	defer cleanup()
+	// ctx 保存本测试共用的上下文。
+	ctx := context.Background()
+	// userID、cookieID 保存创建自动化运行所需的账号归属。
+	userID, cookieID := seedAccount(t, store)
+	// ruleID、err 保存测试规则创建结果。
+	ruleID, err := store.Automation.Create(ctx, makeAutomationRule(cookieID, userID, "proof-item", "paid", true, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// runID、started、err 保存运行幂等创建结果。
+	runID, started, err := store.Automation.TryStartRun(ctx, AutomationRun{RuleID: ruleID, CookieID: cookieID, TriggerType: "paid", TriggerKey: "proof-key"})
+	if err != nil || !started {
+		t.Fatalf("start=%v err=%v", started, err)
+	}
+	// run、err 保存新建运行的当前检查点。
+	run, err := store.Automation.GetRun(ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// err 保存动作检查点占用错误。
+	if _, err := store.Automation.StartRunAction(ctx, runID, run.AttemptCount, 0, time.Now().Add(time.Minute).Unix()); err != nil {
+		t.Fatal(err)
+	}
+	// proof 保存不会写入延迟任务或日志的确认发货凭证。
+	proof := AutomationDeliveryProof{TradeText: "TEST-CARD-CONTENT", PicList: []string{"https://example.invalid/card.png"}}
+	// err 保存凭证和动作游标原子推进错误。
+	if err := store.Automation.AdvanceRunAction(ctx, AutomationRunActionAdvance{RunID: runID, Attempt: run.AttemptCount, Cursor: 0, SentDelta: 1, DeliveryProof: &proof}); err != nil {
+		t.Fatal(err)
+	}
+	// rawProof 保存数据库原始字段，用于确认启用数据密钥时不存在卡密明文。
+	var rawProof string
+	// err 保存数据库原始凭证读取错误。
+	if err := store.DB.QueryRowContext(ctx, `SELECT delivery_proof FROM automation_runs WHERE id=?`, runID).Scan(&rawProof); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(rawProof, proof.TradeText) || !strings.HasPrefix(rawProof, encryptedValuePrefix) {
+		t.Fatal("automation delivery proof was not encrypted at rest")
+	}
+	// restored、err 保存重读后的凭证，模拟延迟任务或服务重启恢复。
+	restored, err := store.Automation.GetRun(ctx, runID)
+	if err != nil || restored.DeliveryProof.TradeText != proof.TradeText || len(restored.DeliveryProof.PicList) != 1 {
+		t.Fatalf("restored proof mismatch: err=%v", err)
+	}
+}
+
 // TestAutomation_MatchPriority 商品精确规则优先于账号级规则；enabled=false 不匹配。
 func TestAutomation_MatchPriority(t *testing.T) {
 	// s、cleanup 用于本次流程后续判断的s、cleanup
@@ -644,7 +695,7 @@ func TestAutomationRunAttemptFencesStaleWorker(t *testing.T) {
 		t.Fatalf("stale worker changed current run: %+v err=%v", afterStale, err)
 	}
 	if // err 用于本次流程后续判断的err
-	err := s.Automation.AdvanceRunAction(ctx, runID, current.AttemptCount, 0, 1); err != nil {
+	err := s.Automation.AdvanceRunAction(ctx, AutomationRunActionAdvance{RunID: runID, Attempt: current.AttemptCount, Cursor: 0, SentDelta: 1}); err != nil {
 		t.Fatal(err)
 	}
 	if // err 用于本次流程后续判断的err
@@ -729,7 +780,7 @@ func TestAutomationIssuesCanBeListedAndResolved(t *testing.T) {
 	}
 	// runID、started、err 用于本次流程后续判断的运行ID、started、err
 	runID, started, err := s.Automation.TryStartRun(ctx, AutomationRun{RuleID: ruleID, CookieID: cid, OrderID: "issue-order",
-		TriggerType: "buyer_reviewed", TriggerKey: "issue-key", RawEventJSON: `{}`, LeaseExpiresAt: 1})
+		TriggerType: "buyer_reviewed", TriggerKey: "issue-key", RawEventJSON: `{"AccountID":"cid","ActionPlan":[{"ActionType":"send_text"}]}`, LeaseExpiresAt: 1})
 	if err != nil || !started {
 		t.Fatalf("start=%v err=%v", started, err)
 	}
@@ -796,6 +847,153 @@ func TestAutomationIssuesCanBeListedAndResolved(t *testing.T) {
 	}
 }
 
+// TestAutomationUnknownDeliveryResultBlocksContinueAndCancelClearsProof 验证未知发卡结果不会进入空凭证确认流程。
+func TestAutomationUnknownDeliveryResultBlocksContinueAndCancelClearsProof(t *testing.T) {
+	t.Setenv("XIANYU_DATA_KEY", "unknown-delivery-policy-test-key")
+	// store、cleanup 保存未知发货恢复策略测试数据库及清理函数。
+	store, cleanup := newTestDB(t)
+	defer cleanup()
+	// ctx 保存本测试共用的数据库上下文。
+	ctx := context.Background()
+	// userID、cookieID 保存运行归属账号及其登录凭证标识。
+	userID, cookieID := seedAccount(t, store)
+	// ruleID、ruleErr 保存包含发卡和确认动作的冻结规则。
+	ruleID, ruleErr := store.Automation.Create(ctx, AutomationRuleInput{
+		UserID: userID, CookieID: cookieID, ItemID: "unknown-delivery-item", Name: "unknown-delivery-rule",
+		TriggerType: "paid", Enabled: true, Actions: []AutomationActionInput{
+			{ActionType: "send_card", Enabled: true, SortOrder: 1},
+			{ActionType: "confirm_shipment", Enabled: true, SortOrder: 2},
+		},
+	})
+	if ruleErr != nil {
+		t.Fatal(ruleErr)
+	}
+	// rawSnapshot 保存运行创建时冻结的动作计划，供人工恢复策略判断当前动作与后续确认动作。
+	rawSnapshot := `{"AccountID":"` + cookieID + `","ActionPlan":[{"ActionType":"send_card"},{"ActionType":"confirm_shipment"}]}`
+	// runID、started、startErr 保存未知外部结果运行的创建结果。
+	runID, started, startErr := store.Automation.TryStartRun(ctx, AutomationRun{
+		RuleID: ruleID, CookieID: cookieID, OrderID: "unknown-delivery-order", TriggerType: "paid",
+		TriggerKey: "unknown-delivery-key", RawEventJSON: rawSnapshot,
+	})
+	if startErr != nil || !started {
+		t.Fatalf("start=%v err=%v", started, startErr)
+	}
+	// run、getErr 保存动作启动前的运行租约代次。
+	run, getErr := store.Automation.GetRun(ctx, runID)
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	// actionStarted、actionStartErr 保存未知发卡动作的租约启动结果。
+	if actionStarted, actionStartErr := store.Automation.StartRunAction(ctx, runID, run.AttemptCount, 0, time.Now().Add(time.Minute).Unix()); actionStartErr != nil || !actionStarted {
+		t.Fatalf("action start=%v err=%v", actionStarted, actionStartErr)
+	}
+	// quarantineErr 保存将未知发卡动作隔离到人工核对状态的错误。
+	if quarantineErr := store.Automation.QuarantineRun(ctx, runID, run.AttemptCount, "外部发卡结果未知"); quarantineErr != nil {
+		t.Fatal(quarantineErr)
+	}
+	// issueRuns、issueErr 保存人工核对面板看到的运行策略。
+	issueRuns, _, issueErr := store.Automation.ListIssues(ctx, userID)
+	if issueErr != nil || len(issueRuns) != 1 {
+		t.Fatalf("issues=%+v err=%v", issueRuns, issueErr)
+	}
+	if containsString(issueRuns[0].AllowedResolutions, "continue") || containsString(issueRuns[0].AllowedResolutions, "retry") || !containsString(issueRuns[0].AllowedResolutions, "cancel") {
+		t.Fatalf("未知发卡且后续确认时策略错误: %+v", issueRuns[0])
+	}
+	// continueErr 保存被策略拒绝的继续处理结果。
+	if continueErr := store.Automation.ResolveRunIssue(ctx, userID, runID, "continue"); continueErr == nil {
+		t.Fatal("未知发卡且后续确认时不应允许 continue")
+	}
+	// quarantined、readErr 保存拒绝继续后的运行，确保人工选择尚未改变状态。
+	quarantined, readErr := store.Automation.GetRun(ctx, runID)
+	if readErr != nil || quarantined.Status != "needs_review" || quarantined.ActionCursor != 0 {
+		t.Fatalf("拒绝 continue 后运行异常: run=%+v err=%v", quarantined, readErr)
+	}
+	// cancelResolutionErr 保存取消运行并清除凭证的处理错误。
+	if cancelResolutionErr := store.Automation.ResolveRunIssue(ctx, userID, runID, "cancel"); cancelResolutionErr != nil {
+		t.Fatal(cancelResolutionErr)
+	}
+	// canceled、cancelReadErr 保存取消后的运行，确认终态不残留发货凭证。
+	canceled, cancelReadErr := store.Automation.GetRun(ctx, runID)
+	if cancelReadErr != nil || canceled.Status != "canceled" || canceled.DeliveryProof.TradeText != "" || len(canceled.DeliveryProof.PicList) != 0 {
+		t.Fatalf("取消后运行或凭证异常: run=%+v err=%v", canceled, cancelReadErr)
+	}
+}
+
+// TestAutomationQuarantinePreservesDeliveryProofUntilCancel 验证人工核对期间凭证保留且取消时清除。
+func TestAutomationQuarantinePreservesDeliveryProofUntilCancel(t *testing.T) {
+	t.Setenv("XIANYU_DATA_KEY", "quarantine-proof-test-key")
+	// store、cleanup 保存人工核对凭证生命周期测试数据库及清理函数。
+	store, cleanup := newTestDB(t)
+	defer cleanup()
+	// ctx 保存本测试共用的数据库上下文。
+	ctx := context.Background()
+	// userID、cookieID 保存运行归属账号及其登录凭证标识。
+	userID, cookieID := seedAccount(t, store)
+	// ruleID、ruleErr 保存包含发卡和确认动作的规则。
+	ruleID, ruleErr := store.Automation.Create(ctx, AutomationRuleInput{
+		UserID: userID, CookieID: cookieID, ItemID: "quarantine-proof-item", Name: "quarantine-proof-rule",
+		TriggerType: "paid", Enabled: true, Actions: []AutomationActionInput{
+			{ActionType: "send_card", Enabled: true, SortOrder: 1},
+			{ActionType: "confirm_shipment", Enabled: true, SortOrder: 2},
+		},
+	})
+	if ruleErr != nil {
+		t.Fatal(ruleErr)
+	}
+	// runID、started、startErr 保存待确认发货运行的创建结果。
+	runID, started, startErr := store.Automation.TryStartRun(ctx, AutomationRun{
+		RuleID: ruleID, CookieID: cookieID, OrderID: "quarantine-proof-order", TriggerType: "paid",
+		TriggerKey: "quarantine-proof-key", RawEventJSON: `{"AccountID":"` + cookieID + `","ActionPlan":[{"ActionType":"send_card"},{"ActionType":"confirm_shipment"}]}`,
+	})
+	if startErr != nil || !started {
+		t.Fatalf("start=%v err=%v", started, startErr)
+	}
+	// run、getErr 保存动作检查点读取结果。
+	run, getErr := store.Automation.GetRun(ctx, runID)
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	// sendActionStarted、sendActionStartErr 保存发送动作租约启动结果。
+	if sendActionStarted, sendActionStartErr := store.Automation.StartRunAction(ctx, runID, run.AttemptCount, 0, time.Now().Add(time.Minute).Unix()); sendActionStartErr != nil || !sendActionStarted {
+		t.Fatalf("send action start=%v err=%v", sendActionStarted, sendActionStartErr)
+	}
+	// proof 保存发送动作成功后等待确认发货的凭证。
+	proof := AutomationDeliveryProof{TradeText: "KNOWN-CARD", PicList: []string{"https://example.invalid/known.png"}}
+	// advanceErr 保存发送动作凭证检查点写入错误。
+	if advanceErr := store.Automation.AdvanceRunAction(ctx, AutomationRunActionAdvance{
+		RunID: runID, Attempt: run.AttemptCount, Cursor: 0, SentDelta: 1, DeliveryProof: &proof,
+	}); advanceErr != nil {
+		t.Fatal(advanceErr)
+	}
+	// advanced、advanceErr 保存进入确认动作后的检查点。
+	advanced, advanceErr := store.Automation.GetRun(ctx, runID)
+	if advanceErr != nil {
+		t.Fatal(advanceErr)
+	}
+	// confirmActionStarted、confirmActionStartErr 保存确认发货动作租约启动结果。
+	if confirmActionStarted, confirmActionStartErr := store.Automation.StartRunAction(ctx, runID, advanced.AttemptCount, 1, time.Now().Add(time.Minute).Unix()); confirmActionStartErr != nil || !confirmActionStarted {
+		t.Fatalf("confirm action start=%v err=%v", confirmActionStarted, confirmActionStartErr)
+	}
+	// resultQuarantineErr 保存确认发货结果未知时的人工隔离错误。
+	if resultQuarantineErr := store.Automation.QuarantineRunResult(ctx, runID, advanced.AttemptCount, 1, "确认发货结果未知"); resultQuarantineErr != nil {
+		t.Fatal(resultQuarantineErr)
+	}
+	// quarantined、readErr 保存隔离后的运行和凭证，确认人工处理期间凭证仍可恢复。
+	quarantined, readErr := store.Automation.GetRun(ctx, runID)
+	if readErr != nil || quarantined.Status != "needs_review" || quarantined.DeliveryProof.TradeText != proof.TradeText || len(quarantined.DeliveryProof.PicList) != 1 {
+		t.Fatalf("隔离后凭证异常: run=%+v err=%v", quarantined, readErr)
+	}
+	// cancelResolutionErr 保存确认发货未知运行的取消处理错误。
+	if cancelResolutionErr := store.Automation.ResolveRunIssue(ctx, userID, runID, "cancel"); cancelResolutionErr != nil {
+		t.Fatal(cancelResolutionErr)
+	}
+	// canceled、cancelErr 保存取消后的运行，验证取消路径清除所有凭证。
+	canceled, cancelErr := store.Automation.GetRun(ctx, runID)
+	if cancelErr != nil || canceled.Status != "canceled" || canceled.DeliveryProof.TradeText != "" || len(canceled.DeliveryProof.PicList) != 0 {
+		t.Fatalf("取消后凭证未清除: run=%+v err=%v", canceled, cancelErr)
+	}
+}
+
 // TestInvalidAutomationSnapshotCanOnlyBeCanceled 封装TestInvalid自动化SnapshotCanOnlyBeCanceled业务协调。
 func TestInvalidAutomationSnapshotCanOnlyBeCanceled(t *testing.T) {
 	// s、cleanup 用于本次流程后续判断的s、cleanup
@@ -854,11 +1052,11 @@ func TestAutomationIssuePolicyForDisabledRuleRequiresReenableBeforeRetry(t *test
 	// raw 用于本次流程后续判断的原始
 	raw := string(rawBytes)
 	// kind、allowed 用于本次流程后续判断的kind、allowed
-	kind, allowed := automationIssuePolicy(raw, false, false, 0, "自动化规则不存在或已停用，无法恢复")
+	kind, allowed := automationIssuePolicy(raw, false, 0, false, 0, "自动化规则不存在或已停用，无法恢复")
 	if kind != "rule_unavailable" || containsString(allowed, "retry") || !containsString(allowed, "cancel") {
 		t.Fatalf("disabled policy kind=%q allowed=%v", kind, allowed)
 	}
-	kind, allowed = automationIssuePolicy(raw, false, true, 0, "自动化规则不存在或已停用，无法恢复")
+	kind, allowed = automationIssuePolicy(raw, false, 0, true, 0, "自动化规则不存在或已停用，无法恢复")
 	if kind != "rule_unavailable" || !containsString(allowed, "retry") || containsString(allowed, "continue") {
 		t.Fatalf("reenabled policy kind=%q allowed=%v", kind, allowed)
 	}

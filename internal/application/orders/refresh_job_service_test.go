@@ -7,6 +7,9 @@ import (
 	"time"
 )
 
+// nilRefreshJobContext 返回 nil Context，专门覆盖刷新任务生命周期的空上下文防御分支。
+func nilRefreshJobContext() context.Context { return nil }
+
 // refreshJobOwnerTestDouble 是刷新任务 facade 使用的最小账号归属测试端口。
 type refreshJobOwnerTestDouble struct {
 	// owned 控制账号归属查询结果。
@@ -198,5 +201,84 @@ func TestRefreshJobServiceGetAndCancel(t *testing.T) {
 	cancelled, cancelErr := service.CancelForUser(context.Background(), 7, "job-existing")
 	if cancelErr != nil || !cancelled.Cancelled || cancelled.Job == nil || cancelled.Job.Status != "cancelled" {
 		t.Fatalf("取消结果不正确: result=%+v err=%v", cancelled, cancelErr)
+	}
+}
+
+// TestRefreshJobServiceLifecycleAndOwnershipBranches 验证刷新任务 facade 的构造、生命周期和账号归属边界。
+func TestRefreshJobServiceLifecycleAndOwnershipBranches(t *testing.T) {
+	// repository 保存恢复扫描和服务 facade 使用的内存任务仓储。
+	repository := completeAppliedRepository()
+	// owner 保存允许任务创建的账号归属替身。
+	owner := &refreshJobOwnerTestDouble{owned: true}
+	// runner、runnerErr 保存低间隔恢复运行器及构造错误。
+	runner, runnerErr := NewRefreshJobRunner(repository, &refreshRunnerTestRefresher{}, RefreshJobRunnerOptions{RecoveryInterval: time.Millisecond})
+	if runnerErr != nil {
+		t.Fatal(runnerErr)
+	}
+	// missingRepositoryErr 保存缺少任务仓储时的构造错误。
+	if _, missingRepositoryErr := NewRefreshJobService(nil, owner, runner, RefreshJobServiceOptions{}); missingRepositoryErr == nil {
+		t.Fatal("缺少刷新任务仓储应构造失败")
+	}
+	// missingOwnerErr 保存缺少账号归属端口时的构造错误。
+	if _, missingOwnerErr := NewRefreshJobService(repository, nil, runner, RefreshJobServiceOptions{}); missingOwnerErr == nil {
+		t.Fatal("缺少账号归属端口应构造失败")
+	}
+	// missingRunnerErr 保存缺少 worker 运行器时的构造错误。
+	if _, missingRunnerErr := NewRefreshJobService(repository, owner, nil, RefreshJobServiceOptions{}); missingRunnerErr == nil {
+		t.Fatal("缺少运行器应构造失败")
+	}
+	// service 保存完整装配的刷新任务 facade。
+	service, serviceErr := NewRefreshJobService(repository, owner, runner, RefreshJobServiceOptions{})
+	if serviceErr != nil {
+		t.Fatal(serviceErr)
+	}
+	// recoveryCtx、cancelRecovery 控制恢复扫描的生命周期。
+	recoveryCtx, cancelRecovery := context.WithCancel(context.Background())
+	// startErr 保存恢复扫描启动结果。
+	if startErr := service.StartRecovery(recoveryCtx); startErr != nil {
+		t.Fatalf("启动恢复扫描失败: %v", startErr)
+	}
+	cancelRecovery()
+	// closeErr 保存恢复扫描取消后的 facade 关闭结果。
+	if closeErr := service.Close(context.Background()); closeErr != nil {
+		t.Fatalf("关闭恢复扫描失败: %v", closeErr)
+	}
+	service.Wait()
+	// nilService 保存空指针接收者的 facade 生命周期对象。
+	var nilService *RefreshJobService
+	// nilStartErr 保存空 facade 启动恢复时的初始化错误。
+	if nilStartErr := nilService.StartRecovery(context.Background()); nilStartErr == nil {
+		t.Fatal("空 facade 不应启动恢复扫描")
+	}
+	nilService.Wait()
+	// closeErr 保存空 facade 使用 nil Context 关闭时的幂等结果。
+	if closeErr := nilService.Close(nilRefreshJobContext()); closeErr != nil {
+		t.Fatalf("空 facade 关闭应幂等: %v", closeErr)
+	}
+	// nilGetErr 保存空 facade 查询任务时的初始化错误。
+	if _, nilGetErr := nilService.GetJob(context.Background(), 7, "job"); nilGetErr == nil {
+		t.Fatal("空 facade 查询应返回初始化错误")
+	}
+	// refreshService 保存可复用已有仓储归属查询的订单刷新服务。
+	refreshService := &RefreshService{repository: &refreshRepositoryFake{owned: map[string]bool{"cookie-1": true}}}
+	// owned、ownedErr 保存有效账号归属查询结果。
+	owned, ownedErr := refreshService.OwnsAccount(context.Background(), 7, "cookie-1")
+	if ownedErr != nil || !owned {
+		t.Fatalf("账号归属查询异常: owned=%v err=%v", owned, ownedErr)
+	}
+	// invalidOwned、invalidErr 保存 nil Context 下的归属查询结果。
+	if invalidOwned, invalidErr := refreshService.OwnsAccount(nilRefreshJobContext(), 7, "cookie-1"); invalidErr != nil || invalidOwned {
+		t.Fatalf("空 Context 归属查询应返回 false: owned=%v err=%v", invalidOwned, invalidErr)
+	}
+	// emptyOwned、emptyErr 保存无效账号参数的归属查询结果。
+	emptyOwned, emptyErr := refreshService.OwnsAccount(context.Background(), 0, "")
+	if emptyErr != nil || emptyOwned {
+		t.Fatalf("无效账号参数应返回 false: owned=%v err=%v", emptyOwned, emptyErr)
+	}
+	// nilRefreshService 保存空订单刷新服务接收者。
+	var nilRefreshService *RefreshService
+	// nilOwnerErr 保存空订单刷新服务的初始化错误。
+	if _, nilOwnerErr := nilRefreshService.OwnsAccount(context.Background(), 7, "cookie-1"); nilOwnerErr == nil {
+		t.Fatal("空订单刷新服务应返回初始化错误")
 	}
 }

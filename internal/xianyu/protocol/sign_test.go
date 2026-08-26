@@ -2,10 +2,20 @@ package protocol
 
 import (
 	"crypto/md5"
+	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"strings"
 	"testing"
 )
+
+// failingRandomReader 模拟系统熵源失败，验证协议随机数的单调计数回退。
+type failingRandomReader struct{}
+
+// Read 返回固定错误，阻止 crypto/rand 生成随机字节。
+func (failingRandomReader) Read([]byte) (int, error) {
+	return 0, errors.New("random source failed")
+}
 
 // TestGenerateSign 表驱动覆盖 GenerateSign 的边界输入。
 // GenerateSign 是纯函数（MD5(token+"&"+t+"&"+SignAppKey+"&"+data)），结果应稳定可复现。
@@ -202,5 +212,24 @@ func TestRandomInt_Bounds(t *testing.T) {
 		if got < 0 || got >= 16 {
 			t.Fatalf("randomInt(16) = %d, out of [0,16)", got)
 		}
+	}
+}
+
+// TestRandomIntFallback 验证系统随机源失败时仍返回合法的单调回退值。
+func TestRandomIntFallback(t *testing.T) {
+	// originalReader 保存测试前的系统随机源，测试结束后恢复全局状态。
+	originalReader := rand.Reader
+	rand.Reader = failingRandomReader{}
+	defer func() {
+		rand.Reader = originalReader
+	}()
+	// randomFallback.Store 重置回退计数，保证断言不受其他测试影响。
+	randomFallback.Store(0)
+	// first 保存第一次回退调用的结果。
+	first := randomInt(10)
+	// second 保存第二次回退调用的结果。
+	second := randomInt(10)
+	if first != 1 || second != 2 {
+		t.Fatalf("随机源失败时回退值异常: first=%d second=%d", first, second)
 	}
 }

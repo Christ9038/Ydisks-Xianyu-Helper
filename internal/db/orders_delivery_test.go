@@ -211,6 +211,103 @@ func TestOrdersUpsertMany(t *testing.T) {
 	}
 }
 
+// TestOrdersUpsertManyPreservesCreatedAtInMixedBatch 验证混合 CreatedAt 批次不会用空值覆盖已有时间。
+func TestOrdersUpsertManyPreservesCreatedAtInMixedBatch(t *testing.T) {
+	// store、cleanup 保存混合创建时间测试使用的数据库和清理函数。
+	store, cleanup := newTestDB(t)
+	defer cleanup()
+	// ctx 保存本测试共用的数据库上下文。
+	ctx := context.Background()
+	// _, cookieID 保存订单外键所需的测试账号。
+	_, cookieID := seedAccount(t, store)
+	// seedErr 保存已有订单初始化错误。
+	if seedErr := store.Orders.Upsert(ctx, "mixed-empty-existing", OrderUpsertOpts{CookieID: cookieID, CreatedAt: "2024-01-01 00:00:00", OrderStatus: "paid"}); seedErr != nil {
+		t.Fatal(seedErr)
+	}
+	// clearErr 模拟历史数据中合法的空创建时间，验证空批次不会把它变成当前时间。
+	if _, clearErr := store.DB.ExecContext(ctx, `UPDATE orders SET created_at='' WHERE order_id=?`, "mixed-empty-existing"); clearErr != nil {
+		t.Fatal(clearErr)
+	}
+	// explicitSeedErr 保存显式创建时间订单初始化错误。
+	if explicitSeedErr := store.Orders.Upsert(ctx, "mixed-explicit-existing", OrderUpsertOpts{CookieID: cookieID, CreatedAt: "2024-02-01 00:00:00", OrderStatus: "paid"}); explicitSeedErr != nil {
+		t.Fatal(explicitSeedErr)
+	}
+	// rows 保存同时包含空和显式 CreatedAt 的订单批次。
+	rows := []BatchOrderUpsert{
+		{OrderID: "mixed-empty-existing", Options: OrderUpsertOpts{CookieID: cookieID, OrderStatus: "shipped"}},
+		{OrderID: "mixed-explicit-existing", Options: OrderUpsertOpts{CookieID: cookieID, CreatedAt: "2024-03-01 00:00:00", OrderStatus: "shipped"}},
+		{OrderID: "mixed-empty-new", Options: OrderUpsertOpts{CookieID: cookieID, OrderStatus: "paid"}},
+		{OrderID: "mixed-explicit-new", Options: OrderUpsertOpts{CookieID: cookieID, CreatedAt: "2024-04-01 00:00:00", OrderStatus: "paid"}},
+	}
+	// batchErr 保存混合创建时间批次写入错误。
+	if batchErr := store.Orders.UpsertMany(ctx, rows); batchErr != nil {
+		t.Fatal(batchErr)
+	}
+	// emptyExisting、explicitExisting、emptyNew、explicitNew 保存批次写入后的四条订单。
+	emptyExisting, emptyExistingErr := store.Orders.Get(ctx, "mixed-empty-existing")
+	// explicitExisting、explicitExistingErr 保存显式时间已有订单及读取错误。
+	explicitExisting, explicitExistingErr := store.Orders.Get(ctx, "mixed-explicit-existing")
+	// emptyNew、emptyNewErr 保存未提供时间的新订单及读取错误。
+	emptyNew, emptyNewErr := store.Orders.Get(ctx, "mixed-empty-new")
+	// explicitNew、explicitNewErr 保存显式时间新订单及读取错误。
+	explicitNew, explicitNewErr := store.Orders.Get(ctx, "mixed-explicit-new")
+	if emptyExistingErr != nil || explicitExistingErr != nil || emptyNewErr != nil || explicitNewErr != nil {
+		t.Fatalf("读取混合批次订单失败: %v/%v/%v/%v", emptyExistingErr, explicitExistingErr, emptyNewErr, explicitNewErr)
+	}
+	if emptyExisting.CreatedAt != "" || explicitExisting.CreatedAt != "2024-03-01T00:00:00Z" || emptyNew.CreatedAt == "" || explicitNew.CreatedAt != "2024-04-01T00:00:00Z" {
+		t.Fatalf("混合 CreatedAt 结果错误: emptyExisting=%q explicitExisting=%q emptyNew=%q explicitNew=%q", emptyExisting.CreatedAt, explicitExisting.CreatedAt, emptyNew.CreatedAt, explicitNew.CreatedAt)
+	}
+}
+
+// TestOrdersUpsertManyRollsBackMixedGroups 验证混合 CreatedAt 的第二组失败时第一组不会部分提交。
+func TestOrdersUpsertManyRollsBackMixedGroups(t *testing.T) {
+	// store、cleanup 保存批量原子性测试使用的数据库和清理函数。
+	store, cleanup := newTestDB(t)
+	defer cleanup()
+	// ctx 保存本测试共用的数据库上下文。
+	ctx := context.Background()
+	// _, cookieID 保存第一组合法订单使用的账号。
+	_, cookieID := seedAccount(t, store)
+	// rows 保存第一组合法、第二组外键非法的混合批次。
+	rows := []BatchOrderUpsert{
+		{OrderID: "rollback-empty", Options: OrderUpsertOpts{CookieID: cookieID, OrderStatus: "paid"}},
+		{OrderID: "rollback-explicit", Options: OrderUpsertOpts{CookieID: "missing-cookie", CreatedAt: "2024-05-01 00:00:00", OrderStatus: "paid"}},
+	}
+	// batchErr 保存预期的外键失败。
+	batchErr := store.Orders.UpsertMany(ctx, rows)
+	if batchErr == nil {
+		t.Fatal("非法账号批次应失败")
+	}
+	// _, firstErr 保存第一组订单的查询结果，事务回滚后不应存在。
+	if _, firstErr := store.Orders.Get(ctx, "rollback-empty"); !errors.Is(firstErr, ErrNotFound) {
+		t.Fatalf("混合批次失败后第一组未回滚: %v", firstErr)
+	}
+	// tx 保存调用方控制的订单写入事务。
+	tx, txBeginErr := store.DB.BeginTx(ctx, nil)
+	if txBeginErr != nil {
+		t.Fatalf("开启调用方事务失败: %v", txBeginErr)
+	}
+	// txRows 保存通过调用方事务写入的混合批次，第二组同样使用非法账号触发失败。
+	txRows := []BatchOrderUpsert{
+		{OrderID: "rollback-empty-tx", Options: OrderUpsertOpts{CookieID: cookieID, OrderStatus: "paid"}},
+		{OrderID: "rollback-explicit-tx", Options: OrderUpsertOpts{CookieID: "missing-cookie", CreatedAt: "2024-05-02 00:00:00", OrderStatus: "paid"}},
+	}
+	// txErr 保存调用方事务内的批量写入错误。
+	txErr := store.Orders.UpsertManyTx(ctx, tx, txRows)
+	if txErr == nil {
+		tx.Rollback()
+		t.Fatal("调用方事务中的非法账号批次应失败")
+	}
+	// rollbackErr 保存调用方显式回滚的错误；批量方法不应替调用方提交或回滚事务。
+	if rollbackErr := tx.Rollback(); rollbackErr != nil {
+		t.Fatalf("调用方事务回滚失败: %v", rollbackErr)
+	}
+	// _, firstTxErr 保存调用方事务回滚后的第一组订单查询结果。
+	if _, firstTxErr := store.Orders.Get(ctx, "rollback-empty-tx"); !errors.Is(firstTxErr, ErrNotFound) {
+		t.Fatalf("调用方事务失败后第一组未回滚: %v", firstTxErr)
+	}
+}
+
 // seedAccount 在临时库里建好 admin 用户 + 一个账号（cookie），返回 (userID, cookieID)。
 // 多数订单/自动化/卡券测试都需要这两层外键先就位。
 // seedAccount 封装seed账号业务协调。

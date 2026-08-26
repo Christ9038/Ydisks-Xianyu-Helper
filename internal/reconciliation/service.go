@@ -34,11 +34,11 @@ func (s *Service) Run(ctx context.Context) {
 	if s == nil || s.store == nil || s.store.Reconciliations == nil {
 		return
 	}
+	if ctx == nil {
+		return
+	}
 	// scanCtx 是每轮扫描继承的生命周期上下文。
 	scanCtx := ctx
-	if scanCtx == nil {
-		scanCtx = context.Background()
-	}
 	// runOnce 保存启动时立即执行的一轮补偿结果错误。
 	if err := s.RunOnce(scanCtx); err != nil {
 		s.logger.Warn("订单补偿扫描失败", "err", err)

@@ -58,8 +58,16 @@ type refreshRunnerTestRepository struct {
 	recoverCalls []refreshRunnerRecoverCall
 	// requeueCalls 保存重新入队的任务标识和扫描时间。
 	requeueCalls []string
+	// requeueApplied 控制过期任务重新入队是否原子生效。
+	requeueApplied *bool
+	// requeueErr 控制重新入队时返回的持久化错误。
+	requeueErr error
 	// claimCalls 保存恢复抢占的任务标识、令牌和租约截止时间。
 	claimCalls []refreshRunnerClaimCall
+	// claimApplied 控制任务租约是否命中；为空时默认成功。
+	claimApplied *bool
+	// claimErr 控制任务租约抢占错误。
+	claimErr error
 	// completeApplied 控制 Complete 是否命中当前 worker 租约。
 	completeApplied bool
 	// completeErr 控制 Complete 返回的持久化错误。
@@ -133,6 +141,12 @@ func (repository *refreshRunnerTestRepository) Claim(_ context.Context, jobID, t
 	repository.mu.Lock()
 	defer repository.mu.Unlock()
 	repository.claimCalls = append(repository.claimCalls, refreshRunnerClaimCall{jobID: jobID, token: token, leaseExpiresAt: leaseExpiresAt})
+	if repository.claimErr != nil {
+		return false, repository.claimErr
+	}
+	if repository.claimApplied != nil {
+		return *repository.claimApplied, nil
+	}
 	return true, nil
 }
 
@@ -165,6 +179,12 @@ func (repository *refreshRunnerTestRepository) RequeueExpired(_ context.Context,
 	repository.mu.Lock()
 	defer repository.mu.Unlock()
 	repository.requeueCalls = append(repository.requeueCalls, jobID)
+	if repository.requeueErr != nil {
+		return false, repository.requeueErr
+	}
+	if repository.requeueApplied != nil {
+		return *repository.requeueApplied, nil
+	}
 	return true, nil
 }
 

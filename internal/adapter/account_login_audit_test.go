@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	accountapp "xianyu-go/internal/application/account"
+	"xianyu-go/internal/db"
 )
 
 // TestAccountLoginAuditRepositoryMapping 验证登录审计应用模型到 SQLite 数据模型的字段映射。
@@ -70,6 +71,29 @@ func TestAccountLoginAuditRepositoryInfrastructureErrors(t *testing.T) {
 	logErr := repository.AddLoginLog(context.Background(), accountapp.LoginAuditLog{AccountID: "cid", Method: "manual"})
 	if logErr == nil || errors.Is(logErr, accountapp.ErrLoginAuditUnavailable) {
 		t.Fatalf("数据库故障应透传而非伪装应用装配错误: %v", logErr)
+	}
+}
+
+// TestAccountLoginAuditRepositoryOptionalAndNilGuards 覆盖 nil 接收者、缺失 Cookie 仓储和兼容空审计表分支。
+func TestAccountLoginAuditRepositoryOptionalAndNilGuards(t *testing.T) {
+	// nilRepository 表示未装配的审计仓储接收者。
+	var nilRepository *AccountLoginAuditRepository
+	if nilRepository.SetStatusWithReason(context.Background(), "cid", true, "") == nil || nilRepository.AddLoginLog(context.Background(), accountapp.LoginAuditLog{}) == nil {
+		t.Fatal("nil 审计仓储不应伪装成功")
+	}
+	// store 保存 Cookie 仓储被显式移除的测试 Store。
+	store := db.NewStore(nil, db.DialectSQLite)
+	store.Cookies = nil
+	// repository 保存缺失 Cookie 仓储的审计适配器。
+	repository := NewAccountLoginAuditRepository(store)
+	if repository.MarkLogin(context.Background(), "cid", "manual", 1) == nil || repository.SetStatusWithReason(context.Background(), "cid", true, "") == nil {
+		t.Fatal("缺失 Cookie 仓储不应伪装成功")
+	}
+	// store.LoginLogs 为空时 AddLoginLog 保持历史兼容空操作。
+	store.LoginLogs = nil
+	// err 保存可选审计表缺失时的兼容写入结果。
+	if err := repository.AddLoginLog(context.Background(), accountapp.LoginAuditLog{AccountID: "cid"}); err != nil {
+		t.Fatalf("可选登录审计表缺失不应阻断主流程: %v", err)
 	}
 }
 

@@ -41,6 +41,24 @@ type batchManagementRepositoryFake struct {
 	deletedUploads []string
 	// uploadCleanupErr 是上传目录清理预置错误。
 	uploadCleanupErr error
+	// claimErr 是租约抢占阶段的专用错误。
+	claimErr error
+	// pendingErr 是待处理明细查询阶段的专用错误。
+	pendingErr error
+	// resetErr 是失败明细重置阶段的专用错误。
+	resetErr error
+	// recountErr 是批次统计重算阶段的专用错误。
+	recountErr error
+	// rowsErr 是批次明细查询阶段的专用错误。
+	rowsErr error
+	// requestErr 是取消请求阶段的专用错误。
+	requestErr error
+	// expiredErr 是过期上传批次查询阶段的专用错误。
+	expiredErr error
+	// deleteErr 是批次删除阶段的专用错误。
+	deleteErr error
+	// failClaimErr 是租约释放阶段的专用错误。
+	failClaimErr error
 }
 
 // GetBatch 返回预置批次或仓储错误。
@@ -53,6 +71,9 @@ func (repository *batchManagementRepositoryFake) GetBatch(context.Context, int64
 
 // ClaimBatch 返回预置租约抢占结果。
 func (repository *batchManagementRepositoryFake) ClaimBatch(context.Context, string, string, int64) (bool, error) {
+	if repository.claimErr != nil {
+		return false, repository.claimErr
+	}
 	if repository.err != nil {
 		return false, repository.err
 	}
@@ -61,6 +82,9 @@ func (repository *batchManagementRepositoryFake) ClaimBatch(context.Context, str
 
 // PendingRows 返回预置待处理明细。
 func (repository *batchManagementRepositoryFake) PendingRows(context.Context, string, bool) ([]BatchRow, error) {
+	if repository.pendingErr != nil {
+		return nil, repository.pendingErr
+	}
 	if repository.err != nil {
 		return nil, repository.err
 	}
@@ -83,6 +107,9 @@ func (repository *batchManagementRepositoryFake) ListBatchesForUser(context.Cont
 
 // ListBatchRows 返回预置批次明细。
 func (repository *batchManagementRepositoryFake) ListBatchRows(context.Context, string) ([]BatchRow, error) {
+	if repository.rowsErr != nil {
+		return nil, repository.rowsErr
+	}
 	if repository.err != nil {
 		return nil, repository.err
 	}
@@ -91,6 +118,9 @@ func (repository *batchManagementRepositoryFake) ListBatchRows(context.Context, 
 
 // RequestCancel 返回预置取消状态。
 func (repository *batchManagementRepositoryFake) RequestCancel(context.Context, string) (string, bool, error) {
+	if repository.requestErr != nil {
+		return "", false, repository.requestErr
+	}
 	if repository.err != nil {
 		return "", false, repository.err
 	}
@@ -100,23 +130,35 @@ func (repository *batchManagementRepositoryFake) RequestCancel(context.Context, 
 // DeleteBatch 记录批次删除调用。
 func (repository *batchManagementRepositoryFake) DeleteBatch(context.Context, int64, string) error {
 	repository.deleted = true
+	if repository.deleteErr != nil {
+		return repository.deleteErr
+	}
 	return repository.err
 }
 
 // ResetFailed 记录失败明细重置调用。
 func (repository *batchManagementRepositoryFake) ResetFailed(context.Context, string) error {
 	repository.resetFailedCalled = true
+	if repository.resetErr != nil {
+		return repository.resetErr
+	}
 	return repository.err
 }
 
 // RecountBatch 记录批次统计重算调用。
 func (repository *batchManagementRepositoryFake) RecountBatch(context.Context, string) error {
 	repository.recountCalled = true
+	if repository.recountErr != nil {
+		return repository.recountErr
+	}
 	return repository.err
 }
 
 // ExpiredUploadBatches 返回预置的过期上传批次。
 func (repository *batchManagementRepositoryFake) ExpiredUploadBatches(context.Context, string, int) ([]BatchInfo, error) {
+	if repository.expiredErr != nil {
+		return nil, repository.expiredErr
+	}
 	if repository.err != nil {
 		return nil, repository.err
 	}
@@ -132,6 +174,9 @@ func (repository *batchManagementRepositoryFake) DeleteUpload(_ context.Context,
 // FailClaimedBatch 记录批次租约释放调用。
 func (repository *batchManagementRepositoryFake) FailClaimedBatch(context.Context, string, string) (bool, error) {
 	repository.released = true
+	if repository.failClaimErr != nil {
+		return false, repository.failClaimErr
+	}
 	return true, repository.err
 }
 

@@ -9,12 +9,15 @@ import (
 	"time"
 )
 
+// readRandomBytes 是可替换的系统随机字节读取函数，便于确定性验证本地消息键的降级路径。
+var readRandomBytes = rand.Read
+
 // randomID 生成本地出站消息幂等键的随机后缀；随机源失败时使用时间回退避免阻断发送。
 func randomID() string {
 	// value 保存随机读取的 128 位本地消息键熵。
 	var value [16]byte
 	// _, err 分别是随机字节读取数量和系统随机源错误。
-	if _, err := rand.Read(value[:]); err == nil {
+	if _, err := readRandomBytes(value[:]); err == nil {
 		return hex.EncodeToString(value[:])
 	}
 	return fmt.Sprintf("%d", time.Now().UTC().UnixNano())

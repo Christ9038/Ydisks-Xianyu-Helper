@@ -2,7 +2,6 @@ package orders
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -559,7 +558,7 @@ func randomRefreshJobToken() string {
 	// buffer 保存系统随机源生成的租约令牌二进制内容。
 	buffer := make([]byte, 16)
 	// _, err 保存系统随机源读取结果；异常时回退到不可预测的时间戳文本。
-	if _, err := rand.Read(buffer); err == nil {
+	if _, err := readRefreshRandomBytes(buffer); err == nil {
 		return hex.EncodeToString(buffer)
 	}
 	return "refresh-" + strconv.FormatInt(time.Now().UTC().UnixNano(), 36)

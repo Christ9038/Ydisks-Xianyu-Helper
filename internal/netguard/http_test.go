@@ -2,13 +2,183 @@ package netguard
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
+
+// TestOutboundPolicyAndDefaultAccessors 验证运行时策略和默认策略访问器的原子语义。
+func TestOutboundPolicyAndDefaultAccessors(t *testing.T) {
+	// original 保存测试前的全局默认值，避免影响同一进程中的其他测试。
+	original := DefaultPublicOnly()
+	t.Cleanup(func() { SetDefaultPublicOnly(original) })
+	if DefaultPolicy() == nil {
+		t.Fatal("默认策略不能为空")
+	}
+	SetDefaultPublicOnly(!original)
+	if DefaultPublicOnly() == original {
+		t.Fatal("默认策略开关未更新")
+	}
+	// nilPolicy 验证可选策略指针为空时的安全默认行为。
+	var nilPolicy *OutboundPolicy
+	if nilPolicy.PublicOnly() {
+		t.Fatal("空策略不应启用公网限制")
+	}
+	nilPolicy.SetPublicOnly(true)
+}
+
+// TestConfiguredEndpointHTTPClientValidatesAndUsesDefaultPolicy 验证用户配置端点的协议校验和默认客户端创建。
+func TestConfiguredEndpointHTTPClientValidatesAndUsesDefaultPolicy(t *testing.T) {
+	// raw 表示待校验的用户配置地址。
+	for _, raw := range []string{"", "localhost:8080", "file:///tmp/model", "ftp://example.test", "://bad"} {
+		// err 保存无效地址的校验错误。
+		if _, err := ConfiguredEndpointHTTPClient(raw, time.Second); err == nil {
+			t.Fatalf("无效服务地址应被拒绝: %q", raw)
+		}
+	}
+	// raw 表示待校验的有效 HTTP(S) 地址。
+	for _, raw := range []string{"http://localhost:8080/v1", "https://localhost/v1"} {
+		// client、err 保存有效地址对应的客户端和校验错误。
+		if client, err := ConfiguredEndpointHTTPClient(raw, time.Second); err != nil || client == nil {
+			t.Fatalf("有效服务地址应创建客户端: %q, %v", raw, err)
+		}
+	}
+	// client 保存默认策略创建的客户端。
+	if client := ConfiguredHTTPClient(time.Second); client == nil {
+		t.Fatal("默认策略客户端不能为空")
+	}
+	// nilPolicyClient 保存 nil 策略回退默认策略的客户端。
+	if nilPolicyClient := PolicyHTTPClient(nil, time.Second); nilPolicyClient == nil {
+		t.Fatal("nil 策略客户端不能为空")
+	}
+}
+
+// TestPolicyHTTPClientWithTimeoutsAndRedirectRules 验证自定义超时和重定向保护规则。
+func TestPolicyHTTPClientWithTimeoutsAndRedirectRules(t *testing.T) {
+	// client 是使用独立策略和短超时的客户端。
+	client := PolicyHTTPClientWithTimeouts(nil, 3*time.Second, 4*time.Second, 5*time.Second)
+	// wrapper 是统一响应体包装传输层，用于读取内部的网络传输配置。
+	wrapper, ok := client.Transport.(limitedResponseBodyTransport)
+	if !ok {
+		t.Fatalf("客户端传输层类型错误: %T", client.Transport)
+	}
+	// transport 是策略客户端实际使用的底层网络传输层。
+	transport, ok := wrapper.base.(*http.Transport)
+	if !ok || transport.ResponseHeaderTimeout != 4*time.Second || transport.TLSHandshakeTimeout != 5*time.Second {
+		t.Fatalf("自定义超时未传递: %#v", wrapper.base)
+	}
+	// request 是用于直接验证重定向回调的请求。
+	request := &http.Request{URL: &url.URL{Scheme: "ftp", Host: "same"}}
+	// err 保存不安全协议重定向的校验错误。
+	if err := client.CheckRedirect(request, nil); err == nil || !strings.Contains(err.Error(), "协议") {
+		t.Fatal("非 HTTP(S) 重定向应被拒绝")
+	}
+	request.URL = &url.URL{Scheme: "http", Host: "same"}
+	// via 保存已经发生的同主机重定向链。
+	via := []*http.Request{{URL: &url.URL{Scheme: "http", Host: "same"}}}
+	// err 保存同主机重定向的校验结果。
+	if err := client.CheckRedirect(request, via); err != nil {
+		t.Fatalf("同主机 HTTP 重定向应允许: %v", err)
+	}
+	via = append(via, via[0], via[0], via[0], via[0])
+	// err 保存超过重定向次数上限的校验错误。
+	if err := client.CheckRedirect(request, via); err == nil || !strings.Contains(err.Error(), "次数") {
+		t.Fatal("超过重定向上限应被拒绝")
+	}
+	// proxyRequest 是用于覆盖公网与普通模式代理选择分支的请求。
+	// err 保存请求地址解析错误。
+	proxyRequest, err := http.NewRequest(http.MethodGet, "http://example.invalid", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// err 保存公网模式代理选择的结果。
+	if _, err := transport.Proxy(proxyRequest); err != nil {
+		t.Fatalf("公网模式代理选择不应报错: %v", err)
+	}
+	// policy 保存普通模式客户端使用的独立策略。
+	policy := NewOutboundPolicy(false)
+	// ordinary 保存普通模式客户端。
+	ordinary := PolicyHTTPClient(policy, time.Second)
+	// ordinaryTransport 保存普通模式客户端的底层传输层。
+	ordinaryTransport := ordinary.Transport.(limitedResponseBodyTransport).base.(*http.Transport)
+	// err 保存普通模式代理选择的结果。
+	if _, err := ordinaryTransport.Proxy(proxyRequest); err != nil {
+		t.Fatalf("普通模式代理选择不应报错: %v", err)
+	}
+}
+
+// TestLimitedResponseBodyReadBranches 验证响应体达到上限和正常结束时的读取分支。
+func TestLimitedResponseBodyReadBranches(t *testing.T) {
+	// body 是恰好达到自定义上限的内存响应体。
+	body := &limitedResponseBody{body: io.NopCloser(strings.NewReader("ab")), remaining: 2}
+	// buffer 是接收受限响应体数据的缓冲区。
+	buffer := make([]byte, 8)
+	// n、err 保存首次读取的字节数和底层结果。
+	if n, err := body.Read(buffer); n != 2 || err != nil {
+		t.Fatalf("首次受限读取错误: n=%d err=%v", n, err)
+	}
+	// n、err 保存达到上限后探测底层 EOF 的结果。
+	if n, err := body.Read(buffer); n != 0 || !errors.Is(err, io.EOF) {
+		t.Fatalf("达到上限后的 EOF 分支错误: n=%d err=%v", n, err)
+	}
+	// err 保存关闭内存响应体时的系统错误。
+	if err := body.Close(); err != nil {
+		t.Fatalf("关闭响应体失败: %v", err)
+	}
+}
+
+// TestDialContextWithPolicyBranches 验证地址格式、拒绝和连接失败路径均返回安全错误。
+func TestDialContextWithPolicyBranches(t *testing.T) {
+	// alwaysDeny 是拒绝所有解析地址的策略函数。
+	alwaysDeny := func(net.IP) bool { return false }
+	// err 保存缺少端口时的地址解析错误。
+	if _, err := dialContextWithPolicy(context.Background(), "tcp", "localhost", time.Second, alwaysDeny, "拒绝", "连接"); err == nil {
+		t.Fatal("缺少端口的地址应被拒绝")
+	}
+	// err 保存策略拒绝本地地址的错误。
+	if _, err := dialContextWithPolicy(context.Background(), "tcp", "localhost:1", time.Second, alwaysDeny, "拒绝", "连接"); err == nil || err.Error() != "拒绝" {
+		t.Fatalf("不允许地址应返回策略错误: %v", err)
+	}
+	// listener 用于获得一个随后关闭的本地端口，以稳定触发拨号失败分支。
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// address 保存临时监听器释放前绑定的本地地址。
+	address := listener.Addr().String()
+	// err 保存关闭临时监听器时的系统错误。
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// alwaysAllow 是允许所有解析地址的测试策略。
+	alwaysAllow := func(net.IP) bool { return true }
+	// err 保存允许地址但连接失败时的包装错误。
+	if _, err := dialContextWithPolicy(context.Background(), "tcp", address, time.Second, alwaysAllow, "拒绝", "连接失败"); err == nil || !strings.Contains(err.Error(), "连接失败") {
+		t.Fatalf("允许地址的拨号失败应带连接错误: %v", err)
+	}
+	// lookupErr 保存无法解析保留域名时的 DNS 错误。
+	if _, lookupErr := dialContextWithPolicy(context.Background(), "tcp", "does-not-exist.invalid:80", time.Second, alwaysAllow, "拒绝", "连接失败"); lookupErr == nil {
+		t.Fatal("无法解析主机应返回 DNS 错误")
+	}
+	// successListener 保存用于覆盖公网策略允许连接分支的本地监听器。
+	successListener, successListenErr := net.Listen("tcp", "127.0.0.1:0")
+	if successListenErr != nil {
+		t.Fatal(successListenErr)
+	}
+	defer successListener.Close()
+	// successConn、successDialErr 保存允许策略成功建立的连接。
+	successConn, successDialErr := dialContextWithPolicy(context.Background(), "tcp", successListener.Addr().String(), time.Second, alwaysAllow, "拒绝", "连接失败")
+	if successDialErr != nil || successConn == nil {
+		t.Fatalf("允许地址应成功连接: conn=%v err=%v", successConn, successDialErr)
+	}
+	successConn.Close()
+}
 
 // TestIsPublicIP 封装TestIsPublicIP业务协调。
 func TestIsPublicIP(t *testing.T) {
@@ -23,6 +193,9 @@ func TestIsPublicIP(t *testing.T) {
 	}
 	if !IsPublicIP(net.ParseIP("8.8.8.8")) {
 		t.Fatal("public IP should be allowed")
+	}
+	if IsPublicIP(net.IP{1, 2, 3}) {
+		t.Fatal("invalid IP should be rejected")
 	}
 }
 
@@ -93,7 +266,7 @@ func TestTrustedEndpointHTTPClientDoesNotApplyAddressPolicy(t *testing.T) {
 // TestTrustedEndpointHTTPClientValidatesBaseURL 封装TestTrustedEndpointHTTPClientValidatesBaseURL业务协调。
 func TestTrustedEndpointHTTPClientValidatesBaseURL(t *testing.T) {
 	// raw 表示当前遍历过程中的原始
-	for _, raw := range []string{"", "file:///tmp/model", "://bad"} {
+	for _, raw := range []string{"", "file:///tmp/model", "ftp://example.test", "://bad"} {
 		if // err 用于本次流程后续判断的err
 		_, err := TrustedEndpointHTTPClient(raw, 0); err == nil {
 			t.Fatalf("invalid base URL should fail: %q", raw)

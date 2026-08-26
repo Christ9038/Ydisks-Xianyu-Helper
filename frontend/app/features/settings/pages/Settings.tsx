@@ -1,5 +1,4 @@
 import {
-BellRing,
 Check,
 ChevronDown,
 Database,
@@ -13,7 +12,6 @@ Sparkles,
 UserRound
 } from 'lucide-react';
 import React from 'react';
-import { useBrowserNotificationPreference } from '../../../../shared/browser/browserNotifications';
 import { DEFAULT_AI_API_URL,LOG_LEVELS } from '../constants';
 import { useSettings } from '../hooks';
 
@@ -27,15 +25,6 @@ const Settings: React.FC = () => {
     setSettings, setModelDropdownOpen, setShowApiKey, setShowCaptchaSecret, setShowCurrentPassword,
     setShowNewPassword, setCredentials,
   } = useSettings();
-  // browserNotificationsState 保存当前浏览器通知能力和本地开关，不参与服务端系统配置保存。
-  const {
-    enabled: browserNotificationsEnabled,
-    supported: browserNotificationSupported,
-    permission: browserNotificationPermission,
-    updating: browserNotificationUpdating,
-    error: browserNotificationError,
-    setEnabled: setBrowserNotificationsEnabled,
-  } = useBrowserNotificationPreference();
 
   if (!settings) {
     return (
@@ -145,47 +134,6 @@ const Settings: React.FC = () => {
                   <span className="mt-1 block text-xs leading-5 text-amber-800">开启后会同时约束 API 发货、AI、HTTP 通知、远程图片和远程滑块服务；保存后立即生效，可能使内网服务不可用。</span>
                 </span>
               </label>
-            </div>
-          </section>
-
-          <section className="space-y-4">
-            <h3 className="text-lg font-extrabold text-gray-800 flex items-center gap-2">
-              <div className="p-1.5 rounded-lg bg-sky-500 text-white">
-                <BellRing className="w-4 h-4" />
-              </div>
-              浏览器提醒
-            </h3>
-
-            <div className="ios-card rounded-xl p-6 bg-white space-y-4">
-              <div className="flex items-start justify-between gap-5">
-                <div className="space-y-1">
-                  <p className="text-sm font-bold text-gray-800">新消息系统通知</p>
-                  <p className="text-xs leading-5 text-gray-500">窗口不在前台时，将买家新消息发送到当前设备的系统通知栏。</p>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={browserNotificationsEnabled}
-                  aria-label="开启新消息系统通知"
-                  disabled={browserNotificationUpdating || !browserNotificationSupported}
-                  onClick={/* 当前回调由用户点击开关触发通知权限申请或关闭本地偏好。 */ () => void setBrowserNotificationsEnabled(!browserNotificationsEnabled)}
-                  className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${browserNotificationsEnabled ? 'bg-sky-500' : 'bg-gray-200'} disabled:cursor-not-allowed disabled:opacity-50`}
-                >
-                  <span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${browserNotificationsEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
-                </button>
-              </div>
-              <div className="flex items-center justify-between gap-3 text-xs">
-                <span className={browserNotificationsEnabled ? 'font-semibold text-sky-600' : 'text-gray-500'}>
-                  {browserNotificationsEnabled ? '已开启' : '未开启'}
-                </span>
-                <span className="text-gray-400">
-                  {browserNotificationPermission === 'denied' ? '浏览器已拒绝权限' : browserNotificationSupported ? '仅保存在当前浏览器' : '当前浏览器不支持'}
-                </span>
-              </div>
-              {browserNotificationError && (
-                <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-700">{browserNotificationError}</p>
-              )}
-              <p className="text-[11px] leading-5 text-gray-400">首次开启会弹出系统权限请求；如果之前拒绝过，请在浏览器地址栏的站点权限中重新允许通知。</p>
             </div>
           </section>
 

@@ -88,6 +88,13 @@ func TestAccountSettingsRepositoryWritesAndReadsSettings(t *testing.T) {
 	if storedPassword == password {
 		t.Fatal("登录密码不应以明文保存")
 	}
+	// loginInfoErr 保存复用登录信息端口更新用户名和浏览器显示设置的结果。
+	loginInfoErr := repository.UpdateLoginInfo(ctx, accountapp.LoginInfoUpdateInput{
+		UserID: admin.ID, AccountID: "cid", Username: "updated-login-user", ShowBrowser: true,
+	})
+	if loginInfoErr != nil {
+		t.Fatalf("UpdateLoginInfo: %v", loginInfoErr)
+	}
 	// statusErr 保存状态写入错误。
 	statusErr := repository.SetStatusOwned(ctx, admin.ID, "cid", false, "manual")
 	if statusErr != nil {

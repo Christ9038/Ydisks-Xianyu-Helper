@@ -25,6 +25,32 @@ const NoRetryErrorPrefix = "[no_retry]"
 type AutomationRules struct {
 	DB      *sql.DB
 	Dialect Dialect
+	// codec 负责自动化运行中卡密凭证的静态加密，避免凭证以明文落库。
+	codec *secretCodec
+}
+
+// AutomationDeliveryProof 保存确认发货需要的已投递文本和图片凭证。
+type AutomationDeliveryProof struct {
+	// TradeText 是已发送给买家的文本凭证，多个动作按顺序合并。
+	TradeText string `json:"trade_text"`
+	// PicList 是已发送给买家的图片地址，顺序与消息发送顺序一致。
+	PicList []string `json:"pic_list"`
+}
+
+// AutomationRunActionAdvance 描述动作成功后的原子检查点更新。
+type AutomationRunActionAdvance struct {
+	// RunID 是待推进的自动化运行标识。
+	RunID int64
+	// Attempt 是当前运行租约代次，防止旧 worker 覆盖新 worker。
+	Attempt int
+	// Cursor 是动作执行前的游标位置。
+	Cursor int
+	// SentDelta 是本动作明确成功的外部结果数量。
+	SentDelta int
+	// DeliveryProof 是动作完成后应保留的完整凭证；为空指针表示保持已有值。
+	DeliveryProof *AutomationDeliveryProof
+	// ClearDeliveryProof 表示动作成功后应立即清除凭证。
+	ClearDeliveryProof bool
 }
 
 // HasEnabledAdjustPriceRule 判断账号是否存在会实际执行改价动作的启用规则。
@@ -94,6 +120,8 @@ type AutomationRun struct {
 	NextRetryAt    int64
 	ActionCursor   int
 	ActionStarted  bool
+	// DeliveryProof 是恢复确认发货所需的短期敏感凭证，仅在数据库仓储和自动化执行器之间流转。
+	DeliveryProof AutomationDeliveryProof
 }
 
 // ErrAutomationRunLeaseLost 表示自动化运行已被更高 attempt_count 的 worker 接管。
@@ -516,11 +544,11 @@ func (a *AutomationRules) TryStartRun(ctx context.Context, run AutomationRun) (i
 	}
 	// query 用于本次流程后续判断的查询
 	query := dialectInsertIgnorePrefix(a.Dialect) + ` INTO automation_runs
-	    (rule_id,cookie_id,item_id,order_id,buyer_id,chat_id,trigger_type,trigger_key,status,raw_event_json,lease_expires_at,attempt_count,next_retry_at)
-	VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)` + dialectInsertIgnore(a.Dialect, []string{"rule_id", "trigger_key"})
+	    (rule_id,cookie_id,item_id,order_id,buyer_id,chat_id,trigger_type,trigger_key,status,raw_event_json,delivery_proof,lease_expires_at,attempt_count,next_retry_at)
+	VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)` + dialectInsertIgnore(a.Dialect, []string{"rule_id", "trigger_key"})
 	// args 用于本次流程后续判断的args
 	args := []any{run.RuleID, run.CookieID, run.ItemID, run.OrderID, run.BuyerID, run.ChatID,
-		run.TriggerType, run.TriggerKey, "running", validJSON(run.RawEventJSON), leaseExpiresAt, 1, 0}
+		run.TriggerType, run.TriggerKey, "running", validJSON(run.RawEventJSON), "", leaseExpiresAt, 1, 0}
 
 	if a.Dialect == DialectPostgres {
 		// pgx 不支持 LastInsertId；用 RETURNING id。ON CONFLICT DO NOTHING 冲突时无行返回 → 未启动。
@@ -578,26 +606,6 @@ func (a *AutomationRules) reclaimRun(ctx context.Context, ruleID int64, triggerK
 	return id, true, nil
 }
 
-// GetRun 返回自动化运行及动作检查点。
-func (a *AutomationRules) GetRun(ctx context.Context, id int64) (*AutomationRun, error) {
-	// run 用于本次流程后续判断的运行
-	var run AutomationRun
-	// actionStarted 用于本次流程后续判断的动作Started
-	var actionStarted int
-	// err 用于本次流程后续判断的err
-	err := a.DB.QueryRowContext(ctx, `SELECT id,rule_id,cookie_id,item_id,order_id,buyer_id,chat_id,trigger_type,trigger_key,
-		status,sent_count,error_message,raw_event_json,lease_expires_at,attempt_count,next_retry_at,action_cursor,action_started
-		FROM automation_runs WHERE id=?`, id).Scan(&run.ID, &run.RuleID, &run.CookieID, &run.ItemID, &run.OrderID,
-		&run.BuyerID, &run.ChatID, &run.TriggerType, &run.TriggerKey, &run.Status, &run.SentCount,
-		&run.ErrorMessage, &run.RawEventJSON, &run.LeaseExpiresAt, &run.AttemptCount, &run.NextRetryAt,
-		&run.ActionCursor, &actionStarted)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	run.ActionStarted = actionStarted != 0
-	return &run, err
-}
-
 // StartRunAction 在外部副作用前持久化 started；崩溃恢复看到 started 时不会盲目重放。
 func (a *AutomationRules) StartRunAction(ctx context.Context, runID int64, attempt, cursor int, leaseExpiresAt int64) (bool, error) {
 	// res、err 用于本次流程后续判断的res、err
@@ -609,18 +617,6 @@ func (a *AutomationRules) StartRunAction(ctx context.Context, runID int64, attem
 	// n、err 用于本次流程后续判断的n、err
 	n, err := res.RowsAffected()
 	return err == nil && n == 1, err
-}
-
-// AdvanceRunAction 在动作明确成功后推进游标并累计已发送数量。
-func (a *AutomationRules) AdvanceRunAction(ctx context.Context, runID int64, attempt, cursor, sentDelta int) error {
-	// res、err 用于本次流程后续判断的res、err
-	res, err := a.DB.ExecContext(ctx, `UPDATE automation_runs
-		SET action_cursor=?,action_started=0,sent_count=sent_count+?,updated_at=CURRENT_TIMESTAMP
-		WHERE id=? AND attempt_count=? AND status='running' AND action_cursor=? AND action_started=1`, cursor+1, sentDelta, runID, attempt, cursor)
-	if err != nil {
-		return err
-	}
-	return requireAutomationRunOwner(res)
 }
 
 // AbortRunAction 封装Abort运行动作业务协调。
@@ -708,11 +704,15 @@ func (a *AutomationRules) FinishRun(ctx context.Context, id int64, attempt int, 
 	if status == "failed" && (strings.HasPrefix(errMsg, SafeRetryErrorPrefix) || sentCount == 0 && !strings.HasPrefix(errMsg, NoRetryErrorPrefix)) {
 		nextRetryAt = time.Now().UTC().Add(time.Minute).Unix()
 	}
+	// clearProof 表示本次终态不会再自动恢复，因此应立即清理敏感发货凭证。
+	clearProof := nextRetryAt == 0
 	// res、err 用于本次流程后续判断的res、err
-	res, err := a.DB.ExecContext(ctx, `
+	query := `
 UPDATE automation_runs
-	   SET status=?,sent_count=?,error_message=?,lease_expires_at=0,next_retry_at=?,updated_at=CURRENT_TIMESTAMP
-	 WHERE id=? AND attempt_count=? AND status='running'`, status, sentCount, errMsg, nextRetryAt, id, attempt)
+	   SET status=?,sent_count=?,error_message=?,lease_expires_at=0,next_retry_at=?,delivery_proof=CASE WHEN ? THEN '' ELSE delivery_proof END,updated_at=CURRENT_TIMESTAMP
+	 WHERE id=? AND attempt_count=? AND status='running'`
+	// res、err 保存运行终态更新结果及数据库错误。
+	res, err := a.DB.ExecContext(ctx, query, status, sentCount, errMsg, nextRetryAt, clearProof, id, attempt)
 	if err != nil {
 		return err
 	}

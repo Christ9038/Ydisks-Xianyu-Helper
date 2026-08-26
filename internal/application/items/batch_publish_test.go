@@ -169,3 +169,76 @@ func TestBatchRunnerStopsOnCancellation(t *testing.T) {
 		t.Fatalf("取消收口异常: calls=%d finalized=%d", publisher.calls, repository.finalized)
 	}
 }
+
+// TestBatchPublishErrorsAndHelpers 验证批量发布错误包装、等待和失败分类辅助函数的边界语义。
+func TestBatchPublishErrorsAndHelpers(t *testing.T) {
+	// cause 是后置步骤和远端结果包装使用的原始错误。
+	cause := errors.New("本地后置失败")
+	// postError 保存后置处理错误包装。
+	postError := &PostPublishError{Err: cause}
+	if postError.Error() != cause.Error() || !errors.Is(postError, cause) {
+		t.Fatalf("后置错误包装异常: %v", postError)
+	}
+	// uncertainError 保存远端结果未知错误包装。
+	uncertainError := &UncertainRemotePublishError{Err: cause}
+	if uncertainError.Error() != cause.Error() || !errors.Is(uncertainError, cause) {
+		t.Fatalf("远端未知错误包装异常: %v", uncertainError)
+	}
+	// nilPost、nilUncertain 保存空错误包装的稳定文本结果。
+	var nilPost *PostPublishError
+	// nilUncertain 保存空远端结果未知错误包装。
+	var nilUncertain *UncertainRemotePublishError
+	if nilPost.Error() == "" || nilPost.Unwrap() != nil || nilUncertain.Error() == "" || nilUncertain.Unwrap() != nil {
+		t.Fatal("空错误包装的默认语义异常")
+	}
+	// got、want 保存主错误优先级断言的实际值和期望值。
+	if got, want := firstNonNil(cause, errors.New("fallback")), cause; got != want {
+		t.Fatal("firstNonNil 未优先返回主错误")
+	}
+	// fallback 是主错误为空时使用的备用错误。
+	fallback := errors.New("fallback")
+	if firstNonNil(nil, fallback) != fallback {
+		t.Fatal("firstNonNil 未返回备用错误")
+	}
+	// message、kind 保存普通运行状态的失败分类结果。
+	if message, kind := defaultFailureClassifier(cause, "running"); message != cause.Error() || kind != "publish" {
+		t.Fatalf("普通失败分类异常: message=%q kind=%q", message, kind)
+	}
+	// message、kind 保存取消状态的失败分类结果。
+	if message, kind := defaultFailureClassifier(cause, "canceling"); message != "任务已取消" || kind != "publish" {
+		t.Fatalf("取消失败分类异常: message=%q kind=%q", message, kind)
+	}
+	// err 保存零时长等待的结果。
+	if err := waitWithContext(context.Background(), 0); err != nil {
+		t.Fatalf("零等待不应失败: %v", err)
+	}
+	// canceled、cancel 保存等待取消分支使用的上下文。
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	// err 保存取消上下文等待的结果。
+	if err := waitWithContext(canceled, time.Second); !errors.Is(err, context.Canceled) {
+		t.Fatalf("取消等待错误=%v", err)
+	}
+	// err 保存短时正常等待的结果。
+	if err := waitWithContext(context.Background(), time.Millisecond); err != nil {
+		t.Fatalf("短等待不应失败: %v", err)
+	}
+}
+
+// TestBatchRunnerReservesDefaultPublishSlot 验证历史批次缺少间隔配置时仍使用默认发布时隙。
+func TestBatchRunnerReservesDefaultPublishSlot(t *testing.T) {
+	// repository 保存可立即成功预留时隙的批次仓储。
+	repository := &batchRunnerRepository{batch: BatchInfo{ID: "batch-slot", UserID: 7, Status: "running", WorkerToken: "worker-slot"}}
+	// runner、err 保存使用固定时钟的批量 worker。
+	runner, err := NewBatchRunner(repository, &batchRunnerPublisher{}, BatchRunOptions{Now: func() time.Time { return time.UnixMilli(1_800_000_000_000) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// reserveErr 保存默认五秒发布间隔的时隙预留结果。
+	if reserveErr := runner.reservePublishSlot(context.Background(), 7, "batch-slot", "worker-slot", 0); reserveErr != nil {
+		t.Fatalf("预留默认发布时隙失败: %v", reserveErr)
+	}
+	if repository.batch.LastPublishStartedAtMillis == 0 {
+		t.Fatal("发布时隙没有写入开始时间")
+	}
+}

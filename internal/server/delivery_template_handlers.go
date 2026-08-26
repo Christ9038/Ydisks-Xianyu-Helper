@@ -125,7 +125,11 @@ func (s *Server) createDeliveryTemplate(w http.ResponseWriter, r *http.Request) 
 	// templateID、err 保存新模板标识及创建错误。
 	templateID, err := s.deliveryTemplatesApplication().Create(r.Context(), session.UserID, draft)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		if errors.Is(err, deliveryapp.ErrInvalidInput) {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, "创建发货模板失败")
 		return
 	}
 	writeJSON(w, http.StatusOK, deliveryTemplateMutationResponse{Success: true, ID: templateID})
@@ -155,7 +159,15 @@ func (s *Server) updateDeliveryTemplate(w http.ResponseWriter, r *http.Request) 
 			writeErr(w, http.StatusNotFound, "发货模板不存在")
 			return
 		}
-		writeErr(w, http.StatusBadRequest, err.Error())
+		if errors.Is(err, deliveryapp.ErrVariableConflict) {
+			writeErr(w, http.StatusConflict, "发货模板变量已被自动化规则引用，不能不兼容修改")
+			return
+		}
+		if errors.Is(err, deliveryapp.ErrInvalidInput) {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, "更新发货模板失败")
 		return
 	}
 	writeJSON(w, http.StatusOK, deliveryTemplateMutationResponse{Success: true})

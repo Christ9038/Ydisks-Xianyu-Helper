@@ -56,4 +56,16 @@ func TestNewCredentialWakeServiceRequiresRepository(t *testing.T) {
 	if _, err := NewCredentialWakeService(nil); err == nil {
 		t.Fatal("缺少唤醒 repository 时不应构造成功")
 	}
+	// uninitializedService 表示字段未装配仓储的唤醒服务。
+	uninitializedService := &CredentialWakeService{}
+	// uninitializedErr 保存未装配仓储时的执行错误。
+	if uninitializedErr := uninitializedService.WakeCredentialBlocked(context.Background(), "account"); uninitializedErr == nil {
+		t.Fatal("未装配唤醒仓储时不应执行成功")
+	}
+	// nilService 表示未初始化的唤醒服务指针。
+	var nilService *CredentialWakeService
+	// nilServiceErr 保存空服务指针的执行错误。
+	if nilServiceErr := nilService.WakeCredentialBlocked(context.Background(), "account"); nilServiceErr == nil {
+		t.Fatal("空唤醒服务时不应执行成功")
+	}
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -55,5 +56,24 @@ func TestFetchChatUserInfoFallsBackToNickWhenFishNickMissing(t *testing.T) {
 	info, err := client.FetchChatUserInfo(context.Background(), "unb=123; _m_h5_tk=token_1", "chat-2")
 	if err != nil || info.Nickname != "兼容昵称" {
 		t.Fatalf("info=%+v err=%v", info, err)
+	}
+}
+
+// TestUploadChatImageMapsUploadedMedia 覆盖聊天图片上传入口对图片地址、尺寸和更新 Cookie 的映射。
+func TestUploadChatImageMapsUploadedMedia(t *testing.T) {
+	// server 保存图片上传响应的本地 HTTP 服务。
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.SetCookie(w, &http.Cookie{Name: "_m_h5_tk", Value: "fresh_upload", Path: "/"})
+		_, _ = w.Write([]byte(`{"object":{"url":"https://cdn/chat.png","pix":"640x480"}}`))
+	}))
+	defer server.Close()
+	// transport 保存把固定上传地址重写到本地服务的传输适配器。
+	transport := &rewriteTransport{base: server.Client().Transport, target: server.URL}
+	// client 保存聊天图片上传入口使用的 MTOP 客户端。
+	client := &ClientImpl{HTTPClient: &http.Client{Transport: transport}}
+	// upload、uploadErr 保存聊天图片上传结果和错误。
+	upload, uploadErr := client.UploadChatImage(context.Background(), consignCookies, "chat.png", "image/png", tinyPNG(t))
+	if uploadErr != nil || upload.URL != "https://cdn/chat.png" || upload.Width != 640 || upload.Height != 480 || !strings.Contains(upload.UpdatedCookies, "fresh_upload") {
+		t.Fatalf("聊天图片上传异常 upload=%+v err=%v", upload, uploadErr)
 	}
 }

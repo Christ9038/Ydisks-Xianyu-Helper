@@ -143,6 +143,50 @@ func TestCoordinatorRollsBackOnStartFailure(t *testing.T) {
 	}
 }
 
+// TestCoordinatorValidatesInputsAndRollbackErrors 验证协调器参数校验和回滚错误聚合。
+func TestCoordinatorValidatesInputsAndRollbackErrors(t *testing.T) {
+	if // err 是 nil 协调器追加组件时的初始化错误。
+	err := (*Coordinator)(nil).Add(NamedComponent{}); err == nil {
+		t.Fatal("nil 协调器应拒绝追加组件")
+	}
+	// coordinator 保存用于参数校验的空协调器。
+	coordinator := NewCoordinator()
+	// nilContext 是专门验证协调器 nil Context 防护的空接口值。
+	var nilContext context.Context
+	if // err 是空组件实现被拒绝的参数错误。
+	err := coordinator.Add(NamedComponent{Name: "empty"}); err == nil {
+		t.Fatal("空组件实现应被拒绝")
+	}
+	if // err 是空组件名称被拒绝的参数错误。
+	err := coordinator.Add(NamedComponent{Component: FuncComponent{}}); err == nil {
+		t.Fatal("空组件名称应被拒绝")
+	}
+	if // err 是未启动协调器返回的父 Context。
+	err := coordinator.Context(); err == nil {
+		t.Fatal("Context 返回值不应为 nil")
+	}
+	if // err 是 nil 父 Context 被拒绝的启动错误。
+	err := coordinator.Start(nilContext); err == nil {
+		t.Fatal("nil 父 Context 应被拒绝")
+	}
+	// closeFailure 保存失败组件关闭时产生的回滚错误。
+	closeFailure := errors.New("rollback close failed")
+	// events 保存启动失败回滚的组件事件。
+	events := make([]string, 0, 2)
+	// mu 保护回滚测试组件的事件切片。
+	mu := &sync.Mutex{}
+	// component 保存启动失败且回滚关闭失败的组件。
+	component := &lifecycleComponentFake{name: "failed", events: &events, mu: mu, startErr: errors.New("start failed"), closeErr: closeFailure}
+	// rollbackCoordinator 保存待验证的回滚错误协调器。
+	rollbackCoordinator := NewCoordinator()
+	_ = rollbackCoordinator.Add(NamedComponent{Name: "failed", Component: component})
+	// err 是同时包含启动错误和回滚错误的聚合结果。
+	err := rollbackCoordinator.Start(context.Background())
+	if !errors.Is(err, closeFailure) || !errors.Is(err, component.startErr) {
+		t.Fatalf("回滚错误未聚合: %v", err)
+	}
+}
+
 // TestCoordinatorRejectsAddAfterStart 验证启动后不能追加组件，防止部分构造状态被观察。
 func TestCoordinatorRejectsAddAfterStart(t *testing.T) {
 	// coordinator 保存待验证的生命周期协调器。
@@ -186,6 +230,12 @@ func TestCoordinatorCloseContextBoundsConcurrentClose(t *testing.T) {
 		firstDone <- coordinator.Close(context.Background())
 	}()
 	<-entered
+	// waitingDone 接收第二个关闭调用等待首轮关闭结果后的错误。
+	waitingDone := make(chan error, 1)
+	go func() {
+		waitingDone <- coordinator.Close(context.Background())
+	}()
+	time.Sleep(5 * time.Millisecond)
 	// timeoutCtx、cancel 控制第二个关闭调用的等待时限。
 	timeoutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
@@ -197,6 +247,10 @@ func TestCoordinatorCloseContextBoundsConcurrentClose(t *testing.T) {
 	// err 表示首个关闭调用在释放阻塞后返回的最终结果。
 	if err := <-firstDone; err != nil {
 		t.Fatalf("首个关闭失败: %v", err)
+	}
+	// err 表示第二个关闭调用复用首轮关闭结果后的错误。
+	if err := <-waitingDone; err != nil {
+		t.Fatalf("等待首轮关闭的调用失败: %v", err)
 	}
 }
 
@@ -276,6 +330,14 @@ func TestCoordinatorCloseWaitsForStart(t *testing.T) {
 		startDone <- coordinator.Start(context.Background())
 	}()
 	<-entered
+	// timeoutCtx、timeoutCancel 限制启动阶段的关闭等待时间。
+	timeoutCtx, timeoutCancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	// err 表示启动未完成时关闭等待收到的截止错误。
+	err := coordinator.Close(timeoutCtx)
+	timeoutCancel()
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("启动阶段关闭应返回截止错误: %v", err)
+	}
 	// closeDone 接收并发关闭结果；关闭必须等待启动回调结束。
 	closeDone := make(chan error, 1)
 	go func() {
@@ -295,6 +357,88 @@ func TestCoordinatorCloseWaitsForStart(t *testing.T) {
 	if err := <-closeDone; err != nil {
 		t.Fatalf("等待启动完成后的关闭失败: %v", err)
 	}
+}
+
+// TestCoordinatorRetrySkipsClosedComponents 验证关闭重试不会重复关闭已成功收束的组件。
+func TestCoordinatorRetrySkipsClosedComponents(t *testing.T) {
+	// firstCloseCalls 保存第一个组件的关闭调用次数。
+	firstCloseCalls := 0
+	// first 是首轮成功关闭、重试时应被跳过的组件。
+	first := FuncComponent{CloseFunc: func(context.Context) error {
+		firstCloseCalls++
+		return nil
+	}}
+	// secondCloseCalls 保存第二个组件的关闭调用次数。
+	secondCloseCalls := 0
+	// closeFailure 保存第二个组件首轮关闭失败的原因。
+	closeFailure := errors.New("close failed")
+	// second 是首轮失败、重试时成功关闭的组件。
+	second := FuncComponent{CloseFunc: func(context.Context) error {
+		secondCloseCalls++
+		if secondCloseCalls == 1 {
+			return closeFailure
+		}
+		return nil
+	}}
+	// coordinator 保存两个可分别收束的组件。
+	coordinator := NewCoordinator()
+	_ = coordinator.Add(NamedComponent{Name: "first", Component: first})
+	_ = coordinator.Add(NamedComponent{Name: "second", Component: second})
+	if // err 是启动两个测试组件的结果。
+	err := coordinator.Start(context.Background()); err != nil {
+		t.Fatalf("启动协调器失败: %v", err)
+	}
+	if // err 是首轮关闭聚合的组件错误。
+	err := coordinator.Close(context.Background()); !errors.Is(err, closeFailure) {
+		t.Fatalf("首轮关闭应保留组件错误: %v", err)
+	}
+	if // err 是重试关闭剩余组件的结果。
+	err := coordinator.Close(context.Background()); err != nil {
+		t.Fatalf("重试关闭失败: %v", err)
+	}
+	if firstCloseCalls != 1 || secondCloseCalls != 2 {
+		t.Fatalf("关闭调用次数异常: first=%d second=%d", firstCloseCalls, secondCloseCalls)
+	}
+}
+
+// TestCoordinatorWaitAndCloseNilSemantics 验证空指针和 nil Context 的等待、关闭语义。
+func TestCoordinatorWaitAndCloseNilSemantics(t *testing.T) {
+	// nilCoordinator 保存空协调器指针。
+	var nilCoordinator *Coordinator
+	// nilContext 是专门验证关闭和等待 nil Context 防护的空接口值。
+	var nilContext context.Context
+	nilCoordinator.Wait()
+	if // lifecycleContext 是空协调器的默认生命周期 Context。
+	lifecycleContext := nilCoordinator.Context(); lifecycleContext == nil {
+		t.Fatal("nil 协调器应返回默认 Context")
+	}
+	if // startErr 是空协调器的初始化错误。
+	startErr := nilCoordinator.Start(context.Background()); startErr == nil {
+		t.Fatal("nil 协调器应拒绝启动")
+	}
+	if // err 是空协调器等待的结果。
+	err := nilCoordinator.WaitContext(context.Background()); err != nil {
+		t.Fatalf("nil 协调器等待不应失败: %v", err)
+	}
+	if // closeErr 是空协调器的关闭结果。
+	closeErr := nilCoordinator.Close(context.Background()); closeErr != nil {
+		t.Fatalf("nil 协调器关闭不应失败: %v", closeErr)
+	}
+	if // err 是 nil 关闭 Context 的参数错误。
+	err := NewCoordinator().Close(nilContext); err == nil {
+		t.Fatal("nil 关闭 Context 应被拒绝")
+	}
+	if // err 是 nil 等待 Context 的参数错误。
+	err := NewCoordinator().WaitContext(nilContext); err == nil {
+		t.Fatal("nil 等待 Context 应被拒绝")
+	}
+	// coordinator 保存已完成关闭的协调器。
+	coordinator := NewCoordinator()
+	if // err 是空组件协调器的关闭结果。
+	err := coordinator.Close(context.Background()); err != nil {
+		t.Fatalf("空协调器关闭失败: %v", err)
+	}
+	coordinator.Wait()
 }
 
 // equalStrings 比较两个生命周期事件列表。

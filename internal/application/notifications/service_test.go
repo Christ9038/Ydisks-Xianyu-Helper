@@ -131,4 +131,18 @@ func TestListPropagatesRepositoryErrors(t *testing.T) {
 	if !errors.Is(gotCountErr, countErr) {
 		t.Fatalf("统计错误未透传: %v", gotCountErr)
 	}
+	// userCountRepository 是模拟普通用户统计失败的端口替身。
+	userCountRepository := &fakeRepository{countErr: countErr}
+	// _, _, gotUserCountErr 保存普通用户统计失败的应用服务结果。
+	_, _, gotUserCountErr := New(userCountRepository).ListForUser(context.Background(), 1, 10)
+	if !errors.Is(gotUserCountErr, countErr) {
+		t.Fatalf("普通用户统计错误未透传: %v", gotUserCountErr)
+	}
+	// adminListRepository 是模拟管理员列表失败的端口替身。
+	adminListRepository := &fakeRepository{listErr: listErr}
+	// _, _, gotAdminListErr 保存管理员列表失败的应用服务结果。
+	_, _, gotAdminListErr := New(adminListRepository).ListForAdmin(context.Background(), 10)
+	if !errors.Is(gotAdminListErr, listErr) {
+		t.Fatalf("管理员列表错误未透传: %v", gotAdminListErr)
+	}
 }

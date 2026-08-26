@@ -1728,6 +1728,9 @@ paths:
         '404':
           description: 统一错误响应
           content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
+        '500':
+          description: 统一错误响应
+          content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
     put:
       operationId: putApiV1DeliveryTemplatesBytemplate_id
       summary: putApiV1DeliveryTemplatesBytemplate_id
@@ -1757,6 +1760,12 @@ paths:
         '404':
           description: 统一错误响应
           content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
+        '409':
+          description: 发货模板变量已被自动化规则引用，不能不兼容修改
+          content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
+        '500':
+          description: 统一错误响应
+          content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
     delete:
       operationId: deleteApiV1DeliveryTemplatesBytemplate_id
       summary: deleteApiV1DeliveryTemplatesBytemplate_id
@@ -1783,6 +1792,9 @@ paths:
           content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
         '409':
           description: 发货模板仍被自动化规则引用
+          content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
+        '500':
+          description: 统一错误响应
           content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}
   "/api/v1/automation-rules":
     get:

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -144,10 +145,47 @@ func TestSendTemplateRendersBoundCards(t *testing.T) {
 	executor := automationActionExecutor{store: store, senders: testSenderProvider{sender: sender}}
 	// action 保存包含订单、库存和规则变量的两条模板消息动作。
 	action := db.AutomationAction{ActionType: ActionSendTemplate, ConfigJSON: "{}", TemplateMessages: []string{"第一条 {{buyer_nickname}}/{{order_id}}/{{buyer_id}}/{{card_name}} {{cards.code}}", "第二条 {{custom.remark}} {{cards.code}}"}, TemplateBindings: []db.DeliveryTemplateBinding{{VariableKey: "code", CardID: cardID, CardName: "模板文本库存", DeliveryCount: 1}}, CustomVariables: map[string]string{"remark": "规则备注"}}
-	// sent、sendErr 保存模板消息执行统计和错误。
-	sent, sendErr := executor.sendTemplate(ctx, Task{AccountID: "cid", OrderID: "order", ChatID: "chat", BuyerID: "buyer", BuyerNickname: "小鱼", Quantity: "2", TriggerType: TriggerOrderPaid}, action)
-	if sendErr != nil || sent != 2 || len(sender.texts) != 2 || sender.texts[0] != "第一条 小鱼/order/buyer/模板文本库存 授权码\n授权码" || sender.texts[1] != "第二条 规则备注 授权码\n授权码" {
-		t.Fatalf("模板动作渲染错误 sent=%d texts=%v err=%v", sent, sender.texts, sendErr)
+	// result、sendErr 保存模板消息执行统计、确认凭证和错误。
+	result, sendErr := executor.sendTemplate(ctx, Task{AccountID: "cid", OrderID: "order", ChatID: "chat", BuyerID: "buyer", BuyerNickname: "小鱼", Quantity: "2", TriggerType: TriggerOrderPaid}, action)
+	if sendErr != nil || result.sent != 2 || len(sender.texts) != 2 || sender.texts[0] != "第一条 小鱼/order/buyer/模板文本库存 授权码\n授权码" || sender.texts[1] != "第二条 规则备注 授权码\n授权码" {
+		t.Fatalf("模板动作渲染错误 sent=%d texts=%v err=%v", result.sent, sender.texts, sendErr)
+	}
+	if result.proof.tradeText != sender.texts[0]+"\n"+sender.texts[1] {
+		t.Fatalf("template proof order mismatch: %q", result.proof.tradeText)
+	}
+}
+
+// TestSendDataCardProofUsesRenderedContent 验证数据卡实际发送文本与确认发货凭证使用同一份渲染结果。
+func TestSendDataCardProofUsesRenderedContent(t *testing.T) {
+	// store、cleanup 保存数据卡动作测试使用的数据库和清理函数。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// ctx 保存数据卡动作共用的测试上下文。
+	ctx := context.Background()
+	// admin 保存创建测试数据卡所需的用户。
+	admin, err := store.Users.GetByUsername(ctx, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// cardID 保存包含订单占位符的数据卡组标识。
+	cardID, err := store.Cards.Create(ctx, &db.CardFull{
+		Name: "rendered-data", Type: "data", DataContent: "密钥-{order_id}-{buyer_id}", Enabled: true, UserID: admin.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// sender 保存数据卡实际发送给买家的文本。
+	sender := &testSender{}
+	// executor 是绑定测试数据库和发送器的数据卡执行器。
+	executor := automationActionExecutor{store: store, senders: testSenderProvider{sender: sender}}
+	// task 保存用于替换数据卡占位符的订单上下文。
+	task := Task{AccountID: "cid", OrderID: "order-42", BuyerID: "buyer-7", ChatID: "chat", TriggerType: TriggerOrderPaid}
+	// result、sendErr 保存数据卡执行结果和发送错误。
+	result, sendErr := executor.sendCardWithProof(ctx, task, db.AutomationAction{ActionType: ActionSendCard, CardID: cardID, DeliveryCount: 1, ConfigJSON: "{}"})
+	// want 保存买家实际收到的最终文本。
+	want := "密钥-order-42-buyer-7"
+	if sendErr != nil || result.sent != 1 || len(sender.texts) != 1 || sender.texts[0] != want || result.proof.tradeText != want || strings.Contains(result.proof.tradeText, "{order_id}") {
+		t.Fatalf("数据卡发送与凭证不一致：result=%+v texts=%v err=%v", result, sender.texts, sendErr)
 	}
 }
 

@@ -478,6 +478,15 @@ func TestDecrypt_Errors(t *testing.T) {
 			t.Fatalf("error should be wrapped, got: %v", err)
 		}
 	})
+	t.Run("json marshal error", func(t *testing.T) {
+		// raw 是包含 NaN 浮点值的 MessagePack 数据，JSON 不允许序列化该值。
+		raw := []byte{0xcb, 0x7f, 0xf8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01}
+		// err 是 JSON 序列化 NaN 时返回的解密错误。
+		_, err := Decrypt(mp(raw...))
+		if err == nil || !strings.Contains(err.Error(), "JSON 序列化") {
+			t.Fatalf("NaN 应触发 JSON 序列化错误: %v", err)
+		}
+	})
 }
 
 // TestNormalizeForJSON 覆盖 normalizeForJSON 的各分支。

@@ -19,6 +19,50 @@ import (
 // fakeWSDialer 用于本次流程后续判断的fakeWSDialer
 type fakeWSDialer struct{}
 
+// refreshHandler 覆盖默认处理器的凭证刷新结果，验证 Manager 委托边界。
+type refreshHandler struct {
+	noopHandler
+}
+
+// OnPasswordLoginRefresh 返回成功，模拟上层完成密码登录刷新。
+func (refreshHandler) OnPasswordLoginRefresh(context.Context, string) bool {
+	return true
+}
+
+// stagedContext 在指定 Err 调用次数后返回取消错误，用于覆盖重启阶段检查的时间窗口。
+type stagedContext struct {
+	// calls 记录调用方读取 Err 的次数。
+	calls int
+	// cancelAfter 表示从第几次 Err 调用开始返回取消错误。
+	cancelAfter int
+	// done 保存可选的已关闭通知信号，用于模拟关闭 Context。
+	done chan struct{}
+}
+
+// Deadline 返回无截止时间，保持测试上下文只由 Err 控制阶段转换。
+func (c *stagedContext) Deadline() (time.Time, bool) {
+	return time.Time{}, false
+}
+
+// Done 返回可选的关闭通知信号。
+func (c *stagedContext) Done() <-chan struct{} {
+	return c.done
+}
+
+// Err 在达到预设调用次数后返回 context.Canceled。
+func (c *stagedContext) Err() error {
+	c.calls++
+	if c.calls >= c.cancelAfter {
+		return context.Canceled
+	}
+	return nil
+}
+
+// Value 不提供测试上下文值。
+func (c *stagedContext) Value(any) any {
+	return nil
+}
+
 // Dial 封装Dial业务协调。
 func (fakeWSDialer) Dial(context.Context, ws.Config, *slog.Logger) (engine.WSConn, error) {
 	return fakeWSConn{}, nil
@@ -222,6 +266,138 @@ func TestSender(t *testing.T) {
 	if // s、ok 用于本次流程后续判断的s、ok
 	s, ok := mgr.Sender("acc-on"); ok || s != nil {
 		t.Fatalf("停止后 Sender 应返回 (nil,false)，got (%v,%v)", s, ok)
+	}
+}
+
+// TestManagerInputAndCredentialBoundaries 验证管理器空 Context、停止 fencing 和凭证刷新边界。
+func TestManagerInputAndCredentialBoundaries(t *testing.T) {
+	// manager 是不依赖数据库启动的输入校验管理器。
+	manager := NewManager(nil, noopHandler{}, nil)
+	// nilContext 是专门验证管理器 nil Context 防护的空接口值。
+	var nilContext context.Context
+	if // err 是空启动 Context 的参数错误。
+	err := manager.StartAll(nilContext); err == nil {
+		t.Fatal("StartAll 应拒绝 nil Context")
+	}
+	if // err 是单账号空启动 Context 的参数错误。
+	err := manager.Start(nilContext, "account", "cookie"); err == nil {
+		t.Fatal("Start 应拒绝 nil Context")
+	}
+	if // err 是单账号空停止 Context 的参数错误。
+	err := manager.StopContext(nilContext, "account"); err == nil {
+		t.Fatal("StopContext 应拒绝 nil Context")
+	}
+	if // err 是全量空停止 Context 的参数错误。
+	err := manager.StopAllContext(nilContext); err == nil {
+		t.Fatal("StopAllContext 应拒绝 nil Context")
+	}
+	// manager.accounts 保存正在停止的账号实例占位，验证 Start 的实例 fencing。
+	manager.accounts["stopping-account"] = &managedAccount{stopping: true}
+	if // err 是实例停止 fencing 期间的启动拒绝错误。
+	err := manager.Start(context.Background(), "stopping-account", "cookie"); err == nil {
+		t.Fatal("正在停止的账号不应再次启动")
+	}
+	if // refreshed 是未装配处理器时的刷新结果。
+	refreshed := manager.RecoverExpiredCredential(context.Background(), "account"); refreshed {
+		t.Fatal("未装配处理器不应报告刷新成功")
+	}
+	// refreshManager 是注入成功刷新处理器的管理器。
+	refreshManager := NewManager(nil, refreshHandler{}, nil)
+	if // refreshed 是处理器委托返回的刷新结果。
+	refreshed := refreshManager.RecoverExpiredCredential(context.Background(), "account"); !refreshed {
+		t.Fatal("处理器刷新成功结果未透传")
+	}
+	// nilManager 保存 nil 管理器指针，用于验证刷新委托的空值保护。
+	var nilManager *Manager
+	if // refreshed 是 nil 管理器的刷新结果。
+	refreshed := nilManager.RecoverExpiredCredential(context.Background(), "account"); refreshed {
+		t.Fatal("nil 管理器不应报告刷新成功")
+	}
+}
+
+// TestManagerStopAndRestartErrorBoundaries 验证停止等待取消、全量停止传播和重启启动失败边界。
+func TestManagerStopAndRestartErrorBoundaries(t *testing.T) {
+	// manager 是包含未关闭运行完成信号的停止测试管理器。
+	manager := NewManager(nil, noopHandler{}, nil)
+	// account 是未启动但可执行生命周期 Stop 的账号运行时。
+	account := engine.New(engine.Config{CookieID: "cancel-account", CookieStr: "unb=1"})
+	// managed 是等待信号保持打开的管理实例。
+	managed := &managedAccount{cookieID: "cancel-account", acc: account, cancel: func() {}, done: make(chan struct{})}
+	manager.accounts[managed.cookieID] = managed
+	// canceledContext 是已经取消的停止请求上下文。
+	canceledContext, cancel := context.WithCancel(context.Background())
+	cancel()
+	if // err 是停止等待运行协程时保留的上下文取消错误。
+	err := manager.StopContext(canceledContext, managed.cookieID); !errors.Is(err, context.Canceled) {
+		t.Fatalf("停止等待应返回取消错误: %v", err)
+	}
+	if // err 是全量停止传播单账号取消错误的结果。
+	err := manager.StopAllContext(canceledContext); !errors.Is(err, context.Canceled) {
+		t.Fatalf("全量停止应传播取消错误: %v", err)
+	}
+	// nilRestartErr 是 nil 重启 Context 的分类错误。
+	// nilRestartContext 是专门验证重启 nil Context 防护的空接口值。
+	var nilRestartContext context.Context
+	// nilRestartErr 是 nil 重启 Context 返回的分类错误。
+	nilRestartErr := manager.Restart(nilRestartContext, "cancel-account")
+	if !errors.Is(nilRestartErr, ErrRestartIncomplete) {
+		t.Fatalf("nil 重启 Context 错误异常: %v", nilRestartErr)
+	}
+	// postStopContext 在停止旧实例后才报告取消，覆盖重启读取 Cookie 前的检查。
+	postStopContext := &stagedContext{cancelAfter: 2}
+	// postStopManager 是没有旧实例的管理器，确保重启阶段直接进入停止后检查。
+	postStopManager := NewManager(nil, noopHandler{}, nil)
+	// postStopErr 是停止阶段后取消重启返回的分类错误。
+	postStopErr := postStopManager.Restart(postStopContext, "cancel-account")
+	if !errors.Is(postStopErr, ErrRestartIncomplete) || !errors.Is(postStopErr, context.Canceled) {
+		t.Fatalf("停止后取消错误异常: %v", postStopErr)
+	}
+	// closedDone 是模拟关闭 Context 的已关闭信号。
+	closedDone := make(chan struct{})
+	close(closedDone)
+	// stopErrorManager 是用于覆盖停止阶段错误包装的管理器。
+	stopErrorManager := NewManager(nil, noopHandler{}, nil)
+	// stopErrorAccount 是停止时可立即收束的账号运行时。
+	stopErrorAccount := engine.New(engine.Config{CookieID: "restart-stop-error", CookieStr: "unb=1"})
+	// stopErrorManaged 保留打开的管理完成信号，使管理器在 Context 关闭时返回错误。
+	stopErrorManaged := &managedAccount{cookieID: "restart-stop-error", acc: stopErrorAccount, cancel: func() {}, done: make(chan struct{})}
+	stopErrorManager.accounts[stopErrorManaged.cookieID] = stopErrorManaged
+	// stopErrorContext 在首次检查后通过已关闭 Done 信号报告取消。
+	stopErrorContext := &stagedContext{cancelAfter: 2, done: closedDone}
+	// stopError 是旧实例停止阶段失败后的重启分类错误。
+	stopError := stopErrorManager.Restart(stopErrorContext, stopErrorManaged.cookieID)
+	if !errors.Is(stopError, ErrRestartIncomplete) || !errors.Is(stopError, context.Canceled) {
+		t.Fatalf("停止阶段错误异常: %v", stopError)
+	}
+
+	// startAllManager 是在全局停止 fencing 下验证 StartAll 忽略单账号启动错误的管理器。
+	startAllManager, _, cleanup := newManagerWithAccount(t, "start-all-error", "unb=1; _m_h5_tk=t_1;")
+	defer cleanup()
+	startAllManager.mu.Lock()
+	startAllManager.stoppingAll = true
+	startAllManager.mu.Unlock()
+	if // err 是 StartAll 继续处理单账号启动失败后的整体结果。
+	err := startAllManager.StartAll(context.Background()); err != nil {
+		t.Fatalf("StartAll 不应因单账号启动失败中断: %v", err)
+	}
+
+	// restartManager 是在全局停止 fencing 下验证新实例启动失败的管理器。
+	restartManager, _, restartCleanup := newManagerWithAccount(t, "restart-start-error", "unb=1; _m_h5_tk=t_1;")
+	defer restartCleanup()
+	restartManager.mu.Lock()
+	restartManager.stoppingAll = true
+	restartManager.mu.Unlock()
+	// restartErr 是新实例启动被全局 fencing 拒绝后的分类错误。
+	restartErr := restartManager.Restart(context.Background(), "restart-start-error")
+	if !errors.Is(restartErr, ErrRestartIncomplete) || !strings.Contains(restartErr.Error(), "启动新账号实例失败") {
+		t.Fatalf("重启启动错误异常: %v", restartErr)
+	}
+	// beforeStartContext 在读取最新 Cookie 后才报告取消，覆盖启动新实例前的检查。
+	beforeStartContext := &stagedContext{cancelAfter: 3}
+	// beforeStartErr 是启动新实例前取消重启返回的分类错误。
+	beforeStartErr := restartManager.Restart(beforeStartContext, "restart-start-error")
+	if !errors.Is(beforeStartErr, ErrRestartIncomplete) || !errors.Is(beforeStartErr, context.Canceled) {
+		t.Fatalf("启动前取消错误异常: %v", beforeStartErr)
 	}
 }
 

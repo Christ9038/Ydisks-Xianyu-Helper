@@ -32,6 +32,20 @@ type scriptedOutboxRepository struct {
 	uncertainCalls int
 	// retryCalls 记录发送失败重试调用次数。
 	retryCalls int
+	// retryResult 保存重试状态更新的布尔结果。
+	retryResult bool
+	// retryErr 保存重试状态更新故障。
+	retryErr error
+	// retryPermanent 保存最近一次重试是否达到永久失败上限。
+	retryPermanent bool
+	// retryNextAttemptAt 保存最近一次计算出的重试时间戳。
+	retryNextAttemptAt int64
+	// claimErr 保存领取 outbox 时的预置故障。
+	claimErr error
+	// channelErr 保存查询通知渠道时的预置故障。
+	channelErr error
+	// completeResult 保存完成确认的布尔结果。
+	completeResult bool
 }
 
 // AccountChannels 返回测试不使用的账号渠道列表。
@@ -46,6 +60,9 @@ func (r *scriptedOutboxRepository) EnqueueOutbox(context.Context, []db.Notificat
 
 // ClaimOutbox 返回一次可控的 outbox 消息并模拟领取后不再重复领取。
 func (r *scriptedOutboxRepository) ClaimOutbox(context.Context, string, time.Time, int) ([]db.NotificationOutboxMessage, error) {
+	if r.claimErr != nil {
+		return nil, r.claimErr
+	}
 	// messages 保存本次领取的消息，并在返回前清空替身队列以模拟一次性领取。
 	messages := r.pending
 	r.pending = nil
@@ -54,12 +71,12 @@ func (r *scriptedOutboxRepository) ClaimOutbox(context.Context, string, time.Tim
 
 // GetChannel 返回 worker 发送所需的测试渠道。
 func (r *scriptedOutboxRepository) GetChannel(context.Context, int64) (*db.NotificationChannel, error) {
-	return r.channel, nil
+	return r.channel, r.channelErr
 }
 
 // CompleteOutbox 返回预置的本地确认故障，模拟发送成功后的落库失败。
 func (r *scriptedOutboxRepository) CompleteOutbox(context.Context, int64, string) (bool, error) {
-	return false, r.completeErr
+	return r.completeResult, r.completeErr
 }
 
 // MarkOutboxUncertain 记录不确定隔离调用并返回预置结果。
@@ -69,9 +86,11 @@ func (r *scriptedOutboxRepository) MarkOutboxUncertain(context.Context, int64, s
 }
 
 // RetryOutbox 记录发送失败重试调用，便于断言发送成功不会进入重试。
-func (r *scriptedOutboxRepository) RetryOutbox(context.Context, int64, string, string, int64, bool) (bool, error) {
+func (r *scriptedOutboxRepository) RetryOutbox(_ context.Context, _ int64, _ string, _ string, nextAttemptAt int64, permanent bool) (bool, error) {
 	r.retryCalls++
-	return true, nil
+	r.retryNextAttemptAt = nextAttemptAt
+	r.retryPermanent = permanent
+	return r.retryResult, r.retryErr
 }
 
 // GetSetting 返回测试不使用的系统设置值。
@@ -561,5 +580,86 @@ func TestNew_DefaultLogger(t *testing.T) {
 	}
 	if n.httpc.Timeout != 10*time.Second {
 		t.Errorf("httpc timeout=%v", n.httpc.Timeout)
+	}
+}
+
+// TestNotifierWorkerLifecycle 覆盖通知 worker 的启动、重复启动、运行循环和兼容等待入口。
+func TestNotifierWorkerLifecycle(t *testing.T) {
+	// repository 提供空 outbox，使 worker 能在取消后安全退出。
+	repository := &scriptedOutboxRepository{}
+	// notifier 保存本次生命周期测试使用的通知器。
+	notifier := NewWithRepository("cid", repository, nilLogger())
+	// ctx、cancel 为 worker 提供可控的退出边界。
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	notifier.Start(ctx)
+	notifier.Start(ctx)
+	notifier.Wait()
+	// err 表示 worker 已完成后的带上下文等待结果。
+	if err := notifier.WaitContext(context.Background()); err != nil {
+		t.Fatalf("WaitContext: %v", err)
+	}
+	// nilNotifier 覆盖兼容等待入口的空接收者分支。
+	var nilNotifier *Notifier
+	nilNotifier.Wait()
+	// err 表示空接收者等待应直接返回的结果。
+	if err := nilNotifier.WaitContext(context.Background()); err != nil {
+		t.Fatalf("nil WaitContext: %v", err)
+	}
+}
+
+// TestNotifierOutboxRetryBranches 覆盖 outbox 领取、渠道查询、发送失败和重试状态更新分支。
+func TestNotifierOutboxRetryBranches(t *testing.T) {
+	// repository 保存一个不存在渠道的消息，用于覆盖无效渠道清理路径。
+	repository := &scriptedOutboxRepository{
+		pending:        []db.NotificationOutboxMessage{{ID: 1, ChannelID: 2, AttemptCount: 1}},
+		completeResult: true,
+	}
+	// notifier 保存使用替身 repository 的通知器。
+	notifier := NewWithRepository("cid", repository, nilLogger())
+	notifier.drainOutbox(context.Background())
+
+	// repository.pending 保存渠道查询失败的消息，随后验证失败会进入重试。
+	repository.pending = []db.NotificationOutboxMessage{{ID: 2, ChannelID: 3, AttemptCount: 1}}
+	repository.channelErr = errors.New("渠道查询失败")
+	repository.retryResult = true
+	notifier.drainOutbox(context.Background())
+	if repository.retryCalls != 1 || repository.retryPermanent {
+		t.Fatalf("retry calls=%d permanent=%v", repository.retryCalls, repository.retryPermanent)
+	}
+
+	// repository.pending 保存发送失败消息，使用不可用 webhook 覆盖发送错误重试。
+	repository.channelErr = nil
+	repository.channel = &db.NotificationChannel{ID: 4, Type: "webhook", Config: `{"webhook_url":"http://127.0.0.1:1"}`}
+	repository.pending = []db.NotificationOutboxMessage{{ID: 4, ChannelID: 4, Body: "body", AttemptCount: 10}}
+	repository.retryErr = errors.New("重试状态写入失败")
+	notifier.drainOutbox(context.Background())
+	if repository.retryCalls != 2 || !repository.retryPermanent {
+		t.Fatalf("permanent retry calls=%d permanent=%v", repository.retryCalls, repository.retryPermanent)
+	}
+
+	// repository.pending 保存领取故障，覆盖 ClaimOutbox 错误返回路径。
+	repository.pending = nil
+	repository.retryErr = nil
+	repository.claimErr = errors.New("领取失败")
+	notifier.drainOutbox(context.Background())
+}
+
+// TestNotifierRepositoryOutboxDelegates 覆盖通知 repository 对不确定隔离和重试方法的委托。
+func TestNotifierRepositoryOutboxDelegates(t *testing.T) {
+	// store、cleanup 提供真实 SQLite repository，确保委托方法经过数据库实现。
+	store, cleanup := newNotifyStoreBare(t)
+	defer cleanup()
+	// repository 保存通知 store 的窄适配器。
+	repository := newStoreRepository("cid", store)
+	// uncertain、uncertainErr 保存不存在消息的隔离结果。
+	uncertain, uncertainErr := repository.MarkOutboxUncertain(context.Background(), 999, "worker", "失败")
+	if uncertainErr != nil || uncertain {
+		t.Fatalf("uncertain=%v err=%v", uncertain, uncertainErr)
+	}
+	// retried、retryErr 保存不存在消息的重试结果。
+	retried, retryErr := repository.RetryOutbox(context.Background(), 999, "worker", "失败", time.Now().Unix(), false)
+	if retryErr != nil || retried {
+		t.Fatalf("retried=%v err=%v", retried, retryErr)
 	}
 }

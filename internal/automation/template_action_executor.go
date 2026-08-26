@@ -10,13 +10,13 @@ import (
 	"xianyu-go/internal/deliverytemplate"
 )
 
-// sendTemplate 预留模板变量对应的卡密内容，渲染每条消息后按模板顺序发送。
-func (e *automationActionExecutor) sendTemplate(ctx context.Context, task Task, action db.AutomationAction) (int, error) {
+// sendTemplate 预留模板变量对应的卡密内容，渲染每条消息后按模板顺序发送并返回确认发货凭证。
+func (e *automationActionExecutor) sendTemplate(ctx context.Context, task Task, action db.AutomationAction) (actionExecutionResult, error) {
 	if !actionMatchesOrderSpec(task, action) {
-		return 0, nil
+		return actionExecutionResult{}, nil
 	}
 	if len(action.TemplateMessages) == 0 {
-		return 0, errors.New("发货模板缺少消息")
+		return actionExecutionResult{}, errors.New("发货模板缺少消息")
 	}
 	// values 保存变量键对应的卡密正文，不记录到日志或持久化任务。
 	values := make(map[string]string, len(action.TemplateBindings))
@@ -52,10 +52,10 @@ func (e *automationActionExecutor) sendTemplate(ctx context.Context, task Task, 
 		// card 保存当前绑定的卡密组完整配置。
 		card, err := e.store.Cards.GetForDelivery(ctx, binding.CardID)
 		if err != nil {
-			return 0, err
+			return actionExecutionResult{}, err
 		}
 		if !card.Enabled || (card.Type != "text" && card.Type != "data") {
-			return 0, fmt.Errorf("模板绑定的卡密组不可用")
+			return actionExecutionResult{}, fmt.Errorf("模板绑定的卡密组不可用")
 		}
 		// count 保存按订单购买数量折算后的当前变量卡密份数。
 		count := binding.DeliveryCount
@@ -79,9 +79,9 @@ func (e *automationActionExecutor) sendTemplate(ctx context.Context, task Task, 
 				if consumeErr != nil {
 					// restoreErr 保存消费失败后的回滚错误。
 					if restoreErr := restoreReserved(); restoreErr != nil {
-						return 0, uncertainAction(errors.Join(consumeErr, restoreErr))
+						return actionExecutionResult{}, uncertainAction(errors.Join(consumeErr, restoreErr))
 					}
-					return 0, consumeErr
+					return actionExecutionResult{}, consumeErr
 				}
 				lines = append(lines, content)
 				reserved = append(reserved, struct {
@@ -92,8 +92,8 @@ func (e *automationActionExecutor) sendTemplate(ctx context.Context, task Task, 
 		}
 		values[binding.VariableKey] = strings.Join(lines, "\n")
 	}
-	// sent 保存已经确认投递成功的模板消息数量。
-	sent := 0
+	// result 保存已经确认投递成功的模板消息数量和按发送顺序拼接的凭证。
+	result := actionExecutionResult{}
 	for /* message 表示模板中按顺序发送的一条消息。 */ _, message := range action.TemplateMessages {
 		// text 保存订单字段、卡密变量和规则自定义变量都渲染后的最终消息。
 		text := deliverytemplate.Replace(message, deliverytemplate.VariableValues{
@@ -109,18 +109,19 @@ func (e *automationActionExecutor) sendTemplate(ctx context.Context, task Task, 
 		}
 		// sendErr 保存模板消息发送错误。
 		if sendErr := e.sendText(ctx, task, text); sendErr != nil {
-			if sent == 0 && errors.Is(sendErr, ErrMessageNotSent) {
+			if result.sent == 0 && errors.Is(sendErr, ErrMessageNotSent) {
 				// restoreErr 保存首条消息未发送时的库存恢复错误。
 				if restoreErr := restoreReserved(); restoreErr != nil {
-					return 0, uncertainAction(errors.Join(sendErr, restoreErr))
+					return actionExecutionResult{}, uncertainAction(errors.Join(sendErr, restoreErr))
 				}
-				return 0, sendErr
+				return actionExecutionResult{}, sendErr
 			}
-			return sent, uncertainAction(sendErr)
+			return result, uncertainAction(sendErr)
 		}
-		sent++
+		result.sent++
+		result.proof.tradeText = appendTradeText(result.proof.tradeText, text)
 	}
-	return sent, nil
+	return result, nil
 }
 
 // deliveryQuantity 把订单数量转换为至少一份的发货倍数。

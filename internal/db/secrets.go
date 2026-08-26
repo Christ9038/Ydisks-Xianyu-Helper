@@ -117,6 +117,10 @@ func (s *Store) EncryptLegacySecrets(ctx context.Context) error {
 	if err := migrateLegacyCardAPIConfigs(ctx, tx, codec); err != nil {
 		return err
 	}
+	// err 表示历史自动化发货凭证升级失败。
+	if err := migrateLegacyAutomationDeliveryProofs(ctx, tx, codec); err != nil {
+		return err
+	}
 
 	return tx.Commit()
 }

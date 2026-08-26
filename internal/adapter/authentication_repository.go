@@ -75,9 +75,7 @@ func (r *AuthenticationRepository) UsernameByEmail(ctx context.Context, email st
 	if lookupErr != nil {
 		return "", lookupErr
 	}
-	if user == nil {
-		return "", db.ErrNotFound
-	}
+	// Users.GetByEmail 在无记录时已统一返回 db.ErrNotFound；成功返回值必定包含用户投影。
 	return user.Username, nil
 }
 

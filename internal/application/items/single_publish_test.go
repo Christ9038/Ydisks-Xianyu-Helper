@@ -96,6 +96,11 @@ func TestPublishErrorFormatsStableMessages(t *testing.T) {
 	if shortErr.Error() != "库存权限缺失" {
 		t.Fatalf("业务描述错误文本异常: %q", shortErr.Error())
 	}
+	// bodyShortErr 是未超过截断上限的平台响应文本。
+	bodyShortErr := &PublishError{Body: "短响应"}
+	if bodyShortErr.Error() != "短响应" {
+		t.Fatalf("短响应错误文本异常: %q", bodyShortErr.Error())
+	}
 	// longBody 是超过 HTTP 错误摘要上限的平台响应文本。
 	longBody := strings.Repeat("x", 241)
 	// bodyErr 是仅携带响应正文的应用错误。

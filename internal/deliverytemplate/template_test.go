@@ -4,6 +4,14 @@ import "testing"
 
 // TestParseExtractsKeysAndRejectsUnknownVariables 验证变量提取顺序和非法语法拒绝。
 func TestParseExtractsKeysAndRejectsUnknownVariables(t *testing.T) {
+	// emptyErr 保存空模板解析的业务错误。
+	if _, emptyErr := Parse(nil); emptyErr == nil {
+		t.Fatal("empty messages should be rejected")
+	}
+	// blankErr 保存空白消息解析的业务错误。
+	if _, blankErr := Parse([]string{"  "}); blankErr == nil {
+		t.Fatal("blank message should be rejected")
+	}
 	// parsed 保存合法模板的解析结果。
 	// err 保存模板解析测试失败原因。
 	parsed, err := Parse([]string{"A {{cards.main}} {{custom.vip}}", "B {{cards.bonus}} {{cards.main}} {{custom.region}}"})
@@ -24,6 +32,10 @@ func TestParseExtractsKeysAndRejectsUnknownVariables(t *testing.T) {
 	// err 保存非法变量解析结果，测试期望该错误存在。
 	if _, err := Parse([]string{"{{other.value}}"}); err == nil {
 		t.Fatal("expected unsupported variable error")
+	}
+	// unclosedErr 保存未闭合变量解析的业务错误。
+	if _, unclosedErr := Parse([]string{"{{cards.main"}); unclosedErr == nil {
+		t.Fatal("unclosed variable should be rejected")
 	}
 	// legacyParsed 保存旧版 delivery 前缀模板的兼容解析结果。
 	legacyParsed, err := Parse([]string{"{{delivery.cards.main}} {{delivery.custom.0}}"})
@@ -54,5 +66,14 @@ func TestReplaceCardsPreservesUnknownKey(t *testing.T) {
 	got := ReplaceCards("主卡 {{cards.main}} / 未绑定 {{cards.other}}", map[string]string{"main": "ABC"})
 	if got != "主卡 ABC / 未绑定 {{cards.other}}" {
 		t.Fatalf("ReplaceCards=%q", got)
+	}
+}
+
+// TestReplacePreservesUnboundVariables 验证未提供绑定值的卡密和自定义变量保持原始文本。
+func TestReplacePreservesUnboundVariables(t *testing.T) {
+	// got 保存缺少绑定值时的模板渲染结果。
+	got := Replace("{{cards.main}}/{{custom.region}}", VariableValues{})
+	if got != "{{cards.main}}/{{custom.region}}" {
+		t.Fatalf("Replace=%q", got)
 	}
 }

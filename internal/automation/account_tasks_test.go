@@ -105,6 +105,32 @@ func TestAccountTaskRateIsOrderIdempotent(t *testing.T) {
 	}
 }
 
+// TestScanAccountTasksRunsEnabledRateConfiguration 验证账号任务扫描器发现启用配置后执行自动评价。
+func TestScanAccountTasksRunsEnabledRateConfiguration(t *testing.T) {
+	// store、cleanup 保存本测试使用的 SQLite 自动化存储及关闭责任。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// ctx 是本测试扫描和任务执行共用的上下文。
+	ctx := context.Background()
+	// client 保存扫描器使用的本地账号任务平台替身。
+	client := &fakeAccountTaskClient{pending: []mtop.PendingRateOrder{{TradeID: "scan-order"}}}
+	// center 保存注入账号任务平台替身的自动化中心。
+	center := NewWithDependencies(store, testSenderProvider{sender: &testSender{}}, nil, CenterDependencies{AccountTaskClient: client})
+	// settings 保存应被扫描器发现的启用账号任务配置。
+	settings := db.AccountTaskSettings{CookieID: "cid", AutoRateEnabled: true, RateContent: "交易愉快", PolishTime: "03:00"}
+	// saveErr 保存账号任务配置写入错误。
+	if saveErr := store.AccountTasks.Upsert(ctx, settings); saveErr != nil {
+		t.Fatal(saveErr)
+	}
+	center.scanAccountTasks(ctx)
+	if client.pendingCalls != 1 || client.rateCalls != 1 {
+		t.Fatalf("扫描器未执行评价任务 pending=%d rate=%d", client.pendingCalls, client.rateCalls)
+	}
+	// emptyCoordinator 保存未装配客户端时应安全返回的扫描器。
+	emptyCoordinator := &accountTaskCoordinator{client: func() AccountTaskClient { return nil }}
+	emptyCoordinator.scanAccountTasks(ctx)
+}
+
 // TestAccountTaskRateFinishFailureQuarantinesExternalSuccess 验证评价动作已成功但运行结果写入失败时会隔离记录，避免下一轮重复评价。
 func TestAccountTaskRateFinishFailureQuarantinesExternalSuccess(t *testing.T) {
 	// store 是当前测试使用的 SQLite 自动化存储。

@@ -6,6 +6,46 @@ import (
 	"time"
 )
 
+// TestCookieStringHelpers 验证扁平 Cookie 合并、排序、变化检测和快照压缩的边界语义。
+func TestCookieStringHelpers(t *testing.T) {
+	if MarshalCookieString(nil) != "" {
+		t.Fatal("nil cookie map should serialize to empty string")
+	}
+	// marshaled 保存过滤空键并按名称排序后的 Cookie 头。
+	marshaled := MarshalCookieString(map[string]string{"b": "2", " ": "ignored", "a": "1"})
+	if marshaled != "a=1; b=2" {
+		t.Fatalf("marshaled=%q", marshaled)
+	}
+	// merged 保存 Set-Cookie 合并后的扁平 Cookie 头。
+	merged := MergeSetCookies("a=1", []string{"b=2; Path=/", "invalid", "=empty"})
+	if merged != "a=1; b=2" {
+		t.Fatalf("merged=%q", merged)
+	}
+	// changed 保存前后 Cookie 字符串的字段变化。
+	changed := ChangedCookieNames("a=1; b=2", "a=1; c=3")
+	if len(changed) != 2 || changed[0] != "b" || changed[1] != "c" {
+		t.Fatalf("changed=%v", changed)
+	}
+	// originalMerged 保存浏览器结果补回旧字段后的 Cookie 头。
+	originalMerged := MergeOriginalFields("a=1; old=0", "a=2; new=3")
+	if originalMerged != "a=2; new=3; old=0" {
+		t.Fatalf("originalMerged=%q", originalMerged)
+	}
+	// snapshot 保存含空名称和缺省路径的浏览器 Cookie 快照。
+	snapshot := NormalizeSnapshot([]BrowserCookie{{Name: "", Value: "ignored"}, {Name: "a", Value: "1"}})
+	if len(snapshot) != 1 || snapshot[0].Path != "/" {
+		t.Fatalf("snapshot=%+v", snapshot)
+	}
+	if CookieStringFromSnapshot(snapshot) != "a=1" {
+		t.Fatalf("snapshot string=%q", CookieStringFromSnapshot(snapshot))
+	}
+	// inferred 保存从扁平 Cookie 字符串生成的默认域快照。
+	inferred := SnapshotFromCookieString("b=2; a=1", "")
+	if len(inferred) != 2 || inferred[0].Name != "a" || inferred[0].Domain != ".goofish.com" {
+		t.Fatalf("inferred=%+v", inferred)
+	}
+}
+
 // TestMetadataSnapshotKeyCompatibility 封装TestMetadataSnapshotKeyCompatibility业务协调。
 func TestMetadataSnapshotKeyCompatibility(t *testing.T) {
 	// oldMeta 用于本次流程后续判断的oldMeta

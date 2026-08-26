@@ -9,3 +9,12 @@ func TestNewAdminSettingsDependenciesRejectsNilStore(t *testing.T) {
 		t.Fatal("缺少 Store 时不应返回管理员设置依赖")
 	}
 }
+
+// TestAdminSettingsDependenciesNilReceiverGuards 验证管理员设置依赖的 nil 接收者不会创建下游适配器。
+func TestAdminSettingsDependenciesNilReceiverGuards(t *testing.T) {
+	// dependencies 表示未装配的管理员设置依赖接收者。
+	var dependencies *AdminSettingsDependencies
+	if dependencies.NewAdminRepository() != nil || dependencies.NewSettingsRepository() != nil {
+		t.Fatal("nil 管理员设置依赖不应创建下游适配器")
+	}
+}

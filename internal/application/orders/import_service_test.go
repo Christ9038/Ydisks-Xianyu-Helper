@@ -17,6 +17,8 @@ type importRepositoryFake struct {
 	txErr error
 	// itemErr 保存商品写入错误。
 	itemErr error
+	// orderErr 保存订单主体写入错误。
+	orderErr error
 	// writer 保存最近一次事务写入器。
 	writer *importWriterFake
 }
@@ -32,7 +34,7 @@ func (f *importRepositoryFake) WithTransaction(ctx context.Context, work func(Wr
 		return f.txErr
 	}
 	// writer 保存当前事务使用的测试写入器。
-	f.writer = &importWriterFake{itemErr: f.itemErr}
+	f.writer = &importWriterFake{itemErr: f.itemErr, orderErr: f.orderErr}
 	return work(f.writer)
 }
 
@@ -134,5 +136,19 @@ func TestImportServiceWrapsTransactionErrors(t *testing.T) {
 	result, err = itemService.Import(context.Background(), 7, []ImportOrder{{OrderID: "order-1", CookieID: "cookie-1", ItemID: "item-1"}})
 	if err != nil || result.FailedCount != 1 || !strings.Contains(result.Results[0].Message, "补全商品信息失败") {
 		t.Fatalf("商品失败场景不应中断批次: %v", err)
+	}
+	// missingCookieService 保存没有默认账号且输入账号为空的导入服务。
+	missingCookieService := NewImportService(&importRepositoryFake{})
+	// missingCookieResult、missingCookieErr 保存缺少账号字段的结果。
+	missingCookieResult, missingCookieErr := missingCookieService.Import(context.Background(), 7, []ImportOrder{{OrderID: "order-2"}})
+	if missingCookieErr != nil || missingCookieResult.FailedCount != 1 || !strings.Contains(missingCookieResult.Results[0].Message, "cookie_id") {
+		t.Fatalf("缺少账号字段结果异常: result=%+v err=%v", missingCookieResult, missingCookieErr)
+	}
+	// orderErrorService 保存订单主体写入失败场景的服务。
+	orderErrorService := NewImportService(&importRepositoryFake{ownedIDs: []string{"cookie-1"}, orderErr: errors.New("订单写入失败")})
+	// orderErrorResult、orderErrorErr 保存订单主体写入失败结果。
+	orderErrorResult, orderErrorErr := orderErrorService.Import(context.Background(), 7, []ImportOrder{{OrderID: "order-3", CookieID: "cookie-1"}})
+	if orderErrorErr != nil || orderErrorResult.FailedCount != 1 || !strings.Contains(orderErrorResult.Results[0].Message, "订单导入事务失败") {
+		t.Fatalf("订单主体写入失败结果异常: result=%+v err=%v", orderErrorResult, orderErrorErr)
 	}
 }

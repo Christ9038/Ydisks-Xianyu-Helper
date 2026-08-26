@@ -79,6 +79,22 @@ func TestRefreshTokenHTTPUsesCookieSessionScopes(t *testing.T) {
 	}
 }
 
+// TestRequestFreshCaptchaURLContextReturnsDirectToken 覆盖新鲜验证码请求入口在风控已解除时直接返回令牌。
+func TestRequestFreshCaptchaURLContextReturnsDirectToken(t *testing.T) {
+	// server 保存 token 接口直接返回 accessToken 的本地服务。
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"ret":["SUCCESS::调用成功"],"data":{"accessToken":"fresh-access","accessTokenExpireAt":12345}}`))
+	}))
+	defer server.Close()
+	// client 保存验证码链接请求入口使用的本地 token 客户端。
+	client := &ClientImpl{HTTPClient: server.Client(), TokenURL: server.URL + "/"}
+	// result、requestErr 保存新鲜验证码请求结果和错误。
+	result, requestErr := client.RequestFreshCaptchaURLContext(context.Background(), testCookiesWithUnb, "device-fresh")
+	if requestErr != nil || result == nil || !result.TokenOK || result.AccessToken != "fresh-access" {
+		t.Fatalf("新鲜验证码请求异常 result=%+v err=%v", result, requestErr)
+	}
+}
+
 // TestRefreshTokenWithDeviceIDSuccessOnRetry: 首次返回 token 过期 + Set-Cookie，二次成功。
 func TestRefreshTokenWithDeviceIDSuccessOnRetry(t *testing.T) {
 	// requests 用于本次流程后续判断的请求列表

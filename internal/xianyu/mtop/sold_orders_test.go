@@ -54,7 +54,7 @@ func TestFetchSoldOrdersPageRequestAndParse(t *testing.T) {
 	// item 用于本次流程后续判断的商品
 	item := page.Items[0]
 	if item.OrderID != "order-1" || item.ItemID != "item-1" || item.OrderStatus != "pending_ship" ||
-		item.Quantity != "3" || item.Amount != "29.90" || item.CreatedAt != "2023-11-14T22:13:20Z" || !item.IsBargain || item.ReceiverName != "李四" {
+		item.Quantity != "3" || item.Amount != "29.90" || item.CreatedAt != "2023-11-14 22:13:20" || !item.IsBargain || item.ReceiverName != "李四" {
 		t.Fatalf("item=%+v", item)
 	}
 }
@@ -63,10 +63,10 @@ func TestFetchSoldOrdersPageRequestAndParse(t *testing.T) {
 func TestNormalizeSoldOrderTimeSupportsPlatformFormats(t *testing.T) {
 	// cases 保存平台时间输入及其规范化结果。
 	cases := map[string]string{
-		"1700000000":                "2023-11-14T22:13:20Z",
-		"1700000000000":             "2023-11-14T22:13:20Z",
-		"2026-08-25 10:20:30":       "2026-08-25 10:20:30",
-		"2026-08-25T10:20:30+08:00": "2026-08-25T02:20:30Z",
+		"1700000000":                "2023-11-14 22:13:20",
+		"1700000000000":             "2023-11-14 22:13:20",
+		"2026-08-25 10:20:30":       "2026-08-25 02:20:30",
+		"2026-08-25T10:20:30+08:00": "2026-08-25 02:20:30",
 	}
 	// input、want 分别表示平台时间输入和期望的规范化结果。
 	for input, want := range cases {
@@ -98,6 +98,25 @@ func TestFetchSoldOrdersPageRejectsMissingTokenAndFailure(t *testing.T) {
 	}
 }
 
+// TestParseSoldOrderRejectsInvalidAndDefaultsQuantity 验证订单列表元素的类型、订单号和数量防御逻辑。
+func TestParseSoldOrderRejectsInvalidAndDefaultsQuantity(t *testing.T) {
+	// _, invalidTypeOK 保存非对象元素的解析结果。
+	_, invalidTypeOK := parseSoldOrder("invalid")
+	if invalidTypeOK {
+		t.Fatal("non-object order should be rejected")
+	}
+	// _, missingOrderOK 保存缺少订单号元素的解析结果。
+	_, missingOrderOK := parseSoldOrder(map[string]any{"commonData": map[string]any{}})
+	if missingOrderOK {
+		t.Fatal("order without id should be rejected")
+	}
+	// got、parsedOK 保存数量为空且状态未知的订单解析结果。
+	got, parsedOK := parseSoldOrder(map[string]any{"commonData": map[string]any{"orderId": "o-1", "orderStatus": "未知"}, "priceVO": map[string]any{"buyNum": "0"}})
+	if !parsedOK || got.Quantity != "1" || got.OrderStatus != "unknown" {
+		t.Fatalf("parsed order=%+v ok=%v", got, parsedOK)
+	}
+}
+
 // TestNormalizeSoldOrderStatus 封装TestNormalizeSold订单状态业务协调。
 func TestNormalizeSoldOrderStatus(t *testing.T) {
 	// cases 用于本次流程后续判断的cases
@@ -115,5 +134,54 @@ func TestNormalizeSoldOrderStatus(t *testing.T) {
 	if // got 用于本次流程后续判断的got
 	got := normalizeSoldOrderStatus("待发货", true); got != "refunding" {
 		t.Fatalf("inRefund got=%s", got)
+	}
+}
+
+// TestMTopBoolParsesPlatformValues 验证订单列表接口返回的多种布尔值形状。
+func TestMTopBoolParsesPlatformValues(t *testing.T) {
+	// cases 保存平台布尔值及预期解析结果。
+	cases := []struct {
+		// name 是子测试名称。
+		name string
+		// value 是平台返回的布尔值形状。
+		value any
+		// want 是预期的布尔解析结果。
+		want bool
+	}{
+		{name: "bool true", value: true, want: true},
+		{name: "float false", value: float64(0), want: false},
+		{name: "int true", value: 1, want: true},
+		{name: "string yes", value: " YES ", want: true},
+		{name: "string false", value: "false", want: false},
+		{name: "unknown", value: []string{"true"}, want: false},
+	}
+	for /* item 表示当前布尔值解析场景。 */ _, item := range cases {
+		t.Run(item.name, func(t *testing.T) {
+			// got 保存当前平台布尔值的解析结果。
+			if got := mtopBool(item.value); got != item.want {
+				t.Fatalf("mtopBool(%#v)=%v want %v", item.value, got, item.want)
+			}
+		})
+	}
+}
+
+// TestSoldOrderCreatedAtChecksNestedAndInvalidValues 验证订单创建时间的嵌套候选和无效回退。
+func TestSoldOrderCreatedAtChecksNestedAndInvalidValues(t *testing.T) {
+	// nested 保存时间位于交易嵌套对象中的订单记录。
+	nested := map[string]any{"orderInfo": map[string]any{"gmtCreate": "2026/08/25 10:20:30"}}
+	// gotNested 保存嵌套时间解析结果。
+	gotNested := soldOrderCreatedAt(nested, map[string]any{})
+	if gotNested != "2026-08-25 02:20:30" {
+		t.Fatalf("nested created time=%q", gotNested)
+	}
+	// gotInvalid 保存没有任何可解析时间字段的结果。
+	gotInvalid := soldOrderCreatedAt(map[string]any{"orderTime": "invalid"}, map[string]any{})
+	if gotInvalid != "" {
+		t.Fatalf("invalid created time=%q", gotInvalid)
+	}
+	// parsedInvalid 保存无效文本时间的规范化结果。
+	parsedInvalid := normalizeSoldOrderTime("not-a-time")
+	if parsedInvalid != "" {
+		t.Fatalf("invalid normalized time=%q", parsedInvalid)
 	}
 }

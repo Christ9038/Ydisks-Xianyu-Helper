@@ -238,7 +238,7 @@ func parseSoldOrder(raw any) (SoldOrder, bool) {
 }
 
 // soldOrderCreatedAt 从平台订单列表响应提取并规范化买家下单时间。
-// 平台不同版本可能把时间放在 commonData、订单根对象或嵌套订单对象中，数值时间统一保存为 UTC RFC3339 文本。
+// 平台不同版本可能把时间放在 commonData、订单根对象或嵌套订单对象中，所有成功解析值统一保存为 UTC 数据库文本。
 func soldOrderCreatedAt(item, common map[string]any) string {
 	// timeKeys 保存卖家订单接口可能返回的创建时间字段名，顺序体现优先级。
 	timeKeys := []string{"orderCreateTime", "order_create_time", "createTime", "create_time", "gmtCreate", "gmt_create", "orderTime", "order_time"}
@@ -269,8 +269,8 @@ func soldOrderCreatedAt(item, common map[string]any) string {
 	return ""
 }
 
-// normalizeSoldOrderTime 将平台订单时间转换为可排序且可被前端解析的时间文本。
-// 数字时间按秒或毫秒解释；带时区文本转换为 UTC，未带时区文本保留平台展示时区。
+// normalizeSoldOrderTime 将平台订单时间转换为 UTC 数据库文本。
+// 数字时间按秒或毫秒解释；带时区文本转换为 UTC；无时区平台文本固定按 UTC+8 解释。
 func normalizeSoldOrderTime(raw string) string {
 	// value 保存去除空白后的平台时间值。
 	value := strings.TrimSpace(raw)
@@ -285,19 +285,25 @@ func normalizeSoldOrderTime(raw string) string {
 		if len(strings.TrimLeft(value, "-")) >= 13 {
 			instant = time.UnixMilli(timestamp)
 		}
-		return instant.UTC().Format(time.RFC3339)
+		return instant.UTC().Format("2006-01-02 15:04:05")
 	}
 	// layouts 保存卖家接口可能返回的标准文本时间格式。
 	layouts := []string{time.RFC3339Nano, "2006-01-02 15:04:05.999999999", "2006-01-02 15:04:05", "2006/01/02 15:04:05"}
 	// layout 表示当前尝试解析的平台时间格式。
 	for _, layout := range layouts {
 		// parsed、parseErr 保存当前格式解析出的时间点及错误。
-		parsed, parseErr := time.Parse(layout, value)
+		location := time.UTC
+		// timeSeparator 保存文本日期与时间部分的分隔位置。
+		timeSeparator := strings.IndexByte(value, 'T')
+		// hasExplicitZone 表示平台文本是否显式给出了时区偏移。
+		hasExplicitZone := timeSeparator >= 0 && (strings.HasSuffix(value, "Z") || strings.LastIndexAny(value[timeSeparator+1:], "+-") >= 0)
+		if !hasExplicitZone {
+			location = time.FixedZone("Xianyu+08", 8*60*60)
+		}
+		// parsed、parseErr 保存当前布局解释出的时间点及错误。
+		parsed, parseErr := time.ParseInLocation(layout, value, location)
 		if parseErr == nil {
-			if strings.ContainsAny(layout, "Z-07") && strings.Contains(value, "T") {
-				return parsed.UTC().Format(time.RFC3339)
-			}
-			return parsed.Format("2006-01-02 15:04:05")
+			return parsed.UTC().Format("2006-01-02 15:04:05")
 		}
 	}
 	return ""

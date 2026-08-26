@@ -75,13 +75,6 @@ func (e *automationActionExecutor) sendCardWithProof(ctx context.Context, task T
 	return actionExecutionResult{sent: sent, proof: proof}, nil
 }
 
-// sendAPICard 按发货单位逐次调用普通 API，并在消息发送失败时保留结果未知状态。
-func (e *automationActionExecutor) sendAPICard(ctx context.Context, task Task, action db.AutomationAction, card *db.CardFull, count int) (int, error) {
-	// result 保存 API 卡密发送的数量和短暂凭证；旧入口只返回数量。
-	result, err := e.sendAPICardWithProof(ctx, task, action, card, count)
-	return result.sent, err
-}
-
 // sendAPICardWithProof 逐单位获取并发送 API 卡密，同时收集确认发货所需的文本凭证。
 func (e *automationActionExecutor) sendAPICardWithProof(ctx context.Context, task Task, action db.AutomationAction, card *db.CardFull, count int) (actionExecutionResult, error) {
 	// fetcher 是构造期固定的 API 卡发货客户端。
@@ -124,13 +117,6 @@ func (e *automationActionExecutor) sendAPICardWithProof(ctx context.Context, tas
 	return actionExecutionResult{sent: sent, proof: proof}, nil
 }
 
-// sendDataCard 只在卡券锁内完成库存预留与恢复，把外部消息发送放到锁外。
-func (e *automationActionExecutor) sendDataCard(ctx context.Context, task Task, card *db.CardFull, count int) (int, error) {
-	// result 保存数据卡密发送的数量和短暂凭证；旧入口只返回数量。
-	result, err := e.sendDataCardWithProof(ctx, task, card, count)
-	return result.sent, err
-}
-
 // sendDataCardWithProof 发送库存卡密并收集确认发货所需的文本凭证。
 func (e *automationActionExecutor) sendDataCardWithProof(ctx context.Context, task Task, card *db.CardFull, count int) (actionExecutionResult, error) {
 	// sent 是已经成功发送的数据卡密数量。
@@ -148,8 +134,10 @@ func (e *automationActionExecutor) sendDataCardWithProof(ctx context.Context, ta
 			return actionExecutionResult{sent: sent, proof: proof}, err
 		}
 		if strings.TrimSpace(content) != "" {
+			// renderedContent 保存实际发送给买家的最终卡密文本，确认发货必须复用同一份内容。
+			renderedContent := renderTemplate(content, task)
 			// sendErr 保存数据卡密消息发送错误。
-			if sendErr := e.sendText(ctx, task, renderTemplate(content, task)); sendErr != nil {
+			if sendErr := e.sendText(ctx, task, renderedContent); sendErr != nil {
 				if errors.Is(sendErr, ErrMessageNotSent) {
 					// restoreUnlock 释放恢复库存所需的卡密组锁。
 					restoreUnlock := e.lockCard(card.ID)
@@ -164,7 +152,7 @@ func (e *automationActionExecutor) sendDataCardWithProof(ctx context.Context, ta
 				// 请求已交给传输层后无法判断远端是否收到，保留消费状态并人工核对。
 				return actionExecutionResult{sent: sent, proof: proof}, uncertainAction(sendErr)
 			}
-			proof.tradeText = appendTradeText(proof.tradeText, content)
+			proof.tradeText = appendTradeText(proof.tradeText, renderedContent)
 		}
 		sent++
 	}

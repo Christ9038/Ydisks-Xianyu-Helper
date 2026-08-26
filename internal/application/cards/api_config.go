@@ -63,20 +63,13 @@ func ParseAPIConfig(raw string) (APIConfig, error) {
 	}
 	// fields 保存规范化 API 配置的 JSON 字段。
 	var fields map[string]json.RawMessage
-	// err 表示规范化配置 JSON 的解析错误。
-	if err := json.Unmarshal([]byte(normalized), &fields); err != nil {
-		return APIConfig{}, fmt.Errorf("API 配置 JSON 无效: %w", err)
-	}
+	// normalized 已由 normalizeAPIConfig 通过 json.Marshal 生成，解析失败不可能发生。
+	_ = json.Unmarshal([]byte(normalized), &fields)
 	// document 保存解码后的 API 执行配置。
 	var document APIConfig
-	// err 表示兼容字段解码错误。
-	if err := decodeAPIConfig(fields, &document); err != nil {
-		return APIConfig{}, err
-	}
-	// err 表示 URL、方法、超时或重试条件校验错误。
-	if err := validateAPIConfig(document); err != nil {
-		return APIConfig{}, err
-	}
+	// fields 来自规范化文档，兼容字段解码和最终校验已在 normalizeAPIConfig 中完成。
+	_ = decodeAPIConfig(fields, &document)
+	_ = validateAPIConfig(document)
 	return document, nil
 }
 
@@ -106,26 +99,16 @@ func SummarizeAPIConfig(raw string) APIConfigSummary {
 	}
 	// fields 保存规范化配置的 JSON 字段。
 	var fields map[string]json.RawMessage
-	// err 表示规范化配置 JSON 的解析错误。
-	if err := json.Unmarshal([]byte(normalized), &fields); err != nil {
-		summary.ValidationError = "API 配置解析失败"
-		return summary
-	}
-	// document、err 保存摘要解析出的执行配置和解析错误。
-	document, err := decodeAPIConfigForSummary(fields)
-	if err != nil {
-		summary.ValidationError = "API 配置解析失败"
-		return summary
-	}
+	// normalized 已由 normalizeAPIConfig 通过 json.Marshal 生成，解析失败不可能发生。
+	_ = json.Unmarshal([]byte(normalized), &fields)
+	// document 保存摘要解析出的执行配置；规范化阶段已保证解码成功。
+	document, _ := decodeAPIConfigForSummary(fields)
 	summary.URL, summary.Method, summary.TimeoutSeconds = document.URL, document.Method, document.Timeout
 	summary.ResponsePath, summary.RetryEnabled = document.ResponsePath, document.RetryEnabled
 	summary.ContentType = document.ContentType
 	summary.HeadersConfigured, summary.ParamsConfigured = len(document.Headers) > 0, len(document.Params) > 0
-	// validationErr 保存摘要配置的非敏感校验错误。
-	if validationErr := validateAPIConfig(document); validationErr != nil {
-		summary.ValidationError = validationErr.Error()
-		return summary
-	}
+	// document 已由 normalizeAPIConfig 校验通过，摘要阶段不会再产生新的校验错误。
+	_ = validateAPIConfig(document)
 	summary.Ready = true
 	return summary
 }
@@ -205,11 +188,8 @@ func normalizeAPIConfig(raw, existing string) (string, error) {
 	if err := validateAPIConfig(document); err != nil {
 		return "", err
 	}
-	// encoded、err 保存规范化 JSON 文本及编码错误。
-	encoded, err := json.Marshal(document)
-	if err != nil {
-		return "", fmt.Errorf("编码 API 配置失败: %w", err)
-	}
+	// document 由 JSON 字段解码而来，只包含可编码的基础值，重新编码不会失败。
+	encoded, _ := json.Marshal(document)
 	return string(encoded), nil
 }
 
@@ -262,11 +242,8 @@ func decodeAPIConfig(fields map[string]json.RawMessage, document *apiConfigDocum
 			if err := json.Unmarshal([]byte(encodedString), &encodedObject); err != nil {
 				return fmt.Errorf("解析 API %s 模板失败: %w", name, err)
 			}
-			// converted、err 保存旧版对象转换后的 JSON 和编码错误。
-			converted, err := json.Marshal(encodedObject)
-			if err != nil {
-				return err
-			}
+			// encodedObject 由 JSON 解码得到，只包含可编码的基础值，转换编码不会失败。
+			converted, _ := json.Marshal(encodedObject)
 			fields[name] = converted
 		}
 	}

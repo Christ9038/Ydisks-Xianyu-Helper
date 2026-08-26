@@ -451,10 +451,6 @@ func (s *RefreshService) Refresh(ctx context.Context, userID int64, cookieID, st
 	}
 	// currentCookieID、targets 保存当前账号及其详情目标。
 	for currentCookieID, targets := range ordersByCookie {
-		// blocked 表示账号是否因会话过期而跳过详情。
-		if _, blocked := sessionExpiredAccounts[currentCookieID]; blocked {
-			continue
-		}
 		// accountExpired 表示当前账号是否因会话过期而停止处理。
 		accountExpired := false
 		// chunk 是当前账号的详情请求分片。

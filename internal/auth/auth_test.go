@@ -54,6 +54,11 @@ func TestLoginAndMiddleware(t *testing.T) {
 	if noUser != nil {
 		t.Fatal("错误密码不应登录成功")
 	}
+	// missingUser、missingUserErr 保存不存在用户的认证结果，覆盖 VerifyAndUpgrade 的 ok=false 保护。
+	_, missingUser, missingUserErr := svc.Login(ctx, "missing-user", "pw")
+	if missingUserErr != nil || missingUser != nil {
+		t.Fatalf("不存在用户不应登录成功: user=%v err=%v", missingUser, missingUserErr)
+	}
 
 	// 中间件解析会话。
 	chain := svc.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -156,6 +161,122 @@ func TestSetAndClearCookie(t *testing.T) {
 	cc := rec2.Result().Cookies()
 	if len(cc) != 1 || cc[0].MaxAge != -1 {
 		t.Fatalf("ClearSessionCookie 应 MaxAge=-1: %+v", cc)
+	}
+}
+
+// TestAuthSessionAndLogoutBoundaries 验证无 Cookie、无效会话、登出和非管理员请求的安全边界。
+func TestAuthSessionAndLogoutBoundaries(t *testing.T) {
+	// svc、cleanup 保存认证测试服务及资源清理函数。
+	svc, cleanup := newAuth(t)
+	defer cleanup()
+	// ctx 是认证边界测试使用的上下文。
+	ctx := context.Background()
+	// request 是不携带会话 Cookie 的请求。
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	// session、sessionErr 保存无 Cookie 请求的会话解析结果。
+	session, sessionErr := svc.SessionFromRequest(ctx, request)
+	if sessionErr != nil || session != nil {
+		t.Fatalf("empty request session=%v err=%v", session, sessionErr)
+	}
+	// invalidRequest 是携带不存在会话标识的请求。
+	invalidRequest := httptest.NewRequest(http.MethodGet, "/", nil)
+	invalidRequest.AddCookie(&http.Cookie{Name: CookieName, Value: "missing-session"})
+	// missingSession、missingErr 保存不存在会话的解析结果。
+	missingSession, missingErr := svc.SessionFromRequest(ctx, invalidRequest)
+	if missingErr != nil || missingSession != nil {
+		t.Fatalf("missing session=%v err=%v", missingSession, missingErr)
+	}
+	// sid、user、loginErr 保存有效登录会话及登录错误。
+	sid, user, loginErr := svc.Login(ctx, "admin", "pw")
+	if loginErr != nil || user == nil || sid == "" {
+		t.Fatalf("login sid=%q user=%v err=%v", sid, user, loginErr)
+	}
+	svc.Logout(ctx, sid)
+	// loggedOutRequest 是登出后再次查询会话的请求。
+	loggedOutRequest := httptest.NewRequest(http.MethodGet, "/", nil)
+	loggedOutRequest.AddCookie(&http.Cookie{Name: CookieName, Value: sid})
+	// loggedOut、logoutErr 保存登出后会话查询结果和错误。
+	if loggedOut, logoutErr := svc.SessionFromRequest(ctx, loggedOutRequest); logoutErr != nil || loggedOut != nil {
+		t.Fatalf("logged out session=%v err=%v", loggedOut, logoutErr)
+	}
+	// adminOnly 是需要管理员权限的受保护处理器。
+	adminOnly := RequireAdmin(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("non-admin should not reach handler") }))
+	// recorder 是捕获非管理员响应的测试记录器。
+	recorder := httptest.NewRecorder()
+	adminOnly.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil).WithContext(WithSession(ctx, &db.Session{UserID: 7, IsAdmin: false})))
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("non-admin status=%d", recorder.Code)
+	}
+}
+
+// TestAuthClosedStoreAndMiddlewareErrors 验证数据库故障在登录、会话读取和中间件链路中保持可诊断且不伪造身份。
+func TestAuthClosedStoreAndMiddlewareErrors(t *testing.T) {
+	// svc、cleanup 保存认证测试服务及资源清理函数。
+	svc, cleanup := newAuth(t)
+	defer cleanup()
+	// ctx 是认证故障测试使用的上下文。
+	ctx := context.Background()
+	// request 是携带非空会话标识的请求，确保会进入数据库读取分支。
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request.AddCookie(&http.Cookie{Name: CookieName, Value: "closed-session"})
+	// closeErr 保存关闭数据库连接的结果。
+	if closeErr := svc.Store.DB.Close(); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	// session、sessionErr 保存关闭数据库后的会话读取结果。
+	session, sessionErr := svc.SessionFromRequest(ctx, request)
+	if session != nil || sessionErr == nil {
+		t.Fatalf("关闭数据库后的会话结果异常: session=%v err=%v", session, sessionErr)
+	}
+	// loginID、loginUser、loginErr 保存关闭数据库后的登录结果。
+	loginID, loginUser, loginErr := svc.Login(ctx, "admin", "pw")
+	if loginID != "" || loginUser != nil || loginErr == nil {
+		t.Fatalf("关闭数据库后的登录结果异常: id=%q user=%v err=%v", loginID, loginUser, loginErr)
+	}
+	// middleware 是会话读取失败后仍继续传递请求的认证中间件。
+	middleware := svc.Middleware(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	// response 保存中间件处理数据库错误后的响应。
+	response := httptest.NewRecorder()
+	middleware.ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("中间件故障后不应阻断公开请求: status=%d", response.Code)
+	}
+}
+
+// TestInitAdminRejectsDuplicateEmail 验证新建管理员时邮箱冲突会返回失败而不伪造创建成功。
+func TestInitAdminRejectsDuplicateEmail(t *testing.T) {
+	// store、cleanup 保存未初始化管理员的数据库及资源清理函数。
+	store, cleanup := newEmptyStore(t)
+	defer cleanup()
+	// ctx 是管理员初始化测试使用的上下文。
+	ctx := context.Background()
+	// created、createErr 保存占用目标邮箱的普通用户创建结果。
+	created, createErr := store.Users.Create(ctx, "other-user", "admin@example.com", "pw")
+	if createErr != nil || !created {
+		t.Fatalf("创建占用邮箱用户失败: created=%v err=%v", created, createErr)
+	}
+	// adminCreated、initErr 保存管理员初始化结果。
+	adminCreated, initErr := InitAdmin(ctx, store, "admin@example.com", "pw-admin")
+	if adminCreated || initErr == nil {
+		t.Fatalf("邮箱冲突应拒绝管理员创建: created=%v err=%v", adminCreated, initErr)
+	}
+}
+
+// TestInitAdminReturnsLookupError 验证管理员初始化不会吞掉数据库查询故障。
+func TestInitAdminReturnsLookupError(t *testing.T) {
+	// store、cleanup 保存可关闭的管理员初始化数据库。
+	store, cleanup := newEmptyStore(t)
+	defer cleanup()
+	// closeErr 保存关闭数据库连接的结果。
+	if closeErr := store.DB.Close(); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	// created、initErr 保存关闭数据库后的管理员初始化结果。
+	created, initErr := InitAdmin(context.Background(), store, "admin@example.com", "pw")
+	if created || initErr == nil {
+		t.Fatalf("关闭数据库后不应初始化成功: created=%v err=%v", created, initErr)
 	}
 }
 

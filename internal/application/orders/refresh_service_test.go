@@ -34,20 +34,54 @@ type refreshRepositoryFake struct {
 	transactionErr error
 	// loadErr 保存账号视图读取错误。
 	loadErr error
+	// getErr 保存单订单读取错误。
+	getErr error
+	// ownedErr 保存账号归属查询错误。
+	ownedErr error
+	// listOwnedErr 保存用户账号列表查询错误。
+	listOwnedErr error
+	// existsResult 保存账号归属查询结果；未设置时沿用 owned 映射。
+	existsResult *bool
+	// rowsErr 保存详情目标扫描错误。
+	rowsErr error
+	// deleteErr 保存缺失订单清理错误。
+	deleteErr error
+	// updateCookieErr 保存扁平 Cookie 写入错误。
+	updateCookieErr error
+	// upsertErr 保存单订单详情写入错误。
+	upsertErr error
+	// loadDetails 保存按读取顺序返回的账号视图。
+	loadDetails []*PlatformRuntimeData
+	// loadErrors 保存按读取顺序返回的账号视图错误。
+	loadErrors []error
+	// loadCalls 保存账号视图读取次数。
+	loadCalls int
 }
 
 // ExistsOwned 判断测试账号是否属于指定用户。
 func (f *refreshRepositoryFake) ExistsOwned(context.Context, int64, string) (bool, error) {
+	if f.ownedErr != nil {
+		return false, f.ownedErr
+	}
+	if f.existsResult != nil {
+		return *f.existsResult, nil
+	}
 	return f.owned["cookie-1"], nil
 }
 
 // ListOwnedIDs 返回测试用户账号列表。
 func (f *refreshRepositoryFake) ListOwnedIDs(context.Context, int64) ([]string, error) {
+	if f.listOwnedErr != nil {
+		return nil, f.listOwnedErr
+	}
 	return []string{"cookie-1"}, nil
 }
 
 // GetOrder 返回测试订单实体。
 func (f *refreshRepositoryFake) GetOrder(_ context.Context, orderID string) (*Order, error) {
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
 	if f.orders != nil {
 		return f.orders[orderID], nil
 	}
@@ -97,16 +131,35 @@ func (f *refreshRepositoryFake) LockCredentials(string) func() {
 
 // LoadCookiePlatformDetail 返回测试平台请求视图。
 func (f *refreshRepositoryFake) LoadCookiePlatformDetail(context.Context, string) (*PlatformRuntimeData, error) {
+	// index 保存本次账号视图读取在预置序列中的位置。
+	index := f.loadCalls
+	f.loadCalls++
+	if index < len(f.loadDetails) || index < len(f.loadErrors) {
+		// detail 保存本次读取的预置账号视图。
+		detail := f.detail
+		if index < len(f.loadDetails) {
+			detail = f.loadDetails[index]
+		}
+		// loadErr 保存本次读取的预置错误。
+		var loadErr error
+		if index < len(f.loadErrors) {
+			loadErr = f.loadErrors[index]
+		}
+		return detail, loadErr
+	}
 	return f.detail, f.loadErr
 }
 
 // UpdateRenewalCookie 接受测试 Cookie 更新。
 func (f *refreshRepositoryFake) UpdateRenewalCookie(context.Context, string, string, string, int64) error {
-	return nil
+	return f.updateCookieErr
 }
 
 // UpsertOrder 记录测试订单写入。
 func (f *refreshRepositoryFake) UpsertOrder(_ context.Context, orderID string, options UpsertOptions) error {
+	if f.upsertErr != nil {
+		return f.upsertErr
+	}
 	f.upsertCount++
 	if f.orders == nil {
 		f.orders = map[string]*Order{}
@@ -139,12 +192,15 @@ func (f *refreshRepositoryFake) BatchUpsertOrders(ctx context.Context, rows []Re
 
 // SoftDeleteMissingOrders 返回测试软删除数量。
 func (f *refreshRepositoryFake) SoftDeleteMissingOrders(context.Context, string, map[string]struct{}) (int, error) {
+	if f.deleteErr != nil {
+		return 0, f.deleteErr
+	}
 	return f.soldDeleteCount, nil
 }
 
 // ListOrdersByCookieCursor 返回测试详情目标。
 func (f *refreshRepositoryFake) ListOrdersByCookieCursor(context.Context, string, int, string, string) ([]OrderRow, error) {
-	return f.rows, nil
+	return f.rows, f.rowsErr
 }
 
 // WithTransaction 执行测试事务回调并返回预置错误。
@@ -190,6 +246,24 @@ type refreshRuntimeFake struct {
 	recovered bool
 	// updatedCookie 保存同步到运行时的 Cookie。
 	updatedCookie string
+	// detailResults 保存按请求顺序返回的详情结果。
+	detailResults []RefreshDetailFetchResult
+	// detailErrors 保存按请求顺序返回的详情错误。
+	detailErrors []error
+	// detailCalls 保存详情接口调用次数。
+	detailCalls int
+	// persistConfigured 表示是否使用显式会话持久化结果。
+	persistConfigured bool
+	// persistValue 保存显式会话持久化返回的 Cookie。
+	persistValue string
+	// persistChanged 保存显式会话持久化是否报告 Cookie 变化。
+	persistChanged bool
+	// persistHandled 保存显式会话持久化是否接管了完整 Cookie Jar。
+	persistHandled bool
+	// persistErr 保存显式会话持久化错误。
+	persistErr error
+	// recoverCalls 保存会话恢复调用次数。
+	recoverCalls int
 }
 
 // DetailAvailable 返回详情接口可用状态。
@@ -205,7 +279,20 @@ func (f *refreshRuntimeFake) CredentialAvailable(detail *PlatformRuntimeData) bo
 
 // FetchOrderDetail 返回预置订单详情结果。
 func (f *refreshRuntimeFake) FetchOrderDetail(context.Context, *PlatformRuntimeData, string) (RefreshDetailFetchResult, error) {
-	return f.detailResult, f.fetchErr
+	// index 保存本次详情请求在预置序列中的位置。
+	index := f.detailCalls
+	f.detailCalls++
+	// result 保存本次详情请求的默认结果。
+	result := f.detailResult
+	if index < len(f.detailResults) {
+		result = f.detailResults[index]
+	}
+	// fetchErr 保存本次详情请求的预置错误。
+	fetchErr := f.fetchErr
+	if index < len(f.detailErrors) {
+		fetchErr = f.detailErrors[index]
+	}
+	return result, fetchErr
 }
 
 // FetchSoldOrders 返回预置订单列表结果。
@@ -215,6 +302,9 @@ func (f *refreshRuntimeFake) FetchSoldOrders(context.Context, *PlatformRuntimeDa
 
 // PersistCookieSession 返回预置 Cookie 会话变化。
 func (f *refreshRuntimeFake) PersistCookieSession(context.Context, *PlatformRuntimeData, RefreshCookieUpdate) (string, bool, bool, error) {
+	if f.persistConfigured {
+		return f.persistValue, f.persistChanged, f.persistHandled, f.persistErr
+	}
 	return f.soldResult.CookieUpdate.Value, f.soldResult.CookieUpdate.Changed, true, nil
 }
 
@@ -226,6 +316,7 @@ func (f *refreshRuntimeFake) UpdateRunningCookie(_ context.Context, _, value str
 // RecoverExpiredSession 记录会话恢复调用。
 func (f *refreshRuntimeFake) RecoverExpiredSession(context.Context, string, error) bool {
 	f.recovered = true
+	f.recoverCalls++
 	return true
 }
 
@@ -282,6 +373,7 @@ func TestRefreshBatchDiscoveryAndDetails(t *testing.T) {
 		detailResult: RefreshDetailFetchResult{Detail: &RefreshDetail{OrderStatus: "3", Amount: "12.00"}},
 	}
 	// result、err 保存批量刷新结果和错误。
+	// result 保存批量刷新结果。
 	result, err := NewRefreshService(repository, runtime, 1).Refresh(context.Background(), 7, "", "all")
 	if err != nil || result.Summary.Discovered != 1 || result.Summary.SoftDeleted != 1 || result.Summary.DetailTotal == 0 || repository.upsertCount == 0 || repository.batchFindCount != 1 || repository.batchUpsertCount != 2 {
 		t.Fatalf("批量刷新结果异常: result=%+v err=%v repository=%+v", result, err, repository)

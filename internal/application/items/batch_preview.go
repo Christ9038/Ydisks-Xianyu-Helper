@@ -17,6 +17,16 @@ import (
 // ErrBatchPreviewNoRows 表示表格没有可供预检的商品行。
 var ErrBatchPreviewNoRows = errors.New("表格中没有有效数据行")
 
+// openXLSXPart 负责打开 XLSX 压缩分区；测试可替换它验证压缩算法和读取器错误。
+var openXLSXPart = func(file *zip.File) (io.ReadCloser, error) {
+	return file.Open()
+}
+
+// newBatchPreviewCSVReader 创建批量预检的 CSV 读取器；测试可替换底层输入验证读取错误传播。
+var newBatchPreviewCSVReader = func(raw []byte) *csv.Reader {
+	return csv.NewReader(bytes.NewReader(raw))
+}
+
 // BatchPreviewCategory 是批量预检使用的纯应用类目模型。
 type BatchPreviewCategory struct {
 	// CatID 是平台类目标识。
@@ -333,7 +343,7 @@ func (service *BatchPreviewService) validateAutomation(ctx context.Context, user
 // parseDelimitedSheet 解析带逗号或制表符分隔的表格内容。
 func parseDelimitedSheet(raw []byte, delimiter rune, maxRows int) ([]map[string]any, error) {
 	// reader 负责读取分隔符表格。
-	reader := csv.NewReader(bytes.NewReader(raw))
+	reader := newBatchPreviewCSVReader(raw)
 	reader.Comma = delimiter
 	reader.FieldsPerRecord = -1
 	reader.LazyQuotes = true
@@ -508,7 +518,7 @@ func xlsxSharedStrings(archive *zip.Reader) ([]string, error) {
 // readXLSXPart 读取单个 XLSX XML 部件并限制其大小。
 func readXLSXPart(file *zip.File) ([]byte, error) {
 	// reader 和 err 表示 XML 部件读取器及打开错误。
-	reader, err := file.Open()
+	reader, err := openXLSXPart(file)
 	if err != nil {
 		return nil, err
 	}

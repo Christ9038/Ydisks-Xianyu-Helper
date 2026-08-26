@@ -4,7 +4,10 @@ package deliverytemplate
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
+
+	"xianyu-go/internal/deliverytemplate"
 )
 
 // ErrInvalidInput 表示调用方没有提供有效的用户或仓储依赖。
@@ -15,6 +18,9 @@ var ErrNotFound = errors.New("发货模板不存在")
 
 // ErrReferenced 表示模板仍被自动化规则引用，不能删除。
 var ErrReferenced = errors.New("发货模板仍被自动化规则引用")
+
+// ErrVariableConflict 表示模板变量键已被自动化规则引用，不能不兼容修改。
+var ErrVariableConflict = errors.New("发货模板变量契约冲突")
 
 // Template 是脱离数据库和 HTTP DTO 的发货模板应用模型。
 type Template struct {
@@ -154,7 +160,11 @@ func (s *Service) validateUser(userID int64) error {
 // validateDraft 校验模板名称和至少一条非空消息。
 func validateDraft(draft Draft) error {
 	if strings.TrimSpace(draft.Name) == "" || len(draft.Messages) == 0 {
-		return errors.New("发货模板名称和消息不能为空")
+		return fmt.Errorf("%w: 发货模板名称和消息不能为空", ErrInvalidInput)
+	}
+	// err 保存模板变量语法解析失败原因。
+	if _, err := deliverytemplate.Parse(draft.Messages); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidInput, err)
 	}
 	return nil
 }

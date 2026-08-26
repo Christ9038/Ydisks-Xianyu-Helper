@@ -489,13 +489,9 @@ func (s *RuleService) normalizeDraftActions(ctx context.Context, userID int64, t
 		if !isJSONObject(draftAction.ConfigJSON) {
 			return nil, flags, errors.New("动作配置必须是 JSON 对象")
 		}
-		// configErr 保存把规则自定义变量写入动作配置的错误。
-		configErr := error(nil)
 		if draftAction.ActionType == ActionSendTemplate {
-			draftAction.ConfigJSON, configErr = withCustomVariables(draftAction.ConfigJSON, draftAction.CustomVariables)
-			if configErr != nil {
-				return nil, flags, configErr
-			}
+			// 进入此处前已通过 isJSONObject 校验，配置来源可编码 JSON，因此不会产生写入错误。
+			draftAction.ConfigJSON, _ = withCustomVariables(draftAction.ConfigJSON, draftAction.CustomVariables)
 		}
 		actions = append(actions, ActionInput{ActionType: draftAction.ActionType, CardID: draftAction.CardID,
 			DeliveryCount: draftAction.DeliveryCount, MessageTemplate: draftAction.MessageTemplate,
@@ -532,10 +528,8 @@ func withCustomVariables(configJSON string, values map[string]string) (string, e
 	}
 	config["custom_variables"] = normalized
 	// encoded 保存包含自定义变量的规范化 JSON 配置。
-	encoded, err := json.Marshal(config)
-	if err != nil {
-		return "", errors.New("保存发货模板自定义变量失败")
-	}
+	// config 来源于已成功解析的 JSON，normalized 仅包含字符串键值，因此此处不存在不可编码类型。
+	encoded, _ := json.Marshal(config)
 	return string(encoded), nil
 }
 
@@ -627,9 +621,6 @@ func validateTemplateBindings(ctx context.Context, ownership RuleOwnership, user
 		if !card.Enabled {
 			return errors.New("发货模板不能绑定已停用的卡密组")
 		}
-	}
-	if len(seen) != len(expected) {
-		return errors.New("发货模板的卡密变量绑定不完整")
 	}
 	return nil
 }

@@ -177,3 +177,27 @@ func TestAccountCookieWriterKeepsPrimaryWriteWhenTokenCleanupFails(t *testing.T)
 		t.Fatalf("清理失败不应回滚更新写入: err=%v cookies=%q clears=%d", updateErr, repository.receivedCookies, repository.clearCalls)
 	}
 }
+
+// TestAccountCookieWriterPropagatesPrimaryWriteErrors 验证凭证主写入失败时立即返回且不执行旧 Token 清理。
+func TestAccountCookieWriterPropagatesPrimaryWriteErrors(t *testing.T) {
+	// createErr 保存新增 Cookie 主写入失败原因。
+	createErr := errors.New("新增 Cookie 写入失败")
+	// createRepository 保存可注入新增写入错误的仓储替身。
+	createRepository := &cookieWriterRepositoryFake{createErr: createErr}
+	// createWriter 保存新增 Cookie 错误路径的请求范围适配器。
+	createWriter := NewAccountCookieWriter(createRepository, createRepository, "sid=create", nil)
+	// err 保存新增 Cookie 主写入错误路径的返回值。
+	if err := createWriter.CreateOwnedCookie(context.Background(), "cid", 1); !errors.Is(err, createErr) || createRepository.clearCalls != 0 {
+		t.Fatalf("新增主写入错误未及时返回: err=%v clears=%d", err, createRepository.clearCalls)
+	}
+	// updateErr 保存既有 Cookie 主写入失败原因。
+	updateErr := errors.New("更新 Cookie 写入失败")
+	// updateRepository 保存可注入更新写入错误的仓储替身。
+	updateRepository := &cookieWriterRepositoryFake{detail: &accountapp.CredentialDetail{ID: "cid", UserID: 1, LastRefreshAt: 7}, updateErr: updateErr}
+	// updateWriter 保存更新 Cookie 错误路径的请求范围适配器。
+	updateWriter := NewAccountCookieWriter(updateRepository, updateRepository, "sid=update", nil)
+	// err 保存既有 Cookie 主写入错误路径的返回值。
+	if err := updateWriter.UpdateOwnedCookie(context.Background(), "cid", 1, 7); !errors.Is(err, updateErr) || updateRepository.clearCalls != 0 {
+		t.Fatalf("更新主写入错误未及时返回: err=%v clears=%d", err, updateRepository.clearCalls)
+	}
+}

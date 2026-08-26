@@ -66,6 +66,10 @@ func TestOrderSpecFromItemInfoSupportsPlatformShapes(t *testing.T) {
 		{name: "snake case fields", itemInfo: map[string]any{"spec_name": "总量", "spec_value": "永久"}, wantName: "总量", wantVal: "永久"},
 		{name: "sku text", itemInfo: map[string]any{"skuText": "总量:月卡"}, wantName: "总量", wantVal: "月卡"},
 		{name: "nested sku", itemInfo: map[string]any{"skuInfo": map[string]any{"skuText": "总量 月卡"}}, wantName: "总量", wantVal: "月卡"},
+		{name: "partial top nested complete", itemInfo: map[string]any{"specName": "颜色", "skuInfo": map[string]any{"skuText": "尺码：M"}}, wantName: "尺码", wantVal: "M"},
+		{name: "multiple specs first pair", itemInfo: map[string]any{"skuText": "颜色：红色；尺码：M"}, wantName: "颜色", wantVal: "红色"},
+		{name: "slash remains value", itemInfo: map[string]any{"skuText": "套餐:S/M"}, wantName: "套餐", wantVal: "S/M"},
+		{name: "partial values do not match", itemInfo: map[string]any{"specName": "颜色", "skuText": "尺码："}, wantName: "颜色", wantVal: ""},
 		{name: "invalid text", itemInfo: map[string]any{"skuText": "月卡"}},
 	}
 	// tc 表示当前规格解析测试场景。
@@ -75,6 +79,61 @@ func TestOrderSpecFromItemInfoSupportsPlatformShapes(t *testing.T) {
 			gotName, gotValue := orderSpecFromItemInfo(tc.itemInfo)
 			if gotName != tc.wantName || gotValue != tc.wantVal {
 				t.Fatalf("spec=(%q,%q) want (%q,%q)", gotName, gotValue, tc.wantName, tc.wantVal)
+			}
+		})
+	}
+}
+
+// TestOrderSpecFromItemInfoHandlesNilInput 验证缺少商品信息时不产生虚假规格。
+func TestOrderSpecFromItemInfoHandlesNilInput(t *testing.T) {
+	// gotName、gotValue 保存空商品信息的规格解析结果。
+	gotName, gotValue := orderSpecFromItemInfo(nil)
+	if gotName != "" || gotValue != "" {
+		t.Fatalf("nil item info=(%q,%q)", gotName, gotValue)
+	}
+}
+
+// TestFetchOrderDetailSessionExpired 验证平台明确要求重新登录时不进入 token 重试。
+func TestFetchOrderDetailSessionExpired(t *testing.T) {
+	// server 返回平台会话过期响应。
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"ret":["FAIL_SYS_SESSION_EXPIRED::会话过期"]}`)
+	}))
+	defer server.Close()
+	// client 使用本地服务替代闲鱼详情接口。
+	client := &ClientImpl{HTTPClient: server.Client(), OrderDetailURL: server.URL}
+	// _, err 保存会话过期处理结果。
+	_, err := client.FetchOrderDetail(context.Background(), consignCookies, "order-1")
+	if err == nil || !strings.Contains(err.Error(), "订单详情接口") {
+		t.Fatalf("session expired error=%v", err)
+	}
+}
+
+// TestSplitOrderSpecTextHandlesSegments 验证组合规格文本按平台分隔符提取首个完整键值对。
+func TestSplitOrderSpecTextHandlesSegments(t *testing.T) {
+	// cases 保存组合规格文本及预期拆分结果。
+	cases := []struct {
+		// name 是子测试名称。
+		name string
+		// raw 是平台返回的组合规格文本。
+		raw string
+		// wantName 是预期的规格名称。
+		wantName string
+		// wantValue 是预期的规格值。
+		wantValue string
+	}{
+		{name: "semicolon", raw: "颜色；尺码：M", wantName: "尺码", wantValue: "M"},
+		{name: "comma", raw: "颜色,尺码=42", wantName: "尺码", wantValue: "42"},
+		{name: "empty", raw: "  ", wantName: "", wantValue: ""},
+		{name: "invalid", raw: "没有分隔符", wantName: "", wantValue: ""},
+		{name: "blank sides", raw: ":值", wantName: "", wantValue: ""},
+	}
+	for /* item 表示当前组合规格解析场景。 */ _, item := range cases {
+		t.Run(item.name, func(t *testing.T) {
+			// gotName、gotValue 保存当前组合规格拆分结果。
+			gotName, gotValue := splitOrderSpecText(item.raw)
+			if gotName != item.wantName || gotValue != item.wantValue {
+				t.Fatalf("splitOrderSpecText(%q)=(%q,%q), want (%q,%q)", item.raw, gotName, gotValue, item.wantName, item.wantValue)
 			}
 		})
 	}

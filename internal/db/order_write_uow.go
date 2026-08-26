@@ -96,7 +96,7 @@ func (transaction *OrderWriteTransaction) UpsertOrder(ctx context.Context, order
 	return transaction.orders.UpsertTx(ctx, transaction.transaction, orderID, options)
 }
 
-// UpsertOrders 在当前事务中以单条多值 UPSERT 写入订单详情分片。
+// UpsertOrders 在当前事务中以最多两条多值 UPSERT 写入订单详情分片。
 // ctx 用于取消 SQL；rows 为空时不产生写入，重复订单和跨账号冲突仍由 Orders 校验。
 func (transaction *OrderWriteTransaction) UpsertOrders(ctx context.Context, rows []BatchOrderUpsert) error {
 	if transaction == nil || transaction.transaction == nil || transaction.orders == nil {

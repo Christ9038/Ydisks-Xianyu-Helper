@@ -79,6 +79,20 @@ func TestLoginServiceRequiresLifecycleAndWriter(t *testing.T) {
 	if missingWriterErr == nil {
 		t.Fatal("缺少 Cookie 写入端口时应失败")
 	}
+	// missingAccountErr 保存空账号标识的创建错误。
+	missingAccountErr := service.CreateCookie(context.Background(), CreateCookieInput{}, &fakeCookieWriter{})
+	if missingAccountErr == nil {
+		t.Fatal("空账号标识时创建 Cookie 不应成功")
+	}
+	// nilService 表示未初始化的登录服务指针。
+	var nilService *LoginService
+	// nilCreateErr、nilUpdateErr 保存空服务指针的创建和更新错误。
+	nilCreateErr := nilService.CreateCookie(context.Background(), CreateCookieInput{AccountID: "acc1"}, &fakeCookieWriter{})
+	// nilUpdateErr 保存空服务指针的凭证更新错误。
+	nilUpdateErr := nilService.UpdateCookie(context.Background(), UpdateCookieInput{AccountID: "acc1"}, &fakeCookieUpdater{})
+	if nilCreateErr == nil || nilUpdateErr == nil {
+		t.Fatal("空登录服务不应执行凭证操作")
+	}
 }
 
 // TestLoginServiceCreateCookieKeepsCredentialOutOfInput 验证成功登录只通过凭证端口写入并触发后续编排。
@@ -172,6 +186,11 @@ func TestLoginServiceUpdateCookieSuccess(t *testing.T) {
 	}
 	if lifecycle.calls != 1 || lifecycle.method != "qr_scan" {
 		t.Fatalf("成功更新后未触发正确后续编排: %+v", lifecycle)
+	}
+	// plainUpdateErr 保存未声明登录方式时的普通凭证替换结果。
+	plainUpdateErr := service.UpdateCookie(context.Background(), UpdateCookieInput{AccountID: "acc1", UserID: 7}, updater)
+	if plainUpdateErr != nil || lifecycle.calls != 2 || lifecycle.method != "" {
+		t.Fatalf("普通凭证替换结果错误：err=%v lifecycle=%+v", plainUpdateErr, lifecycle)
 	}
 }
 

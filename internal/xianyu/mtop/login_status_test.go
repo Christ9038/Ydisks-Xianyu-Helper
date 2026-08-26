@@ -84,3 +84,30 @@ func TestClassifyLoginStatusRisk(t *testing.T) {
 		t.Fatalf("status=%s msg=%q", status, msg)
 	}
 }
+
+// TestClassifyLoginStatusCoversTokenAndFallbackBranches 验证登录态分类器对令牌为空、Session 失效、令牌过期和未知返回的完整映射。
+func TestClassifyLoginStatusCoversTokenAndFallbackBranches(t *testing.T) {
+	// cases 保存平台返回、Cookie 更新状态和期望分类，覆盖不触发网络的纯业务分支。
+	cases := []struct {
+		name          string
+		ret           []string
+		cookieUpdated bool
+		want          string
+	}{
+		{name: "token empty", ret: []string{"TOKEN_EMPTY::令牌为空"}, want: LoginStatusTokenEmpty},
+		{name: "session expired", ret: []string{"FAIL_SYS_SESSION_EXPIRED::Session过期"}, want: LoginStatusSessionExpired},
+		{name: "token expired without cookie", ret: []string{"FAIL_SYS_TOKEN_EXPIRED::令牌过期"}, want: LoginStatusFailed},
+		{name: "unknown", ret: []string{"FAIL_UNKNOWN::未知错误"}, want: LoginStatusFailed},
+		{name: "token expired with cookie", ret: []string{"FAIL_SYS_TOKEN_EXPIRED::令牌过期"}, cookieUpdated: true, want: LoginStatusTokenRefreshed},
+	}
+	// testCase 表示当前登录态分类场景及其平台输入。
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// status、message 保存当前平台返回对应的分类结果。
+			status, message := classifyLoginStatus(testCase.ret, testCase.cookieUpdated)
+			if status != testCase.want || message == "" {
+				t.Fatalf("status=%q message=%q want=%q", status, message, testCase.want)
+			}
+		})
+	}
+}

@@ -37,3 +37,15 @@ func TestNewAccountDependenciesCreatesTypedFactory(t *testing.T) {
 		t.Fatal("账号工厂应返回认证与扫码端口")
 	}
 }
+
+// TestAccountDependenciesNilReceiverGuards 验证账号依赖工厂的 nil 接收者不会伪造可用仓储。
+func TestAccountDependenciesNilReceiverGuards(t *testing.T) {
+	// dependencies 表示缺少装配状态的账号依赖接收者。
+	var dependencies *AccountDependencies
+	if dependencies.NewAccountLoginRepository() != nil || dependencies.NewAccountSettingsRepository() != nil || dependencies.NewAccountSummaryRepository() != nil {
+		t.Fatal("nil 账号依赖不应创建账号仓储")
+	}
+	if dependencies.NewQRLoginRepository() != nil || dependencies.NewAuthenticationRepository() != nil || dependencies.NewAccountLoginAuditRepository() != nil {
+		t.Fatal("nil 账号依赖不应创建认证仓储")
+	}
+}

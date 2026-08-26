@@ -8,6 +8,10 @@ import (
 
 // TestRedactionHelpers 封装TestRedactionHelpers业务协调。
 func TestRedactionHelpers(t *testing.T) {
+	if // emptyError 是 nil 错误的安全空文本。
+	emptyError := Error(nil); emptyError != "" {
+		t.Fatalf("nil 错误应返回空文本: %q", emptyError)
+	}
 	if ID(" secret ") != ID("secret") || len(ID("secret")) != 12 {
 		t.Fatal("ID should be trimmed, stable, and short")
 	}

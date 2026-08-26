@@ -13,6 +13,11 @@ export const formatChatNewMessageTitle = (baseTitle: string): string => {
   return `【新消息】${baseTitle}`;
 };
 
+// shouldShowBrowserNotification 仅在页面隐藏或可见但窗口失焦时允许弹出系统通知。
+export const shouldShowBrowserNotification = (visibilityState: DocumentVisibilityState, hasFocus: boolean): boolean => {
+  return visibilityState !== 'visible' || !hasFocus;
+};
+
 /** formatChatBrowserNotification 将入站聊天消息转换为不包含凭证的系统通知内容。 */
 export const formatChatBrowserNotification = (message: ChatMessage): BrowserNotificationPayload => {
   // senderName 保存平台提供的发送者名称；缺失时使用稳定的通用标题。
@@ -129,7 +134,7 @@ export const useChatTitleNotifier = (): ChatTitleNotifierResult => {
     realtimeUnreadVersionRef.current += 1;
     setNewMessageCount(/* 当前状态更新基于上一条实时消息计数累计，避免同一批 WebSocket 帧丢失数量。 */ current => current + 1);
     setHasUnreadChatMessage(true);
-    if (document.visibilityState !== 'visible') showBrowserNotification(formatChatBrowserNotification(message));
+    if (shouldShowBrowserNotification(document.visibilityState, document.hasFocus())) showBrowserNotification(formatChatBrowserNotification(message));
   }, []);
 
   return { notifyIncomingMessage, hasUnreadChatMessage };

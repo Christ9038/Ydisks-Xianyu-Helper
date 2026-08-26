@@ -1,7 +1,7 @@
 import { Edit3, FileStack, Plus, Save, Trash2, X } from 'lucide-react';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { createDeliveryTemplate, deleteDeliveryTemplate, listDeliveryTemplates, updateDeliveryTemplate } from '../api';
+import { useDeliveryTemplates } from '../hooks';
 import type { DeliveryTemplate, DeliveryTemplateDraft } from '../types';
 
 // emptyDraft 创建一份可直接编辑的模板草稿。
@@ -9,30 +9,16 @@ const emptyDraft = (): DeliveryTemplateDraft => ({ name: '', enabled: true, mess
 
 /** 发货模板管理页面。 */
 const DeliveryTemplates: React.FC = () => {
-  // templates 保存当前用户的模板列表。
-  const [templates, setTemplates] = useState<DeliveryTemplate[]>([]);
+  // templates、loading、saving、requestError 由 Hook 统一管理请求生命周期和竞态保护。
+  const { templates, loading, saving, error: requestError, loadTemplates, saveTemplate: persistTemplate, removeTemplate: deleteTemplate } = useDeliveryTemplates();
   // draft 保存弹窗中的模板编辑状态。
   const [draft, setDraft] = useState<DeliveryTemplateDraft>(emptyDraft);
   // editingID 保存正在编辑的模板 ID，空值表示新建。
   const [editingID, setEditingID] = useState<number | null>(null);
   // editorOpen 表示模板编辑器是否由用户明确打开，避免空白新建草稿被条件渲染误判为关闭。
   const [editorOpen, setEditorOpen] = useState(false);
-  // loading 表示列表或保存请求是否进行中。
-  const [loading, setLoading] = useState(true);
-
-  // loadTemplates 读取模板列表并处理页面加载状态。
-  const loadTemplates = useCallback(/* loadTemplatesCallback 在页面挂载和保存后刷新模板列表。 */ async () => {
-    setLoading(true);
-    try {
-      setTemplates(await listDeliveryTemplates());
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(/* effect 在页面挂载时读取模板列表。 */ () => {
-    void loadTemplates().catch(/* error 是模板列表读取失败原因。 */ error => alert(`读取发货模板失败：${(error as Error).message}`));
-  }, [loadTemplates]);
+  // 首屏加载由 Hook 自动触发；页面只负责展示真实错误。
+  React.useEffect(/* 当前副作用在页面挂载时加载模板，并在卸载后由 Hook 取消请求。 */ () => { void loadTemplates().catch(/* error 是首屏列表请求失败原因，Hook 已保存用户可见错误。 */ () => undefined); }, [loadTemplates]);
 
   // openNewTemplate 打开空白模板编辑器。
   const openNewTemplate = (): void => {
@@ -94,19 +80,15 @@ const DeliveryTemplates: React.FC = () => {
       alert('请填写模板名称和至少一条消息');
       return;
     }
-    setLoading(true);
     try {
       // nextDraft 保存清理后的模板提交草稿。
       const nextDraft = { ...draft, name: draft.name.trim(), messages };
-      if (editingID === null) await createDeliveryTemplate(nextDraft);
-      else await updateDeliveryTemplate(editingID, nextDraft);
+      await persistTemplate(editingID, nextDraft);
       setEditingID(null);
       setDraft(emptyDraft());
       setEditorOpen(false);
-      await loadTemplates();
     } catch (/* error 是模板保存失败原因。 */ error) {
       alert(`保存发货模板失败：${(error as Error).message}`);
-      setLoading(false);
     }
   };
 
@@ -114,8 +96,7 @@ const DeliveryTemplates: React.FC = () => {
   const removeTemplate = async (id: number): Promise<void> => {
     if (!confirm('确定删除这个发货模板吗？被自动化规则引用的模板无法删除。')) return;
     try {
-      await deleteDeliveryTemplate(id);
-      await loadTemplates();
+      await deleteTemplate(id);
     } catch (/* error 是模板删除失败原因。 */ error) {
       alert(`删除发货模板失败：${(error as Error).message}`);
     }
@@ -123,6 +104,7 @@ const DeliveryTemplates: React.FC = () => {
 
   return (
     <div className="space-y-8">
+      {requestError && <div role="alert" className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">{requestError}</div>}
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.24em] text-sky-600">Delivery templates</p>
@@ -229,7 +211,7 @@ const DeliveryTemplates: React.FC = () => {
 
             <div className="modal-footer flex items-center justify-end gap-3">
               <button type="button" onClick={closeEditor} className="rounded-xl bg-gray-100 px-5 py-2.5 text-sm font-bold text-gray-700 transition-colors hover:bg-gray-200">取消</button>
-              <button type="button" onClick={/* callback 保存模板草稿。 */ () => void saveTemplate()} className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-5 py-2.5 text-sm font-bold text-white transition-colors hover:bg-sky-700"><Save className="h-4 w-4" />保存模板</button>
+              <button type="button" disabled={saving} onClick={/* callback 保存模板草稿。 */ () => void saveTemplate()} className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-5 py-2.5 text-sm font-bold text-white transition-colors hover:bg-sky-700 disabled:opacity-50"><Save className="h-4 w-4" />保存模板</button>
             </div>
           </div>
         </div>,

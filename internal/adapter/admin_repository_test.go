@@ -48,4 +48,49 @@ func TestAdminRepositoryMapsUsersStatsAndDelete(t *testing.T) {
 	if missingErr == nil {
 		t.Fatal("空管理员适配器应拒绝删除")
 	}
+	// nilUsersErr、nilOwnedErr、nilStatsErr 保存 nil 接收者的全部管理员入口错误。
+	var nilRepository *AdminRepository
+	// nilUsersErr 保存 nil 接收者的用户列表错误。
+	if _, nilUsersErr := nilRepository.ListUsers(ctx); nilUsersErr == nil {
+		t.Fatal("空管理员适配器不应列出用户")
+	}
+	// nilOwnedErr 保存 nil 接收者的账号列表错误。
+	if _, nilOwnedErr := nilRepository.ListOwnedAccountIDs(ctx, 1); nilOwnedErr == nil {
+		t.Fatal("空管理员适配器不应列出账号")
+	}
+	// nilStatsErr 保存 nil 接收者的统计错误。
+	if _, nilStatsErr := nilRepository.Stats(ctx); nilStatsErr == nil {
+		t.Fatal("空管理员适配器不应返回统计")
+	}
+}
+
+// TestAdminRepositoryPropagatesClosedDatabaseErrors 验证数据库连接关闭后管理员查询不会伪装为空结果。
+func TestAdminRepositoryPropagatesClosedDatabaseErrors(t *testing.T) {
+	// store、cleanup 保存即将关闭的 SQLite Store。
+	store, cleanup := newAdapterTestStore(t)
+	defer cleanup()
+	// repository 保存绑定已关闭数据库的管理员适配器。
+	repository := NewAdminRepository(store)
+	// ctx 保存数据库故障测试上下文。
+	ctx := context.Background()
+	// closeErr 保存关闭数据库连接的结果。
+	if closeErr := store.DB.Close(); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	// usersErr 保存关闭数据库后的用户列表错误。
+	if _, usersErr := repository.ListUsers(ctx); usersErr == nil {
+		t.Fatal("数据库关闭后用户列表不应成功")
+	}
+	// ownedErr 保存关闭数据库后的账号列表错误。
+	if _, ownedErr := repository.ListOwnedAccountIDs(ctx, 1); ownedErr == nil {
+		t.Fatal("数据库关闭后账号列表不应成功")
+	}
+	// deleteErr 保存关闭数据库后的用户删除错误。
+	if deleteErr := repository.DeleteUser(ctx, 1); deleteErr == nil {
+		t.Fatal("数据库关闭后用户删除不应成功")
+	}
+	// statsErr 保存关闭数据库后的统计错误。
+	if _, statsErr := repository.Stats(ctx); statsErr == nil {
+		t.Fatal("数据库关闭后统计不应成功")
+	}
 }

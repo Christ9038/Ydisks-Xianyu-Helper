@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	cardsapp "xianyu-go/internal/application/cards"
+	"xianyu-go/internal/db"
 )
 
 // TestCardsRepositoryCRUDMapping 验证 SQLite 卡券 CRUD 与应用模型之间的完整字段映射。
@@ -42,6 +43,11 @@ func TestCardsRepositoryCRUDMapping(t *testing.T) {
 	if got != input {
 		t.Fatalf("详情字段映射不匹配 got=%+v want=%+v", got, input)
 	}
+	// full、fullErr 保存发货路径读取的完整卡券模板及错误。
+	full, fullErr := repository.GetFull(ctx, cardID)
+	if fullErr != nil || full != input {
+		t.Fatalf("完整卡券字段映射不匹配 full=%+v err=%v", full, fullErr)
+	}
 	// listed、listErr 保存按用户隔离的列表结果。
 	listed, listErr := repository.ListForUser(ctx, owner.ID)
 	if listErr != nil || len(listed) != 1 || listed[0] != input {
@@ -65,6 +71,10 @@ func TestCardsRepositoryCRUDMapping(t *testing.T) {
 	// missingErr 表示删除后再次读取卡券组的应用层未找到错误。
 	if _, missingErr := repository.Get(ctx, cardID); !errors.Is(missingErr, cardsapp.ErrNotFound) {
 		t.Fatalf("删除后应映射为应用层未找到，err=%v", missingErr)
+	}
+	// fullMissingErr 表示完整发货模板在删除后也应映射为应用层未找到。
+	if _, fullMissingErr := repository.GetFull(ctx, cardID); !errors.Is(fullMissingErr, cardsapp.ErrNotFound) {
+		t.Fatalf("删除后完整卡券应映射为应用层未找到，err=%v", fullMissingErr)
 	}
 }
 
@@ -117,5 +127,71 @@ func TestCardsRepositoryPropagatesInfrastructureErrors(t *testing.T) {
 	// err 表示缺少 Store 时的适配器装配错误。
 	if _, err := NewCardsRepository(nil).ListForUser(context.Background(), 1); err == nil {
 		t.Fatal("缺少 Store 时应返回装配错误")
+	}
+}
+
+// TestCardsRepositoryCoversClosedDatabaseOperations 验证卡券适配器各写入端点统一传播数据库故障。
+func TestCardsRepositoryCoversClosedDatabaseOperations(t *testing.T) {
+	// store 是随后主动关闭数据库连接的测试存储。
+	store, cleanup := newAdapterTestStore(t)
+	defer cleanup()
+	// repository 是绑定已关闭数据库的卡券适配器。
+	repository := NewCardsRepository(store)
+	// closeErr 表示主动关闭测试数据库连接时的资源释放错误。
+	if closeErr := store.DB.Close(); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	// ctx 是本测试全部数据库操作使用的非取消上下文。
+	ctx := context.Background()
+	// operations 保存需要统一验证底层错误传播的卡券操作结果。
+	operations := []struct {
+		name string
+		err  error
+	}{
+		{name: "创建", err: func() error {
+			// err 表示创建操作在关闭数据库后的底层错误。
+			_, err := repository.Create(ctx, cardsapp.Card{})
+			return err
+		}()},
+		{name: "更新", err: repository.Update(ctx, cardsapp.Card{})},
+		{name: "删除", err: repository.Delete(ctx, 1)},
+		{name: "追加库存", err: func() error {
+			// err 表示追加库存操作在关闭数据库后的底层错误。
+			_, err := repository.AppendData(ctx, 1, "line")
+			return err
+		}()},
+		{name: "按用户列表", err: func() error {
+			// err 表示列表操作在关闭数据库后的底层错误。
+			_, err := repository.ListForUser(ctx, 1)
+			return err
+		}()},
+		{name: "完整读取", err: func() error {
+			// err 表示完整读取在关闭数据库后的底层错误。
+			_, err := repository.GetFull(ctx, 1)
+			return err
+		}()},
+	}
+	// operation 表示当前待验证的卡券操作及其底层结果。
+	for _, operation := range operations {
+		if operation.err == nil {
+			t.Errorf("%s 未传播数据库故障", operation.name)
+		}
+	}
+}
+
+// TestCardApplicationModelCopiesAPIConfigSummary 验证卡券摘要转换不会共享数据库摘要指针。
+func TestCardApplicationModelCopiesAPIConfigSummary(t *testing.T) {
+	// summary 是待转换的数据库 API 配置摘要。
+	summary := &db.CardAPIConfigSummary{}
+	// record 是携带摘要指针的数据库卡券记录。
+	record := db.CardFull{ID: 7, Name: "带摘要", APIConfigSummary: summary}
+	// converted 是适配器转换出的应用模型。
+	converted := cardApplicationModel(record)
+	if converted.APIConfigSummary == nil {
+		t.Fatal("数据库摘要存在时应用模型不应丢失摘要")
+	}
+	summary.URL = "changed-after-conversion"
+	if converted.APIConfigSummary.URL == summary.URL {
+		t.Fatal("应用模型不应共享数据库摘要字段")
 	}
 }

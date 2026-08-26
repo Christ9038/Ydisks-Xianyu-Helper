@@ -676,6 +676,48 @@ func TestRecommendPublishCategorySuccess(t *testing.T) {
 	_ = png1
 }
 
+// TestRecommendPublishCategoryPublicBoundary 覆盖公开类目推荐入口的关键词校验、成功映射和底层错误透传。
+func TestRecommendPublishCategoryPublicBoundary(t *testing.T) {
+	// emptyClient 保存空关键词校验使用的客户端。
+	emptyClient := &ClientImpl{}
+	// emptyErr 保存空关键词返回的业务错误。
+	_, _, emptyErr := emptyClient.RecommendPublishCategory(context.Background(), consignCookies, " ")
+	if emptyErr == nil {
+		t.Fatal("空类目关键词应被拒绝")
+	}
+	// transport 保存类目推荐成功响应的 HTTP 传输替身。
+	transport := &dispatchTransport{handlers: map[string]http.HandlerFunc{
+		"mtop.taobao.idle.kgraph.property.recommend": func(w http.ResponseWriter, _ *http.Request) {
+			fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"categoryPredictResult":{"catId":"c1","catName":"类目","channelCatId":"cc1","tbCatId":"tc1"}}}`)
+		},
+	}}
+	// client 保存公开入口使用的本地 HTTP 客户端。
+	client := &ClientImpl{HTTPClient: &http.Client{Transport: transport}}
+	// category、updated、successErr 保存公开类目推荐结果和更新后的 Cookie。
+	category, updated, successErr := client.RecommendPublishCategory(context.Background(), consignCookies, "关键词")
+	if successErr != nil || category.CatID != "c1" || category.ChannelCatID != "cc1" || updated != consignCookies {
+		t.Fatalf("公开类目推荐异常 category=%+v updated=%q err=%v", category, updated, successErr)
+	}
+	// failureClient 保存返回传输错误的公开入口客户端。
+	failureClient := &ClientImpl{HTTPClient: &http.Client{Transport: mtopRoundTripError{err: errors.New("recommend transport failed")}}}
+	// failureErr 保存公开入口透传的推荐失败错误。
+	_, _, failureErr := failureClient.RecommendPublishCategory(context.Background(), consignCookies, "关键词")
+	if failureErr == nil || !strings.Contains(failureErr.Error(), "recommend transport failed") {
+		t.Fatalf("推荐底层错误未透传: %v", failureErr)
+	}
+}
+
+// mtopRoundTripError 返回预置的 HTTP 传输错误，隔离公开入口的网络失败路径。
+type mtopRoundTripError struct {
+	// err 保存本次 HTTP 请求需要返回的传输错误。
+	err error
+}
+
+// RoundTrip 实现 HTTP 传输端口并返回预置错误。
+func (transport mtopRoundTripError) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, transport.err
+}
+
 // TestRecommendPublishCategoryUsesSelectedCategoryCard 封装TestRecommend发布分类UsesSelected分类卡密业务协调。
 func TestRecommendPublishCategoryUsesSelectedCategoryCard(t *testing.T) {
 	// imgs 用于本次流程后续判断的imgs

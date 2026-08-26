@@ -2,6 +2,7 @@ package adapter
 
 import (
 	"context"
+	"log/slog"
 	"testing"
 
 	accountapp "xianyu-go/internal/application/account"
@@ -53,4 +54,16 @@ func TestAccountLoginLifecycleAllowsMissingOptionalPorts(t *testing.T) {
 	lifecycle.AfterSuccessfulLogin(context.Background(), 1, "account", accountapp.LoginMethodManual)
 	lifecycle.AfterSuccessfulQRLogin(context.Background(), 1, "account")
 	lifecycle.ReportQRLoginCleanupFailure(context.Background(), "account", nil)
+	// successService 保存不含可选依赖的非空登录成功编排服务。
+	successService := accountapp.NewLoginSuccessService(nil, nil, nil, nil, nil)
+	// lifecycleWithSuccess 保存用于覆盖后续编排分支的生命周期适配器。
+	lifecycleWithSuccess := NewAccountLoginLifecycle(nil, successService, slog.Default())
+	lifecycleWithSuccess.AfterSuccessfulLogin(context.Background(), 1, "account", accountapp.LoginMethodManual)
+	lifecycleWithSuccess.AfterSuccessfulQRLogin(context.Background(), 1, "account")
+	lifecycleWithSuccess.ReportQRLoginCleanupFailure(context.Background(), "account", context.Canceled)
+	// nilLifecycle 验证生命周期适配器 nil 接收者保持安全返回。
+	var nilLifecycle *AccountLoginLifecycle
+	nilLifecycle.AfterSuccessfulLogin(context.Background(), 1, "account", accountapp.LoginMethodManual)
+	nilLifecycle.AfterSuccessfulQRLogin(context.Background(), 1, "account")
+	nilLifecycle.ReportQRLoginCleanupFailure(context.Background(), "account", context.Canceled)
 }

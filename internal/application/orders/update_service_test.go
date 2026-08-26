@@ -3,6 +3,7 @@ package orders
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -18,6 +19,10 @@ type updateRepositoryFake struct {
 	ownedErr error
 	// txErr 保存事务执行错误。
 	txErr error
+	// patchErr 保存订单补丁写入错误。
+	patchErr error
+	// itemErr 保存商品标题写入错误。
+	itemErr error
 	// writer 保存事务回调收到的内存写入器。
 	writer *updateWriterFake
 }
@@ -38,7 +43,7 @@ func (f *updateRepositoryFake) WithTransaction(ctx context.Context, work func(Wr
 		return f.txErr
 	}
 	// writer 保存当前测试事务的写入器。
-	f.writer = &updateWriterFake{}
+	f.writer = &updateWriterFake{patchErr: f.patchErr, itemErr: f.itemErr}
 	return work(f.writer)
 }
 
@@ -155,6 +160,49 @@ func TestUpdateServiceOwnershipAndReadErrors(t *testing.T) {
 	failedService := NewUpdateService(&updateRepositoryFake{getErr: expectedErr})
 	if !errors.Is(failedService.Update(context.Background(), 1, "order-1", UpdateRequest{}), expectedErr) {
 		t.Fatal("存储错误未透传")
+	}
+}
+
+// TestOrderNormalizationHelpersCoversStatusAndAmountBoundaries 验证订单状态码和金额文本的完整归一化边界。
+func TestOrderNormalizationHelpersCoversStatusAndAmountBoundaries(t *testing.T) {
+	// statuses 保存平台状态码到应用状态的映射样例。
+	statuses := map[string]string{"paid": "pending_ship", "1": "processing", "2": "pending_ship", "3": "shipped", "4": "completed", "11": "completed", "5": "refunding", "7": "refunding", "9": "refunding", "6": "cancelled", "8": "cancelled", "10": "cancelled", "12": "cancelled", "": "unknown", "custom": "custom"}
+	// status、want 表示当前状态码及期望的应用状态。
+	for status, want := range statuses {
+		// got 保存当前平台状态码归一化后的应用状态。
+		if got := NormalizeOrderStatus(status); got != want {
+			t.Fatalf("status=%q got=%q want=%q", status, got, want)
+		}
+	}
+	// amountCases 保存金额文本及其规范化结果。
+	amountCases := []struct {
+		// raw 是待规范化的金额文本。
+		raw string
+		// want 是规范化后的金额文本。
+		want string
+		// valid 表示金额是否应通过校验。
+		valid bool
+	}{
+		{raw: " ¥1,234.50 ", want: "1234.50", valid: true},
+		{raw: "￥2", want: "2", valid: true},
+		{raw: "", want: "", valid: true},
+		{raw: "1,23", valid: false},
+		{raw: "1.234", want: "1.234", valid: true},
+		{raw: "abc", valid: false},
+		{raw: strings.Repeat("9", 400), valid: false},
+	}
+	// testCase 表示当前金额归一化样例。
+	for _, testCase := range amountCases {
+		// got、valid 保存金额归一化文本和校验结果。
+		got, valid := NormalizeOrderAmount(testCase.raw)
+		if got != testCase.want || valid != testCase.valid {
+			t.Fatalf("amount=%q got=%q valid=%v want=%q/%v", testCase.raw, got, valid, testCase.want, testCase.valid)
+		}
+	}
+	// validationErr 是 nil 请求返回的字段校验错误。
+	validationErr := normalizeUpdateRequest(nil)
+	if validationErr == nil {
+		t.Fatal("nil update request should fail")
 	}
 }
 

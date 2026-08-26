@@ -3,7 +3,9 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
+	"strings"
 
 	"xianyu-go/internal/deliverytemplate"
 )
@@ -73,17 +75,37 @@ func (a *AutomationRules) loadTemplateAction(ctx context.Context, action *Automa
 	var values map[string]string
 	if json.Unmarshal(rawValues, &values) == nil && values != nil {
 		action.CustomVariables = values
-		return nil
 	}
-	// legacyValues 保存历史数组格式的自定义变量值。
-	var legacyValues []string
-	if json.Unmarshal(rawValues, &legacyValues) == nil {
-		// converted 保存按历史数组下标转换得到的兼容键值表。
-		converted := make(map[string]string, len(legacyValues))
-		for /* index 表示历史数组下标；value 表示历史自定义字符串。 */ index, value := range legacyValues {
-			converted[strconv.Itoa(index)] = value
+	if action.CustomVariables == nil {
+		// legacyValues 保存历史数组格式的自定义变量值。
+		var legacyValues []string
+		if json.Unmarshal(rawValues, &legacyValues) == nil {
+			// converted 保存按历史数组下标转换得到的兼容键值表。
+			converted := make(map[string]string, len(legacyValues))
+			for /* index 表示历史自定义变量下标；value 表示对应值。 */ index, value := range legacyValues {
+				converted[strconv.Itoa(index)] = value
+			}
+			action.CustomVariables = converted
 		}
-		action.CustomVariables = converted
+	}
+	// bindingKeys 保存当前模板要求的卡密变量键集合。
+	bindingKeys := make(map[string]struct{}, len(action.TemplateBindings))
+	for /* binding 表示模板当前要求的卡密变量绑定。 */ _, binding := range action.TemplateBindings {
+		bindingKeys[binding.VariableKey] = struct{}{}
+	}
+	if len(bindingKeys) != len(parsed.Keys) {
+		return errors.New("发货模板卡密变量与规则绑定不一致")
+	}
+	for /* key 表示模板当前要求的卡密变量键。 */ _, key := range parsed.Keys {
+		// ok 表示规则是否提供了该卡密变量绑定。
+		if _, ok := bindingKeys[key]; !ok {
+			return errors.New("发货模板卡密变量与规则绑定不一致")
+		}
+	}
+	for /* key 表示模板当前要求的自定义变量键。 */ _, key := range parsed.CustomKeys {
+		if strings.TrimSpace(action.CustomVariables[key]) == "" {
+			return errors.New("发货模板自定义变量缺少非空值")
+		}
 	}
 	return nil
 }

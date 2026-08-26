@@ -15,6 +15,8 @@ type runtimePortFake struct {
 	restartErr error
 	// statuses 是运行状态快照。
 	statuses map[string]RuntimeStatus
+	// statusesErr 是读取运行状态快照时的预置错误。
+	statusesErr error
 	// updates 记录已同步的账号 Cookie。
 	updates []string
 	// restarts 记录已请求重启的账号。
@@ -29,7 +31,7 @@ func (f *runtimePortFake) UpdateCookie(_ context.Context, accountID, value strin
 
 // RuntimeStatuses 返回预置状态快照。
 func (f *runtimePortFake) RuntimeStatuses(_ context.Context) (map[string]RuntimeStatus, error) {
-	return f.statuses, nil
+	return f.statuses, f.statusesErr
 }
 
 // RecoverExpiredCredential 记录测试中的会话恢复请求并返回预设结果。

@@ -62,6 +62,10 @@ export default defineConfig({
           if (modulePath.includes('/app/features/chat/components/ChatMetadataFeature.') || modulePath.includes('/app/features/chat/metadata.')) {
             return 'chat-metadata';
           }
+          // 模板请求 Hook 只服务模板管理页，独立分片可保持编辑器页面在既有下载预算内。
+          if (modulePath.includes('/app/features/delivery-templates/hooks.')) {
+            return 'delivery-template-runtime';
+          }
           if (!modulePath.includes('/node_modules/')) {
             return undefined;
           }

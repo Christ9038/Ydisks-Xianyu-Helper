@@ -1045,6 +1045,12 @@ func TestMultiDB_AutomationTryStartRunDedup(t *testing.T) {
 			if err != nil || !started || id1 == 0 {
 				t.Fatalf("首次 TryStartRun: id=%d started=%v err=%v", id1, started, err)
 			}
+			// deliveryProof 保存新运行创建时显式写入的空凭证，验证三方言都不会依赖数据库默认值。
+			var deliveryProof string
+			// proofErr 保存新运行凭证读取错误。
+			if proofErr := s.DB.QueryRowContext(ctx, `SELECT delivery_proof FROM automation_runs WHERE id=?`, id1).Scan(&deliveryProof); proofErr != nil || deliveryProof != "" {
+				t.Fatalf("新运行凭证初始化异常: proof=%q err=%v", deliveryProof, proofErr)
+			}
 			// 同 trigger_key 第二次必须被防重。
 			id2, started2, err := s.Automation.TryStartRun(ctx, run)
 			if err != nil || started2 || id2 != 0 {
@@ -1061,6 +1067,54 @@ func TestMultiDB_AutomationTryStartRunDedup(t *testing.T) {
 			// FinishRun 标记完成。
 			if err := s.Automation.FinishRun(ctx, id1, 1, "done", 1, ""); err != nil {
 				t.Fatalf("FinishRun: %v", err)
+			}
+		})
+	}
+}
+
+// TestMultiDB_OrdersUpsertManyMixedCreatedAt 验证三种数据库对混合 CreatedAt 批次保持一致语义。
+func TestMultiDB_OrdersUpsertManyMixedCreatedAt(t *testing.T) {
+	// target 表示当前混合创建时间回归使用的数据库目标。
+	for _, target := range allTestTargets(t) {
+		// target 保存当前子测试闭包独占的数据库目标，避免循环变量复用。
+		target := target
+		t.Run(target.name, func(t *testing.T) {
+			defer target.cleanup()
+			// ctx 保存当前数据库目标的订单写入上下文。
+			ctx := context.Background()
+			// store 保存当前数据库目标的订单仓储。
+			store := target.store
+			// _, cookieID 保存订单外键所需的测试账号。
+			_, cookieID := seedAccount(t, store)
+			// seedErr 保存已有空创建时间订单初始化错误。
+			if seedErr := store.Orders.Upsert(ctx, "multidb-mixed-empty", OrderUpsertOpts{CookieID: cookieID, CreatedAt: "2024-01-01 00:00:00", OrderStatus: "paid"}); seedErr != nil {
+				t.Fatal(seedErr)
+			}
+			// clearErr 保存模拟历史空创建时间的更新错误。
+			if _, clearErr := store.DB.ExecContext(ctx, `UPDATE orders SET created_at='' WHERE order_id=?`, "multidb-mixed-empty"); clearErr != nil {
+				t.Fatal(clearErr)
+			}
+			// rows 保存同时包含空和显式创建时间的三方言批次。
+			rows := []BatchOrderUpsert{
+				{OrderID: "multidb-mixed-empty", Options: OrderUpsertOpts{CookieID: cookieID, OrderStatus: "shipped"}},
+				{OrderID: "multidb-mixed-new", Options: OrderUpsertOpts{CookieID: cookieID, OrderStatus: "paid"}},
+				{OrderID: "multidb-mixed-explicit", Options: OrderUpsertOpts{CookieID: cookieID, CreatedAt: "2024-02-01 00:00:00", OrderStatus: "paid"}},
+			}
+			// batchErr 保存三方言混合批次写入错误。
+			if batchErr := store.Orders.UpsertMany(ctx, rows); batchErr != nil {
+				t.Fatal(batchErr)
+			}
+			// emptyExisting、emptyExistingErr 保存已有空创建时间订单及读取错误。
+			emptyExisting, emptyExistingErr := store.Orders.Get(ctx, "multidb-mixed-empty")
+			// emptyNew、emptyNewErr 保存未提供时间的新订单及读取错误。
+			emptyNew, emptyNewErr := store.Orders.Get(ctx, "multidb-mixed-new")
+			// explicitNew、explicitNewErr 保存显式时间新订单及读取错误。
+			explicitNew, explicitNewErr := store.Orders.Get(ctx, "multidb-mixed-explicit")
+			if emptyExistingErr != nil || emptyNewErr != nil || explicitNewErr != nil {
+				t.Fatalf("读取混合批次失败: %v/%v/%v", emptyExistingErr, emptyNewErr, explicitNewErr)
+			}
+			if emptyExisting.CreatedAt != "" || emptyNew.CreatedAt == "" || explicitNew.CreatedAt != "2024-02-01T00:00:00Z" {
+				t.Fatalf("三方言 CreatedAt 语义不一致: emptyExisting=%q emptyNew=%q explicitNew=%q", emptyExisting.CreatedAt, emptyNew.CreatedAt, explicitNew.CreatedAt)
 			}
 		})
 	}
@@ -1195,7 +1249,7 @@ func TestMultiDB_AutomationSafeCheckpointRetry(t *testing.T) {
 				t.Fatalf("start first action: ok=%v err=%v", ok, err)
 			}
 			if // err 用于本次流程后续判断的err
-			err := s.Automation.AdvanceRunAction(ctx, runID, 1, 0, 1); err != nil {
+			err := s.Automation.AdvanceRunAction(ctx, AutomationRunActionAdvance{RunID: runID, Attempt: 1, Cursor: 0, SentDelta: 1}); err != nil {
 				t.Fatal(err)
 			}
 			if // ok、err 用于本次流程后续判断的ok、err

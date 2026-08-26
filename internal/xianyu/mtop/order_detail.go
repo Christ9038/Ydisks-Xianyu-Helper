@@ -172,7 +172,8 @@ func orderSpecFromItemInfo(itemInfo map[string]any) (string, string) {
 		return "", ""
 	}
 	// pair 表示平台返回的规格名称字段与规格值字段候选组合。
-	for _, pair := range [][2]string{
+	partialName, partialValue := "", ""
+	for /* pair 表示平台规格名称和值字段的一组候选键。 */ _, pair := range [][2]string{
 		{"specName", "specValue"},
 		{"spec_name", "spec_value"},
 		{"skuName", "skuValue"},
@@ -185,7 +186,12 @@ func orderSpecFromItemInfo(itemInfo map[string]any) (string, string) {
 		// specValue 保存当前候选组合解析出的规格值。
 		specValue := strings.TrimSpace(mtopString(itemInfo[pair[1]]))
 		if specName != "" || specValue != "" {
-			return specName, specValue
+			if specName != "" && specValue != "" {
+				return specName, specValue
+			}
+			if partialName == "" && partialValue == "" {
+				partialName, partialValue = specName, specValue
+			}
 		}
 	}
 	// key 表示可能承载“规格名:规格值”组合文本的平台字段名。
@@ -193,7 +199,12 @@ func orderSpecFromItemInfo(itemInfo map[string]any) (string, string) {
 		// specName、specValue 保存组合规格文本拆分后的名称和值。
 		specName, specValue := splitOrderSpecText(mtopString(itemInfo[key]))
 		if specName != "" || specValue != "" {
-			return specName, specValue
+			if specName != "" && specValue != "" {
+				return specName, specValue
+			}
+			if partialName == "" && partialValue == "" {
+				partialName, partialValue = specName, specValue
+			}
 		}
 	}
 	// key 表示可能嵌套规格对象的平台字段名。
@@ -206,10 +217,15 @@ func orderSpecFromItemInfo(itemInfo map[string]any) (string, string) {
 		// specName、specValue 保存嵌套对象解析出的规格名称和值。
 		specName, specValue := orderSpecFromItemInfo(nested)
 		if specName != "" || specValue != "" {
-			return specName, specValue
+			if specName != "" && specValue != "" {
+				return specName, specValue
+			}
+			if partialName == "" && partialValue == "" {
+				partialName, partialValue = specName, specValue
+			}
 		}
 	}
-	return "", ""
+	return partialName, partialValue
 }
 
 // splitOrderSpecText 将平台返回的组合规格文本拆为名称和值。
@@ -220,24 +236,33 @@ func splitOrderSpecText(raw string) (string, string) {
 	if text == "" {
 		return "", ""
 	}
-	// separator 表示平台可能使用的规格名称和值分隔符。
-	for _, separator := range []string{"：", ":", "="} {
-		// separatorIndex 表示当前分隔符在组合文本中的位置。
-		separatorIndex := strings.Index(text, separator)
-		if separatorIndex <= 0 || separatorIndex >= len(text)-len(separator) {
-			continue
-		}
-		// specName、specValue 保存当前分隔符两侧的规格名称和值。
-		specName := strings.TrimSpace(text[:separatorIndex])
-		// specValue 保存当前分隔符右侧的规格值。
-		specValue := strings.TrimSpace(text[separatorIndex+len(separator):])
-		if specName != "" && specValue != "" {
-			return specName, specValue
+	// segments 保存多规格文本的候选片段；斜杠不作为分隔符，避免破坏合法规格值。
+	segments := strings.FieldsFunc(text, func(r rune) bool {
+		return r == '；' || r == ';' || r == '\n' || r == '，' || r == ',' || r == '|'
+	})
+	if len(segments) == 0 {
+		segments = []string{text}
+	}
+	for /* segment 表示多规格文本中的一个候选规格片段。 */ _, segment := range segments {
+		segment = strings.TrimSpace(segment)
+		for /* separator 表示当前片段使用的名称和值分隔符。 */ _, separator := range []string{"：", ":", "="} {
+			// separatorIndex 表示当前片段中名称和值分隔符的位置。
+			separatorIndex := strings.Index(segment, separator)
+			if separatorIndex <= 0 || separatorIndex >= len(segment)-len(separator) {
+				continue
+			}
+			// specName、specValue 保存当前片段两侧的完整规格名称和值。
+			specName := strings.TrimSpace(segment[:separatorIndex])
+			// specValue 保存当前片段右侧的完整规格值。
+			specValue := strings.TrimSpace(segment[separatorIndex+len(separator):])
+			if specName != "" && specValue != "" {
+				return specName, specValue
+			}
 		}
 	}
 	// fields 兼容平台以单个空格连接规格名和值的简化返回格式。
 	fields := strings.Fields(text)
-	if len(fields) == 2 {
+	if len(segments) == 1 && len(fields) == 2 {
 		return fields[0], fields[1]
 	}
 	return "", ""

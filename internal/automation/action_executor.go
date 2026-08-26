@@ -113,9 +113,8 @@ func (e *automationActionExecutor) executeActionWithProof(ctx context.Context, t
 	case ActionSendCard:
 		return e.sendCardWithProof(ctx, task, action)
 	case ActionSendTemplate:
-		// sent、err 保存模板消息已发送数量和发送错误；模板动作暂不产生确认发货凭证。
-		sent, err := e.sendTemplate(ctx, task, action)
-		return actionExecutionResult{sent: sent}, err
+		// result 保存模板消息已发送数量和按实际发送顺序拼接的确认发货凭证。
+		return e.sendTemplate(ctx, task, action)
 	case ActionSendText:
 		// text 是渲染后的文字动作内容。
 		text := renderTemplate(action.MessageTemplate, task)

@@ -16,10 +16,17 @@ type batchCompletionRepositoryFake struct {
 	marked int
 	// markErr 模拟成功检查点写入失败。
 	markErr error
+	// getErr 模拟批次租约复核查询失败。
+	getErr error
+	// markSuccess 控制成功检查点是否匹配到当前租约；为空时默认成功。
+	markSuccess *bool
 }
 
 // GetBatch 返回测试预置的批次状态。
 func (repository *batchCompletionRepositoryFake) GetBatch(context.Context, int64, string) (BatchInfo, error) {
+	if repository.getErr != nil {
+		return BatchInfo{}, repository.getErr
+	}
 	return repository.batch, nil
 }
 
@@ -28,6 +35,9 @@ func (repository *batchCompletionRepositoryFake) MarkClaimedRowSuccess(_ context
 	repository.marked++
 	if repository.markErr != nil {
 		return false, repository.markErr
+	}
+	if repository.markSuccess != nil {
+		return *repository.markSuccess, nil
 	}
 	return true, nil
 }

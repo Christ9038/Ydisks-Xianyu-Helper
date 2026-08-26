@@ -214,8 +214,11 @@ func (r automationRunCoordinator) prepareRuleRun(ctx context.Context, task Task,
 func (r automationRunCoordinator) executeRunActions(ctx context.Context, task Task, ruleID int64, run *db.AutomationRun, actions []db.AutomationAction, skipDelays bool) (int, bool, error) {
 	// sent 保存本次运行已经确认完成的动作数量。
 	sent := run.SentCount
-	// deliveryProof 保存本次运行已经成功投递的卡密文本和图片，只在当前进程内传给确认发货。
-	deliveryProof := shipmentDeliveryProof{}
+	// deliveryProof 保存本次运行已经成功投递的卡密文本和图片，并从数据库检查点恢复。
+	deliveryProof := shipmentDeliveryProof{
+		tradeText: run.DeliveryProof.TradeText,
+		picList:   append([]string(nil), run.DeliveryProof.PicList...),
+	}
 	// cursor 表示当前动作在计划中的位置。
 	for cursor := run.ActionCursor; cursor < len(actions); cursor++ {
 		// action 是当前待执行的动作定义。
@@ -283,8 +286,25 @@ func (r automationRunCoordinator) executeRunActions(ctx context.Context, task Ta
 			}
 			return sent, false, actionErr
 		}
+		// nextProof 是本动作成功后应持久化的完整凭证，避免延迟或重启后丢失已发送内容。
+		nextProof := deliveryProof
+		// proofChanged 表示本动作产生了需要持久化的新凭证。
+		proofChanged := actionResult.proof.tradeText != "" || len(actionResult.proof.picList) > 0
+		if proofChanged {
+			nextProof = mergeShipmentDeliveryProof(deliveryProof, actionResult.proof)
+		}
+		// advance 描述外部动作完成后的原子检查点更新，凭证和游标必须在同一条 UPDATE 中推进。
+		advance := db.AutomationRunActionAdvance{RunID: run.ID, Attempt: run.AttemptCount, Cursor: cursor, SentDelta: n}
+		if proofChanged {
+			// persistedProof 是数据库仓储使用的导出凭证模型。
+			persistedProof := db.AutomationDeliveryProof{TradeText: nextProof.tradeText, PicList: append([]string(nil), nextProof.picList...)}
+			advance.DeliveryProof = &persistedProof
+		}
+		if action.ActionType == ActionConfirmShipment {
+			advance.ClearDeliveryProof = true
+		}
 		// err 表示外部动作完成后推进检查点的数据库错误；失败时必须隔离运行避免重复执行。
-		if err := r.store.Automation.AdvanceRunAction(ctx, run.ID, run.AttemptCount, cursor, n); err != nil {
+		if err := r.store.Automation.AdvanceRunAction(ctx, advance); err != nil {
 			// quarantineErr 保存检查点失败后的人工核对状态。
 			if quarantineErr := r.store.Automation.QuarantineRun(ctx, run.ID, run.AttemptCount, "动作已执行但检查点保存失败，请人工核对，禁止自动重放: "+err.Error()); quarantineErr != nil {
 				r.logger.Error("保存检查点异常的人工核对状态失败", "run_id", run.ID, "err", quarantineErr)
@@ -293,8 +313,11 @@ func (r automationRunCoordinator) executeRunActions(ctx context.Context, task Ta
 			return sent + n, false, fmt.Errorf("%w: %v", errAutomationNeedsReview, err)
 		}
 		sent += n
-		if action.ActionType == ActionSendCard {
-			deliveryProof = mergeShipmentDeliveryProof(deliveryProof, actionResult.proof)
+		if proofChanged {
+			deliveryProof = nextProof
+		}
+		if action.ActionType == ActionConfirmShipment {
+			deliveryProof = shipmentDeliveryProof{}
 		}
 		if task.Raw != nil {
 			delete(task.Raw, "automation_delay_cursor")

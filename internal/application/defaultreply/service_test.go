@@ -177,4 +177,29 @@ func TestServiceListReturnsApplicationSummaries(t *testing.T) {
 	}
 }
 
+// TestServiceListAndMutationValidation 验证列表、删除和清理入口共享用户与账号校验。
+func TestServiceListAndMutationValidation(t *testing.T) {
+	// ctx 是本测试所有服务调用共用的非取消上下文。
+	ctx := context.Background()
+	// repository 是用于触发输入校验的空内存 Port。
+	repository := &fakeRepository{}
+	// service 是待验证的默认回复应用服务。
+	service := NewService(repository)
+	// _, listErr 保存非法用户列表结果。
+	_, listErr := service.List(ctx, 0)
+	if !errors.Is(listErr, ErrInvalidUser) {
+		t.Fatalf("List invalid user error=%v", listErr)
+	}
+	// deleteErr 保存空账号删除结果。
+	deleteErr := service.Delete(ctx, 1, "")
+	if !errors.Is(deleteErr, ErrInvalidCookieID) {
+		t.Fatalf("Delete invalid account error=%v", deleteErr)
+	}
+	// clearErr 保存空账号清理结果。
+	clearErr := service.ClearRecords(ctx, 1, "")
+	if !errors.Is(clearErr, ErrInvalidCookieID) {
+		t.Fatalf("ClearRecords invalid account error=%v", clearErr)
+	}
+}
+
 var _ Repository = (*fakeRepository)(nil)

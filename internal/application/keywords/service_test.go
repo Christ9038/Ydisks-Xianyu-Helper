@@ -130,6 +130,15 @@ func TestServiceRejectsInvalidInput(t *testing.T) {
 			_, err := service.Add(context.Background(), 1, "account", Draft{Keyword: "k", Type: "image"})
 			return err
 		}},
+		{name: "missing text reply", call: func(service *Service) error {
+			// err 表示文字规则缺少回复正文的校验错误。
+			_, err := service.Add(context.Background(), 1, "account", Draft{Keyword: "k"})
+			return err
+		}},
+		{name: "invalid batch draft", call: func(service *Service) error {
+			// err 表示批量替换中非法规则的校验错误。
+			return service.Replace(context.Background(), 1, "account", []Draft{{Keyword: "k"}})
+		}},
 		{name: "unsupported type", call: func(service *Service) error {
 			// err 表示不支持的回复类型校验错误。
 			_, err := service.Add(context.Background(), 1, "account", Draft{Keyword: "k", Type: "api", Reply: "r"})
@@ -191,6 +200,158 @@ func TestServiceItemReplyValidationAndPropagation(t *testing.T) {
 	// err 表示商品回复持久化阶段返回的基础设施错误。
 	if err := service.SetItemReply(context.Background(), 1, "account", "item", "reply"); !errors.Is(err, backendErr) {
 		t.Fatalf("基础设施错误未透传: %v", err)
+	}
+}
+
+// TestServiceDelegatesKeywordAndItemReplyOperations 验证关键词和指定商品回复的成功路径均委托给仓储。
+func TestServiceDelegatesKeywordAndItemReplyOperations(t *testing.T) {
+	// ctx 是本测试所有服务调用共用的非取消上下文。
+	ctx := context.Background()
+	// repository 是返回固定数据的关键词仓储替身。
+	repository := &keywordRepositoryFake{listRows: []Keyword{{ID: 1, Keyword: "价格"}}, itemRows: []ItemReply{{ItemID: "item-1", CookieID: "account-1", ReplyContent: "欢迎"}}}
+	// service 是待验证的关键词应用服务。
+	service := NewService(repository)
+	// rows、listErr 保存关键词列表结果。
+	rows, listErr := service.List(ctx, 1, "account-1")
+	if listErr != nil || len(rows) != 1 {
+		t.Fatalf("List rows=%+v err=%v", rows, listErr)
+	}
+	// replaceErr 保存批量替换结果。
+	replaceErr := service.Replace(ctx, 1, "account-1", []Draft{{Keyword: " 图片 ", Type: "image", ImageURL: " https://example.invalid/a.png "}, {Keyword: " 文本 ", Reply: " 回复 "}})
+	if replaceErr != nil {
+		t.Fatalf("Replace: %v", replaceErr)
+	}
+	// updateErr 保存关键词更新结果。
+	updateErr := service.Update(ctx, 1, "account-1", 1, Draft{Keyword: "价格", Reply: "50"})
+	if updateErr != nil {
+		t.Fatalf("Update: %v", updateErr)
+	}
+	// deleteIDErr、deleteIndexErr 保存两种关键词删除入口的结果。
+	deleteIDErr := service.DeleteByID(ctx, 1, "account-1", 1)
+	// deleteIndexErr 保存按索引删除关键词的结果。
+	deleteIndexErr := service.DeleteByIndex(ctx, 1, "account-1", 0)
+	if deleteIDErr != nil || deleteIndexErr != nil {
+		t.Fatalf("DeleteByID=%v DeleteByIndex=%v", deleteIDErr, deleteIndexErr)
+	}
+	// itemRows、itemListErr 保存商品回复列表结果。
+	itemRows, itemListErr := service.ListItemReplies(ctx, 1)
+	if itemListErr != nil || len(itemRows) != 1 {
+		t.Fatalf("ListItemReplies rows=%+v err=%v", itemRows, itemListErr)
+	}
+	// itemReply、getItemErr 保存指定商品回复读取结果。
+	itemReply, getItemErr := service.GetItemReply(ctx, 1, "account-1", "item-1")
+	if getItemErr != nil || itemReply.ReplyContent != "欢迎" {
+		t.Fatalf("GetItemReply result=%+v err=%v", itemReply, getItemErr)
+	}
+	// setItemErr、deleteItemErr 保存指定商品回复写入和删除结果。
+	setItemErr := service.SetItemReply(ctx, 1, "account-1", "item-1", "更新")
+	// deleteItemErr 保存指定商品回复删除结果。
+	deleteItemErr := service.DeleteItemReply(ctx, 1, "account-1", "item-1")
+	if setItemErr != nil || deleteItemErr != nil {
+		t.Fatalf("SetItemReply=%v DeleteItemReply=%v", setItemErr, deleteItemErr)
+	}
+}
+
+// TestServiceRejectsInvalidOperationIdentifiers 验证更新、删除和商品回复入口拒绝非法标识。
+func TestServiceRejectsInvalidOperationIdentifiers(t *testing.T) {
+	// ctx 是本测试所有服务调用共用的非取消上下文。
+	ctx := context.Background()
+	// service 是使用空仓储替身的关键词应用服务。
+	service := NewService(&keywordRepositoryFake{})
+	// cases 描述每个非法标识入口及预期错误。
+	cases := []struct {
+		// name 是子测试名称。
+		name string
+		// call 执行当前非法参数场景。
+		call func() error
+	}{
+		{name: "update id", call: func() error { return service.Update(ctx, 1, "account", 0, Draft{Keyword: "k", Reply: "r"}) }},
+		{name: "update draft", call: func() error { return service.Update(ctx, 1, "account", 1, Draft{Keyword: "k"}) }},
+		{name: "delete id", call: func() error { return service.DeleteByID(ctx, 1, "account", 0) }},
+		{name: "delete index", call: func() error { return service.DeleteByIndex(ctx, 1, "account", -1) }},
+		{name: "get item", call: func() error {
+			// err 保存空商品标识触发的查询校验错误。
+			_, err := service.GetItemReply(ctx, 1, "account", "")
+			return err
+		}},
+		{name: "set item", call: func() error { return service.SetItemReply(ctx, 1, "account", "", "reply") }},
+		{name: "delete item", call: func() error { return service.DeleteItemReply(ctx, 1, "account", "") }},
+	}
+	for /* item 表示当前非法标识场景。 */ _, item := range cases {
+		t.Run(item.name, func(t *testing.T) {
+			// err 保存当前非法标识返回的校验错误。
+			err := item.call()
+			if err == nil {
+				t.Fatal("invalid identifier should fail")
+			}
+		})
+	}
+}
+
+// TestServiceRejectsInvalidUsersAcrossOperations 验证所有公开入口都拒绝非法用户或未初始化服务。
+func TestServiceRejectsInvalidUsersAcrossOperations(t *testing.T) {
+	// ctx 是本测试所有服务调用共用的非取消上下文。
+	ctx := context.Background()
+	// cases 描述需要执行用户身份校验的入口。
+	cases := []struct {
+		// name 是子测试名称。
+		name string
+		// call 执行当前入口。
+		call func(*Service) error
+	}{
+		{name: "list", call: func(service *Service) error {
+			// err 保存列表入口的非法用户错误。
+			_, err := service.List(ctx, 0, "account")
+			return err
+		}},
+		{name: "replace", call: func(service *Service) error { return service.Replace(ctx, 0, "account", nil) }},
+		{name: "update", call: func(service *Service) error {
+			return service.Update(ctx, 0, "account", 1, Draft{Keyword: "k", Reply: "r"})
+		}},
+		{name: "delete id", call: func(service *Service) error { return service.DeleteByID(ctx, 0, "account", 1) }},
+		{name: "delete index", call: func(service *Service) error { return service.DeleteByIndex(ctx, 0, "account", 0) }},
+		{name: "item list", call: func(service *Service) error {
+			// err 保存商品回复列表入口的非法用户错误。
+			_, err := service.ListItemReplies(ctx, 0)
+			return err
+		}},
+		{name: "item get", call: func(service *Service) error {
+			// err 保存商品回复读取入口的非法用户错误。
+			_, err := service.GetItemReply(ctx, 0, "account", "item")
+			return err
+		}},
+		{name: "item set", call: func(service *Service) error { return service.SetItemReply(ctx, 0, "account", "item", "reply") }},
+		{name: "item delete", call: func(service *Service) error { return service.DeleteItemReply(ctx, 0, "account", "item") }},
+	}
+	for /* item 表示当前用户身份校验场景。 */ _, item := range cases {
+		t.Run(item.name, func(t *testing.T) {
+			// err 保存非法用户触发的服务错误。
+			err := item.call(NewService(&keywordRepositoryFake{}))
+			if !errors.Is(err, ErrInvalidUser) {
+				t.Fatalf("error=%v want ErrInvalidUser", err)
+			}
+		})
+	}
+	// nilServiceErr 保存 nil receiver 触发的服务初始化错误。
+	var nilService *Service
+	// nilServiceErr 保存 nil receiver 触发的服务初始化错误。
+	_, nilServiceErr := nilService.List(ctx, 1, "account")
+	if !errors.Is(nilServiceErr, ErrInvalidInput) {
+		t.Fatalf("nil service error=%v", nilServiceErr)
+	}
+}
+
+// TestValidationErrorText 验证输入错误的空值和自定义提示保持稳定。
+func TestValidationErrorText(t *testing.T) {
+	// emptyError 保存空验证错误的默认提示。
+	var emptyError *ValidationError
+	if emptyError.Error() != "关键词回复输入无效" {
+		t.Fatalf("empty validation error=%q", emptyError.Error())
+	}
+	// customError 保存自定义验证提示。
+	customError := (&ValidationError{Message: "自定义错误"}).Error()
+	if customError != "自定义错误" {
+		t.Fatalf("custom validation error=%q", customError)
 	}
 }
 

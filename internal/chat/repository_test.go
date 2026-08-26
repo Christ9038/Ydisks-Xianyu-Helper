@@ -11,11 +11,25 @@ import (
 type fakeRepository struct {
 	// accountIDs 保存模拟的用户账号归属结果。
 	accountIDs []string
+	// ownedErr 保存账号归属查询应返回的错误。
+	ownedErr error
 }
 
 // ListOwnedIDs 返回内存替身中的账号归属结果。
 func (r *fakeRepository) ListOwnedIDs(context.Context, int64) ([]string, error) {
-	return r.accountIDs, nil
+	return r.accountIDs, r.ownedErr
+}
+
+// outgoingErrorRepository 用于注入出站状态更新错误，验证聊天服务不会把未知错误误判为官方回显。
+type outgoingErrorRepository struct {
+	fakeRepository
+	// statusErr 保存出站状态更新应返回的错误。
+	statusErr error
+}
+
+// UpdateMessageStatus 返回预置的出站状态错误。
+func (r *outgoingErrorRepository) UpdateMessageStatus(context.Context, string, string, string) (*db.ChatMessage, error) {
+	return nil, r.statusErr
 }
 
 // DeleteSession 模拟删除聊天会话。

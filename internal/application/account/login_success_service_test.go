@@ -46,3 +46,24 @@ func TestLoginSuccessServiceRestartsEnabledAccount(t *testing.T) {
 		t.Fatalf("disabled account restarts=%d", disabledRuntime.restarts)
 	}
 }
+
+// TestLoginSuccessServiceReportsFollowupErrors 验证登录成功后的脱敏诊断回调可被安全触发。
+func TestLoginSuccessServiceReportsFollowupErrors(t *testing.T) {
+	// reports 保存后续动作报告的消息和错误。
+	reports := make([]string, 0, 1)
+	// service 是绑定诊断回调的登录成功服务。
+	service := NewLoginSuccessService(nil, nil, nil, nil, func(message string, err error) {
+		if err == nil {
+			reports = append(reports, message)
+			return
+		}
+		reports = append(reports, message+":"+err.Error())
+	})
+	service.reportError("登录后动作失败", nil)
+	if len(reports) != 1 || reports[0] != "登录后动作失败" {
+		t.Fatalf("诊断回调结果异常: %v", reports)
+	}
+	// noReportService 验证未装配诊断回调时仍保持幂等。
+	noReportService := NewLoginSuccessService(nil, nil, nil, nil, nil)
+	noReportService.reportError("ignored", nil)
+}

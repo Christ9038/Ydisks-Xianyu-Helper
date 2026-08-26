@@ -6,6 +6,7 @@ import React from 'react';
 import Lightbox from 'yet-another-react-lightbox';
 import 'yet-another-react-lightbox/styles.css';
 import { AudioMessage } from '../components/AudioMessage';
+import BrowserNotificationToggle from '../components/BrowserNotificationToggle';
 import ChatMetadataFeature from '../components/ChatMetadataFeature';
 import { useChat } from '../hooks';
 import { unreadBadgeClassName,unreadBadgeLabel } from '../state';
@@ -46,9 +47,12 @@ const Chat: React.FC = () => {
             <h2 className="text-xl font-black tracking-tight text-slate-950">在线聊天</h2>
             <p className="mt-0.5 text-xs font-medium text-slate-500">复用账号实时连接，消息按账号完全隔离</p>
           </div>
-          <div className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-bold ${liveState === 'online' ? 'bg-emerald-50 text-emerald-700' : liveState === 'connecting' ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'}`}>
-            {liveState === 'online' ? <Wifi className="h-3.5 w-3.5" /> : <WifiOff className="h-3.5 w-3.5" />}
-            {liveState === 'online' ? '实时同步中' : liveState === 'connecting' ? '正在连接' : '连接已断开'}
+          <div className="flex items-center gap-2">
+            <BrowserNotificationToggle />
+            <div className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-bold ${liveState === 'online' ? 'bg-emerald-50 text-emerald-700' : liveState === 'connecting' ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'}`}>
+              {liveState === 'online' ? <Wifi className="h-3.5 w-3.5" /> : <WifiOff className="h-3.5 w-3.5" />}
+              {liveState === 'online' ? '实时同步中' : liveState === 'connecting' ? '正在连接' : '连接已断开'}
+            </div>
           </div>
         </div>
         <div className="flex gap-1 overflow-x-auto pb-0" role="tablist" aria-label="聊天账号">

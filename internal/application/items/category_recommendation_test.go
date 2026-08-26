@@ -54,6 +54,33 @@ func TestCategoryRecommendationServiceRejectsInvalidInput(t *testing.T) {
 	}
 }
 
+// TestCategoryRecommendationPropagatesPortAndLifecycleErrors 验证类目推荐端口错误及服务生命周期边界。
+func TestCategoryRecommendationPropagatesPortAndLifecycleErrors(t *testing.T) {
+	// wantErr 是类目推荐端口返回的确定性错误。
+	wantErr := errors.New("category unavailable")
+	// port 是返回错误的类目推荐端口。
+	port := &categoryRecommendationPortStub{err: wantErr}
+	// service、err 保存错误端口对应的应用服务及构造结果。
+	service, err := NewCategoryRecommendationService(port)
+	if err != nil {
+		t.Fatalf("construct service: %v", err)
+	}
+	// callErr 保存类目推荐端口返回的错误。
+	if _, callErr := service.Recommend(context.Background(), 1, "account", "keyword"); !errors.Is(callErr, wantErr) {
+		t.Fatalf("port error=%v", callErr)
+	}
+	// nilService 表示未初始化的类目推荐服务指针。
+	var nilService *CategoryRecommendationService
+	// nilServiceErr 保存未初始化类目服务返回的错误。
+	if _, nilServiceErr := nilService.Recommend(context.Background(), 1, "account", "keyword"); nilServiceErr == nil {
+		t.Fatal("nil service should fail")
+	}
+	// invalidUserErr 保存无效用户标识的输入错误。
+	if _, invalidUserErr := service.Recommend(context.Background(), 0, "account", "keyword"); !errors.Is(invalidUserErr, ErrCategoryCredentialChanged) {
+		t.Fatalf("invalid user error=%v", invalidUserErr)
+	}
+}
+
 // TestBatchPreviewPersistenceServiceCountsAndPropagatesErrors 验证预检计数及落库错误传播。
 func TestBatchPreviewPersistenceServiceCountsAndPropagatesErrors(t *testing.T) {
 	// repository 保存测试用的预检持久化端口。

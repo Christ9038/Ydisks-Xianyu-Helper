@@ -14,6 +14,9 @@ import (
 	"xianyu-go/internal/xianyu/protocol"
 )
 
+// nilCookieSessionContext 返回 nil Context，专门覆盖生产函数允许的空上下文防御分支。
+func nilCookieSessionContext() context.Context { return nil }
+
 // cookieSessionRoundTripFunc 用于本次流程后续判断的登录凭证会话RoundTripFunc
 type cookieSessionRoundTripFunc func(*http.Request) (*http.Response, error)
 
@@ -150,6 +153,35 @@ func TestFlatCookieSessionCapturesUpdatesWithoutInventingSnapshot(t *testing.T) 
 	if !changed || snapshot != nil || value != "sid=new" {
 		t.Fatalf("flat update value=%q snapshot=%#v changed=%v", value, snapshot, changed)
 	}
+}
+
+// TestCookieSessionAccessorsAndReplacement 验证会话上下文访问器、快照替换和空接收者边界。
+func TestCookieSessionAccessorsAndReplacement(t *testing.T) {
+	// ctx、session 保存扁平 Cookie 会话及其上下文。
+	ctx, session := WithFlatCookieSession(context.Background(), "sid=old")
+	if CookieSessionFromContext(ctx) != session || CookieSessionFromContext(nilCookieSessionContext()) != nil || CookieSessionFromContext(context.Background()) != nil {
+		t.Fatal("CookieSession 上下文访问器结果错误")
+	}
+	// flatSnapshot 保存扁平会话的快照读取结果，应保持 nil。
+	flatSnapshot := session.Snapshot()
+	if flatSnapshot != nil {
+		t.Fatalf("扁平会话不应伪造完整快照: %+v", flatSnapshot)
+	}
+	// replacement 保存替换后的完整 Cookie Jar。
+	replacement := []cookierefresh.BrowserCookie{{Name: "sid", Value: "new", Domain: ".goofish.com", Path: "/"}}
+	session.ReplaceSnapshot(replacement)
+	// snapshot 保存替换后的完整快照副本。
+	snapshot := session.Snapshot()
+	if len(snapshot) != 1 || snapshot[0].Value != "new" {
+		t.Fatalf("快照替换结果错误: %+v", snapshot)
+	}
+	// nilSession 验证空接收者方法的安全返回值。
+	var nilSession *CookieSession
+	// value、snapshot、changed 保存空会话状态的各返回值。
+	if value, snapshot, changed := nilSession.State(); value != "" || snapshot != nil || changed || nilSession.Snapshot() != nil {
+		t.Fatal("空会话状态结果错误")
+	}
+	nilSession.ReplaceSnapshot(nil)
 }
 
 // TestScopedCookieHeaderForRequestIncludesMatchingPartitionAndUnpartitioned 封装TestScoped登录凭证HeaderFor请求IncludesMatchingPartitionAndUnpartitioned业务协调。

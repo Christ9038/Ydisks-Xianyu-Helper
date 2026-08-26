@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -63,6 +64,13 @@ func TestServiceAvailabilityReportsRequiredPorts(t *testing.T) {
 	available := NewWithSending(nil, &sendRepository{}, sendProvider{}, sendUploader{})
 	if !available.SendingAvailable() || !available.ImageUploadAvailable() {
 		t.Fatal("完整装配的聊天能力应报告可用")
+	}
+	// identity 是构造函数可选的平台身份端口。
+	identity := fakeIdentityResolver{}
+	// withIdentity 是验证可选身份端口装配的服务。
+	withIdentity := NewWithSending(nil, nil, nil, nil, identity)
+	if withIdentity.identityResolver == nil {
+		t.Fatal("optional identity resolver was not installed")
 	}
 }
 
@@ -160,6 +168,21 @@ func TestSendTextStatusFailureReturnsSentMessage(t *testing.T) {
 	}
 }
 
+// TestSendTextPropagatesOutgoingCreationFailure 验证本地待发送消息创建失败时不会访问平台发送端口。
+func TestSendTextPropagatesOutgoingCreationFailure(t *testing.T) {
+	// createErr 是本地待发送消息创建端口返回的稳定错误。
+	createErr := errors.New("create outgoing failed")
+	// sender 是不应被调用的在线发送器替身。
+	sender := &sendSender{}
+	// service 是绑定本地创建失败端口的聊天发送服务。
+	service := NewWithSending(nil, &sendRepository{createErr: createErr}, sendProvider{sender: sender}, nil)
+	// returnedErr 保存应用服务返回的创建失败错误。
+	_, returnedErr := service.SendText(context.Background(), OutgoingInput{Session: Session{AccountID: "acc-1", ChatID: "chat-1", BuyerID: "buyer-1"}, Text: "你好"})
+	if returnedErr == nil || !strings.Contains(returnedErr.Error(), "create outgoing failed") || sender.sentKey != "" {
+		t.Fatalf("创建外发消息失败未透传：err=%v sender=%q", returnedErr, sender.sentKey)
+	}
+}
+
 // TestSendRejectsUnavailableOfflineAndInvalidInputs 验证不可用、离线和非法输入均在访问端口前失败。
 func TestSendRejectsUnavailableOfflineAndInvalidInputs(t *testing.T) {
 	// session 保存可复用的有效会话参数。
@@ -233,5 +256,69 @@ func TestSendImageStatusFailureReturnsSentMessage(t *testing.T) {
 	message, err := service.SendImage(context.Background(), ImageInput{Session: Session{AccountID: "acc-1", ChatID: "chat-1", BuyerID: "buyer-1"}, Filename: "a.jpg", ContentType: "image/jpeg", Data: []byte("image")})
 	if !errors.Is(err, ErrStatusSave) || message == nil || message.MessageKey != "local-image" || sender.sentKey != "local-image" {
 		t.Fatalf("message=%+v err=%v key=%q", message, err, sender.sentKey)
+	}
+}
+
+// TestSendImageCoversValidationUploadCreationAndPlatformFailures 验证图片发送在各外发阶段失败时的稳定错误语义。
+func TestSendImageCoversValidationUploadCreationAndPlatformFailures(t *testing.T) {
+	// session 是图片发送测试共用的有效会话。
+	session := Session{AccountID: "acc-1", ChatID: "chat-1", BuyerID: "buyer-1"}
+	// input 是图片发送测试共用的有效输入。
+	input := ImageInput{Session: session, Filename: "a.jpg", ContentType: "image/jpeg", Data: []byte("image")}
+	// unavailable 是缺少图片发送端口的服务。
+	unavailable := NewWithSending(nil, nil, nil, nil)
+	// unavailableErr 保存缺少图片发送端口时的错误。
+	if _, unavailableErr := unavailable.SendImage(context.Background(), input); !errors.Is(unavailableErr, ErrUnavailable) {
+		t.Fatalf("unavailable image error=%v", unavailableErr)
+	}
+	// emptyData 是没有图片内容的非法输入。
+	emptyData := input
+	emptyData.Data = nil
+	// ready 是具备所有图片发送端口的服务。
+	ready := NewWithSending(nil, &sendRepository{}, sendProvider{sender: &sendSender{}}, sendUploader{result: ImageUpload{URL: "https://cdn.example/image.jpg"}})
+	// emptyDataErr 保存空图片内容的输入错误。
+	if _, emptyDataErr := ready.SendImage(context.Background(), emptyData); !errors.Is(emptyDataErr, ErrSendInvalidInput) {
+		t.Fatalf("empty image error=%v", emptyDataErr)
+	}
+	// invalidSession 保存缺少账号标识的图片发送输入。
+	invalidSession := input
+	invalidSession.Session.AccountID = ""
+	// invalidSessionErr 保存图片会话标识校验错误。
+	if _, invalidSessionErr := ready.SendImage(context.Background(), invalidSession); !errors.Is(invalidSessionErr, ErrSendInvalidInput) {
+		t.Fatalf("invalid image session error=%v", invalidSessionErr)
+	}
+	// offline 是没有在线发送器的图片服务。
+	offline := NewWithSending(nil, &sendRepository{}, sendProvider{}, sendUploader{})
+	// offlineErr 保存离线账号的图片发送错误。
+	if _, offlineErr := offline.SendImage(context.Background(), input); !errors.Is(offlineErr, ErrOffline) {
+		t.Fatalf("offline image error=%v", offlineErr)
+	}
+	// uploadFailure 是图片上传返回错误的服务。
+	uploadFailure := NewWithSending(nil, &sendRepository{}, sendProvider{sender: &sendSender{}}, sendUploader{err: errors.New("upload failed")})
+	// uploadErr 保存图片上传失败的错误。
+	if _, uploadErr := uploadFailure.SendImage(context.Background(), input); !errors.Is(uploadErr, ErrSend) {
+		t.Fatalf("upload failure=%v", uploadErr)
+	}
+	// emptyURL 是图片上传没有返回可发送地址的服务。
+	emptyURL := NewWithSending(nil, &sendRepository{}, sendProvider{sender: &sendSender{}}, sendUploader{result: ImageUpload{}})
+	// emptyURLErr 保存图片上传没有地址时的错误。
+	if _, emptyURLErr := emptyURL.SendImage(context.Background(), input); !errors.Is(emptyURLErr, ErrSend) {
+		t.Fatalf("empty URL error=%v", emptyURLErr)
+	}
+	// createFailure 是本地待发送图片消息写入失败的服务。
+	createFailure := NewWithSending(nil, &sendRepository{createErr: errors.New("create failed")}, sendProvider{sender: &sendSender{}}, sendUploader{result: ImageUpload{URL: "https://cdn.example/image.jpg"}})
+	// createErr 保存本地图片消息写入失败的错误。
+	if _, createErr := createFailure.SendImage(context.Background(), input); createErr == nil {
+		t.Fatalf("create failure=%v", createErr)
+	}
+	// senderFailure 是平台图片发送失败的服务。
+	// senderFailureRepository 保存平台发送失败后的本地状态记录。
+	senderFailureRepository := &sendRepository{}
+	// senderFailure 是平台图片发送失败的聊天服务。
+	senderFailure := NewWithSending(nil, senderFailureRepository, sendProvider{sender: &sendSender{sendErr: errors.New("send failed")}}, sendUploader{result: ImageUpload{URL: "https://cdn.example/image.jpg"}})
+	// message、sendErr 保存平台图片发送失败后的本地消息及错误。
+	message, sendErr := senderFailure.SendImage(context.Background(), input)
+	if !errors.Is(sendErr, ErrSend) || message == nil || len(senderFailureRepository.statuses) != 1 || senderFailureRepository.statuses[0] != "failed" {
+		t.Fatalf("message=%+v err=%v statuses=%v", message, sendErr, senderFailureRepository.statuses)
 	}
 }

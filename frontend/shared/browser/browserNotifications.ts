@@ -3,7 +3,7 @@ import { useCallback,useEffect,useState } from 'react';
 /** BROWSER_NOTIFICATION_PREFERENCE_KEY 保存当前浏览器的系统通知开关，不写入服务端配置。 */
 export const BROWSER_NOTIFICATION_PREFERENCE_KEY = 'ydisks.browser_notifications.enabled';
 
-/** BROWSER_NOTIFICATION_CHANGE_EVENT 用于同一标签页内同步设置页与应用壳的通知偏好。 */
+/** BROWSER_NOTIFICATION_CHANGE_EVENT 用于同一标签页内同步聊天页与应用壳的通知偏好。 */
 const BROWSER_NOTIFICATION_CHANGE_EVENT = 'ydisks:browser-notification-preference-changed';
 
 /** BrowserNotificationPermission 统一表示浏览器通知权限以及当前环境不支持的状态。 */
@@ -27,7 +27,7 @@ export type BrowserNotificationUpdateResult = {
   permission: BrowserNotificationPermission;
 };
 
-/** BrowserNotificationPreferenceState 描述设置页可直接消费的通知偏好状态。 */
+/** BrowserNotificationPreferenceState 描述聊天页可直接消费的通知偏好状态。 */
 export type BrowserNotificationPreferenceState = {
   /** enabled 表示当前浏览器是否允许应用发出系统通知。 */
   enabled: boolean;
@@ -127,7 +127,7 @@ export const showBrowserNotification = (payload: BrowserNotificationPayload): bo
   }
 };
 
-/** useBrowserNotificationPreference 管理设置页通知状态，并清理跨标签页与同页同步监听。 */
+/** useBrowserNotificationPreference 管理当前浏览器通知状态，并清理跨标签页与同页同步监听。 */
 export const useBrowserNotificationPreference = (): BrowserNotificationPreferenceState => {
   /** enabled 保存当前浏览器的通知开关，而非服务端共享配置。 */
   const [enabled, setEnabledState] = useState(() => readBrowserNotificationEnabled());

@@ -12,6 +12,9 @@ import (
 // ErrDeliveryTemplateReferenced 表示模板仍被自动化动作引用，暂不能删除。
 var ErrDeliveryTemplateReferenced = errors.New("发货模板仍被自动化规则引用")
 
+// ErrDeliveryTemplateVariableConflict 表示被规则引用的模板发生了变量键不兼容变更。
+var ErrDeliveryTemplateVariableConflict = errors.New("发货模板变量已被自动化规则引用，不能不兼容修改")
+
 // DeliveryTemplate 是发货模板的数据库读取模型和自动化执行摘要。
 type DeliveryTemplate struct {
 	// ID 是模板主键。
@@ -231,6 +234,51 @@ func (d *DeliveryTemplateStore) Update(ctx context.Context, userID, templateID i
 		return err
 	}
 	defer tx.Rollback()
+	// owned 表示事务内确认模板归属，避免更新前泄露或修改其他用户的数据。
+	var owned bool
+	// err 保存事务内模板归属查询错误。
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM delivery_templates WHERE id=? AND user_id=? AND deleted_at IS NULL)`, templateID, userID).Scan(&owned); err != nil {
+		return err
+	}
+	if !owned {
+		return ErrNotFound
+	}
+	// oldContents 保存事务内读取的旧模板消息，用于比较规则引用的变量契约。
+	// oldRows 保存旧模板消息的事务查询游标。
+	oldRows, err := tx.QueryContext(ctx, `SELECT content FROM delivery_template_messages WHERE template_id=? ORDER BY sort_order ASC,id ASC`, templateID)
+	if err != nil {
+		return err
+	}
+	// oldContents 保存旧模板消息正文，供变量契约比较。
+	oldContents := make([]string, 0)
+	for oldRows.Next() {
+		// content 保存旧模板的一条消息正文。
+		var content string
+		// err 保存旧模板消息扫描错误。
+		if err := oldRows.Scan(&content); err != nil {
+			oldRows.Close()
+			return err
+		}
+		oldContents = append(oldContents, content)
+	}
+	// err 保存旧模板消息遍历错误。
+	if err := oldRows.Err(); err != nil {
+		oldRows.Close()
+		return err
+	}
+	oldRows.Close()
+	// referenced、referenceErr 表示当前模板是否仍被未删除规则引用及查询错误。
+	referenced, referenceErr := deliveryTemplateHasLiveRuleReferences(ctx, tx, templateID)
+	if referenceErr != nil {
+		return referenceErr
+	}
+	if referenced {
+		// oldParsed 保存旧消息的变量键集合；历史脏数据按不兼容处理，禁止继续破坏规则契约。
+		oldParsed, oldParseErr := deliverytemplate.Parse(oldContents)
+		if oldParseErr != nil || !sameStringSet(oldParsed.Keys, parsed.Keys) || !sameStringSet(oldParsed.CustomKeys, parsed.CustomKeys) {
+			return ErrDeliveryTemplateVariableConflict
+		}
+	}
 	// res、err 保存模板基础字段更新结果及错误。
 	res, err := tx.ExecContext(ctx, `UPDATE delivery_templates SET name=?,enabled=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=? AND deleted_at IS NULL`, strings.TrimSpace(input.Name), boolToInt(input.Enabled), templateID, userID)
 	if err != nil {
@@ -250,6 +298,25 @@ func (d *DeliveryTemplateStore) Update(ctx context.Context, userID, templateID i
 		return err
 	}
 	return tx.Commit()
+}
+
+// sameStringSet 比较变量键集合，不把模板中变量出现顺序变化视为契约不兼容。
+func sameStringSet(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	// seen 保存左侧变量键集合。
+	seen := make(map[string]struct{}, len(left))
+	for /* value 表示左侧变量键。 */ _, value := range left {
+		seen[value] = struct{}{}
+	}
+	for /* value 表示右侧变量键。 */ _, value := range right {
+		// ok 表示右侧变量键是否存在于左侧集合。
+		if _, ok := seen[value]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // insertDeliveryTemplateMessages 按顺序插入模板消息。
@@ -278,13 +345,12 @@ func (d *DeliveryTemplateStore) Delete(ctx context.Context, userID, templateID i
 	if !owned {
 		return ErrNotFound
 	}
-	// references 保存仍引用该模板的动作数量。
-	var references int
-	// err 保存模板引用计数查询错误。
-	if err := d.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM automation_rule_actions WHERE delivery_template_id=?`, templateID).Scan(&references); err != nil {
-		return err
+	// referenced、referenceErr 表示当前模板是否仍被未删除规则引用及查询错误。
+	referenced, referenceErr := deliveryTemplateHasLiveRuleReferences(ctx, d.DB, templateID)
+	if referenceErr != nil {
+		return referenceErr
 	}
-	if references > 0 {
+	if referenced {
 		return ErrDeliveryTemplateReferenced
 	}
 	// res、err 保存模板逻辑删除结果及错误。
@@ -298,6 +364,19 @@ func (d *DeliveryTemplateStore) Delete(ctx context.Context, userID, templateID i
 		return ErrNotFound
 	}
 	return nil
+}
+
+// deliveryTemplateHasLiveRuleReferences 判断模板是否仍被未逻辑删除的规则动作引用。
+func deliveryTemplateHasLiveRuleReferences(ctx context.Context, execer sqlQueryExecer, templateID int64) (bool, error) {
+	// referenced 保存当前模板是否仍被有效规则引用。
+	var referenced bool
+	// err 保存模板有效引用查询错误。
+	err := execer.QueryRowContext(ctx, `SELECT EXISTS(
+		SELECT 1 FROM automation_rule_actions a
+		JOIN automation_rules r ON r.id=a.rule_id
+		WHERE a.delivery_template_id=? AND r.deleted_at IS NULL
+	)`, templateID).Scan(&referenced)
+	return referenced, err
 }
 
 // validate 检查模板仓储是否已经绑定数据库。

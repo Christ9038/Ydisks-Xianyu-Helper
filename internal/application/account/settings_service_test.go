@@ -18,6 +18,10 @@ type fakeSettingsRepository struct {
 	status bool
 	// statusErr 是账号状态查询错误。
 	statusErr error
+	// statusWriteErr 是账号启停状态持久化错误。
+	statusWriteErr error
+	// statusWriteErrs 保存按调用顺序返回的账号启停状态持久化错误。
+	statusWriteErrs []error
 	// lockCalls 是凭证锁获取次数。
 	lockCalls int
 	// unlockCalls 是凭证锁释放次数。
@@ -26,6 +30,12 @@ type fakeSettingsRepository struct {
 	statusWrites int
 	// clearTokensErr 是清理旧连接凭证时返回的预置错误。
 	clearTokensErr error
+	// loginErr、pauseErr 是登录信息和暂停写入时的预置错误。
+	loginErr, pauseErr error
+	// pauseState 是暂停查询返回的非敏感状态。
+	pauseState PauseState
+	// getPauseErr 是暂停查询需要返回的预置错误。
+	getPauseErr error
 }
 
 // LockCredentials 记录凭证锁的获取和释放。
@@ -41,13 +51,19 @@ func (f *fakeSettingsRepository) UpdateSettings(context.Context, SettingsUpdateI
 
 // UpdateLoginInfo 模拟登录信息保存成功。
 func (f *fakeSettingsRepository) UpdateLoginInfo(context.Context, LoginInfoUpdateInput) error {
-	return nil
+	return f.loginErr
 }
 
 // SetStatusOwned 记录状态写入并返回预置错误。
 func (f *fakeSettingsRepository) SetStatusOwned(context.Context, int64, string, bool, string) error {
 	f.statusWrites++
-	return nil
+	if len(f.statusWriteErrs) > 0 {
+		// statusWriteErr 保存当前调用按顺序取出的状态写入错误。
+		statusWriteErr := f.statusWriteErrs[0]
+		f.statusWriteErrs = f.statusWriteErrs[1:]
+		return statusWriteErr
+	}
+	return f.statusWriteErr
 }
 
 // StatusOwned 返回预置的账号启用状态。
@@ -57,12 +73,12 @@ func (f *fakeSettingsRepository) StatusOwned(context.Context, int64, string) (bo
 
 // SetPauseOwned 返回预置的暂停截止时间。
 func (f *fakeSettingsRepository) SetPauseOwned(context.Context, int64, string, int) (int64, error) {
-	return f.updateResult, nil
+	return f.updateResult, f.pauseErr
 }
 
 // GetPauseOwned 返回未暂停的默认状态。
 func (f *fakeSettingsRepository) GetPauseOwned(context.Context, int64, string) (PauseState, error) {
-	return PauseState{}, nil
+	return f.pauseState, f.getPauseErr
 }
 
 // ClearTokens 模拟 Cookie 更新后清理旧连接凭证。
@@ -301,5 +317,77 @@ func TestSettingsServiceStatusControlsRuntime(t *testing.T) {
 	}
 	if repository.statusWrites != 2 {
 		t.Fatalf("status writes=%d", repository.statusWrites)
+	}
+}
+
+// TestSettingsServiceDelegatesLoginPauseAndConvenienceUpdates 验证登录资料、暂停状态和快捷设置入口的端口转发。
+func TestSettingsServiceDelegatesLoginPauseAndConvenienceUpdates(t *testing.T) {
+	// wantErr 是设置仓储返回的确定性错误。
+	wantErr := errors.New("settings repository failed")
+	// repository 是带暂停状态和错误注入能力的设置仓储替身。
+	repository := &fakeSettingsRepository{updateResult: 42, pauseState: PauseState{Duration: 5, PausedUntil: 99, Paused: true}, loginErr: wantErr, pauseErr: wantErr}
+	// service、err 保存账号设置服务及构造错误。
+	service, err := NewSettingsService(repository, nil)
+	if err != nil {
+		t.Fatalf("NewSettingsService: %v", err)
+	}
+	// loginErr 保存登录资料写入返回的错误。
+	if loginErr := service.UpdateLoginInfo(context.Background(), LoginInfoUpdateInput{UserID: 7, AccountID: "account", Username: "user"}); !errors.Is(loginErr, wantErr) {
+		t.Fatalf("login error=%v", loginErr)
+	}
+	// pauseResult、pauseErr 保存暂停设置结果及错误。
+	pauseResult, pauseErr := service.SetPause(context.Background(), 7, "account", 5)
+	if pauseResult.PausedUntil != 42 || !errors.Is(pauseErr, wantErr) {
+		t.Fatalf("pause result=%+v err=%v", pauseResult, pauseErr)
+	}
+	// pauseState、getErr 保存暂停查询结果及错误。
+	pauseState, getErr := service.GetPause(context.Background(), 7, "account")
+	if getErr != nil || !pauseState.Paused || pauseState.Duration != 5 {
+		t.Fatalf("pause state=%+v err=%v", pauseState, getErr)
+	}
+	// repository.getPauseErr 保存暂停查询端口的错误传播场景。
+	repository.getPauseErr = wantErr
+	// failedPauseState、failedPauseErr 保存暂停查询失败后的结果。
+	failedPauseState, failedPauseErr := service.GetPause(context.Background(), 7, "account")
+	if failedPauseState != repository.pauseState || !errors.Is(failedPauseErr, wantErr) {
+		t.Fatalf("failed pause state=%+v err=%v", failedPauseState, failedPauseErr)
+	}
+	// repository.getPauseErr 清除测试替身的暂停查询错误，供后续快捷设置继续使用。
+	repository.getPauseErr = nil
+	// autoConfirmErr 保存快捷设置自动确认开关的错误。
+	if _, autoConfirmErr := service.SetAutoConfirm(context.Background(), 7, "account", true); autoConfirmErr != nil {
+		t.Fatalf("SetAutoConfirm error=%v", autoConfirmErr)
+	}
+	// remarkErr 保存快捷设置备注的错误。
+	if _, remarkErr := service.SetRemark(context.Background(), 7, "account", "remark"); remarkErr != nil {
+		t.Fatalf("SetRemark error=%v", remarkErr)
+	}
+	// invalidService 表示未初始化的账号设置服务指针。
+	var invalidService *SettingsService
+	// invalidPauseErr 保存未初始化服务设置暂停时的错误。
+	if _, invalidPauseErr := invalidService.SetPause(context.Background(), 7, "account", 1); invalidPauseErr == nil {
+		t.Fatal("nil SetPause should fail")
+	}
+	// invalidGetPauseErr 保存未初始化服务查询暂停时的错误。
+	if _, invalidGetPauseErr := invalidService.GetPause(context.Background(), 7, "account"); invalidGetPauseErr == nil {
+		t.Fatal("nil GetPause should fail")
+	}
+	// uninitializedService 表示字段未装配仓储的设置服务。
+	uninitializedService := &SettingsService{}
+	// uninitializedPauseErr 保存未装配仓储时查询暂停的错误。
+	if _, uninitializedPauseErr := uninitializedService.GetPause(context.Background(), 7, "account"); uninitializedPauseErr == nil {
+		t.Fatal("未装配仓储的 GetPause should fail")
+	}
+	// invalidLoginErr 保存未初始化服务更新登录资料时的错误。
+	if invalidLoginErr := invalidService.UpdateLoginInfo(context.Background(), LoginInfoUpdateInput{AccountID: "account"}); invalidLoginErr == nil {
+		t.Fatal("nil UpdateLoginInfo should fail")
+	}
+	// emptyAccountPauseErr 保存空账号设置暂停时的输入错误。
+	if _, emptyAccountPauseErr := service.SetPause(context.Background(), 7, "", 1); emptyAccountPauseErr == nil {
+		t.Fatal("empty account pause should fail")
+	}
+	// emptyAccountGetPauseErr 保存空账号查询暂停时的输入错误。
+	if _, emptyAccountGetPauseErr := service.GetPause(context.Background(), 7, ""); emptyAccountGetPauseErr == nil {
+		t.Fatal("empty account get pause should fail")
 	}
 }

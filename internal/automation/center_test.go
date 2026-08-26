@@ -1581,6 +1581,66 @@ func TestManualFullDeliveryIsImmediateIdempotentAndForcesConfirmation(t *testing
 	}
 }
 
+// TestManualFullDeliveryCarriesRenderedTemplateProof 验证模板实际发送内容会原样传给确认发货。
+func TestManualFullDeliveryCarriesRenderedTemplateProof(t *testing.T) {
+	// store、cleanup 保存模板完整发货测试使用的数据库和清理函数。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// ctx 保存本测试共用的数据库上下文。
+	ctx := context.Background()
+	// admin 保存创建模板和卡密组所需的用户。
+	admin, err := store.Users.GetByUsername(ctx, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// cardID 保存模板绑定的文本卡密组标识。
+	cardID, err := store.Cards.Create(ctx, &db.CardFull{Name: "template-card", Type: "text", TextContent: "TEMPLATE-CODE", Enabled: true, UserID: admin.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// templateID 保存包含订单字段和卡密变量的模板标识。
+	templateID, err := store.DeliveryTemplates.Create(ctx, db.DeliveryTemplateInput{
+		UserID: admin.ID, Name: "template-delivery", Enabled: true,
+		Messages: []string{"订单 {{order_id}} 卡密 {{cards.code}}", "买家 {{buyer_id}}"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// ruleID、ruleErr 保存模板发货和确认发货动作组成的规则。
+	_, ruleErr := store.Automation.Create(ctx, db.AutomationRuleInput{
+		UserID: admin.ID, CookieID: "cid", ItemID: "template-item", Name: "template-rule", TriggerType: TriggerOrderPaid, Enabled: true,
+		Actions: []db.AutomationActionInput{
+			{ActionType: ActionSendTemplate, DeliveryTemplateID: templateID, ConfigJSON: `{}`, TemplateBindings: []db.DeliveryTemplateBinding{{VariableKey: "code", CardID: cardID, DeliveryCount: 1}}, Enabled: true, SortOrder: 1},
+			{ActionType: ActionConfirmShipment, Enabled: true, SortOrder: 2},
+		},
+	})
+	if ruleErr != nil {
+		t.Fatal(ruleErr)
+	}
+	// itemErr 保存自动化规则匹配所需的商品信息写入错误。
+	if _, itemErr := store.DB.ExecContext(ctx, `INSERT INTO item_info (cookie_id,item_id,item_title) VALUES ('cid','template-item','模板商品')`); itemErr != nil {
+		t.Fatal(itemErr)
+	}
+	// sender 保存模板实际发送给买家的消息。
+	sender := &testSender{}
+	// mtopMock 保存确认发货收到的凭证。
+	mtopMock := &fakeMTop{consignOk: true}
+	// center 保存注入测试发送器和 MTop 的自动化中心。
+	center := NewWithDependencies(store, testSenderProvider{sender: sender}, nil, CenterDependencies{
+		MTop:               mtopMock,
+		OrderDetailFetcher: testFetcher{detail: &OrderDetail{Quantity: "1", OrderStatus: "pending_ship"}},
+	})
+	// order 保存本次完整发货的订单事实。
+	order := &db.Order{OrderID: "template-order", CookieID: "cid", ItemID: "template-item", BuyerID: "buyer", ChatID: "chat", Quantity: "1", OrderStatus: "pending_ship"}
+	// sent、sendErr 保存模板完整发货结果和错误。
+	sent, sendErr := center.ManualFullDelivery(ctx, order)
+	// wantText 保存模板渲染后买家实际收到的完整文本。
+	wantText := "订单 template-order 卡密 TEMPLATE-CODE\n买家 buyer"
+	if sendErr != nil || sent != 2 || len(sender.texts) != 2 || sender.texts[0] != "订单 template-order 卡密 TEMPLATE-CODE" || sender.texts[1] != "买家 buyer" || mtopMock.consignTradeTextIn != wantText {
+		t.Fatalf("模板凭证链路错误：sent=%d texts=%v trade_text=%q err=%v", sent, sender.texts, mtopMock.consignTradeTextIn, sendErr)
+	}
+}
+
 // newManualDeliveryFixture 创建可重复使用的手动完整发货测试夹具，并返回清理函数。
 func newManualDeliveryFixture(t *testing.T, orderID string) (context.Context, *db.Store, *Center, *testSender, *fakeMTop, *db.Order, func()) {
 	t.Helper()

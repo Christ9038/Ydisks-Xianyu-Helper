@@ -78,14 +78,18 @@ describe('frontend navigation routing', () => {
     expect(settings).toContain('保存后需重启服务生效');
   } /* 测试回调断言已登录应用的路由、访问控制或延迟加载契约。 */);
 
-  test('settings page exposes the browser notification switch', () => {
-    const settings = readFrontendFile('app/features/settings/pages/Settings.tsx'); /* settings 表示设置页源码，用于确认浏览器通知入口仍可见。 */
+  test('chat page exposes the browser notification switch', () => {
+    const chat = readFrontendFile('app/features/chat/components/BrowserNotificationToggle.tsx'); /* chat 表示聊天页通知入口源码，用于确认普通用户可见。 */
+    const chatPage = readFrontendFile('app/features/chat/pages/Chat.tsx'); /* chatPage 表示聊天页组合源码，用于确认开关实际挂载。 */
+    const settings = readFrontendFile('app/features/settings/pages/Settings.tsx'); /* settings 表示设置页源码，用于确认入口已迁移。 */
 
-    expect(settings).toContain('新消息系统通知');
-    expect(settings).toContain('role="switch"');
-    expect(settings).toContain('useBrowserNotificationPreference');
-    expect(settings).toContain('仅保存在当前浏览器');
-  } /* 测试回调断言设置页包含浏览器通知开关及其本地偏好说明。 */);
+    expect(chat).toContain('新消息系统通知');
+    expect(chat).toContain('role="switch"');
+    expect(chat).toContain('useBrowserNotificationPreference');
+    expect(chatPage).toContain("import BrowserNotificationToggle from '../components/BrowserNotificationToggle'");
+    expect(chatPage).toContain('<BrowserNotificationToggle />');
+    expect(settings).not.toContain('新消息系统通知');
+  } /* 测试回调断言聊天页包含浏览器通知开关且管理员设置页不再重复展示。 */);
 
   test('admin-only settings navigation is gated by session role', () => {
     const app = readFrontendFile('app/router/AppRouter.tsx'); /* app 表示认证后路由组合器源码。 */

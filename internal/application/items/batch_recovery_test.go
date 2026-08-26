@@ -27,6 +27,12 @@ type batchRecoveryRepositoryFake struct {
 	canceled []string
 	// finalized 保存没有待处理明细的批次标识。
 	finalized []string
+	// claimSuccess 控制租约抢占是否成功；为空时默认成功。
+	claimSuccess *bool
+	// claimErr 保存租约抢占错误。
+	claimErr error
+	// recountErr 保存统计重算错误；恢复服务应忽略该错误继续查询明细。
+	recountErr error
 }
 
 // batchRecoveryClaim 保存一次批次租约抢占或释放调用。
@@ -56,6 +62,12 @@ func (repository *batchRecoveryRepositoryFake) FinalizeExpiredCancellation(_ con
 // ClaimBatch 记录批次租约抢占并允许测试继续执行。
 func (repository *batchRecoveryRepositoryFake) ClaimBatch(_ context.Context, batchID, workerToken string, leaseExpiresAt int64) (bool, error) {
 	repository.claimed = append(repository.claimed, batchRecoveryClaim{batchID: batchID, workerToken: workerToken, leaseExpiresAt: leaseExpiresAt})
+	if repository.claimErr != nil {
+		return false, repository.claimErr
+	}
+	if repository.claimSuccess != nil {
+		return *repository.claimSuccess, nil
+	}
 	return true, nil
 }
 
@@ -66,7 +78,7 @@ func (repository *batchRecoveryRepositoryFake) ResetInterrupted(_ context.Contex
 
 // RecountBatch 表示测试仓储已经完成统计重算。
 func (repository *batchRecoveryRepositoryFake) RecountBatch(_ context.Context, _ string) error {
-	return nil
+	return repository.recountErr
 }
 
 // PendingRows 返回指定批次接管后的待处理明细。

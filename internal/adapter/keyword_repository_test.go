@@ -47,6 +47,11 @@ func TestKeywordRepositoryCRUDMapping(t *testing.T) {
 	if replacedErr != nil || len(replacedRows) != 1 || replacedRows[0].Type != "image" {
 		t.Fatalf("替换结果异常 rows=%+v err=%v", replacedRows, replacedErr)
 	}
+	// deleteIndexErr 保存按稳定索引删除替换后关键词的结果。
+	deleteIndexErr := repository.DeleteByIndex(ctx, owner.ID, "cid", 0)
+	if deleteIndexErr != nil {
+		t.Fatal(deleteIndexErr)
+	}
 	// setErr 保存指定商品回复写入结果。
 	if setErr := repository.SetItemReply(ctx, owner.ID, "cid", "item-1", "专属回复"); setErr != nil {
 		t.Fatal(setErr)
@@ -126,6 +131,73 @@ func TestKeywordRepositoryPropagatesInfrastructureErrors(t *testing.T) {
 	_, missingErr := NewKeywordRepository(nil).List(context.Background(), 1, "cid")
 	if missingErr == nil {
 		t.Fatal("缺少 Store 时应返回装配错误")
+	}
+}
+
+// TestKeywordRepositoryCoversClosedDatabaseOperations 验证关键词和商品回复端点传播数据库故障。
+func TestKeywordRepositoryCoversClosedDatabaseOperations(t *testing.T) {
+	// store 是随后主动关闭数据库连接的测试存储。
+	store, cleanup := newAdapterTestStore(t)
+	defer cleanup()
+	// repository 是绑定已关闭数据库的关键词适配器。
+	repository := NewKeywordRepository(store)
+	// closeErr 表示主动关闭测试数据库连接时的资源释放错误。
+	if closeErr := store.DB.Close(); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	// ctx 是本测试全部数据库操作使用的非取消上下文。
+	ctx := context.Background()
+	// operations 保存需要统一验证底层错误传播的关键词操作结果。
+	operations := []struct {
+		name string
+		err  error
+	}{
+		{name: "列表", err: func() error {
+			// err 表示关键词列表在关闭数据库后的底层错误。
+			_, err := repository.List(ctx, 1, "cid")
+			return err
+		}()},
+		{name: "添加", err: func() error {
+			// err 表示关键词创建在关闭数据库后的底层错误。
+			_, err := repository.Add(ctx, 1, "cid", keywordsapp.Draft{})
+			return err
+		}()},
+		{name: "替换", err: repository.Replace(ctx, 1, "cid", nil)},
+		{name: "更新", err: repository.Update(ctx, 1, "cid", 1, keywordsapp.Draft{})},
+		{name: "按 ID 删除", err: repository.DeleteByID(ctx, 1, "cid", 1)},
+		{name: "按索引删除", err: repository.DeleteByIndex(ctx, 1, "cid", 0)},
+		{name: "商品回复列表", err: func() error {
+			// err 表示商品回复列表在关闭数据库后的底层错误。
+			_, err := repository.ListItemReplies(ctx, 1)
+			return err
+		}()},
+		{name: "商品回复读取", err: func() error {
+			// err 表示商品回复读取在关闭数据库后的底层错误。
+			_, err := repository.GetItemReply(ctx, 1, "cid", "item")
+			return err
+		}()},
+		{name: "商品回复写入", err: repository.SetItemReply(ctx, 1, "cid", "item", "reply")},
+		{name: "商品回复删除", err: repository.DeleteItemReply(ctx, 1, "cid", "item")},
+	}
+	// operation 表示当前待验证的关键词操作及其底层结果。
+	for _, operation := range operations {
+		if operation.err == nil {
+			t.Errorf("%s 未传播数据库故障", operation.name)
+		}
+	}
+}
+
+// TestKeywordRepositoryMapsMissingOwnedAccount 验证账号不存在时归属授权返回资源缺失错误。
+func TestKeywordRepositoryMapsMissingOwnedAccount(t *testing.T) {
+	// store、cleanup 保存隔离的 SQLite 存储和关闭责任。
+	store, cleanup := newAdapterTestStore(t)
+	defer cleanup()
+	// repository 是待验证的关键词适配器。
+	repository := NewKeywordRepository(store)
+	// err 保存不存在账号的归属授权结果。
+	_, err := repository.List(context.Background(), 1, "missing-cookie")
+	if !errors.Is(err, keywordsapp.ErrNotFound) {
+		t.Fatalf("不存在账号应映射为 ErrNotFound，err=%v", err)
 	}
 }
 

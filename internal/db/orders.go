@@ -158,17 +158,30 @@ type BatchOrderUpsert struct {
 	Options OrderUpsertOpts
 }
 
-// UpsertMany 使用单条多值 UPSERT 写入一批订单，避免详情分片逐订单往返数据库。
+// UpsertMany 使用最多两条多值 UPSERT 写入一批订单，并保证分组写入的原子性。
 func (o *Orders) UpsertMany(ctx context.Context, rows []BatchOrderUpsert) error {
-	return upsertManyOrders(ctx, o.DB, o.Dialect, rows)
+	if len(rows) == 0 {
+		return nil
+	}
+	// tx、err 保存混合 CreatedAt 批次共用的事务及开启错误，避免第二组写入失败留下半批数据。
+	tx, err := o.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	// err 保存批量订单分组写入错误。
+	if err := upsertManyOrders(ctx, tx, o.Dialect, rows); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
-// UpsertManyTx 在调用方事务内使用单条多值 UPSERT 写入一批订单。
+// UpsertManyTx 在调用方事务内使用最多两条多值 UPSERT 写入一批订单。
 func (o *Orders) UpsertManyTx(ctx context.Context, tx *sql.Tx, rows []BatchOrderUpsert) error {
 	return upsertManyOrders(ctx, tx, o.Dialect, rows)
 }
 
-// upsertManyOrders 构造跨 SQLite/MySQL/Postgres 的多值订单 UPSERT。
+// upsertManyOrders 校验批量订单并按 CreatedAt 是否存在分组执行跨方言 UPSERT。
 func upsertManyOrders(ctx context.Context, execer sqlQueryExecer, dialect Dialect, rows []BatchOrderUpsert) error {
 	if len(rows) == 0 {
 		return nil
@@ -231,35 +244,52 @@ func upsertManyOrders(ctx context.Context, execer sqlQueryExecer, dialect Dialec
 		}
 	}
 
-	// includeCreatedAt 表示本批次是否至少有一条平台订单携带创建时间。
-	includeCreatedAt := false
-	// row 表示当前检查是否包含平台创建时间的批量订单。
+	// rowsWithCreatedAt 和 rowsWithoutCreatedAt 分别保存有、无平台创建时间的订单组。
+	rowsWithCreatedAt := make([]BatchOrderUpsert, 0, len(normalizedRows))
+	// rowsWithoutCreatedAt 保存未提供平台创建时间的订单组。
+	rowsWithoutCreatedAt := make([]BatchOrderUpsert, 0, len(normalizedRows))
+	// row 表示当前待按创建时间分组的订单。
 	for _, row := range normalizedRows {
-		if row.Options.CreatedAt != "" {
-			includeCreatedAt = true
-			break
+		if row.Options.CreatedAt == "" {
+			rowsWithoutCreatedAt = append(rowsWithoutCreatedAt, row)
+			continue
+		}
+		rowsWithCreatedAt = append(rowsWithCreatedAt, row)
+	}
+	if len(rowsWithoutCreatedAt) > 0 {
+		// err 保存无平台创建时间订单组的 UPSERT 错误。
+		if err := upsertManyOrderGroup(ctx, execer, dialect, rowsWithoutCreatedAt, false); err != nil {
+			return err
 		}
 	}
-	// columns 保存多值 INSERT 的公共列集合；没有平台时间时沿用旧 SQL 以保留数据库默认时间行为。
+	if len(rowsWithCreatedAt) > 0 {
+		// err 保存显式平台创建时间订单组的 UPSERT 错误。
+		if err := upsertManyOrderGroup(ctx, execer, dialect, rowsWithCreatedAt, true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// upsertManyOrderGroup 为同一 CreatedAt 语义的订单组构造多值 UPSERT。
+func upsertManyOrderGroup(ctx context.Context, execer sqlQueryExecer, dialect Dialect, rows []BatchOrderUpsert, includeCreatedAt bool) error {
+	// columns 保存多值 INSERT 的公共列集合；无平台时间时省略 created_at 以保留已有值和数据库默认值。
 	columns := []string{"order_id", "item_id", "buyer_id", "cookie_id"}
 	if includeCreatedAt {
 		columns = append(columns, "created_at")
 	}
 	columns = append(columns, "order_status", "is_bargain", "spec_name", "spec_value", "quantity", "amount", "receiver_name", "receiver_phone", "receiver_address", "receiver_city", "version")
 	// values 保存多行占位符和参数。
-	values := make([]string, 0, len(normalizedRows))
+	values := make([]string, 0, len(rows))
 	// args 保存批量插入参数。
-	args := make([]any, 0, len(normalizedRows)*len(columns))
+	args := make([]any, 0, len(rows)*len(columns))
 	// row 是当前待插入的批量订单。
-	for _, row := range normalizedRows {
-		// valueExpressions 保存当前批量行的 SQL 占位表达式；空平台时间的新订单使用数据库当前时间。
+	for _, row := range rows {
+		// valueExpressions 保存当前批量行的 SQL 占位表达式。
 		valueExpressions := make([]string, len(columns))
 		// columnIndex 表示当前 SQL 占位表达式在订单列集合中的下标。
 		for columnIndex := range valueExpressions {
 			valueExpressions[columnIndex] = "?"
-		}
-		if includeCreatedAt {
-			valueExpressions[4] = "COALESCE(?, CURRENT_TIMESTAMP)"
 		}
 		values = append(values, "("+strings.Join(valueExpressions, ",")+")")
 		// isBargain 保存批量订单是否包含砍价标记。
@@ -269,12 +299,7 @@ func upsertManyOrders(ctx context.Context, execer sqlQueryExecer, dialect Dialec
 		}
 		args = append(args, row.OrderID, row.Options.ItemID, row.Options.BuyerID, row.Options.CookieID)
 		if includeCreatedAt {
-			// createdAt 为空时传入 nil，让数据库表达式回退到当前时间。
-			createdAt := any(nil)
-			if row.Options.CreatedAt != "" {
-				createdAt = row.Options.CreatedAt
-			}
-			args = append(args, createdAt)
+			args = append(args, row.Options.CreatedAt)
 		}
 		args = append(args, row.Options.OrderStatus, isBargain, row.Options.SpecName, row.Options.SpecValue, row.Options.Quantity, row.Options.Amount, row.Options.ReceiverName, row.Options.ReceiverPhone, row.Options.ReceiverAddr, row.Options.ReceiverCity, 1)
 	}

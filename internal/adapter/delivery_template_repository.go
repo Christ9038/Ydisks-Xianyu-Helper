@@ -75,6 +75,9 @@ func (r *DeliveryTemplateRepository) Update(ctx context.Context, userID, templat
 	if errors.Is(err, db.ErrNotFound) {
 		return deliveryapp.ErrNotFound
 	}
+	if errors.Is(err, db.ErrDeliveryTemplateVariableConflict) {
+		return deliveryapp.ErrVariableConflict
+	}
 	return err
 }
 

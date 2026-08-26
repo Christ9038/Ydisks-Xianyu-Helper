@@ -307,4 +307,94 @@ func TestServiceAppendData(t *testing.T) {
 	}
 }
 
+// TestServiceCoversRemainingCRUDBoundaries 验证卡券 CRUD 的无效标识、API 校验和端口错误边界。
+func TestServiceCoversRemainingCRUDBoundaries(t *testing.T) {
+	// ctx 是卡券 CRUD 边界测试上下文。
+	ctx := context.Background()
+	// repository 是可注入各阶段错误的卡券持久化替身。
+	repository := &cardRepositoryStub{card: Card{ID: 5, UserID: 7, Type: "text"}, createdID: 9}
+	// service 是待验证的卡券应用服务。
+	service := NewService(repository)
+	if // message 是 nil 校验错误的稳定文本。
+	message := (*ValidationError)(nil).Error(); message == "" {
+		t.Fatal("nil 校验错误应有稳定文本")
+	}
+	if // err 是 ExistsOwned 无效卡券标识的参数错误。
+	_, err := service.ExistsOwned(ctx, 7, 0); !errors.Is(err, ErrInvalidCardID) {
+		t.Fatalf("无效归属卡券标识错误异常: %v", err)
+	}
+	if // err 是 Update 无效卡券标识的参数错误。
+	err := service.Update(ctx, 7, 0, Draft{Name: "x", Type: "text", TextContent: "v"}); !errors.Is(err, ErrInvalidCardID) {
+		t.Fatalf("无效更新标识错误异常: %v", err)
+	}
+	if // err 是 Delete 无效卡券标识的参数错误。
+	err := service.Delete(ctx, 7, 0); !errors.Is(err, ErrInvalidCardID) {
+		t.Fatalf("无效删除标识错误异常: %v", err)
+	}
+	if // err 是 AppendData 无效用户的参数错误。
+	_, err := service.AppendData(ctx, 0, 5, "data"); !errors.Is(err, ErrInvalidUser) {
+		t.Fatalf("无效追加用户错误异常: %v", err)
+	}
+	if // err 是 ExistsOwned 无效用户的参数错误。
+	_, err := service.ExistsOwned(ctx, 0, 5); !errors.Is(err, ErrInvalidUser) {
+		t.Fatalf("无效归属用户错误异常: %v", err)
+	}
+	if // err 是 Create 无效用户的参数错误。
+	_, err := service.Create(ctx, 0, Draft{Name: "data", Type: "data", DataContent: "CODE"}); !errors.Is(err, ErrInvalidUser) {
+		t.Fatalf("无效创建用户错误异常: %v", err)
+	}
+	if // err 是 Update 无效用户的参数错误。
+	err := service.Update(ctx, 0, 5, Draft{Name: "x", Type: "text", TextContent: "v"}); !errors.Is(err, ErrInvalidUser) {
+		t.Fatalf("无效更新用户错误异常: %v", err)
+	}
+	if // err 是 Delete 无效用户的参数错误。
+	err := service.Delete(ctx, 0, 5); !errors.Is(err, ErrInvalidUser) {
+		t.Fatalf("无效删除用户错误异常: %v", err)
+	}
+	// createFailure 是卡券创建端口错误。
+	createFailure := errors.New("create failed")
+	repository.createErr = createFailure
+	if // err 是合法创建请求的端口错误。
+	_, err := service.Create(ctx, 7, Draft{Name: "data", Type: "data", DataContent: "CODE"}); !errors.Is(err, createFailure) {
+		t.Fatalf("创建端口错误未透传: %v", err)
+	}
+	// repository.getErr 保存 API 更新归属读取错误。
+	repository.getErr = errors.New("get full failed")
+	if // err 是更新读取完整卡券时的端口错误。
+	err := service.Update(ctx, 7, 5, Draft{Name: "api", Type: "api", APIConfig: `{"url":"https://example.test"}`}); !errors.Is(err, repository.getErr) {
+		t.Fatalf("更新读取错误未透传: %v", err)
+	}
+	repository.getErr = nil
+	if // err 是 API 更新配置校验错误。
+	err := service.Update(ctx, 7, 5, Draft{Name: "api", Type: "api", APIConfig: "{"}); err == nil {
+		t.Fatal("非法 API 更新配置应被拒绝")
+	}
+	if // err 是草稿校验错误。
+	err := service.Update(ctx, 7, 5, Draft{Name: "", Type: "text", TextContent: "v"}); err == nil {
+		t.Fatal("非法更新草稿应被拒绝")
+	}
+	if // err 是创建 API 配置校验错误。
+	_, err := service.Create(ctx, 7, Draft{Name: "api", Type: "api", APIConfig: "{"}); err == nil {
+		t.Fatal("非法 API 创建配置应被拒绝")
+	}
+	if // err 是 API 草稿缺少配置内容的校验错误。
+	err := validateDraft(Draft{Name: "api", Type: "api"}); err == nil {
+		t.Fatal("缺少 API 配置应被拒绝")
+	}
+	// repository.card 保存跨用户完整卡券，验证更新归属拒绝。
+	repository.card.UserID = 8
+	if // err 是更新完整卡券跨用户错误。
+	err := service.Update(ctx, 7, 5, Draft{Name: "x", Type: "text", TextContent: "v"}); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("更新跨用户错误异常: %v", err)
+	}
+	// repository.card 恢复当前用户，验证合法追加 API 后的端口返回。
+	repository.card.UserID = 7
+	repository.card.Type = "data"
+	repository.appendedCount = 1
+	if // err 是合法追加端口结果。
+	_, err := service.AppendData(ctx, 7, 5, "CODE"); err != nil {
+		t.Fatalf("合法追加失败: %v", err)
+	}
+}
+
 var _ Repository = (*cardRepositoryStub)(nil)

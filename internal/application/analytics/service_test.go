@@ -333,3 +333,61 @@ func TestDateBoundaryConvertsLocalDayToUTC(t *testing.T) {
 		t.Fatalf("结束边界=%q", got)
 	}
 }
+
+// TestAnalyticsNilAndFallbackBranches 验证错误包装、解析失败和排序回退分支。
+func TestAnalyticsNilAndFallbackBranches(t *testing.T) {
+	if // message 是 nil 错误包装的稳定消息。
+	message := (*StageError)(nil).Error(); message != "订单分析查询失败" {
+		t.Fatalf("nil 阶段错误消息异常: %q", message)
+	}
+	if // message 是底层错误为空的非 nil 包装稳定消息。
+	message := (&StageError{}).Error(); message != "订单分析查询失败" {
+		t.Fatalf("空底层错误消息异常: %q", message)
+	}
+	if // message 是底层错误存在时透传的错误文本。
+	message := (&StageError{Err: errors.New("wrapped")}).Error(); message != "wrapped" {
+		t.Fatalf("底层错误文本未透传: %q", message)
+	}
+	if // unwrapped 是 nil 错误包装的底层错误。
+	unwrapped := (*StageError)(nil).Unwrap(); unwrapped != nil {
+		t.Fatalf("nil 阶段错误应无底层错误: %v", unwrapped)
+	}
+	if // message 是普通错误映射出的兼容查询消息。
+	message := ErrorMessage(errors.New("plain error")); message != "查询失败" {
+		t.Fatalf("普通错误消息异常: %q", message)
+	}
+	if // message 是未知阶段映射出的兜底查询消息。
+	message := ErrorMessage(&StageError{Stage: StageValidRows, Err: errors.New("rows")}); message != "查询失败" {
+		t.Fatalf("未知阶段消息异常: %q", message)
+	}
+	if // location 是合法浏览器偏移转换后的固定时区。
+	location := LocationFromOffset(" 480 "); location == time.Local || location == nil {
+		t.Fatalf("合法时区偏移未转换: %v", location)
+	}
+	if // parsed 是非法数据库时间解析后的零值。
+	parsed := parseDBTime("not-a-time"); !parsed.IsZero() {
+		t.Fatalf("非法数据库时间应为零值: %v", parsed)
+	}
+	if // image 是非法商品详情 JSON 的空图片结果。
+	image := itemImageFromDetail("{"); image != "" {
+		t.Fatalf("非法商品详情不应产生图片: %q", image)
+	}
+	if // image 是空商品详情的空图片结果。
+	image := itemImageFromDetail(""); image != "" {
+		t.Fatalf("空商品详情不应产生图片: %q", image)
+	}
+	if // image 是缺少图片字段的商品详情空结果。
+	image := itemImageFromDetail(`{"pic_info":{}}`); image != "" {
+		t.Fatalf("缺少图片字段不应产生图片: %q", image)
+	}
+	// repository 是包含非法时间和多个状态的聚合测试 Port。
+	repository := &analyticsRepositoryFake{
+		daily:    []DailyRecord{{CreatedAt: "invalid"}},
+		statuses: []StatusRecord{{Status: "paid", Count: 1, Amount: 1}, {Status: "cancelled", Count: 3, Amount: 3}},
+	}
+	// result、err 是覆盖非法时间跳过和状态排序的分析结果。
+	result, err := NewService(repository).OrderAnalytics(context.Background(), Query{})
+	if err != nil || len(result.DailyStats) != 0 || len(result.StatusStats) != 2 || result.StatusStats[0].Status != "cancelled" {
+		t.Fatalf("分析回退分支异常: result=%+v err=%v", result, err)
+	}
+}

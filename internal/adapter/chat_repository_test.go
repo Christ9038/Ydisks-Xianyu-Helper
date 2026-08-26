@@ -107,10 +107,15 @@ type fakeChatUploadClient struct {
 	upload *mtop.ChatImageUpload
 	// err 保存模拟平台上传错误。
 	err error
+	// beforeReturn 在返回上传结果前执行一次测试专用的存储状态变更。
+	beforeReturn func()
 }
 
 // UploadChatImage 返回预设图片结果或错误，不记录传入 Cookie。
 func (c fakeChatUploadClient) UploadChatImage(context.Context, string, string, string, []byte) (*mtop.ChatImageUpload, error) {
+	if c.beforeReturn != nil {
+		c.beforeReturn()
+	}
 	return c.upload, c.err
 }
 
@@ -282,6 +287,53 @@ func TestChatImageUploaderPreservesPlatformDimensions(t *testing.T) {
 	upload, err := NewChatImageUploader(store, func() mtop.Client { return client }, nil).UploadChatImage(context.Background(), "cid", "a.jpg", "image/jpeg", []byte("image"))
 	if err != nil || upload.URL == "" || upload.Width != 1920 || upload.Height != 1080 {
 		t.Fatalf("upload=%+v err=%v", upload, err)
+	}
+}
+
+// TestChatImageUploaderPersistsRefreshedCookieAndMapsPlatformErrors 验证刷新凭证写回、平台错误和持久化失败分支。
+func TestChatImageUploaderPersistsRefreshedCookieAndMapsPlatformErrors(t *testing.T) {
+	// store、cleanup 保存本测试使用的 SQLite 存储及清理函数。
+	store, cleanup := newAdapterTestStore(t)
+	defer cleanup()
+	// ctx 是本测试上传调用共用的非取消上下文。
+	ctx := context.Background()
+	// refreshedCookie 保存平台上传后返回的新 Cookie，不能向应用层泄露。
+	refreshedCookie := "unb=1; _m_h5_tk=refreshed;"
+	// client 保存返回新 Cookie 的平台图片上传替身。
+	client := fakeChatUploadClient{upload: &mtop.ChatImageUpload{URL: "https://cdn.example/refreshed.jpg", UpdatedCookies: refreshedCookie}}
+	// upload、uploadErr 保存刷新凭证后的图片结果和适配错误。
+	upload, uploadErr := NewChatImageUploader(store, func() mtop.Client { return client }, nil).UploadChatImage(ctx, "cid", "a.jpg", "image/jpeg", []byte("image"))
+	if uploadErr != nil || upload.URL == "" {
+		t.Fatalf("刷新凭证上传结果=%+v err=%v", upload, uploadErr)
+	}
+	// persistedCookie、cookieErr 保存适配器写回数据库后的凭证读取结果。
+	persistedCookie, cookieErr := store.Cookies.GetValue(ctx, "cid")
+	if cookieErr != nil || persistedCookie != refreshedCookie {
+		t.Fatalf("刷新凭证未写回 persisted=%q err=%v", persistedCookie, cookieErr)
+	}
+	// platformErr 是平台上传失败时应原样传出的业务错误。
+	platformErr := errors.New("image upload failed")
+	// _, uploadFailureErr 保存平台错误映射结果。
+	_, uploadFailureErr := NewChatImageUploader(store, func() mtop.Client {
+		return fakeChatUploadClient{err: platformErr}
+	}, nil).UploadChatImage(ctx, "cid", "a.jpg", "image/jpeg", []byte("image"))
+	if !errors.Is(uploadFailureErr, platformErr) {
+		t.Fatalf("平台上传错误未透传: %v", uploadFailureErr)
+	}
+	// _, missingCookieErr 保存账号凭证不存在时的读取错误。
+	_, missingCookieErr := NewChatImageUploader(store, func() mtop.Client { return client }, nil).UploadChatImage(ctx, "missing", "a.jpg", "image/jpeg", []byte("image"))
+	if missingCookieErr == nil {
+		t.Fatal("不存在账号的图片上传应返回凭证读取错误")
+	}
+	// persistenceClient 保存平台返回新 Cookie 但数据库已关闭时的上传替身。
+	persistenceClient := fakeChatUploadClient{
+		upload:       &mtop.ChatImageUpload{URL: "https://cdn.example/persist-error.jpg", UpdatedCookies: "unb=1; _m_h5_tk=again;"},
+		beforeReturn: func() { _ = store.DB.Close() },
+	}
+	// _, persistenceErr 保存刷新凭证持久化失败时的适配错误。
+	_, persistenceErr := NewChatImageUploader(store, func() mtop.Client { return persistenceClient }, nil).UploadChatImage(ctx, "cid", "a.jpg", "image/jpeg", []byte("image"))
+	if persistenceErr == nil {
+		t.Fatal("数据库关闭后刷新凭证写回应返回错误")
 	}
 }
 

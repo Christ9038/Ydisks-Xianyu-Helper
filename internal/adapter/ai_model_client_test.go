@@ -40,3 +40,29 @@ func TestAIModelClientFetchUsesHeaderAndBounds(t *testing.T) {
 		t.Fatal("oversized model response should fail")
 	}
 }
+
+// TestAIModelParsingAndErrorFormatting 覆盖模型目录根数组、非法 JSON、空目录和错误正文截断。
+func TestAIModelParsingAndErrorFormatting(t *testing.T) {
+	// rootModels、rootErr 保存根数组模型目录解析结果。
+	rootModels, rootErr := ParseAIModels([]byte(`[" a ",{"name":"b"},42]`))
+	if rootErr != nil || len(rootModels) != 2 || rootModels[0] != "a" || rootModels[1] != "b" {
+		t.Fatalf("root models=%v err=%v", rootModels, rootErr)
+	}
+	// invalidModels、invalidErr 保存非法 JSON 的解析结果。
+	invalidModels, invalidErr := ParseAIModels([]byte("{"))
+	if invalidModels != nil || invalidErr == nil {
+		t.Fatalf("invalid models=%v err=%v", invalidModels, invalidErr)
+	}
+	// emptyModels、emptyErr 保存没有目录字段的兼容响应结果。
+	emptyModels, emptyErr := ParseAIModels([]byte(`{"unexpected":[]}`))
+	if emptyErr != nil || len(emptyModels) != 0 {
+		t.Fatalf("empty models=%v err=%v", emptyModels, emptyErr)
+	}
+	// short、long 保存错误正文截断前后的文本。
+	short := truncateAIModelBody(" short ", 10)
+	// long 保存超过上限时截断后的错误正文。
+	long := truncateAIModelBody("1234567890", 5)
+	if short != "short" || long != "12345" {
+		t.Fatalf("body=%q/%q", short, long)
+	}
+}

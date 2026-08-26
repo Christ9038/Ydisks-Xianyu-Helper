@@ -101,6 +101,12 @@ func TestServiceListUsersAndStats(t *testing.T) {
 	if _, err := (*Service)(nil).ListUsers(context.Background()); err == nil {
 		t.Fatal("空管理员服务应拒绝用户列表查询")
 	}
+	// statsUnavailable 保存空管理员服务的统计装配错误。
+	// statsValue、statsUnavailable 保存空管理员服务的统计结果和装配错误。
+	statsValue, statsUnavailable := (*Service)(nil).Stats(context.Background())
+	if statsUnavailable == nil || statsValue != (Stats{}) {
+		t.Fatal("空管理员服务应拒绝统计查询")
+	}
 }
 
 // mustListUsers 将列表错误转换为便于测试断言的 error。
@@ -138,6 +144,12 @@ func TestServiceDeleteUser(t *testing.T) {
 	// err 保存删除仓储返回的错误。
 	if err := NewService(&adminRepositoryStub{deleteErr: deleteFailure}).DeleteUser(context.Background(), 1, 2); !errors.Is(err, deleteFailure) {
 		t.Fatal("删除错误未原样返回")
+	}
+	// accountListFailure 保存删除前读取账号标识失败的结果。
+	accountListFailure := errors.New("account list failed")
+	// err 保存删除前账号标识查询返回的错误。
+	if err := NewService(&adminRepositoryStub{accountIDsErr: accountListFailure}).DeleteUser(context.Background(), 1, 2); !errors.Is(err, accountListFailure) {
+		t.Fatal("账号列表错误未原样返回")
 	}
 	// unavailableErr 保存空服务的装配错误。
 	unavailableErr := (*Service)(nil).DeleteUser(context.Background(), 1, 2)

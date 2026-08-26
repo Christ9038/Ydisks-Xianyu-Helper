@@ -9,6 +9,11 @@ import (
 	"time"
 )
 
+var (
+	// readBatchWorkerRandomBytes 是恢复 worker 令牌的随机读取器；测试可替换它验证降级令牌语义。
+	readBatchWorkerRandomBytes = rand.Read
+)
+
 // BatchRecoveryRepository 定义批量发布恢复扫描器所需的最小状态端口。
 type BatchRecoveryRepository interface {
 	// RecoverableBatches 查询租约已过期或进程中断后可接管的批次。
@@ -174,7 +179,7 @@ func randomBatchWorkerToken() string {
 	// buffer 保存随机令牌的二进制内容。
 	buffer := make([]byte, 16)
 	// err 保存系统随机源读取令牌时的错误。
-	if _, err := rand.Read(buffer); err != nil {
+	if _, err := readBatchWorkerRandomBytes(buffer); err != nil {
 		return "recovery-" + strconv.FormatInt(time.Now().UTC().UnixNano(), 36)
 	}
 	return hex.EncodeToString(buffer)

@@ -10,6 +10,11 @@ import (
 	"time"
 )
 
+var (
+	// readRefreshRandomBytes 是订单刷新标识使用的随机字节读取器；测试可替换它来验证随机源失败时的降级语义。
+	readRefreshRandomBytes = rand.Read
+)
+
 // RefreshJobOwner 定义创建刷新任务时验证账号归属所需的最小端口。
 type RefreshJobOwner interface {
 	// OwnsAccount 判断指定账号是否属于当前用户；错误时调用方应拒绝继续创建任务。
@@ -223,7 +228,7 @@ func randomRefreshJobID() string {
 	// buffer 保存任务 ID 的随机二进制部分，不包含用户或账号信息。
 	buffer := make([]byte, 16)
 	// _, err 保存系统随机源读取结果。
-	if _, err := rand.Read(buffer); err == nil {
+	if _, err := readRefreshRandomBytes(buffer); err == nil {
 		return "order-refresh-" + hex.EncodeToString(buffer)
 	}
 	return "order-refresh-" + strconv.FormatInt(time.Now().UTC().UnixNano(), 36)

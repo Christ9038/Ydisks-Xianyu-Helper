@@ -39,9 +39,45 @@ func TestParseLevelAndSetLevel(t *testing.T) {
 	err := SetLevel("debug"); err != nil {
 		t.Fatalf("SetLevel: %v", err)
 	}
+	if // err 是无效日志等级返回的配置错误。
+	err := SetLevel("verbose"); err == nil {
+		t.Fatal("无效日志等级应返回错误")
+	}
 	if // got 用于本次流程后续判断的got
 	got := Level.Level(); got != slog.LevelDebug {
 		t.Fatalf("global level=%v want debug", got)
+	}
+}
+
+// TestRedactionHandlerCoversFallbackTypes 验证日志处理器的空实现、分组和基础类型分支。
+func TestRedactionHandlerCoversFallbackTypes(t *testing.T) {
+	// handler 是空底层处理器回退后的脱敏处理器。
+	handler := newRedactingHandler(nil)
+	if handler == nil {
+		t.Fatal("空底层处理器应回退为可用处理器")
+	}
+	// grouped 是保留分组语义的脱敏处理器。
+	grouped := handler.WithGroup("diagnostic")
+	if grouped == nil {
+		t.Fatal("分组处理器不应为空")
+	}
+	// defaultAttr 是整数属性走 redactAttr 默认保留分支的结果。
+	defaultAttr := redactAttr(slog.Int("count", 1))
+	if defaultAttr.Value.Int64() != 1 {
+		t.Fatalf("基础整数属性被错误改写: %+v", defaultAttr)
+	}
+	// nilAttr、bytesAttr、numberAttr、unknownAttr 覆盖 Any 属性的 nil、字节、数字和未知类型。
+	nilAttr := redactAnyAttr("nil", nil)
+	// bytesAttr 是字节切片 Any 属性的脱敏结果。
+	bytesAttr := redactAnyAttr("bytes", []byte("safe"))
+	// stringAttr 是普通字符串 Any 属性的脱敏结果。
+	stringAttr := redactAnyAttr("string", "safe")
+	// numberAttr 是数字 Any 属性的保留结果。
+	numberAttr := redactAnyAttr("number", int64(7))
+	// unknownAttr 是未知结构 Any 属性的整体替换结果。
+	unknownAttr := redactAnyAttr("unknown", struct{ Value string }{Value: "secret"})
+	if nilAttr.Key == "" || bytesAttr.String() == "" || stringAttr.String() == "" || numberAttr.Key == "" || unknownAttr.Value.String() != "<redacted>" {
+		t.Fatalf("Any 属性分支结果异常: nil=%+v bytes=%+v string=%+v number=%+v unknown=%+v", nilAttr, bytesAttr, stringAttr, numberAttr, unknownAttr)
 	}
 }
 
