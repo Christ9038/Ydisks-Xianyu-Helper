@@ -78,13 +78,22 @@ export const useDeliveryTemplates = (): DeliveryTemplatesHookResult => {
     actionControllerRef.current = controller;
     ++generationRef.current;
     try {
-      if (id === null) await createDeliveryTemplate(draft, { signal: controller.signal });
-      else await updateDeliveryTemplate(id, draft, { signal: controller.signal });
-      if (!controller.signal.aborted && mountedRef.current) await loadTemplates();
-    } catch (/* error 是本次模板保存请求失败原因。 */ error) {
-      if (!isAbortError(error) && mountedRef.current) {
-        setError((error as Error).message);
-        throw error;
+      try {
+        if (id === null) await createDeliveryTemplate(draft, { signal: controller.signal });
+        else await updateDeliveryTemplate(id, draft, { signal: controller.signal });
+      } catch (/* error 是本次模板保存请求失败原因。 */ error) {
+        if (!isAbortError(error) && mountedRef.current) {
+          setError((error as Error).message);
+          throw error;
+        }
+        return;
+      }
+      if (!controller.signal.aborted && mountedRef.current) {
+        try {
+          await loadTemplates();
+        } catch (/* error 是保存成功后列表刷新失败原因。 */ error) {
+          if (!isAbortError(error) && mountedRef.current) setError(`模板已保存，但列表刷新失败：${(error as Error).message}`);
+        }
       }
     } finally {
       if (mountedRef.current) setSaving(false);
@@ -103,12 +112,21 @@ export const useDeliveryTemplates = (): DeliveryTemplatesHookResult => {
     actionControllerRef.current = controller;
     ++generationRef.current;
     try {
-      await deleteDeliveryTemplate(id, { signal: controller.signal });
-      if (!controller.signal.aborted && mountedRef.current) await loadTemplates();
-    } catch (/* error 是本次模板删除请求失败原因。 */ error) {
-      if (!isAbortError(error) && mountedRef.current) {
-        setError((error as Error).message);
-        throw error;
+      try {
+        await deleteDeliveryTemplate(id, { signal: controller.signal });
+      } catch (/* error 是本次模板删除请求失败原因。 */ error) {
+        if (!isAbortError(error) && mountedRef.current) {
+          setError((error as Error).message);
+          throw error;
+        }
+        return;
+      }
+      if (!controller.signal.aborted && mountedRef.current) {
+        try {
+          await loadTemplates();
+        } catch (/* error 是删除成功后列表刷新失败原因。 */ error) {
+          if (!isAbortError(error) && mountedRef.current) setError(`模板已删除，但列表刷新失败：${(error as Error).message}`);
+        }
       }
     } finally {
       if (mountedRef.current) setSaving(false);

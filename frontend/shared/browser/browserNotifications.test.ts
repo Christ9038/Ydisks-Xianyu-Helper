@@ -95,4 +95,27 @@ describe('browser notification preference', /* 当前测试组验证浏览器通
     expect(FakeNotification.instances[0]).toMatchObject({ title: '买家发来新消息', options: { body: '请问还在吗', tag: 'chat-account-1-chat-1' } });
     expect(getBrowserNotificationPermission()).toBe('granted');
   });
+
+  test('本地偏好开启但系统权限拒绝时界面保持关闭', /* 当前回调验证外部撤销权限不会显示虚假的开启状态。 */ () => {
+    FakeNotification.permission = 'denied';
+    window.localStorage.setItem(BROWSER_NOTIFICATION_PREFERENCE_KEY, 'true');
+    // hook 保存通知偏好 Hook 的当前测试状态。
+    const hook = renderHook(/* hookFactory 创建通知偏好 Hook 测试实例。 */ () => useBrowserNotificationPreference());
+    expect(hook.result.current.enabled).toBe(false);
+    expect(hook.result.current.permission).toBe('denied');
+    hook.unmount();
+  });
+
+  test('页面重新获得焦点时同步外部权限变化', /* 当前回调验证用户在浏览器设置中撤销权限后页面状态及时关闭。 */ () => {
+    FakeNotification.permission = 'granted';
+    window.localStorage.setItem(BROWSER_NOTIFICATION_PREFERENCE_KEY, 'true');
+    // hook 保存通知偏好 Hook 的当前测试状态。
+    const hook = renderHook(/* hookFactory 创建通知偏好 Hook 测试实例。 */ () => useBrowserNotificationPreference());
+    expect(hook.result.current.enabled).toBe(true);
+    FakeNotification.permission = 'denied';
+    act(/* focusAction 模拟页面重新获得焦点。 */ () => window.dispatchEvent(new Event('focus')));
+    expect(hook.result.current.enabled).toBe(false);
+    expect(hook.result.current.permission).toBe('denied');
+    hook.unmount();
+  });
 });

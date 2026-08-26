@@ -16,7 +16,7 @@ updateShippingRule,
 } from './api';
 import { finishRuleSubmission,idleRuleSubmitState,startRuleSubmission,type RuleSubmitState } from './interactionState';
 import type { AutomationTriggerType,Card,DefaultReplyForm,DeliveryTemplate,Item,ReplyRule,RulesProps,RulesTab,ShippingRule,ShippingVariant } from './types';
-import { adjustPriceTarget,boolFlag,buildAdjustPriceConfig,buildReviewConfig,cardActionsForTrigger,defaultRuleName,emptyVariant,isValidAdjustPrice,parseJSONObject,shouldReplaceGeneratedName,triggerMeta } from './utils';
+import { adjustPriceTarget,boolFlag,buildAdjustPriceConfig,buildReviewConfig,cardActionsForTrigger,defaultRuleName,emptyVariant,hasCompleteTemplateBindings,isValidAdjustPrice,parseJSONObject,shouldReplaceGeneratedName,triggerMeta } from './utils';
 
 // RuleActionsOptions 描述规则动作协调器依赖的页面数据、刷新函数和外部联动目标。
 export interface RuleActionsOptions {
@@ -370,7 +370,12 @@ export const useRuleActions = ({
     const variants = editingAutomationRule.variants?.length ? editingAutomationRule.variants : [];
     if (trigger !== 'review_missing_timeout' && trigger !== 'order_created') {
       if (!variants.length || variants.some(/* 当前回调校验卡密组或模板是否已选择。 */ variant => variant.delivery_mode === 'template' ? !variant.delivery_template_id : !variant.card_id)) return alert('请选择发货卡密库存或发货模板');
-      if (variants.some(/* 当前回调校验模板变量是否绑定完整。 */ variant => variant.delivery_mode === 'template' && (!variant.template_bindings?.length || (deliveryTemplates.find(/* 模板候选项查找器定位当前变体模板。 */ template => template.id === variant.delivery_template_id)?.keys || []).some(/* 模板键校验器确认每个变量都已绑定。 */ key => !variant.template_bindings?.some(/* 绑定查找器定位变量对应的库存。 */ binding => binding.variable_key === key && binding.card_id > 0))))) return alert('请为发货模板的每个变量绑定卡密库存');
+      if (variants.some(/* 当前回调校验模板变量是否绑定完整。 */ variant => {
+        if (variant.delivery_mode !== 'template') return false;
+        // template 保存当前变体选择的模板摘要。
+        const template = deliveryTemplates.find(/* 模板候选项查找器定位当前变体模板。 */ candidate => candidate.id === variant.delivery_template_id);
+        return !template || !hasCompleteTemplateBindings(template.keys, variant.template_bindings);
+      })) return alert('请为发货模板的每个变量绑定卡密库存');
       if (variants.some(/* 当前回调校验模板自定义变量键值是否完整。 */ variant => {
         // template 保存当前变体选择的发货模板摘要。
         const template = deliveryTemplates.find(/* templateCandidate 定位当前模板。 */ templateCandidate => templateCandidate.id === variant.delivery_template_id);

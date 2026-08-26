@@ -18,20 +18,25 @@ func (a *AutomationRules) loadTemplateAction(ctx context.Context, action *Automa
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
 	action.TemplateBindings = make([]DeliveryTemplateBinding, 0)
 	for rows.Next() {
 		// binding 保存当前变量绑定。
 		var binding DeliveryTemplateBinding
 		// err 保存模板绑定行扫描错误。
 		if err := rows.Scan(&binding.VariableKey, &binding.CardID, &binding.CardName, &binding.DeliveryCount); err != nil {
+			rows.Close()
 			return err
 		}
 		action.TemplateBindings = append(action.TemplateBindings, binding)
 	}
 	// err 保存模板绑定遍历错误。
 	if err := rows.Err(); err != nil {
+		rows.Close()
 		return err
+	}
+	// closeErr 保存模板绑定游标关闭错误，确保后续消息查询不占用额外连接。
+	if closeErr := rows.Close(); closeErr != nil {
+		return closeErr
 	}
 	// messageRows 保存模板消息查询结果。
 	// messageRows、err 保存模板消息查询结果及错误。
@@ -39,7 +44,6 @@ func (a *AutomationRules) loadTemplateAction(ctx context.Context, action *Automa
 	if err != nil {
 		return err
 	}
-	defer messageRows.Close()
 	// messages 保存模板消息正文。
 	messages := make([]string, 0)
 	for messageRows.Next() {
@@ -47,13 +51,19 @@ func (a *AutomationRules) loadTemplateAction(ctx context.Context, action *Automa
 		var content string
 		// err 保存模板消息行扫描错误。
 		if err := messageRows.Scan(&content); err != nil {
+			messageRows.Close()
 			return err
 		}
 		messages = append(messages, content)
 	}
 	// err 保存模板消息遍历错误。
 	if err := messageRows.Err(); err != nil {
+		messageRows.Close()
 		return err
+	}
+	// closeErr 保存模板消息游标关闭错误。
+	if closeErr := messageRows.Close(); closeErr != nil {
+		return closeErr
 	}
 	// parsed 保存消息解析结果，避免自动化执行时重复解析。
 	// parsed、err 保存模板消息解析结果及错误。

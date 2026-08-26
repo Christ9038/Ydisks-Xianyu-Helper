@@ -208,7 +208,7 @@ func TestDeliveryTemplateWriteOrderingProtectsReferences(t *testing.T) {
 	// createInput 保存先提交规则所引用的当前模板契约。
 	createInput := AutomationRuleInput{UserID: userID, CookieID: cookieID, ItemID: "ordered-item", Name: "先提交规则", TriggerType: "order_paid", Enabled: true, Actions: []AutomationActionInput{{ActionType: "send_template", DeliveryTemplateID: templateID, TemplateBindings: []DeliveryTemplateBinding{{VariableKey: "old", CardID: cardID}}, Enabled: true, SortOrder: 1}}}
 	// lockErr 保存规则事务取得模板锁的结果。
-	if lockErr := validateAutomationTemplateContractsTx(ctx, createTx, DialectSQLite, userID, createInput.Actions); lockErr != nil {
+	if lockErr := validateAutomationTemplateContractsTx(ctx, createTx, DialectSQLite, userID, createInput.Actions, nil); lockErr != nil {
 		createTx.Rollback()
 		t.Fatal(lockErr)
 	}

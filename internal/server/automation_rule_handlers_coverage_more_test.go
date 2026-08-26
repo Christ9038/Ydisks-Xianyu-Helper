@@ -43,6 +43,14 @@ func (port *automationRuleHandlerCoveragePort) ListForUser(context.Context, int6
 	return port.listRules, port.listErr
 }
 
+// GetForUser 返回测试配置的单条规则结果。
+func (port *automationRuleHandlerCoveragePort) GetForUser(context.Context, int64, int64) (automationapp.Rule, error) {
+	if len(port.listRules) == 0 {
+		return automationapp.Rule{}, automationapp.ErrRuleNotFound
+	}
+	return port.listRules[0], nil
+}
+
 // ListPageForUser 返回测试配置的分页规则列表。
 func (port *automationRuleHandlerCoveragePort) ListPageForUser(context.Context, automationapp.RuleFilter) ([]automationapp.Rule, int, error) {
 	return port.pageRules, port.pageTotal, port.pageErr
@@ -55,6 +63,11 @@ func (port *automationRuleHandlerCoveragePort) CountByTriggerForUser(context.Con
 
 // Normalize 返回测试配置的规则规范化结果。
 func (port *automationRuleHandlerCoveragePort) Normalize(context.Context, int64, automationapp.RuleDraft) (automationapp.RuleInput, error) {
+	return port.normalizeResult, port.normalizeErr
+}
+
+// NormalizeForUpdate 返回测试配置的更新规则规范化结果。
+func (port *automationRuleHandlerCoveragePort) NormalizeForUpdate(context.Context, int64, int64, automationapp.RuleDraft) (automationapp.RuleInput, error) {
 	return port.normalizeResult, port.normalizeErr
 }
 

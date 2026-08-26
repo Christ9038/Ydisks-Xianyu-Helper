@@ -94,8 +94,7 @@ func (d *DeliveryTemplateStore) ListForUser(ctx context.Context, userID int64) (
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	// templates 保存用户可见模板列表。
+	// templates 保存游标关闭后再加载消息的用户可见模板。
 	templates := make([]DeliveryTemplate, 0)
 	for rows.Next() {
 		// template 保存当前扫描到的模板。
@@ -107,13 +106,25 @@ func (d *DeliveryTemplateStore) ListForUser(ctx context.Context, userID int64) (
 			return nil, err
 		}
 		template.Enabled = enabled != 0
-		// err 保存当前模板消息加载错误。
-		if err := d.loadMessages(ctx, &template); err != nil {
-			return nil, err
-		}
 		templates = append(templates, template)
 	}
-	return templates, rows.Err()
+	// rowsErr 保存模板基础游标遍历错误。
+	rowsErr := rows.Err()
+	// closeErr 保存模板基础游标关闭错误。
+	closeErr := rows.Close()
+	if rowsErr != nil {
+		return nil, rowsErr
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
+	for /* index 表示当前待加载模板消息的模板位置。 */ index := range templates {
+		// err 保存当前模板消息加载错误。
+		if err := d.loadMessages(ctx, &templates[index]); err != nil {
+			return nil, err
+		}
+	}
+	return templates, nil
 }
 
 // GetForUser 返回用户拥有的单个未删除模板。
@@ -149,7 +160,6 @@ func (d *DeliveryTemplateStore) loadMessages(ctx context.Context, template *Deli
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
 	// contents 保存供解析器使用的有序消息正文。
 	contents := make([]string, 0)
 	template.Messages = make([]DeliveryTemplateMessage, 0)
@@ -166,6 +176,10 @@ func (d *DeliveryTemplateStore) loadMessages(ctx context.Context, template *Deli
 	// err 保存模板消息遍历错误。
 	if err := rows.Err(); err != nil {
 		return err
+	}
+	// closeErr 保存模板消息游标关闭错误。
+	if closeErr := rows.Close(); closeErr != nil {
+		return closeErr
 	}
 	// parsed 保存模板变量解析结果；历史脏数据在展示时仍保留原消息。
 	parsed, parseErr := deliverytemplate.Parse(contents)

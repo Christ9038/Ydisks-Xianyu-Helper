@@ -112,8 +112,13 @@ func TestDeliveryTemplateStoreReferenceProtection(t *testing.T) {
 	if createErr != nil {
 		t.Fatal(createErr)
 	}
+	// cardID 保存模板变量绑定所需的文本卡密组。
+	cardID, cardErr := store.Cards.Create(ctx, &CardFull{UserID: userID, Name: "绑定库存", Type: "text", TextContent: "内容", Enabled: true})
+	if cardErr != nil {
+		t.Fatal(cardErr)
+	}
 	// ruleID, ruleErr 保存引用模板的自动化规则创建结果。
-	ruleID, ruleErr := store.Automation.Create(ctx, AutomationRuleInput{UserID: userID, CookieID: cookieID, ItemID: "item-1", Name: "引用规则", TriggerType: "paid", Enabled: true, Actions: []AutomationActionInput{{ActionType: "send_template", DeliveryTemplateID: templateID, ConfigJSON: `{}`, Enabled: true, SortOrder: 1}}})
+	ruleID, ruleErr := store.Automation.Create(ctx, AutomationRuleInput{UserID: userID, CookieID: cookieID, ItemID: "item-1", Name: "引用规则", TriggerType: "paid", Enabled: true, Actions: []AutomationActionInput{{ActionType: "send_template", DeliveryTemplateID: templateID, TemplateBindings: []DeliveryTemplateBinding{{VariableKey: "main", CardID: cardID, DeliveryCount: 1}}, CustomVariables: map[string]string{"remark": "备注"}, ConfigJSON: `{}`, Enabled: true, SortOrder: 1}}})
 	if ruleErr != nil {
 		t.Fatalf("create referencing rule: %v", ruleErr)
 	}
@@ -199,7 +204,7 @@ func TestAutomationLoadsTemplateActionContract(t *testing.T) {
 		t.Fatal(cardErr)
 	}
 	// templateID, templateErr 保存包含卡密和自定义变量的模板。
-	templateID, templateErr := store.DeliveryTemplates.Create(ctx, DeliveryTemplateInput{UserID: userID, Name: "动作模板", Messages: []string{"{{cards.main}} {{custom.remark}}"}})
+	templateID, templateErr := store.DeliveryTemplates.Create(ctx, DeliveryTemplateInput{UserID: userID, Name: "动作模板", Enabled: true, Messages: []string{"{{cards.main}} {{custom.remark}}"}})
 	if templateErr != nil {
 		t.Fatal(templateErr)
 	}
@@ -215,7 +220,7 @@ func TestAutomationLoadsTemplateActionContract(t *testing.T) {
 	}
 
 	// legacyTemplateID, legacyTemplateErr 保存使用历史数字自定义键的模板。
-	legacyTemplateID, legacyTemplateErr := store.DeliveryTemplates.Create(ctx, DeliveryTemplateInput{UserID: userID, Name: "历史模板", Messages: []string{"{{cards.main}} {{delivery.custom.0}}"}})
+	legacyTemplateID, legacyTemplateErr := store.DeliveryTemplates.Create(ctx, DeliveryTemplateInput{UserID: userID, Name: "历史模板", Enabled: true, Messages: []string{"{{cards.main}} {{delivery.custom.0}}"}})
 	if legacyTemplateErr != nil {
 		t.Fatal(legacyTemplateErr)
 	}
@@ -232,24 +237,14 @@ func TestAutomationLoadsTemplateActionContract(t *testing.T) {
 
 	// missingBindingRuleID, missingBindingRuleErr 保存缺少卡密绑定的规则。
 	missingBindingRuleID, missingBindingRuleErr := store.Automation.Create(ctx, AutomationRuleInput{UserID: userID, CookieID: cookieID, ItemID: "missing-binding", Name: "缺少绑定", TriggerType: "paid", Enabled: true, Actions: []AutomationActionInput{{ActionType: "send_template", DeliveryTemplateID: templateID, ConfigJSON: `{"custom_variables":{"remark":"备注"}}`, Enabled: true, SortOrder: 1}}})
-	if missingBindingRuleErr != nil {
-		t.Fatal(missingBindingRuleErr)
-	}
-	// _, missingBindingErr 保存缺少卡密绑定时的合同错误。
-	_, missingBindingErr := store.Automation.Actions(ctx, missingBindingRuleID)
-	if missingBindingErr == nil {
-		t.Fatal("missing card binding should fail")
+	if missingBindingRuleID != 0 || !errors.Is(missingBindingRuleErr, ErrDeliveryTemplateUnavailable) {
+		t.Fatalf("missing card binding should fail at write, id=%d err=%v", missingBindingRuleID, missingBindingRuleErr)
 	}
 
 	// missingCustomRuleID, missingCustomRuleErr 保存缺少自定义变量值的规则。
 	missingCustomRuleID, missingCustomRuleErr := store.Automation.Create(ctx, AutomationRuleInput{UserID: userID, CookieID: cookieID, ItemID: "missing-custom", Name: "缺少自定义值", TriggerType: "paid", Enabled: true, Actions: []AutomationActionInput{{ActionType: "send_template", DeliveryTemplateID: templateID, ConfigJSON: `{"custom_variables":{"remark":"  "}}`, TemplateBindings: []DeliveryTemplateBinding{{VariableKey: "main", CardID: cardID, DeliveryCount: 1}}, Enabled: true, SortOrder: 1}}})
-	if missingCustomRuleErr != nil {
-		t.Fatal(missingCustomRuleErr)
-	}
-	// _, missingCustomErr 保存自定义变量为空时的合同错误。
-	_, missingCustomErr := store.Automation.Actions(ctx, missingCustomRuleID)
-	if missingCustomErr == nil {
-		t.Fatal("blank custom variable should fail")
+	if missingCustomRuleID != 0 || !errors.Is(missingCustomRuleErr, ErrDeliveryTemplateUnavailable) {
+		t.Fatalf("blank custom variable should fail at write, id=%d err=%v", missingCustomRuleID, missingCustomRuleErr)
 	}
 }
 

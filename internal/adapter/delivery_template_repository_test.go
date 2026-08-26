@@ -103,7 +103,7 @@ func TestDeliveryTemplateRepositoryMapsModelsAndErrors(t *testing.T) {
 	}
 
 	// referencedTemplateID、referencedTemplateErr 保存用于验证删除保护的模板。
-	referencedTemplateID, referencedTemplateErr := repository.Create(ctx, user.ID, deliveryapp.Draft{Name: "引用模板", Messages: []string{"正文"}})
+	referencedTemplateID, referencedTemplateErr := repository.Create(ctx, user.ID, deliveryapp.Draft{Name: "引用模板", Enabled: true, Messages: []string{"正文"}})
 	if referencedTemplateErr != nil {
 		t.Fatal(referencedTemplateErr)
 	}

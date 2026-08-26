@@ -3,8 +3,10 @@ package db
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"sort"
+	"strconv"
 	"strings"
 
 	"xianyu-go/internal/deliverytemplate"
@@ -12,6 +14,68 @@ import (
 
 // ErrDeliveryTemplateUnavailable 表示规则写入时引用的发货模板已不存在、被删除或不属于当前用户。
 var ErrDeliveryTemplateUnavailable = errors.New("发货模板不存在或已不可用")
+
+// lockAutomationRuleAndTemplateRefsTx 锁定待更新规则并读取其既有模板引用。
+func lockAutomationRuleAndTemplateRefsTx(ctx context.Context, tx *sql.Tx, dialect Dialect, userID, ruleID int64) (map[int64]struct{}, error) {
+	if dialect == DialectSQLite {
+		// lockQuery 通过不改变业务值的更新取得 SQLite 规则写锁。
+		lockQuery := `UPDATE automation_rules SET updated_at=updated_at WHERE id=? AND user_id=? AND deleted_at IS NULL`
+		// result、err 保存 SQLite 规则锁定结果及数据库错误。
+		result, err := tx.ExecContext(ctx, lockQuery, ruleID, userID)
+		if err != nil {
+			return nil, err
+		}
+		// affected、affectedErr 保存规则写锁命中行数及读取错误。
+		if affected, affectedErr := result.RowsAffected(); affectedErr != nil {
+			return nil, affectedErr
+		} else if affected != 1 {
+			return nil, ErrNotFound
+		}
+	} else {
+		// lockedID 保存行锁确认后的规则主键。
+		var lockedID int64
+		// query 保存数据库行锁查询语句。
+		query := `SELECT id FROM automation_rules WHERE id=? AND user_id=? AND deleted_at IS NULL FOR UPDATE`
+		// err 保存行锁查询错误。
+		if err := tx.QueryRowContext(ctx, query, ruleID, userID).Scan(&lockedID); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, ErrNotFound
+			}
+			return nil, err
+		}
+	}
+	// rows 保存当前规则既有模板引用查询游标。
+	// rows、err 保存既有模板引用查询游标及查询错误。
+	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT delivery_template_id FROM automation_rule_actions WHERE rule_id=? AND action_type='send_template' AND delivery_template_id IS NOT NULL`, ruleID)
+	if err != nil {
+		return nil, err
+	}
+	// retained 保存更新前规则已经引用的模板主键集合。
+	retained := make(map[int64]struct{})
+	for rows.Next() {
+		// templateID 保存当前规则动作引用的模板主键。
+		var templateID int64
+		// err 保存模板引用主键扫描错误。
+		if err := rows.Scan(&templateID); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if templateID > 0 {
+			retained[templateID] = struct{}{}
+		}
+	}
+	// rowsErr 保存既有模板引用游标遍历错误。
+	rowsErr := rows.Err()
+	// closeErr 保存既有模板引用游标关闭错误。
+	closeErr := rows.Close()
+	if rowsErr != nil {
+		return nil, rowsErr
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
+	return retained, nil
+}
 
 // deliveryTemplateIDsFromActions 提取动作引用的模板 ID，并去重排序以固定跨事务锁顺序。
 func deliveryTemplateIDsFromActions(actions []AutomationActionInput) []int64 {
@@ -91,7 +155,12 @@ func lockLiveDeliveryTemplatesTx(ctx context.Context, tx *sql.Tx, dialect Dialec
 	}
 	// rowsErr 保存锁定模板结果遍历错误。
 	if rowsErr := rows.Err(); rowsErr != nil {
+		rows.Close()
 		return rowsErr
+	}
+	// closeErr 保存锁定模板游标关闭错误，避免驱动错误被吞掉。
+	if closeErr := rows.Close(); closeErr != nil {
+		return closeErr
 	}
 	if len(lockedIDs) != len(uniqueIDs) {
 		return ErrDeliveryTemplateUnavailable
@@ -105,19 +174,33 @@ func lockLiveDeliveryTemplatesTx(ctx context.Context, tx *sql.Tx, dialect Dialec
 }
 
 // validateAutomationTemplateContractsTx 在规则写事务内复核模板变量契约，防止应用层读取后模板被并发更新。
-func validateAutomationTemplateContractsTx(ctx context.Context, tx *sql.Tx, dialect Dialect, userID int64, actions []AutomationActionInput) error {
+func validateAutomationTemplateContractsTx(ctx context.Context, tx *sql.Tx, dialect Dialect, userID int64, actions []AutomationActionInput, allowedDisabledTemplateIDs map[int64]struct{}) error {
 	// templateIDs 保存规则动作引用的模板主键，并负责先取得固定顺序的行锁。
 	templateIDs := deliveryTemplateIDsFromActions(actions)
 	// lockErr 保存模板行锁定及有效性检查错误。
 	if lockErr := lockLiveDeliveryTemplatesTx(ctx, tx, dialect, userID, templateIDs); lockErr != nil {
 		return lockErr
 	}
+	for /* templateID 表示当前规则引用的模板主键。 */ _, templateID := range templateIDs {
+		// enabled 保存事务锁定后模板当前是否允许新规则引用。
+		var enabled int
+		// err 保存模板状态读取错误。
+		if err := tx.QueryRowContext(ctx, `SELECT enabled FROM delivery_templates WHERE id=? AND user_id=? AND deleted_at IS NULL`, templateID, userID).Scan(&enabled); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrDeliveryTemplateUnavailable
+			}
+			return err
+		}
+		if enabled == 0 {
+			// _, retained 表示停用模板是否已经被正在更新的旧规则引用。
+			_, retained := allowedDisabledTemplateIDs[templateID]
+			if !retained {
+				return ErrDeliveryTemplateUnavailable
+			}
+		}
+	}
 	for /* action 表示当前待复核模板契约的规则动作。 */ _, action := range actions {
 		if action.ActionType != "send_template" || action.DeliveryTemplateID <= 0 {
-			continue
-		}
-		// 旧版数据库调用可能只保存模板 ID 而不携带绑定；保留该兼容路径，同时对应用层已提交的绑定做严格复核。
-		if len(action.TemplateBindings) == 0 && len(action.CustomVariables) == 0 {
 			continue
 		}
 		// rows 保存锁定模板的最新消息，供事务内变量解析使用。
@@ -139,27 +222,59 @@ func validateAutomationTemplateContractsTx(ctx context.Context, tx *sql.Tx, dial
 		}
 		// rowsErr 保存模板消息遍历错误。
 		rowsErr := rows.Err()
-		rows.Close()
+		// closeErr 保存模板消息游标关闭错误。
+		closeErr := rows.Close()
 		if rowsErr != nil {
 			return rowsErr
+		}
+		if closeErr != nil {
+			return closeErr
 		}
 		// parsed 保存事务内解析出的模板变量集合。
 		parsed, parseErr := deliverytemplate.Parse(messages)
 		if parseErr != nil {
 			return ErrDeliveryTemplateUnavailable
 		}
-		if len(action.TemplateBindings) > 0 && !sameStringSet(parsed.Keys, templateBindingKeys(action.TemplateBindings)) {
+		if !sameStringSet(parsed.Keys, templateBindingKeys(action.TemplateBindings)) {
 			return ErrDeliveryTemplateUnavailable
 		}
-		if action.CustomVariables != nil {
-			for /* key 表示模板要求填写的自定义变量键。 */ _, key := range parsed.CustomKeys {
-				if strings.TrimSpace(action.CustomVariables[key]) == "" {
-					return ErrDeliveryTemplateUnavailable
-				}
+		// customVariables 保存新旧格式动作配置中的自定义变量值。
+		customVariables := action.CustomVariables
+		if customVariables == nil {
+			customVariables = customVariablesFromActionConfig(action.ConfigJSON)
+		}
+		for /* key 表示模板要求填写的自定义变量键。 */ _, key := range parsed.CustomKeys {
+			if strings.TrimSpace(customVariables[key]) == "" {
+				return ErrDeliveryTemplateUnavailable
 			}
 		}
 	}
 	return nil
+}
+
+// customVariablesFromActionConfig 读取历史数组和当前对象格式的自定义变量。
+func customVariablesFromActionConfig(configJSON string) map[string]string {
+	// rawConfig 保存动作配置中的字段原文。
+	var rawConfig map[string]json.RawMessage
+	if json.Unmarshal([]byte(configJSON), &rawConfig) != nil {
+		return nil
+	}
+	// values 保存当前对象格式的自定义变量。
+	var values map[string]string
+	if json.Unmarshal(rawConfig["custom_variables"], &values) == nil && values != nil {
+		return values
+	}
+	// legacyValues 保存历史数组格式的自定义变量。
+	var legacyValues []string
+	if json.Unmarshal(rawConfig["custom_variables"], &legacyValues) != nil {
+		return nil
+	}
+	// converted 保存按历史数组下标转换的变量值。
+	converted := make(map[string]string, len(legacyValues))
+	for /* index 表示历史自定义变量数组下标；value 表示变量值。 */ index, value := range legacyValues {
+		converted[strconv.Itoa(index)] = value
+	}
+	return converted
 }
 
 // templateBindingKeys 提取规则动作中的模板绑定变量键，供事务内契约比较使用。

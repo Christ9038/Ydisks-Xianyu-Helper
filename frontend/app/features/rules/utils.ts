@@ -65,6 +65,20 @@ export const emptyVariant = (): ShippingVariant => ({
   custom_variables: {},
 });
 
+// hasCompleteTemplateBindings 判断模板声明的卡密变量与当前绑定是否一一对应。
+export const hasCompleteTemplateBindings = (templateKeys: string[], bindings?: ShippingVariant['template_bindings']): boolean => {
+  if (templateKeys.length !== (bindings || []).length) return false;
+  // expected 保存模板声明的变量键集合。
+  const expected = new Set(templateKeys);
+  // seen 保存已处理的绑定键，避免重复绑定通过校验。
+  const seen = new Set<string>();
+  for (const /* binding 表示当前模板变量到库存的绑定。 */ binding of bindings || []) {
+    if (!expected.has(binding.variable_key) || seen.has(binding.variable_key) || binding.card_id <= 0) return false;
+    seen.add(binding.variable_key);
+  }
+  return seen.size === expected.size;
+};
+
 // parseJSONObject 安全解析规则配置 JSON，异常或非对象值统一返回空对象。
 export const parseJSONObject = (raw?: string): Record<string, any> => {
   if (!raw) return {};

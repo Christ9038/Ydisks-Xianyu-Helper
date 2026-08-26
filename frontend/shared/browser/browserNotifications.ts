@@ -66,6 +66,9 @@ export const getBrowserNotificationPermission = (): BrowserNotificationPermissio
   return notificationAPI?.permission || 'unsupported';
 };
 
+// effectiveBrowserNotificationEnabled 计算本地偏好与系统权限共同决定的真实通知开关。
+export const effectiveBrowserNotificationEnabled = (preferred: boolean, permission: BrowserNotificationPermission): boolean => preferred && permission === 'granted';
+
 /** publishBrowserNotificationPreference 通知同页消费者重新读取本地偏好。 */
 const publishBrowserNotificationPreference = (): void => {
   if (typeof window !== 'undefined') window.dispatchEvent(new Event(BROWSER_NOTIFICATION_CHANGE_EVENT));
@@ -129,8 +132,8 @@ export const showBrowserNotification = (payload: BrowserNotificationPayload): bo
 
 /** useBrowserNotificationPreference 管理当前浏览器通知状态，并清理跨标签页与同页同步监听。 */
 export const useBrowserNotificationPreference = (): BrowserNotificationPreferenceState => {
-  /** enabled 保存当前浏览器的通知开关，而非服务端共享配置。 */
-  const [enabled, setEnabledState] = useState(() => readBrowserNotificationEnabled());
+  /** enabled 保存同时满足本地偏好和系统授权的真实通知开关。 */
+  const [enabled, setEnabledState] = useState(() => effectiveBrowserNotificationEnabled(readBrowserNotificationEnabled(), getBrowserNotificationPermission()));
   /** permission 保存当前浏览器通知权限，权限改变时由设置页重新渲染提示。 */
   const [permission, setPermission] = useState<BrowserNotificationPermission>(() => getBrowserNotificationPermission());
   /** updating 防止一次权限请求尚未结束时重复点击开关。 */
@@ -141,14 +144,24 @@ export const useBrowserNotificationPreference = (): BrowserNotificationPreferenc
   useEffect(/* 当前副作用同步同页和跨标签页的通知偏好，并在卸载时移除监听。 */ () => {
     /** syncPreference 从浏览器存储重新读取开关和权限，避免旧标签页覆盖最新选择。 */
     const syncPreference = (): void => {
-      setEnabledState(readBrowserNotificationEnabled());
-      setPermission(getBrowserNotificationPermission());
+      // nextPermission 保存重新读取到的系统通知权限。
+      const nextPermission = getBrowserNotificationPermission();
+      setEnabledState(effectiveBrowserNotificationEnabled(readBrowserNotificationEnabled(), nextPermission));
+      setPermission(nextPermission);
+    };
+    // syncWhenVisible 在用户返回页面时重新读取可能已被系统设置修改的通知权限。
+    const syncWhenVisible = (): void => {
+      if (document.visibilityState === 'visible') syncPreference();
     };
     window.addEventListener(BROWSER_NOTIFICATION_CHANGE_EVENT, syncPreference);
     window.addEventListener('storage', syncPreference);
+    window.addEventListener('focus', syncPreference);
+    document.addEventListener('visibilitychange', syncWhenVisible);
     return /* 当前清理函数释放通知偏好监听，避免卸载后继续写入 React 状态。 */ () => {
       window.removeEventListener(BROWSER_NOTIFICATION_CHANGE_EVENT, syncPreference);
       window.removeEventListener('storage', syncPreference);
+      window.removeEventListener('focus', syncPreference);
+      document.removeEventListener('visibilitychange', syncWhenVisible);
     };
   }, []);
 

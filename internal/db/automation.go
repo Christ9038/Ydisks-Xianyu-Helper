@@ -227,66 +227,6 @@ func (a *AutomationRules) ListForUser(ctx context.Context, userID int64) ([]Auto
 	return rules, err
 }
 
-// ListPageForUser 按用户隔离筛选并分页查询自动化规则和动作。
-func (a *AutomationRules) ListPageForUser(ctx context.Context, f AutomationRuleListFilter) ([]AutomationRule, int, error) {
-	// whereSQL、args 用于本次流程后续判断的whereSQL、args
-	whereSQL, args := automationRuleWhere(f)
-
-	// total 用于本次流程后续判断的总数
-	var total int
-	if // err 用于本次流程后续判断的err
-	err := a.DB.QueryRowContext(ctx, `
-SELECT COUNT(*)
-  FROM automation_rules r
-	  LEFT JOIN item_info i ON i.cookie_id=r.cookie_id AND i.item_id=r.item_id AND i.deleted_at IS NULL
- WHERE `+whereSQL, args...).Scan(&total); err != nil {
-		return nil, 0, err
-	}
-
-	// queryArgs 用于本次流程后续判断的查询Args
-	queryArgs := append([]any{}, args...)
-	// limitSQL 用于本次流程后续判断的上限SQL
-	limitSQL := ""
-	if f.Limit > 0 {
-		limitSQL = " LIMIT ? OFFSET ?"
-		queryArgs = append(queryArgs, f.Limit, f.Offset)
-	}
-	// rows、err 用于本次流程后续判断的rows、err
-	rows, err := a.DB.QueryContext(ctx, `
-SELECT r.id,r.user_id,r.cookie_id,r.item_id,COALESCE(i.item_title,''),r.name,r.trigger_type,r.enabled,
-       r.priority,r.config_json,r.created_at,r.updated_at
-  FROM automation_rules r
-	  LEFT JOIN item_info i ON i.cookie_id=r.cookie_id AND i.item_id=r.item_id AND i.deleted_at IS NULL
-	WHERE `+whereSQL+`
-	ORDER BY r.created_at DESC,r.id DESC`+limitSQL, queryArgs...)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer rows.Close()
-	// out 用于本次流程后续判断的out
-	out := []AutomationRule{}
-	for rows.Next() {
-		// r 用于本次流程后续判断的r
-		var r AutomationRule
-		// enabled 用于本次流程后续判断的启用状态
-		var enabled int
-		if // err 用于本次流程后续判断的err
-		err := rows.Scan(&r.ID, &r.UserID, &r.CookieID, &r.ItemID, &r.ItemTitle, &r.Name, &r.TriggerType,
-			&enabled, &r.Priority, &r.ConfigJSON, &r.CreatedAt, &r.UpdatedAt); err != nil {
-			return nil, 0, err
-		}
-		r.Enabled = enabled != 0
-		// acts、err 用于本次流程后续判断的acts、err
-		acts, err := a.Actions(ctx, r.ID)
-		if err != nil {
-			return nil, 0, err
-		}
-		r.Actions = acts
-		out = append(out, r)
-	}
-	return out, total, rows.Err()
-}
-
 // CountByTriggerForUser 返回同一筛选条件下各触发类型的规则数量。
 // 该统计不受分页影响，确保页面汇总与 total 使用同一数据集。
 // CountByTriggerForUser 封装数量ByTriggerFor用户业务协调。
@@ -383,8 +323,7 @@ SELECT r.id,r.user_id,r.cookie_id,r.item_id,COALESCE(i.item_title,''),r.name,r.t
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	// out 用于本次流程后续判断的out
+	// out 保存游标关闭后再加载动作的规则基础字段。
 	out := []AutomationRule{}
 	for rows.Next() {
 		// r 用于本次流程后续判断的r
@@ -397,15 +336,27 @@ SELECT r.id,r.user_id,r.cookie_id,r.item_id,COALESCE(i.item_title,''),r.name,r.t
 			return nil, err
 		}
 		r.Enabled = enabled != 0
-		// acts、err 用于本次流程后续判断的acts、err
-		acts, err := a.Actions(ctx, r.ID)
+		out = append(out, r)
+	}
+	// rowsErr 保存规则匹配游标遍历错误。
+	rowsErr := rows.Err()
+	// closeErr 保存规则匹配游标关闭错误。
+	closeErr := rows.Close()
+	if rowsErr != nil {
+		return nil, rowsErr
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
+	for /* index 表示当前待加载动作的规则位置。 */ index := range out {
+		// acts、err 保存当前匹配规则的动作列表及加载错误。
+		acts, err := a.Actions(ctx, out[index].ID)
 		if err != nil {
 			return nil, err
 		}
-		r.Actions = acts
-		out = append(out, r)
+		out[index].Actions = acts
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // Create 创建规则和动作。
@@ -417,7 +368,7 @@ func (a *AutomationRules) Create(ctx context.Context, in AutomationRuleInput) (i
 	}
 	defer tx.Rollback()
 	// err 保存模板锁定及变量契约复核错误，规则写入必须与该校验处于同一事务。
-	if err := validateAutomationTemplateContractsTx(ctx, tx, a.Dialect, in.UserID, in.Actions); err != nil {
+	if err := validateAutomationTemplateContractsTx(ctx, tx, a.Dialect, in.UserID, in.Actions, nil); err != nil {
 		return 0, err
 	}
 	// id、err 用于本次流程后续判断的id、err
@@ -440,8 +391,13 @@ func (a *AutomationRules) Update(ctx context.Context, userID, ruleID int64, in A
 		return err
 	}
 	defer tx.Rollback()
+	// retainedTemplateIDs 保存更新前规则已引用的模板，允许其停用后继续保留。
+	retainedTemplateIDs, lockErr := lockAutomationRuleAndTemplateRefsTx(ctx, tx, a.Dialect, userID, ruleID)
+	if lockErr != nil {
+		return lockErr
+	}
 	// err 保存新动作模板锁定及变量契约复核错误，必须先于旧动作删除执行。
-	if err := validateAutomationTemplateContractsTx(ctx, tx, a.Dialect, userID, in.Actions); err != nil {
+	if err := validateAutomationTemplateContractsTx(ctx, tx, a.Dialect, userID, in.Actions, retainedTemplateIDs); err != nil {
 		return err
 	}
 	// res、err 用于本次流程后续判断的res、err
@@ -513,8 +469,7 @@ SELECT a.id,a.rule_id,a.action_type,COALESCE(a.card_id,0),COALESCE(c.name,''),a.
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	// out 用于本次流程后续判断的out
+	// out 保存游标关闭后再加载模板动作详情的动作基础字段。
 	out := []AutomationAction{}
 	for rows.Next() {
 		// act 用于本次流程后续判断的act
@@ -528,15 +483,27 @@ SELECT a.id,a.rule_id,a.action_type,COALESCE(a.card_id,0),COALESCE(c.name,''),a.
 			return nil, err
 		}
 		act.Enabled = enabled != 0
-		if act.DeliveryTemplateID > 0 {
+		out = append(out, act)
+	}
+	// rowsErr 保存动作基础游标遍历错误。
+	rowsErr := rows.Err()
+	// closeErr 保存动作基础游标关闭错误。
+	closeErr := rows.Close()
+	if rowsErr != nil {
+		return nil, rowsErr
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
+	for /* index 表示当前待加载模板详情的动作位置。 */ index := range out {
+		if out[index].DeliveryTemplateID > 0 {
 			// err 保存模板动作详情加载错误。
-			if err := a.loadTemplateAction(ctx, &act); err != nil {
+			if err := a.loadTemplateAction(ctx, &out[index]); err != nil {
 				return nil, err
 			}
 		}
-		out = append(out, act)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // TryStartRun 以 UNIQUE(rule_id, trigger_key) 作为持久化防重。

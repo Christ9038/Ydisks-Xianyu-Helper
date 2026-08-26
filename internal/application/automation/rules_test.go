@@ -13,10 +13,25 @@ type ruleRepositoryFake struct {
 	created RuleInput
 	// listedFilter 保存最近一次分页查询条件。
 	listedFilter RuleFilter
+	// existing 保存更新规则测试所需的原规则。
+	existing Rule
+	// existingErr 保存原规则读取错误。
+	existingErr error
 }
 
 // ListForUser 返回空规则列表。
 func (r *ruleRepositoryFake) ListForUser(context.Context, int64) ([]Rule, error) { return nil, nil }
+
+// GetForUser 返回测试用规则仓储中的单条规则。
+func (r *ruleRepositoryFake) GetForUser(context.Context, int64, int64) (Rule, error) {
+	if r.existingErr != nil {
+		return Rule{}, r.existingErr
+	}
+	if r.existing.ID == 0 {
+		return Rule{}, ErrRuleNotFound
+	}
+	return r.existing, nil
+}
 
 // ListPageForUser 记录分页条件并返回空结果。
 func (r *ruleRepositoryFake) ListPageForUser(_ context.Context, filter RuleFilter) ([]Rule, int, error) {

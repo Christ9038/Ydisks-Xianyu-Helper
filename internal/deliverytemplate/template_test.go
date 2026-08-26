@@ -44,6 +44,42 @@ func TestParseExtractsKeysAndRejectsUnknownVariables(t *testing.T) {
 	}
 }
 
+// TestParseRejectsMalformedDoubleBraceSequences 验证双大括号扫描不会接受嵌套或孤立标记。
+func TestParseRejectsMalformedDoubleBraceSequences(t *testing.T) {
+	// invalidMessages 保存不应被模板解析器接受的双大括号文本。
+	invalidMessages := []string{
+		"{{oops{{order_id}}",
+		"text}}",
+		"}}{{order_id}}",
+		"{{order_id}}}}",
+		"{{order_id}",
+		"{{ }}",
+		"{{unknown}}",
+		"{{cards.main extra}}",
+	}
+	for /* message 表示当前待拒绝的非法模板文本。 */ _, message := range invalidMessages {
+		// err 保存当前非法模板解析错误。
+		if _, err := Parse([]string{message}); err == nil {
+			t.Fatalf("Parse(%q) should reject malformed marker", message)
+		}
+	}
+}
+
+// TestParseAcceptsAdjacentSupportedVariables 验证相邻合法变量仍按首次出现顺序提取。
+func TestParseAcceptsAdjacentSupportedVariables(t *testing.T) {
+	// parsed 保存包含前缀、连字符和下划线变量的解析结果。
+	parsed, err := Parse([]string{"{{delivery.cards.a-1}}{{custom.vip_2}}{{cards.a-1}}{{custom.vip_2}}"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed.Keys) != 1 || parsed.Keys[0] != "a-1" {
+		t.Fatalf("keys=%v", parsed.Keys)
+	}
+	if len(parsed.CustomKeys) != 1 || parsed.CustomKeys[0] != "vip_2" {
+		t.Fatalf("custom keys=%v", parsed.CustomKeys)
+	}
+}
+
 // TestReplaceRendersAllDeliveryVariables 验证订单、卡密和规则数组变量可以共同渲染。
 func TestReplaceRendersAllDeliveryVariables(t *testing.T) {
 	// got 保存完整模板渲染后的消息。

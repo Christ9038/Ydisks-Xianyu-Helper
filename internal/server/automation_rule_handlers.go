@@ -249,8 +249,12 @@ func (s *Server) updateAutomationRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// in、err 用于本次流程后续判断的in、err
-	in, err := s.automationRulesApplication().Normalize(r.Context(), sess.UserID, automationRuleDraft(req))
+	in, err := s.automationRulesApplication().NormalizeForUpdate(r.Context(), sess.UserID, ruleID, automationRuleDraft(req))
 	if err != nil {
+		if errors.Is(err, automationapp.ErrRuleNotFound) {
+			writeErr(w, http.StatusNotFound, "自动化规则不存在")
+			return
+		}
 		if errors.Is(err, automationapp.ErrPricingModeConflict) {
 			writeErr(w, http.StatusConflict, err.Error())
 			return

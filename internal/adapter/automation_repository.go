@@ -79,6 +79,19 @@ func (r *AutomationRepository) ListForUser(ctx context.Context, userID int64) ([
 	return automationRulesModel(rules), nil
 }
 
+// GetForUser 返回用户拥有的单条自动化规则，并隐藏数据库模型细节。
+func (r *AutomationRepository) GetForUser(ctx context.Context, userID, ruleID int64) (automationapp.Rule, error) {
+	// rule、err 保存数据库规则及读取错误。
+	rule, err := r.store.Automation.Get(ctx, ruleID)
+	if errors.Is(err, db.ErrNotFound) || (err == nil && (rule == nil || rule.UserID != userID)) {
+		return automationapp.Rule{}, automationapp.ErrRuleNotFound
+	}
+	if err != nil {
+		return automationapp.Rule{}, err
+	}
+	return automationRulesModel([]db.AutomationRule{*rule})[0], nil
+}
+
 // ListPageForUser 返回用户自动化规则分页及总数。
 func (r *AutomationRepository) ListPageForUser(ctx context.Context, filter automationapp.RuleFilter) ([]automationapp.Rule, int, error) {
 	// rules、total、err 保存分页规则、总数及数据库查询失败原因。

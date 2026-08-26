@@ -36,7 +36,7 @@ func TestRuleServiceNormalizesAllActionKinds(t *testing.T) {
 		{ActionType: ActionSendCard, CardID: 1, SortOrder: 3},
 		{ActionType: ActionSendText, MessageTemplate: " hello ", ConfigJSON: `{}`},
 		{ActionType: ActionAdjustPrice, ConfigJSON: `{"target_price":"1.20"}`},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("合法动作规范化失败: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestRuleServiceRejectsActionValidationBranches(t *testing.T) {
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			// _, err 保存当前动作校验结果。
-			_, _, err := testCase.service.normalizeDraftActions(context.Background(), 7, testCase.trigger, []ActionDraft{testCase.action})
+			_, _, err := testCase.service.normalizeDraftActions(context.Background(), 7, testCase.trigger, []ActionDraft{testCase.action}, nil)
 			if err == nil || !containsRuleError(err, testCase.want) {
 				t.Fatalf("错误=%v，期望包含=%q", err, testCase.want)
 			}
@@ -105,7 +105,7 @@ func TestRuleServiceNormalizesTemplateAction(t *testing.T) {
 		TemplateBindings:   []TemplateBinding{{VariableKey: "key", CardID: 2}},
 		CustomVariables:    map[string]string{"name": " Alice "},
 		ConfigJSON:         `{"existing":true}`,
-	}})
+	}}, nil)
 	if err != nil {
 		t.Fatalf("模板动作规范化失败: %v", err)
 	}
@@ -114,6 +114,33 @@ func TestRuleServiceNormalizesTemplateAction(t *testing.T) {
 	}
 	if !containsRuleError(errors.New(actions[0].ConfigJSON), "custom_variables") {
 		t.Fatalf("模板自定义变量未写入配置: %s", actions[0].ConfigJSON)
+	}
+}
+
+// TestRuleServiceAllowsOnlyExistingDisabledTemplateOnUpdate 验证停用模板只能由原规则继续保留。
+func TestRuleServiceAllowsOnlyExistingDisabledTemplateOnUpdate(t *testing.T) {
+	// repository 保存原规则已有模板引用。
+	repository := &ruleRepositoryFake{existing: Rule{ID: 9, Actions: []Action{{ActionType: ActionSendTemplate, DeliveryTemplateID: 8}}}}
+	// ownership 保存停用模板摘要和合法卡密绑定能力。
+	ownership := &ruleTemplateOwnershipFake{ruleOwnershipFake: &ruleOwnershipFake{cardType: "text", cardEnabled: true}, template: TemplateInfo{Enabled: false, Keys: []string{"key"}}}
+	// service 是使用规则仓储和模板归属替身的规则服务。
+	service := NewRuleService(repository, ownership)
+	// draft 保存继续引用停用模板的更新草稿。
+	draft := RuleDraft{CookieID: "account-1", TriggerType: TriggerOrderPaid, Actions: []ActionDraft{{ActionType: ActionSendTemplate, DeliveryTemplateID: 8, TemplateBindings: []TemplateBinding{{VariableKey: "key", CardID: 2}}}}}
+	// err 保存既有停用模板更新规范化的结果。
+	if _, err := service.NormalizeForUpdate(context.Background(), 7, 9, draft); err != nil {
+		t.Fatalf("既有停用模板应允许更新：%v", err)
+	}
+	// switchedOwnership 保存另一个停用模板摘要。
+	switchedOwnership := &ruleTemplateOwnershipFake{ruleOwnershipFake: &ruleOwnershipFake{cardType: "text", cardEnabled: true}, template: TemplateInfo{Enabled: false, Keys: []string{"key"}}}
+	// switchedService 是用于验证切换停用模板被拒绝的服务。
+	switchedService := NewRuleService(repository, switchedOwnership)
+	// switchedDraft 保存切换到另一个停用模板的更新草稿。
+	switchedDraft := draft
+	switchedDraft.Actions[0].DeliveryTemplateID = 10
+	// err 保存切换到新停用模板时的规范化错误。
+	if _, err := switchedService.NormalizeForUpdate(context.Background(), 7, 9, switchedDraft); err == nil {
+		t.Fatal("切换到新的停用模板应被拒绝")
 	}
 }
 

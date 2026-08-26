@@ -45,6 +45,14 @@ func (e *automationActionExecutor) sendTemplate(ctx context.Context, task Task, 
 		}
 		return restoreErr
 	}
+	// failBeforeSend 在尚未发送任何消息时恢复已预留库存，并区分可安全重试与状态不确定的失败。
+	failBeforeSend := func(cause error) (actionExecutionResult, error) {
+		// restoreErr 保存发送前库存恢复过程中的聚合错误。
+		if restoreErr := restoreReserved(); restoreErr != nil {
+			return actionExecutionResult{}, uncertainAction(errors.Join(cause, restoreErr))
+		}
+		return actionExecutionResult{}, cause
+	}
 	for /* binding 表示当前模板变量到卡密组的绑定。 */ _, binding := range action.TemplateBindings {
 		if cardName == "" {
 			cardName = binding.CardName
@@ -52,10 +60,10 @@ func (e *automationActionExecutor) sendTemplate(ctx context.Context, task Task, 
 		// card 保存当前绑定的卡密组完整配置。
 		card, err := e.store.Cards.GetForDelivery(ctx, binding.CardID)
 		if err != nil {
-			return actionExecutionResult{}, err
+			return failBeforeSend(err)
 		}
 		if !card.Enabled || (card.Type != "text" && card.Type != "data") {
-			return actionExecutionResult{}, fmt.Errorf("模板绑定的卡密组不可用")
+			return failBeforeSend(fmt.Errorf("模板绑定的卡密组不可用"))
 		}
 		// count 保存按订单购买数量折算后的当前变量卡密份数。
 		count := binding.DeliveryCount
@@ -77,11 +85,7 @@ func (e *automationActionExecutor) sendTemplate(ctx context.Context, task Task, 
 				content, consumeErr := e.store.Cards.ConsumeBatchData(ctx, card.ID)
 				unlock()
 				if consumeErr != nil {
-					// restoreErr 保存消费失败后的回滚错误。
-					if restoreErr := restoreReserved(); restoreErr != nil {
-						return actionExecutionResult{}, uncertainAction(errors.Join(consumeErr, restoreErr))
-					}
-					return actionExecutionResult{}, consumeErr
+					return failBeforeSend(consumeErr)
 				}
 				lines = append(lines, content)
 				reserved = append(reserved, struct {
@@ -110,11 +114,7 @@ func (e *automationActionExecutor) sendTemplate(ctx context.Context, task Task, 
 		// sendErr 保存模板消息发送错误。
 		if sendErr := e.sendText(ctx, task, text); sendErr != nil {
 			if result.sent == 0 && errors.Is(sendErr, ErrMessageNotSent) {
-				// restoreErr 保存首条消息未发送时的库存恢复错误。
-				if restoreErr := restoreReserved(); restoreErr != nil {
-					return actionExecutionResult{}, uncertainAction(errors.Join(sendErr, restoreErr))
-				}
-				return actionExecutionResult{}, sendErr
+				return failBeforeSend(sendErr)
 			}
 			return result, uncertainAction(sendErr)
 		}
@@ -124,11 +124,7 @@ func (e *automationActionExecutor) sendTemplate(ctx context.Context, task Task, 
 	if result.sent == 0 {
 		// notSentErr 表示模板渲染后没有任何可确认发送的消息，必须阻止后续确认发货动作。
 		notSentErr := fmt.Errorf("%w: 发货模板渲染后没有可发送内容", ErrMessageNotSent)
-		// restoreErr 保存零消息场景下回滚已预留批量卡密时产生的错误。
-		if restoreErr := restoreReserved(); restoreErr != nil {
-			return actionExecutionResult{}, uncertainAction(errors.Join(notSentErr, restoreErr))
-		}
-		return actionExecutionResult{}, notSentErr
+		return failBeforeSend(notSentErr)
 	}
 	return result, nil
 }

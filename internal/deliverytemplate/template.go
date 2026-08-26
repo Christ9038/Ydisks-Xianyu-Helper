@@ -16,8 +16,8 @@ var builtinVariablePattern = regexp.MustCompile(`\{\{(?:delivery\.)?(buyer_nickn
 // customVariablePattern 匹配发货规则传入的字符串键值变量。
 var customVariablePattern = regexp.MustCompile(`\{\{(?:delivery\.)?custom\.([A-Za-z0-9_-]+)\}\}`)
 
-// anyDoubleBracePattern 检测消息中可能误写的其他双大括号标记。
-var anyDoubleBracePattern = regexp.MustCompile(`\{\{|\}\}`)
+// fullVariablePattern 只匹配完整且受支持的模板变量令牌。
+var fullVariablePattern = regexp.MustCompile(`^\{\{(?:delivery\.)?(?:cards\.[A-Za-z0-9_-]+|custom\.[A-Za-z0-9_-]+|buyer_nickname|order_id|buyer_id|card_name)\}\}$`)
 
 // Parsed 保存校验后的消息副本、卡密变量键和自定义变量键。
 type Parsed struct {
@@ -45,37 +45,51 @@ func Parse(messages []string) (Parsed, error) {
 			return Parsed{}, fmt.Errorf("发货模板第 %d 条消息不能为空", index+1)
 		}
 		parsed.Messages[index] = message
-		for /* match 表示当前卡密变量的正则匹配结果。 */ _, match := range cardVariablePattern.FindAllStringSubmatch(message, -1) {
-			// key 是当前消息中识别出的卡密变量键。
-			key := match[1]
-			if !seen[key] {
-				seen[key] = true
-				parsed.Keys = append(parsed.Keys, key)
+		// offset 表示当前消息从左到右扫描双大括号令牌的字节位置。
+		for offset := 0; offset < len(message); {
+			// nextOpen、nextClose 分别保存下一个开放和闭合标记的相对位置。
+			nextOpen := strings.Index(message[offset:], "{{")
+			// nextClose 保存下一个闭合双大括号的相对位置。
+			nextClose := strings.Index(message[offset:], "}}")
+			if nextClose >= 0 && (nextOpen < 0 || nextClose < nextOpen) {
+				return Parsed{}, fmt.Errorf("发货模板第 %d 条消息包含未匹配闭合标记", index+1)
 			}
-		}
-		for /* match 表示当前自定义变量的正则匹配结果。 */ _, match := range customVariablePattern.FindAllStringSubmatch(message, -1) {
-			// key 保存自定义变量在规则键值表中的名称。
-			key := match[1]
-			if !customSeen[key] {
-				customSeen[key] = true
-				parsed.CustomKeys = append(parsed.CustomKeys, key)
+			if nextOpen < 0 {
+				break
 			}
-		}
-		for /* match 表示当前双大括号标记的位置。 */ _, match := range anyDoubleBracePattern.FindAllStringIndex(message, -1) {
-			// markerStart 是当前双大括号标记在消息中的字节位置。
-			markerStart := match[0]
-			if markerStart+2 <= len(message) && message[markerStart:markerStart+2] == "{{" {
-				// closingOffset 是从变量起点之后搜索到的闭合标记位置。
-				closingOffset := strings.Index(message[markerStart+2:], "}}")
-				if closingOffset < 0 {
-					return Parsed{}, fmt.Errorf("发货模板第 %d 条消息包含未闭合变量", index+1)
+			// markerStart 保存当前开放标记的绝对字节位置。
+			markerStart := offset + nextOpen
+			// closingOffset 保存从开放标记后找到的闭合标记相对位置。
+			closingOffset := strings.Index(message[markerStart+2:], "}}")
+			if closingOffset < 0 {
+				return Parsed{}, fmt.Errorf("发货模板第 %d 条消息包含未闭合变量", index+1)
+			}
+			// tokenEnd 是当前变量令牌闭合符之后的下一个字节位置。
+			tokenEnd := markerStart + 2 + closingOffset + 2
+			// token 是需要按完整语法校验并提取变量键的完整令牌。
+			token := message[markerStart:tokenEnd]
+			if !fullVariablePattern.MatchString(token) {
+				return Parsed{}, fmt.Errorf("发货模板第 %d 条消息包含非法变量", index+1)
+			}
+			// cardMatch 保存当前令牌的卡密变量匹配结果。
+			if cardMatch := cardVariablePattern.FindStringSubmatch(token); len(cardMatch) == 2 {
+				// key 是当前消息中识别出的卡密变量键。
+				key := cardMatch[1]
+				if !seen[key] {
+					seen[key] = true
+					parsed.Keys = append(parsed.Keys, key)
 				}
-				// token 是需要按完整语法再次校验的变量文本。
-				token := message[markerStart : markerStart+2+closingOffset+2]
-				if !cardVariablePattern.MatchString(token) && !builtinVariablePattern.MatchString(token) && !customVariablePattern.MatchString(token) {
-					return Parsed{}, fmt.Errorf("发货模板第 %d 条消息包含非法变量", index+1)
+			}
+			// customMatch 保存当前令牌的自定义变量匹配结果。
+			if customMatch := customVariablePattern.FindStringSubmatch(token); len(customMatch) == 2 {
+				// key 保存自定义变量在规则键值表中的名称。
+				key := customMatch[1]
+				if !customSeen[key] {
+					customSeen[key] = true
+					parsed.CustomKeys = append(parsed.CustomKeys, key)
 				}
 			}
+			offset = tokenEnd
 		}
 	}
 	return parsed, nil

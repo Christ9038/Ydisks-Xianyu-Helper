@@ -260,6 +260,8 @@ type CardInfo struct {
 type RuleRepository interface {
 	// ListForUser 返回用户全部规则。
 	ListForUser(ctx context.Context, userID int64) ([]Rule, error)
+	// GetForUser 返回用户拥有的单条规则及其非敏感动作引用。
+	GetForUser(ctx context.Context, userID, ruleID int64) (Rule, error)
 	// ListPageForUser 返回用户规则分页和总数。
 	ListPageForUser(ctx context.Context, filter RuleFilter) ([]Rule, int, error)
 	// CountByTriggerForUser 返回用户规则触发类型统计。
@@ -329,6 +331,31 @@ func (s *RuleService) CountByTriggerForUser(ctx context.Context, filter RuleFilt
 
 // Normalize 校验并规范化 HTTP 边界传入的规则草稿。
 func (s *RuleService) Normalize(ctx context.Context, userID int64, draft RuleDraft) (RuleInput, error) {
+	return s.normalize(ctx, userID, draft, nil)
+}
+
+// NormalizeForUpdate 校验更新草稿，并允许继续保留原规则已引用的停用模板。
+func (s *RuleService) NormalizeForUpdate(ctx context.Context, userID, ruleID int64, draft RuleDraft) (RuleInput, error) {
+	if s == nil || s.repository == nil || userID <= 0 || ruleID <= 0 {
+		return RuleInput{}, ErrInvalidInput
+	}
+	// rule 保存当前规则的非敏感动作引用，用于判断停用模板是否为既有引用。
+	rule, err := s.repository.GetForUser(ctx, userID, ruleID)
+	if err != nil {
+		return RuleInput{}, err
+	}
+	// retainedTemplateIDs 保存原规则已经引用的模板主键集合。
+	retainedTemplateIDs := make(map[int64]struct{})
+	for /* action 表示原规则中的一个自动化动作。 */ _, action := range rule.Actions {
+		if action.ActionType == ActionSendTemplate && action.DeliveryTemplateID > 0 {
+			retainedTemplateIDs[action.DeliveryTemplateID] = struct{}{}
+		}
+	}
+	return s.normalize(ctx, userID, draft, retainedTemplateIDs)
+}
+
+// normalize 复用创建和更新规则的输入校验，仅由调用方决定可保留的停用模板集合。
+func (s *RuleService) normalize(ctx context.Context, userID int64, draft RuleDraft, allowedDisabledTemplateIDs map[int64]struct{}) (RuleInput, error) {
 	if s == nil || s.repository == nil || s.ownership == nil || userID <= 0 {
 		return RuleInput{}, ErrInvalidInput
 	}
@@ -372,7 +399,7 @@ func (s *RuleService) Normalize(ctx context.Context, userID int64, draft RuleDra
 		draft.Name = defaultRuleName(draft.TriggerType, draft.ItemID)
 	}
 	// actions 是规范化后的动作列表；flags 汇总启用动作类型，供触发类型组合校验使用。
-	actions, flags, actionsErr := s.normalizeDraftActions(ctx, userID, draft.TriggerType, draft.Actions)
+	actions, flags, actionsErr := s.normalizeDraftActions(ctx, userID, draft.TriggerType, draft.Actions, allowedDisabledTemplateIDs)
 	if actionsErr != nil {
 		return RuleInput{}, actionsErr
 	}
@@ -410,7 +437,7 @@ type ruleActionFlags struct {
 }
 
 // normalizeDraftActions 逐个校验并规范化规则草稿中的动作，同时汇总启用动作类型标志。
-func (s *RuleService) normalizeDraftActions(ctx context.Context, userID int64, triggerType string, draftActions []ActionDraft) ([]ActionInput, ruleActionFlags, error) {
+func (s *RuleService) normalizeDraftActions(ctx context.Context, userID int64, triggerType string, draftActions []ActionDraft, allowedDisabledTemplateIDs map[int64]struct{}) ([]ActionInput, ruleActionFlags, error) {
 	// actions 保存规范化后的动作；flags 记录启用动作类型，供规则完整性校验使用。
 	actions := make([]ActionInput, 0, len(draftActions))
 	// flags 汇总当前草稿中启用的动作类型。
@@ -454,7 +481,9 @@ func (s *RuleService) normalizeDraftActions(ctx context.Context, userID int64, t
 			if templateErr != nil {
 				return nil, flags, templateErr
 			}
-			if !template.Enabled {
+			// retained 表示停用模板是否为当前更新规则已经存在的引用。
+			_, retained := allowedDisabledTemplateIDs[draftAction.DeliveryTemplateID]
+			if !template.Enabled && !retained {
 				return nil, flags, errors.New("发货模板不存在或已停用")
 			}
 			// bindingErr 保存模板变量绑定校验失败原因。

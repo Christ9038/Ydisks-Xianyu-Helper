@@ -282,6 +282,7 @@ type AutomationRulesPort interface {
 	ListPageForUser(context.Context, automationapp.RuleFilter) ([]automationapp.Rule, int, error)
 	CountByTriggerForUser(context.Context, automationapp.RuleFilter) (map[string]int, error)
 	Normalize(context.Context, int64, automationapp.RuleDraft) (automationapp.RuleInput, error)
+	NormalizeForUpdate(context.Context, int64, int64, automationapp.RuleDraft) (automationapp.RuleInput, error)
 	Create(context.Context, automationapp.RuleInput) (int64, error)
 	Update(context.Context, int64, int64, automationapp.RuleInput) error
 	Delete(context.Context, int64, int64) error

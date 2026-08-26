@@ -145,6 +145,41 @@ func TestSendTemplateRestoresReservedBatchData(t *testing.T) {
 	if _, dropErr := store.DB.ExecContext(ctx, `DROP TRIGGER fail_zero_output_restore`); dropErr != nil {
 		t.Fatal(dropErr)
 	}
+	// firstBindingID、firstBindingErr 保存后续绑定失败场景中先被预留的批量卡密组。
+	firstBindingID, firstBindingErr := store.Cards.Create(ctx, &db.CardFull{Name: "first-binding", Type: "data", DataContent: "先行预留", Enabled: true, UserID: admin.ID})
+	if firstBindingErr != nil {
+		t.Fatal(firstBindingErr)
+	}
+	// missingBindingResult、missingBindingErr 保存后续绑定不存在时的执行结果。
+	missingBindingResult, missingBindingErr := consumeExecutor.sendTemplate(ctx, Task{AccountID: "cid"}, db.AutomationAction{ConfigJSON: "{}", TemplateMessages: []string{"{{cards.first}}"}, TemplateBindings: []db.DeliveryTemplateBinding{{VariableKey: "first", CardID: firstBindingID}, {VariableKey: "missing", CardID: 999999}}})
+	if missingBindingResult.sent != 0 || missingBindingErr == nil {
+		t.Fatalf("后续绑定不存在应失败：result=%+v err=%v", missingBindingResult, missingBindingErr)
+	}
+	// restoredAfterBinding、restoreBindingErr 保存后续绑定失败后的库存恢复结果。
+	restoredAfterBinding, restoreBindingErr := store.Cards.ConsumeBatchData(ctx, firstBindingID)
+	if restoreBindingErr != nil || restoredAfterBinding != "先行预留" {
+		t.Fatalf("后续绑定失败后库存未恢复：content=%q err=%v", restoredAfterBinding, restoreBindingErr)
+	}
+	// disabledBindingID、disabledBindingErr 保存后续停用绑定使用的卡密组。
+	disabledBindingID, disabledBindingErr := store.Cards.Create(ctx, &db.CardFull{Name: "disabled-binding", Type: "text", TextContent: "停用", Enabled: false, UserID: admin.ID})
+	if disabledBindingErr != nil {
+		t.Fatal(disabledBindingErr)
+	}
+	// disabledFirstID、disabledFirstErr 保存停用绑定场景中先被预留的批量卡密组。
+	disabledFirstID, disabledFirstErr := store.Cards.Create(ctx, &db.CardFull{Name: "disabled-first", Type: "data", DataContent: "停用前预留", Enabled: true, UserID: admin.ID})
+	if disabledFirstErr != nil {
+		t.Fatal(disabledFirstErr)
+	}
+	// disabledBindingResult、disabledBindingRunErr 保存先预留后遇到停用绑定的执行结果。
+	disabledBindingResult, disabledBindingRunErr := consumeExecutor.sendTemplate(ctx, Task{AccountID: "cid"}, db.AutomationAction{ConfigJSON: "{}", TemplateMessages: []string{"{{cards.first}}"}, TemplateBindings: []db.DeliveryTemplateBinding{{VariableKey: "first", CardID: disabledFirstID}, {VariableKey: "disabled", CardID: disabledBindingID}}})
+	if disabledBindingResult.sent != 0 || disabledBindingRunErr == nil {
+		t.Fatalf("后续停用绑定应失败：result=%+v err=%v", disabledBindingResult, disabledBindingRunErr)
+	}
+	// restoredAfterDisabled、restoreDisabledErr 保存停用绑定失败后的库存恢复结果。
+	restoredAfterDisabled, restoreDisabledErr := store.Cards.ConsumeBatchData(ctx, disabledFirstID)
+	if restoreDisabledErr != nil || restoredAfterDisabled != "停用前预留" {
+		t.Fatalf("停用绑定失败后库存未恢复：content=%q err=%v", restoredAfterDisabled, restoreDisabledErr)
+	}
 }
 
 // TestSendTemplateClassifiesPartialSendFailure 验证模板前序消息成功而后续消息失败时返回结果未知。
