@@ -86,7 +86,7 @@ func (m ruleMatcher) match(ctx context.Context, task Task) ([]db.AutomationRule,
 		if err != nil {
 			return nil, err
 		}
-		if rule == nil {
+		if rule == nil || rule.SKUMigrationStatus != "ready" {
 			return nil, nil
 		}
 		return []db.AutomationRule{*rule}, nil

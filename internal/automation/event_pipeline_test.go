@@ -202,6 +202,19 @@ func TestRuleMatcherCoversRunSnapshotAndNormalLookup(t *testing.T) {
 	if snapshotErr != nil || len(snapshotRules) != 1 || snapshotRules[0].ID != ruleID {
 		t.Fatalf("运行快照匹配异常 rules=%+v err=%v", snapshotRules, snapshotErr)
 	}
+	// err 保存把规则标记为待重配的测试更新错误。
+	if _, err := database.ExecContext(ctx, `UPDATE automation_rules SET sku_migration_status='needs_reconfiguration' WHERE id=?`, ruleID); err != nil {
+		t.Fatal(err)
+	}
+	// blockedRules、blockedErr 保存不可执行 SKU 状态规则的恢复匹配结果。
+	blockedRules, blockedErr := matcher.match(ctx, Task{Raw: map[string]any{"automation_run_id": runID}})
+	if blockedErr != nil || blockedRules != nil {
+		t.Fatalf("待重配规则不应恢复执行 rules=%+v err=%v", blockedRules, blockedErr)
+	}
+	// err 保存恢复规则可执行状态的测试更新错误。
+	if _, err := database.ExecContext(ctx, `UPDATE automation_rules SET sku_migration_status='ready' WHERE id=?`, ruleID); err != nil {
+		t.Fatal(err)
+	}
 	// missingRules、missingErr 保存不存在运行快照的匹配结果。
 	missingRules, missingErr := matcher.match(ctx, Task{Raw: map[string]any{"automation_run_id": runID + 99999}})
 	if missingErr == nil || missingRules != nil {

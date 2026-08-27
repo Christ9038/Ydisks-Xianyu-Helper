@@ -13,6 +13,8 @@ import (
 func normalizeRuleSKUConfigs(ctx context.Context, ownership RuleOwnership, userID int64, cookieID, itemID string, actions []ActionInput) error {
 	// isMultiSpec 表示当前商品是否按多规格规则处理。
 	isMultiSpec := false
+	// profileKnown 表示是否已读取商品的权威多规格标志；已读取时不能被动作文本反向覆盖。
+	profileKnown := false
 	if itemID != "" {
 		// provider、ok 保存商品规格事实读取能力及接口是否装配。
 		if provider, ok := ownership.(interface {
@@ -23,6 +25,7 @@ func normalizeRuleSKUConfigs(ctx context.Context, ownership RuleOwnership, userI
 			if err != nil {
 				return err
 			}
+			profileKnown = true
 			isMultiSpec = profile.IsMultiSpec
 		}
 	}
@@ -33,17 +36,20 @@ func normalizeRuleSKUConfigs(ctx context.Context, ownership RuleOwnership, userI
 		if actions[index].ActionType != ActionSendCard && actions[index].ActionType != ActionSendTemplate {
 			continue
 		}
+		if !actions[index].Enabled {
+			continue
+		}
 		// config 保存当前动作配置对象。
 		var config map[string]any
 		// err 保存动作配置解析错误。
-		if err := json.Unmarshal([]byte(actions[index].ConfigJSON), &config); err != nil {
+		if err := json.Unmarshal([]byte(actions[index].ConfigJSON), &config); err != nil || config == nil {
 			return errors.New("动作配置必须是 JSON 对象")
 		}
 		// name、value 保存当前动作规格列文本。
 		name, _ := config["spec_name"].(string)
 		// value 保存当前动作规格值列文本。
 		value, _ := config["spec_value"].(string)
-		if !isMultiSpec && strings.TrimSpace(name) != "" && strings.ContainsAny(name, ";；") {
+		if !isMultiSpec && !profileKnown && strings.TrimSpace(name) != "" && strings.ContainsAny(name, ";；") {
 			isMultiSpec = true
 		}
 		if !isMultiSpec {

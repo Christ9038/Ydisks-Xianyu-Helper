@@ -323,7 +323,7 @@ SELECT r.id,r.user_id,r.cookie_id,r.item_id,COALESCE(i.item_title,''),r.name,r.t
 	AND r.cookie_id=?
 	AND r.trigger_type=?
 	AND r.item_id=?
-	AND r.sku_migration_status<>'needs_reconfiguration'
+	AND r.sku_migration_status='ready'
 	ORDER BY r.priority ASC, r.id ASC`, cookieID, triggerType, itemID)
 	if err != nil {
 		return nil, err
