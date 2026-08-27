@@ -639,7 +639,7 @@ func (o *Orders) FindByIDs(ctx context.Context, orderIDs []string) (map[string]*
 		}
 		// query 保存当前批量订单查询 SQL。
 		query := `SELECT order_id,item_id,buyer_id,quantity,amount,order_status,cookie_id,is_bargain,
-		        receiver_name,receiver_phone,receiver_address,receiver_city
+		        receiver_name,receiver_phone,receiver_address,receiver_city,created_at
 		 FROM orders WHERE order_id IN (` + strings.Join(placeholders, ",") + `) AND deleted_at IS NULL`
 		// rows 保存当前批量订单查询结果集。
 		rows, err := o.DB.QueryContext(ctx, query, args...)
@@ -648,17 +648,17 @@ func (o *Orders) FindByIDs(ctx context.Context, orderIDs []string) (map[string]*
 		}
 		// rowOrder 保存当前结果集扫描出的订单。
 		for rows.Next() {
-			// orderIDValue、itemID、buyerID、quantity、amount、status、cookieID、receiverName、receiverPhone、receiverAddr、receiverCity 保存可空订单文本字段。
-			var orderIDValue, itemID, buyerID, quantity, amount, status, cookieID, receiverName, receiverPhone, receiverAddr, receiverCity sql.NullString
+			// orderIDValue、itemID、buyerID、quantity、amount、status、cookieID、receiverName、receiverPhone、receiverAddr、receiverCity、createdAt 保存可空订单文本字段。
+			var orderIDValue, itemID, buyerID, quantity, amount, status, cookieID, receiverName, receiverPhone, receiverAddr, receiverCity, createdAt sql.NullString
 			// isBargain 保存当前订单砍价标记。
 			var isBargain sql.NullInt64
 			// scanErr 保存当前订单行扫描错误。
-			if scanErr := rows.Scan(&orderIDValue, &itemID, &buyerID, &quantity, &amount, &status, &cookieID, &isBargain, &receiverName, &receiverPhone, &receiverAddr, &receiverCity); scanErr != nil {
+			if scanErr := rows.Scan(&orderIDValue, &itemID, &buyerID, &quantity, &amount, &status, &cookieID, &isBargain, &receiverName, &receiverPhone, &receiverAddr, &receiverCity, &createdAt); scanErr != nil {
 				_ = rows.Close()
 				return nil, scanErr
 			}
 			// rowOrder 保存当前结果集扫描出的订单。
-			rowOrder := &Order{OrderID: orderIDValue.String, ItemID: itemID.String, BuyerID: buyerID.String, Quantity: quantity.String, Amount: amount.String, OrderStatus: status.String, CookieID: cookieID.String, IsBargain: int(isBargain.Int64), ReceiverName: receiverName.String, ReceiverPhone: receiverPhone.String, ReceiverAddr: receiverAddr.String, ReceiverCity: receiverCity.String}
+			rowOrder := &Order{OrderID: orderIDValue.String, ItemID: itemID.String, BuyerID: buyerID.String, Quantity: quantity.String, Amount: amount.String, OrderStatus: status.String, CookieID: cookieID.String, IsBargain: int(isBargain.Int64), ReceiverName: receiverName.String, ReceiverPhone: receiverPhone.String, ReceiverAddr: receiverAddr.String, ReceiverCity: receiverCity.String, CreatedAt: createdAt.String}
 			result[rowOrder.OrderID] = rowOrder
 		}
 		// rowsErr 保存当前批量订单结果集遍历错误。

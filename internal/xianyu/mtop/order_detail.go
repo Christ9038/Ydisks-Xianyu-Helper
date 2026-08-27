@@ -173,6 +173,8 @@ func orderSpecFromItemInfo(itemInfo map[string]any) (string, string) {
 	}
 	// pair 表示平台返回的规格名称字段与规格值字段候选组合。
 	partialName, partialValue := "", ""
+	// bestName、bestValue 保存所有响应形状中维度最完整的规格结果。
+	bestName, bestValue := "", ""
 	for /* pair 表示平台规格名称和值字段的一组候选键。 */ _, pair := range [][2]string{
 		{"specName", "specValue"},
 		{"spec_name", "spec_value"},
@@ -187,7 +189,8 @@ func orderSpecFromItemInfo(itemInfo map[string]any) (string, string) {
 		specValue := strings.TrimSpace(mtopString(itemInfo[pair[1]]))
 		if specName != "" || specValue != "" {
 			if specName != "" && specValue != "" {
-				return specName, specValue
+				bestName, bestValue = preferOrderSpecCandidate(bestName, bestValue, specName, specValue)
+				continue
 			}
 			if partialName == "" && partialValue == "" {
 				partialName, partialValue = specName, specValue
@@ -200,72 +203,255 @@ func orderSpecFromItemInfo(itemInfo map[string]any) (string, string) {
 		specName, specValue := splitOrderSpecText(mtopString(itemInfo[key]))
 		if specName != "" || specValue != "" {
 			if specName != "" && specValue != "" {
-				return specName, specValue
+				bestName, bestValue = preferOrderSpecCandidate(bestName, bestValue, specName, specValue)
+				continue
 			}
 			if partialName == "" && partialValue == "" {
 				partialName, partialValue = specName, specValue
 			}
 		}
 	}
+	// key 表示可能承载结构化多 SKU 规格数组的平台字段名。
+	for _, key := range []string{"skuProperties", "sku_properties", "skuProps", "sku_props", "specProperties", "spec_props"} {
+		// specName、specValue、ok 保存结构化规格数组的归一结果及是否存在完整规格对。
+		specName, specValue, ok := orderSpecsFromList(itemInfo[key])
+		if ok {
+			bestName, bestValue = preferOrderSpecCandidate(bestName, bestValue, specName, specValue)
+		}
+	}
 	// key 表示可能嵌套规格对象的平台字段名。
 	for _, key := range []string{"skuInfo", "sku_info", "specInfo", "spec_info", "sku"} {
+		// specName、specValue、ok 保存嵌套数组规格的归一结果及是否存在完整规格对。
+		specName, specValue, ok := orderSpecsFromList(itemInfo[key])
+		if ok {
+			bestName, bestValue = preferOrderSpecCandidate(bestName, bestValue, specName, specValue)
+			continue
+		}
 		// nested、ok 保存当前嵌套对象及其类型断言结果。
 		nested, ok := itemInfo[key].(map[string]any)
 		if !ok {
 			continue
 		}
 		// specName、specValue 保存嵌套对象解析出的规格名称和值。
-		specName, specValue := orderSpecFromItemInfo(nested)
+		specName, specValue = orderSpecFromItemInfo(nested)
 		if specName != "" || specValue != "" {
 			if specName != "" && specValue != "" {
-				return specName, specValue
+				bestName, bestValue = preferOrderSpecCandidate(bestName, bestValue, specName, specValue)
+				continue
 			}
 			if partialName == "" && partialValue == "" {
 				partialName, partialValue = specName, specValue
 			}
 		}
 	}
+	if bestName != "" && bestValue != "" {
+		return bestName, bestValue
+	}
 	return partialName, partialValue
 }
 
-// splitOrderSpecText 将平台返回的组合规格文本拆为名称和值。
-// 目前自动化规则以一组名称和值描述规格，因此多字段 SKU 只取第一个带分隔符的规格对。
+// preferOrderSpecCandidate 在多个平台字段同时存在时优先保留维度更多的完整规格结果。
+func preferOrderSpecCandidate(currentName, currentValue, candidateName, candidateValue string) (string, string) {
+	if currentName == "" || currentValue == "" {
+		return candidateName, candidateValue
+	}
+	// currentScore、candidateScore 保存当前结果和候选结果的维度数量。
+	currentScore := orderSpecDimensionCount(currentName, currentValue)
+	// candidateScore 保存候选结果的规格维度数量。
+	candidateScore := orderSpecDimensionCount(candidateName, candidateValue)
+	if candidateScore > currentScore {
+		return candidateName, candidateValue
+	}
+	return currentName, currentValue
+}
+
+// orderSpecDimensionCount 计算归一规格文本包含的维度数量，用于选择更完整的平台结果。
+func orderSpecDimensionCount(name, value string) int {
+	// nameCount、valueCount 保存名称和值文本中由稳定分隔符划分出的维度数量。
+	nameCount := strings.Count(name, "；") + 1
+	// valueCount 保存规格值文本中的维度数量。
+	valueCount := strings.Count(value, "；") + 1
+	if valueCount > nameCount {
+		return valueCount
+	}
+	return nameCount
+}
+
+// orderSpecsFromList 从平台返回的结构化规格数组中提取全部名称和值。
+func orderSpecsFromList(raw any) (string, string, bool) {
+	// list、ok 保存规格数组及其类型断言结果。
+	list, ok := raw.([]any)
+	if !ok || len(list) == 0 {
+		return "", "", false
+	}
+	// pairs 保存结构化数组中按平台顺序出现的完整规格对。
+	pairs := make([]orderSpecPair, 0, len(list))
+	for /* item 表示数组中的一条结构化规格记录。 */ _, item := range list {
+		// record、ok 保存当前规格记录及其类型断言结果。
+		record, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		// name、value 保存当前记录的候选名称和值字段。
+		name := firstOrderSpecMTopString(record, []string{"name", "specName", "spec_name", "propName", "propertyName"})
+		// value 保存当前记录的候选规格值。
+		value := firstOrderSpecMTopString(record, []string{"value", "specValue", "spec_value", "propValue", "propertyValue", "text"})
+		if name != "" && value != "" {
+			pairs = append(pairs, orderSpecPair{name: name, value: value})
+		}
+	}
+	if len(pairs) == 0 {
+		return "", "", false
+	}
+	// name、value 保存结构化规格数组归一后的名称和值文本。
+	name, value := joinOrderSpecPairs(pairs)
+	return name, value, true
+}
+
+// firstOrderSpecMTopString 按候选键顺序读取第一个非空规格文本字段。
+func firstOrderSpecMTopString(record map[string]any, keys []string) string {
+	for /* key 表示当前尝试读取的候选字段名。 */ _, key := range keys {
+		if value := strings.TrimSpace(mtopString(record[key])); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+// joinOrderSpecPairs 将规格对列表归一成规则配置使用的稳定名称和值文本。
+func joinOrderSpecPairs(pairs []orderSpecPair) (string, string) {
+	// names、values 保存按相同下标对齐的规格维度名称和值。
+	names := make([]string, 0, len(pairs))
+	// values 保存与名称列表位置一一对应的规格值。
+	values := make([]string, 0, len(pairs))
+	for /* pair 表示当前待归一化的规格名称和值。 */ _, pair := range pairs {
+		names = append(names, pair.name)
+		values = append(values, pair.value)
+	}
+	return strings.Join(names, "；"), strings.Join(values, "；")
+}
+
+// orderSpecPair 保存组合 SKU 中按平台顺序出现的一组规格名称和值。
+type orderSpecPair struct {
+	// name 是规格维度名称，例如“颜色”。
+	name string
+	// value 是该规格维度的实际成交值，例如“红色”。
+	value string
+}
+
+// splitOrderSpecText 将平台返回的组合规格文本归一为完整的规格名称和值列表。
+// 多维 SKU 使用中文分号连接各维度，旧版单维 SKU 的结果保持不变。
 func splitOrderSpecText(raw string) (string, string) {
 	// text 保存去除首尾空白后的组合规格文本。
 	text := strings.TrimSpace(raw)
 	if text == "" {
 		return "", ""
 	}
-	// segments 保存多规格文本的候选片段；斜杠不作为分隔符，避免破坏合法规格值。
-	segments := strings.FieldsFunc(text, func(r rune) bool {
-		return r == '；' || r == ';' || r == '\n' || r == '，' || r == ',' || r == '|'
-	})
-	if len(segments) == 0 {
-		segments = []string{text}
-	}
-	for /* segment 表示多规格文本中的一个候选规格片段。 */ _, segment := range segments {
-		segment = strings.TrimSpace(segment)
-		for /* separator 表示当前片段使用的名称和值分隔符。 */ _, separator := range []string{"：", ":", "="} {
-			// separatorIndex 表示当前片段中名称和值分隔符的位置。
-			separatorIndex := strings.Index(segment, separator)
-			if separatorIndex <= 0 || separatorIndex >= len(segment)-len(separator) {
-				continue
-			}
-			// specName、specValue 保存当前片段两侧的完整规格名称和值。
-			specName := strings.TrimSpace(segment[:separatorIndex])
-			// specValue 保存当前片段右侧的完整规格值。
-			specValue := strings.TrimSpace(segment[separatorIndex+len(separator):])
-			if specName != "" && specValue != "" {
-				return specName, specValue
-			}
+	// pairs 保存按平台文本顺序解析出的全部规格对，避免只保留第一个维度造成规则串配。
+	pairs := make([]orderSpecPair, 0, 2)
+	for /* segment 表示多规格文本中的一个候选规格片段。 */ _, segment := range splitOrderSpecSegments(text) {
+		// specName、specValue 保存当前片段两侧的完整规格名称和值。
+		specName, specValue, ok := splitOrderSpecSegment(segment)
+		if ok {
+			pairs = append(pairs, orderSpecPair{name: specName, value: specValue})
 		}
+	}
+	if len(pairs) > 0 {
+		// names、values 使用稳定分隔符保留每一个 SKU 维度，供规则精确匹配。
+		return joinOrderSpecPairs(pairs)
 	}
 	// fields 兼容平台以单个空格连接规格名和值的简化返回格式。
 	fields := strings.Fields(text)
-	if len(segments) == 1 && len(fields) == 2 {
+	if len(fields) == 2 && !containsOrderSpecListDelimiter(text) {
 		return fields[0], fields[1]
 	}
 	return "", ""
+}
+
+// splitOrderSpecSegments 按“后方确实开始新规格对”的列表分隔符切分文本。
+// 这样既支持逗号、分号等平台格式，也不会把规格值中的斜杠或普通逗号误当成维度边界。
+func splitOrderSpecSegments(text string) []string {
+	// segments 保存按完整规格对边界切出的候选片段。
+	segments := make([]string, 0, 2)
+	// start 保存当前候选片段的字节起点。
+	start := 0
+	for /* index、char 表示当前列表分隔符的字节位置和字符。 */ index, char := range text {
+		if !isOrderSpecListDelimiter(char) {
+			continue
+		}
+		// next 保存分隔符之后的下一个候选片段起点。
+		next := index + len(string(char))
+		if next >= len(text) || (!hasOrderSpecPairPrefix(text[next:]) &&
+			(isOrderSpecCommaDelimiter(char) || !hasOrderSpecPairAnywhere(text[next:]))) {
+			continue
+		}
+		segments = append(segments, text[start:index])
+		start = next
+	}
+	segments = append(segments, text[start:])
+	return segments
+}
+
+// isOrderSpecCommaDelimiter 标记逗号类分隔符；平台也可能把逗号放在一个规格值内部。
+func isOrderSpecCommaDelimiter(char rune) bool {
+	return char == '，' || char == ','
+}
+
+// isOrderSpecListDelimiter 判断字符是否是平台用于连接多个规格维度的分隔符。
+func isOrderSpecListDelimiter(char rune) bool {
+	return char == '；' || char == ';' || char == '\n' || char == '\r' || char == '，' || char == ',' || char == '|'
+}
+
+// containsOrderSpecListDelimiter 判断文本是否包含组合规格列表分隔符。
+func containsOrderSpecListDelimiter(text string) bool {
+	return strings.ContainsAny(text, "；;\n\r，,|")
+}
+
+// hasOrderSpecPairPrefix 判断文本开头直到下一个列表分隔符是否包含完整规格对。
+func hasOrderSpecPairPrefix(text string) bool {
+	// end 保存开头候选片段的字节结束位置。
+	end := len(text)
+	for /* index、char 表示当前扫描位置和列表分隔符。 */ index, char := range text {
+		if isOrderSpecListDelimiter(char) {
+			end = index
+			break
+		}
+	}
+	// ok 标记开头候选片段是否已经形成完整规格对。
+	_, _, ok := splitOrderSpecSegment(text[:end])
+	return ok
+}
+
+// hasOrderSpecPairAnywhere 判断剩余文本中是否存在后续完整规格对，用于跳过分隔符之间的脏片段。
+func hasOrderSpecPairAnywhere(text string) bool {
+	for /* segment 表示剩余文本中的一个候选规格片段。 */ _, segment := range strings.FieldsFunc(text, isOrderSpecListDelimiter) {
+		// ok 标记当前候选片段是否可作为完整规格对。
+		if _, _, ok := splitOrderSpecSegment(segment); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// splitOrderSpecSegment 从单个候选片段中提取第一个名称和值分隔符。
+func splitOrderSpecSegment(segment string) (string, string, bool) {
+	segment = strings.TrimSpace(segment)
+	// separatorIndex、separatorLength 保存第一个名称和值分隔符的位置及字节长度。
+	separatorIndex, separatorLength := -1, 0
+	for /* separator 表示当前尝试识别的名称和值分隔符。 */ _, separator := range []string{"：", ":", "="} {
+		// index 保存当前分隔符在候选片段中的字节位置。
+		if index := strings.Index(segment, separator); index >= 0 && (separatorIndex < 0 || index < separatorIndex) {
+			separatorIndex, separatorLength = index, len(separator)
+		}
+	}
+	if separatorIndex <= 0 || separatorIndex+separatorLength >= len(segment) {
+		return "", "", false
+	}
+	// name、value 保存分隔符两侧清理空白后的规格名称和值。
+	name := strings.TrimSpace(segment[:separatorIndex])
+	// value 保存分隔符右侧清理空白后的规格值。
+	value := strings.TrimSpace(segment[separatorIndex+separatorLength:])
+	return name, value, name != "" && value != ""
 }
 
 // buildOrderDetailQuery 封装build订单Detail查询业务协调。

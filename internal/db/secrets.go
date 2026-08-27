@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 )
 
 // encryptedValuePrefix 用于本次流程后续判断的encrypted值Prefix
@@ -24,8 +25,49 @@ const (
 
 // secretCodec 对数据库敏感字段做 AES-256-GCM 信封加密。未配置密钥时保持
 // 明文兼容；已加密数据若缺少/使用错误密钥会明确报错，绝不把密文当凭证使用。
-// secretCodec 用于本次流程后续判断的secretCodec
-type secretCodec struct{ aead cipher.AEAD }
+type secretCodec struct {
+	// aead 保存当前进程使用的 AES-GCM 实例。
+	aead cipher.AEAD
+	// initMu 保护临时密钥初始化，避免并发发货首次写入产生数据竞争。
+	initMu sync.Mutex
+}
+
+// ensureEncryptionKey 为未配置环境密钥的进程生成临时内存密钥，保证新敏感字段绝不明文落库。
+// 该密钥不替代生产环境的 XIANYU_DATA_KEY；生产环境仍应配置稳定密钥以支持重启恢复。
+func (c *secretCodec) ensureEncryptionKey() error {
+	if c == nil {
+		return nil
+	}
+	c.initMu.Lock()
+	defer c.initMu.Unlock()
+	if c.aead != nil {
+		return nil
+	}
+	// key 保存本进程临时加密密钥，不会写入日志或数据库。
+	key := make([]byte, 32)
+	// readErr 保存临时密钥随机填充错误。
+	if _, readErr := io.ReadFull(rand.Reader, key); readErr != nil {
+		return readErr
+	}
+	// block、err 保存临时 AES 密钥及构造错误。
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return err
+	}
+	// aead、err 保存临时密钥对应的 AEAD 实例及构造错误。
+	c.aead, err = cipher.NewGCM(block)
+	return err
+}
+
+// currentAEAD 以锁保护的方式读取当前加密实例，供加解密操作安全共享。
+func (c *secretCodec) currentAEAD() cipher.AEAD {
+	if c == nil {
+		return nil
+	}
+	c.initMu.Lock()
+	defer c.initMu.Unlock()
+	return c.aead
+}
 
 // secretCodecFromEnvironment 封装secretCodecFromEnvironment业务协调。
 func secretCodecFromEnvironment() *secretCodec {
@@ -69,17 +111,19 @@ func (c *secretCodec) encrypt(scope, owner, value string) (string, error) {
 		}
 		return value, nil
 	}
-	if c == nil || c.aead == nil {
+	// aead 保存当前可用的 AES-GCM 实例。
+	aead := c.currentAEAD()
+	if aead == nil {
 		return value, nil
 	}
 	// nonce 用于本次流程后续判断的nonce
-	nonce := make([]byte, c.aead.NonceSize())
+	nonce := make([]byte, aead.NonceSize())
 	if // err 用于本次流程后续判断的err
 	_, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return "", err
 	}
 	// sealed 用于本次流程后续判断的sealed
-	sealed := c.aead.Seal(nonce, nonce, []byte(value), []byte(scope+"\x00"+owner))
+	sealed := aead.Seal(nonce, nonce, []byte(value), []byte(scope+"\x00"+owner))
 	return encryptedValuePrefix + base64.RawStdEncoding.EncodeToString(sealed), nil
 }
 
@@ -145,18 +189,20 @@ func (c *secretCodec) decrypt(scope, owner, value string) (string, error) {
 	if !strings.HasPrefix(value, encryptedValuePrefix) {
 		return value, nil
 	}
-	if c == nil || c.aead == nil {
+	// aead 保存当前可用的 AES-GCM 实例。
+	aead := c.currentAEAD()
+	if aead == nil {
 		return "", errors.New("数据库包含加密凭证，但 XIANYU_DATA_KEY 未配置")
 	}
 	// raw、err 用于本次流程后续判断的raw、err
 	raw, err := base64.RawStdEncoding.DecodeString(strings.TrimPrefix(value, encryptedValuePrefix))
-	if err != nil || len(raw) < c.aead.NonceSize() {
+	if err != nil || len(raw) < aead.NonceSize() {
 		return "", fmt.Errorf("敏感字段密文格式无效")
 	}
 	// nonce 用于本次流程后续判断的nonce
-	nonce := raw[:c.aead.NonceSize()]
+	nonce := raw[:aead.NonceSize()]
 	// plain、err 用于本次流程后续判断的plain、err
-	plain, err := c.aead.Open(nil, nonce, raw[c.aead.NonceSize():], []byte(scope+"\x00"+owner))
+	plain, err := aead.Open(nil, nonce, raw[aead.NonceSize():], []byte(scope+"\x00"+owner))
 	if err != nil {
 		return "", errors.New("敏感字段解密失败，请检查 XIANYU_DATA_KEY")
 	}

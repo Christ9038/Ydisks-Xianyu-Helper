@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act,renderHook } from '@testing-library/react';
 import { afterEach,beforeEach,describe,expect,test,vi } from 'vitest';
-import { BROWSER_NOTIFICATION_PREFERENCE_KEY,getBrowserNotificationPermission,readBrowserNotificationEnabled,showBrowserNotification,useBrowserNotificationPreference } from './browserNotifications';
+import { BROWSER_NOTIFICATION_PREFERENCE_KEY,getBrowserNotificationPermission,readBrowserNotificationEnabled,showBrowserNotification,updateBrowserNotificationPreference,useBrowserNotificationPreference } from './browserNotifications';
 
 /** FakeNotification 模拟浏览器通知构造器及用户可见的通知实例。 */
 class FakeNotification {
@@ -40,7 +40,7 @@ const testLocalStorage = {
 } as Storage;
 
 describe('browser notification preference', /* 当前测试组验证浏览器通知偏好、权限申请和展示边界。 */ () => {
-  beforeEach(/* 当前回调重置浏览器存储和通知构造器状态。 */ () => {
+  beforeEach(/* 当前回调重置浏览器存储和通知构造器状态。 */ async () => {
     Object.defineProperty(window, 'localStorage', { configurable: true, value: testLocalStorage });
     testLocalStorage.clear();
     FakeNotification.permission = 'default';
@@ -48,6 +48,7 @@ describe('browser notification preference', /* 当前测试组验证浏览器通
     FakeNotification.requestPermission.mockResolvedValue('granted');
     FakeNotification.instances = [];
     vi.stubGlobal('Notification', FakeNotification);
+    await updateBrowserNotificationPreference(false);
   });
 
   afterEach(/* 当前回调清理浏览器全局替身，避免影响其他测试。 */ () => {
@@ -117,5 +118,14 @@ describe('browser notification preference', /* 当前测试组验证浏览器通
     expect(hook.result.current.enabled).toBe(false);
     expect(hook.result.current.permission).toBe('denied');
     hook.unmount();
+  });
+
+  test('本地存储写入失败时仍可在本页面展示通知', /* 当前回调验证隐私模式阻止 localStorage 时不会出现“已开启但无法通知”。 */ async () => {
+    FakeNotification.permission = 'granted';
+    vi.spyOn(window.localStorage, 'setItem').mockImplementation(/* 当前回调模拟隐私模式禁止写入本地存储。 */ () => { throw new Error('storage blocked'); });
+    vi.spyOn(window.localStorage, 'getItem').mockImplementation(/* 当前回调模拟隐私模式禁止读取本地存储。 */ () => { throw new Error('storage blocked'); });
+    await updateBrowserNotificationPreference(true);
+    expect(readBrowserNotificationEnabled()).toBe(true);
+    expect(showBrowserNotification({ title: '存储受限消息', body: '仍应展示' })).toBe(true);
   });
 });

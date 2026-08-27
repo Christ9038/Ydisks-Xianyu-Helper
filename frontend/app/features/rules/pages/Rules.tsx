@@ -811,21 +811,21 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                             {isMultiSpecRule && (
                               <>
                                 <div>
-                                  <label className="block text-xs font-bold text-gray-600 mb-2">规格名称</label>
+                                  <label className="block text-xs font-bold text-gray-600 mb-2">规格名称（多 SKU 用；连接）</label>
                                   <input
                                     value={variant.spec_name}
                                     onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => updateVariant(index, { spec_name: event.target.value })}
                                     className="w-full ios-input px-3 py-2.5 rounded-lg"
-                                    placeholder="例如：套餐"
+                                    placeholder="例如：颜色；尺码"
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-xs font-bold text-gray-600 mb-2">规格值</label>
+                                  <label className="block text-xs font-bold text-gray-600 mb-2">规格值（按同顺序填写）</label>
                                   <input
                                     value={variant.spec_value}
                                     onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => updateVariant(index, { spec_value: event.target.value })}
                                     className="w-full ios-input px-3 py-2.5 rounded-lg"
-                                    placeholder="例如：30天"
+                                    placeholder="例如：红色；M"
                                   />
                                 </div>
                               </>

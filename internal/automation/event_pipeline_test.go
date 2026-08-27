@@ -35,6 +35,25 @@ func TestActionPlannerPaidEventKeepsCardBeforeShipment(t *testing.T) {
 	}
 }
 
+// TestActionPlannerMultiSKUSelectsOnlyExactCombination 验证多 SKU 订单不会因首个维度相同而误发其他组合的卡密。
+func TestActionPlannerMultiSKUSelectsOnlyExactCombination(t *testing.T) {
+	// task 保存包含颜色和尺码两个维度的订单事实。
+	task := Task{TriggerType: TriggerOrderPaid, SpecName: "颜色；尺码", SpecValue: "红色；M"}
+	// actions 保存同色不同尺码、精确组合和通配动作，检验每种规则边界。
+	actions := []db.AutomationAction{
+		{ID: 1, ActionType: ActionSendCard, Enabled: true, ConfigJSON: `{"spec_name":"颜色；尺码","spec_value":"红色；L"}`},
+		{ID: 2, ActionType: ActionSendCard, Enabled: true, ConfigJSON: `{"spec_name":"颜色；尺码","spec_value":"红色；M"}`},
+		{ID: 3, ActionType: ActionSendCard, Enabled: true, ConfigJSON: `{}`},
+		{ID: 4, ActionType: ActionConfirmShipment, Enabled: true},
+	}
+	// plan 保存按规格精确匹配后的动作顺序。
+	plan := (actionPlanner{}).plan(task, actions)
+	// got 保存精确组合、通配动作和确认动作的规划顺序。
+	if got := []int64{plan[0].ID, plan[1].ID, plan[2].ID}; !reflect.DeepEqual(got, []int64{2, 3, 4}) {
+		t.Fatalf("多 SKU 动作计划=%v want [2 3 4]", got)
+	}
+}
+
 // TestEventFactRecorderWithoutOrderIsNoOp 验证没有订单事实时记录组件不执行任何持久化动作。
 func TestEventFactRecorderWithoutOrderIsNoOp(t *testing.T) {
 	// recorder 未注入数据库时应对无订单任务安全忽略。

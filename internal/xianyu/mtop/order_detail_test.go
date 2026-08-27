@@ -63,11 +63,19 @@ func TestOrderSpecFromItemInfoSupportsPlatformShapes(t *testing.T) {
 		wantVal  string
 	}{
 		{name: "explicit fields", itemInfo: map[string]any{"specName": "总量", "specValue": "年卡"}, wantName: "总量", wantVal: "年卡"},
+		{name: "explicit partial plus combined text prefers complete", itemInfo: map[string]any{"specName": "颜色", "specValue": "红色", "skuText": "颜色：红色；尺码：M"}, wantName: "颜色；尺码", wantVal: "红色；M"},
 		{name: "snake case fields", itemInfo: map[string]any{"spec_name": "总量", "spec_value": "永久"}, wantName: "总量", wantVal: "永久"},
 		{name: "sku text", itemInfo: map[string]any{"skuText": "总量:月卡"}, wantName: "总量", wantVal: "月卡"},
 		{name: "nested sku", itemInfo: map[string]any{"skuInfo": map[string]any{"skuText": "总量 月卡"}}, wantName: "总量", wantVal: "月卡"},
 		{name: "partial top nested complete", itemInfo: map[string]any{"specName": "颜色", "skuInfo": map[string]any{"skuText": "尺码：M"}}, wantName: "尺码", wantVal: "M"},
-		{name: "multiple specs first pair", itemInfo: map[string]any{"skuText": "颜色：红色；尺码：M"}, wantName: "颜色", wantVal: "红色"},
+		{name: "multiple specs preserve every pair", itemInfo: map[string]any{"skuText": "颜色：红色；尺码：M"}, wantName: "颜色；尺码", wantVal: "红色；M"},
+		{name: "mixed delimiters preserve pair order", itemInfo: map[string]any{"skuText": "颜色=红色,尺码:M|版本：专业"}, wantName: "颜色；尺码；版本", wantVal: "红色；M；专业"},
+		{name: "structured sku properties", itemInfo: map[string]any{"skuProperties": []any{map[string]any{"name": "颜色", "value": "红色"}, map[string]any{"spec_name": "尺码", "spec_value": "M"}}}, wantName: "颜色；尺码", wantVal: "红色；M"},
+		{name: "nested structured sku properties", itemInfo: map[string]any{"skuInfo": []any{map[string]any{"name": "颜色", "value": "红色"}, map[string]any{"name": "尺码", "value": "M"}}}, wantName: "颜色；尺码", wantVal: "红色；M"},
+		{name: "structured invalid entries skipped", itemInfo: map[string]any{"skuProps": []any{map[string]any{"name": "颜色"}, map[string]any{"name": "尺码", "value": "M"}}}, wantName: "尺码", wantVal: "M"},
+		{name: "embedded comma remains in value", itemInfo: map[string]any{"skuText": "套餐：红,蓝；时长：一年"}, wantName: "套餐；时长", wantVal: "红,蓝；一年"},
+		{name: "embedded colon remains after first separator", itemInfo: map[string]any{"skuText": "区域：华东:上海；版本：标准"}, wantName: "区域；版本", wantVal: "华东:上海；标准"},
+		{name: "malformed segment does not erase valid pairs", itemInfo: map[string]any{"skuText": "颜色：红色；无效；尺码：M"}, wantName: "颜色；尺码", wantVal: "红色；M"},
 		{name: "slash remains value", itemInfo: map[string]any{"skuText": "套餐:S/M"}, wantName: "套餐", wantVal: "S/M"},
 		{name: "partial values do not match", itemInfo: map[string]any{"specName": "颜色", "skuText": "尺码："}, wantName: "颜色", wantVal: ""},
 		{name: "invalid text", itemInfo: map[string]any{"skuText": "月卡"}},
@@ -109,7 +117,7 @@ func TestFetchOrderDetailSessionExpired(t *testing.T) {
 	}
 }
 
-// TestSplitOrderSpecTextHandlesSegments 验证组合规格文本按平台分隔符提取首个完整键值对。
+// TestSplitOrderSpecTextHandlesSegments 验证组合规格文本覆盖分隔符、组合维度和异常片段。
 func TestSplitOrderSpecTextHandlesSegments(t *testing.T) {
 	// cases 保存组合规格文本及预期拆分结果。
 	cases := []struct {
@@ -124,6 +132,10 @@ func TestSplitOrderSpecTextHandlesSegments(t *testing.T) {
 	}{
 		{name: "semicolon", raw: "颜色；尺码：M", wantName: "尺码", wantValue: "M"},
 		{name: "comma", raw: "颜色,尺码=42", wantName: "尺码", wantValue: "42"},
+		{name: "all pairs", raw: "颜色:红;尺码=M\n版本=专业", wantName: "颜色；尺码；版本", wantValue: "红；M；专业"},
+		{name: "value contains comma", raw: "套餐:红,蓝；时长:一年", wantName: "套餐；时长", wantValue: "红,蓝；一年"},
+		{name: "value contains slash", raw: "套餐:S/M；时长:一年", wantName: "套餐；时长", wantValue: "S/M；一年"},
+		{name: "malformed middle", raw: "颜色:红；错误；尺码:M", wantName: "颜色；尺码", wantValue: "红；M"},
 		{name: "empty", raw: "  ", wantName: "", wantValue: ""},
 		{name: "invalid", raw: "没有分隔符", wantName: "", wantValue: ""},
 		{name: "blank sides", raw: ":值", wantName: "", wantValue: ""},

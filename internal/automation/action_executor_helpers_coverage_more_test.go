@@ -45,6 +45,27 @@ func TestActionExecutorHelperBranches(t *testing.T) {
 	if !actionMatchesOrderSpec(matchingTask, db.AutomationAction{ConfigJSON: "{}"}) || !actionMatchesOrderSpec(matchingTask, db.AutomationAction{ConfigJSON: `{"spec_name":"套餐","spec_value":"标准"}`}) || actionMatchesOrderSpec(matchingTask, db.AutomationAction{ConfigJSON: `{"spec_name":"套餐","spec_value":"高级"}`}) || actionMatchesOrderSpec(matchingTask, db.AutomationAction{ConfigJSON: "bad-json"}) {
 		t.Fatal("动作规格匹配异常")
 	}
+	// multiSpecCases 覆盖多维 SKU 的完整匹配、维度顺序、部分匹配和通配规则。
+	multiSpecCases := []struct {
+		name   string
+		task   Task
+		config string
+		want   bool
+	}{
+		{name: "exact combination", task: Task{SpecName: "颜色；尺码", SpecValue: "红色；M"}, config: `{"spec_name":"颜色；尺码","spec_value":"红色；M"}`, want: true},
+		{name: "different second dimension", task: Task{SpecName: "颜色；尺码", SpecValue: "红色；M"}, config: `{"spec_name":"颜色；尺码","spec_value":"红色；L"}`},
+		{name: "different dimension order", task: Task{SpecName: "颜色；尺码", SpecValue: "红色；M"}, config: `{"spec_name":"尺码；颜色","spec_value":"M；红色"}`},
+		{name: "only first dimension is not wildcard", task: Task{SpecName: "颜色；尺码", SpecValue: "红色；M"}, config: `{"spec_name":"颜色","spec_value":"红色"}`},
+		{name: "empty filter wildcard", task: Task{SpecName: "颜色；尺码", SpecValue: "红色；M"}, config: `{}`, want: true},
+	}
+	for /* tc 表示当前多 SKU 动作匹配测试场景。 */ _, tc := range multiSpecCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// got 表示当前组合规格是否被动作配置精确匹配。
+			if got := actionMatchesOrderSpec(tc.task, db.AutomationAction{ConfigJSON: tc.config}); got != tc.want {
+				t.Fatalf("multi SKU match=%v want %v", got, tc.want)
+			}
+		})
+	}
 	// notSentErr 保存确定未发送错误，用于验证分类函数保持原错误。
 	notSentErr := errors.New("not sent")
 	if classifyMessageSendError(nil) != nil || classifyMessageSendError(notSentErr) == nil {

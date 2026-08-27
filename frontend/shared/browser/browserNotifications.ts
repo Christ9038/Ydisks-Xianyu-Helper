@@ -43,6 +43,12 @@ export type BrowserNotificationPreferenceState = {
   setEnabled: (enabled: boolean) => Promise<void>;
 };
 
+/** browserNotificationMemoryPreference 保存存储受限时本页面生命周期内的最后一次用户选择。 */
+let browserNotificationMemoryPreference: boolean | null = null;
+
+/** browserNotificationStorageUnavailable 标记本地存储写入失败，决定是否启用内存回退。 */
+let browserNotificationStorageUnavailable = false;
+
 /** getNotificationAPI 读取浏览器通知构造器；服务端渲染或旧浏览器环境返回空值。 */
 const getNotificationAPI = (): typeof Notification | null => {
   if (typeof window === 'undefined' || !('Notification' in window)) return null;
@@ -53,9 +59,13 @@ const getNotificationAPI = (): typeof Notification | null => {
 export const readBrowserNotificationEnabled = (): boolean => {
   if (typeof window === 'undefined') return false;
   try {
-    return window.localStorage.getItem(BROWSER_NOTIFICATION_PREFERENCE_KEY) === 'true';
+    // stored 保存浏览器本地存储中的原始开关文本。
+    const stored = window.localStorage.getItem(BROWSER_NOTIFICATION_PREFERENCE_KEY);
+    if (stored !== null) return stored === 'true';
+    return browserNotificationStorageUnavailable && browserNotificationMemoryPreference === true;
   } catch {
-    return false;
+    browserNotificationStorageUnavailable = true;
+    return browserNotificationMemoryPreference === true;
   }
 };
 
@@ -76,11 +86,14 @@ const publishBrowserNotificationPreference = (): void => {
 
 /** persistBrowserNotificationEnabled 写入浏览器偏好；存储不可用时保持内存行为而不阻断消息流。 */
 const persistBrowserNotificationEnabled = (enabled: boolean): void => {
+  browserNotificationMemoryPreference = enabled;
   if (typeof window === 'undefined') return;
   try {
     window.localStorage.setItem(BROWSER_NOTIFICATION_PREFERENCE_KEY, String(enabled));
+    browserNotificationStorageUnavailable = false;
   } catch {
-    // 隐私模式禁止写入本地存储时，通知权限仍可由本次页面生命周期使用。
+    browserNotificationStorageUnavailable = true;
+    // 隐私模式禁止写入本地存储时，通知权限仍可由本次页面生命周期使用内存偏好。
   }
 };
 

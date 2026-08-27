@@ -74,12 +74,19 @@ func (a *AutomationRules) advanceRunAction(ctx context.Context, advance Automati
 
 // encodeDeliveryProof 将短期发货凭证编码并按自动化运行作用域加密。
 func (a *AutomationRules) encodeDeliveryProof(runID int64, proof AutomationDeliveryProof) (string, error) {
+	if a == nil || a.codec == nil {
+		return "", errors.New("自动化发货凭证缺少加密编解码器")
+	}
+	// err 保存临时密钥准备失败原因。
+	if err := a.codec.ensureEncryptionKey(); err != nil {
+		return "", fmt.Errorf("生成自动化发货凭证临时密钥失败: %w", err)
+	}
 	// payload 保存稳定的凭证 JSON 结构。
 	payload, err := json.Marshal(proof)
 	if err != nil {
 		return "", fmt.Errorf("编码自动化发货凭证失败: %w", err)
 	}
-	// encrypted 保存按运行作用域加密后的凭证；未配置密钥时沿用兼容行为。
+	// encrypted 保存按运行作用域加密后的凭证，禁止新凭证以明文写入数据库。
 	encrypted, err := a.codec.encrypt("automation-delivery-proof", fmt.Sprint(runID), string(payload))
 	if err != nil {
 		return "", fmt.Errorf("加密自动化发货凭证失败: %w", err)

@@ -199,6 +199,9 @@ func TestOrdersUpsertMany(t *testing.T) {
 	if findErr != nil || len(found) != 2 || found["batch-existing"] == nil || found["batch-new"] == nil {
 		t.Fatalf("batch find result=%v err=%v", found, findErr)
 	}
+	if found["batch-existing"].CreatedAt != "2024-02-01T00:00:00Z" || found["batch-new"].CreatedAt != "2024-03-01T00:00:00Z" {
+		t.Fatalf("batch find should preserve created_at: existing=%q new=%q", found["batch-existing"].CreatedAt, found["batch-new"].CreatedAt)
+	}
 	// forbiddenErr 保存跨账号订单写入错误。
 	forbiddenErr := store.Orders.UpsertMany(ctx, []BatchOrderUpsert{{OrderID: "batch-existing", Options: OrderUpsertOpts{CookieID: "other-cookie", OrderStatus: "completed"}}})
 	if !errors.Is(forbiddenErr, ErrForbidden) {

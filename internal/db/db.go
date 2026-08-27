@@ -15,6 +15,7 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -124,9 +125,9 @@ func parseDBURL(raw string) (driverName, Dialect, string, error) {
 		// pgx 接受完整 postgres:// URL；也接受 libpq key=value DSN。
 		// 只有明确的 key=value 形式才去掉伪 scheme；URL 即便省略用户名也必须保留 scheme。
 		if strings.Contains(rest, "=") && !strings.Contains(rest, "/") {
-			return driverPgx, DialectPostgres, rest, nil
+			return driverPgx, DialectPostgres, forcePostgresTimezone(rest), nil
 		}
-		return driverPgx, DialectPostgres, scheme + "://" + rest, nil
+		return driverPgx, DialectPostgres, forcePostgresURLTimezone(scheme + "://" + rest), nil
 	default:
 		return "", "", "", fmt.Errorf("不支持的数据库 scheme: %s（支持 sqlite/mysql/postgres）", scheme)
 	}
@@ -145,11 +146,18 @@ func sqliteDSN(path string) string {
 // mysqlDSN 封装mysqlDSN业务协调。
 func mysqlDSN(dsn string) string {
 	dsn = forceMySQLBoolParam(dsn, "multiStatements")
-	return forceMySQLBoolParam(dsn, "clientFoundRows")
+	dsn = forceMySQLBoolParam(dsn, "clientFoundRows")
+	// MySQL 的 TIMESTAMP 默认受会话时区影响；固定会话为 UTC，保证跨机器读取历史订单时间一致。
+	return forceMySQLParam(dsn, "time_zone", "%27%2B00%3A00%27")
 }
 
 // forceMySQLBoolParam 封装forceMySQLBoolParam业务协调。
 func forceMySQLBoolParam(dsn, key string) string {
+	return forceMySQLParam(dsn, key, "true")
+}
+
+// forceMySQLParam 强制设置 MySQL DSN 参数并保留其他连接选项。
+func forceMySQLParam(dsn, key, value string) string {
 	// base、rawQuery、hasQuery 用于本次流程后续判断的base、rawQuery、has查询
 	base, rawQuery, hasQuery := strings.Cut(dsn, "?")
 	// parts 用于本次流程后续判断的parts
@@ -166,7 +174,7 @@ func forceMySQLBoolParam(dsn, key string) string {
 			name, _, _ := strings.Cut(part, "=")
 			if name == key {
 				if !found {
-					parts = append(parts, key+"=true")
+					parts = append(parts, key+"="+value)
 					found = true
 				}
 				continue
@@ -175,9 +183,43 @@ func forceMySQLBoolParam(dsn, key string) string {
 		}
 	}
 	if !found {
-		parts = append(parts, key+"=true")
+		parts = append(parts, key+"="+value)
 	}
 	return base + "?" + strings.Join(parts, "&")
+}
+
+// forcePostgresTimezone 将 libpq key=value DSN 的会话时区固定为 UTC。
+func forcePostgresTimezone(dsn string) string {
+	// parts 保存 libpq DSN 中按空格分隔的连接参数。
+	parts := strings.Fields(dsn)
+	// found 标记是否已替换调用方提供的 timezone 参数。
+	found := false
+	for /* index、part 表示当前连接参数位置及其原始文本。 */ index, part := range parts {
+		// name、hasValue 保存参数名称及其是否包含等号值。
+		name, _, hasValue := strings.Cut(part, "=")
+		if hasValue && strings.EqualFold(name, "timezone") {
+			parts[index] = "timezone=UTC"
+			found = true
+		}
+	}
+	if !found {
+		parts = append(parts, "timezone=UTC")
+	}
+	return strings.Join(parts, " ")
+}
+
+// forcePostgresURLTimezone 将 PostgreSQL URL 的会话时区固定为 UTC，同时保留认证和 SSL 参数。
+func forcePostgresURLTimezone(raw string) string {
+	// parsed、err 保存 PostgreSQL URL 解析结果及格式错误。
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	// query 保存 URL 中可修改的连接参数集合。
+	query := parsed.Query()
+	query.Set("timezone", "UTC")
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
 }
 
 // Migrate 执行嵌入式 goose 迁移，按方言选择子目录。

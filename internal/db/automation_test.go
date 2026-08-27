@@ -137,6 +137,53 @@ func TestAutomationDeliveryProofIsEncryptedAndRestored(t *testing.T) {
 	}
 }
 
+// TestAutomationDeliveryProofWithoutConfiguredKeyStillEncrypts 验证未配置环境密钥时仍不会把新发货凭证明文写入数据库。
+func TestAutomationDeliveryProofWithoutConfiguredKeyStillEncrypts(t *testing.T) {
+	t.Setenv("XIANYU_DATA_KEY", "")
+	// store、cleanup 保存无数据密钥的隔离测试数据库及清理函数。
+	store, cleanup := newTestDB(t)
+	defer cleanup()
+	// ctx 保存本测试共用的上下文。
+	ctx := context.Background()
+	// userID、cookieID 保存创建自动化运行所需的账号归属。
+	userID, cookieID := seedAccount(t, store)
+	// ruleID、err 保存测试规则创建结果。
+	ruleID, err := store.Automation.Create(ctx, makeAutomationRule(cookieID, userID, "proof-no-key-item", "paid", true, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// runID、started、err 保存运行幂等创建结果。
+	runID, started, err := store.Automation.TryStartRun(ctx, AutomationRun{RuleID: ruleID, CookieID: cookieID, TriggerType: "paid", TriggerKey: "proof-no-key"})
+	if err != nil || !started {
+		t.Fatalf("start=%v err=%v", started, err)
+	}
+	// run、err 保存新建运行的当前检查点。
+	run, err := store.Automation.GetRun(ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// err 保存动作检查点占用错误。
+	if _, err := store.Automation.StartRunAction(ctx, runID, run.AttemptCount, 0, time.Now().Add(time.Minute).Unix()); err != nil {
+		t.Fatal(err)
+	}
+	// proof 保存需要保护的确认发货凭证。
+	proof := AutomationDeliveryProof{TradeText: "NO-KEY-CARD", PicList: []string{"https://example.invalid/no-key.png"}}
+	// advanceErr 保存无环境密钥时使用临时内存密钥推进检查点的结果。
+	advanceErr := store.Automation.AdvanceRunAction(ctx, AutomationRunActionAdvance{RunID: runID, Attempt: run.AttemptCount, Cursor: 0, SentDelta: 1, DeliveryProof: &proof})
+	if advanceErr != nil {
+		t.Fatalf("无环境密钥时仍应安全加密落库: %v", advanceErr)
+	}
+	// rawProof 保存数据库中的原始凭证字段，确认失败路径没有留下明文。
+	var rawProof string
+	// scanErr 保存无环境密钥路径读取原始凭证字段的错误。
+	if scanErr := store.DB.QueryRowContext(ctx, `SELECT delivery_proof FROM automation_runs WHERE id=?`, runID).Scan(&rawProof); scanErr != nil {
+		t.Fatal(scanErr)
+	}
+	if rawProof == "" || strings.Contains(rawProof, proof.TradeText) || !strings.HasPrefix(rawProof, encryptedValuePrefix) {
+		t.Fatalf("无环境密钥路径不应保存明文发货凭证: %q", rawProof)
+	}
+}
+
 // TestAutomation_MatchPriority 商品精确规则优先于账号级规则；enabled=false 不匹配。
 func TestAutomation_MatchPriority(t *testing.T) {
 	// s、cleanup 用于本次流程后续判断的s、cleanup

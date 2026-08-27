@@ -66,7 +66,7 @@ func TestParseDBURL(t *testing.T) {
 func TestMysqlDSN(t *testing.T) {
 	// 无 query → 追加两个参数。
 	got := mysqlDSN("u:p@tcp(h:3306)/db")
-	if !strings.Contains(got, "multiStatements=true") || !strings.Contains(got, "clientFoundRows=true") || !strings.HasPrefix(got, "u:p@tcp(h:3306)/db?") {
+	if !strings.Contains(got, "multiStatements=true") || !strings.Contains(got, "clientFoundRows=true") || !strings.Contains(got, "time_zone=%27%2B00%3A00%27") || !strings.HasPrefix(got, "u:p@tcp(h:3306)/db?") {
 		t.Fatalf("无 query: %q", got)
 	}
 	// 已有 query → 保留原参数。
@@ -77,8 +77,22 @@ func TestMysqlDSN(t *testing.T) {
 	// 即使调用方显式关闭也要覆盖，否则 no-op UPDATE 会被误判为不存在。
 	got = mysqlDSN("u:p@tcp(h:3306)/db?multiStatements=false&clientFoundRows=false&loc=UTC")
 	if strings.Count(got, "multiStatements=") != 1 || strings.Count(got, "clientFoundRows=") != 1 ||
-		strings.Contains(got, "multiStatements=false") || strings.Contains(got, "clientFoundRows=false") || !strings.Contains(got, "loc=UTC") {
+		strings.Contains(got, "multiStatements=false") || strings.Contains(got, "clientFoundRows=false") || !strings.Contains(got, "loc=UTC") || !strings.Contains(got, "time_zone=%27%2B00%3A00%27") {
 		t.Fatalf("未正确强制参数: %q", got)
+	}
+}
+
+// TestParseDBURLForcesUTCSessionTimezone 验证 MySQL 与 PostgreSQL 连接都显式固定 UTC 会话。
+func TestParseDBURLForcesUTCSessionTimezone(t *testing.T) {
+	// mysqlDSNValue 保存 MySQL 连接参数，检查会话时区覆盖用户传入值。
+	_, _, mysqlDSNValue, err := parseDBURL("mysql://u:p@tcp(h:3306)/db?time_zone=Europe%2FParis")
+	if err != nil || !strings.Contains(mysqlDSNValue, "time_zone=%27%2B00%3A00%27") || strings.Contains(mysqlDSNValue, "Europe%2FParis") {
+		t.Fatalf("MySQL 时区未固定: dsn=%q err=%v", mysqlDSNValue, err)
+	}
+	// postgresDSNValue 保存 PostgreSQL URL，检查已有时区参数会被统一覆盖。
+	_, _, postgresDSNValue, err := parseDBURL("postgres://u:p@h:5432/db?sslmode=disable&timezone=Asia%2FShanghai")
+	if err != nil || !strings.Contains(postgresDSNValue, "timezone=UTC") || strings.Contains(postgresDSNValue, "Asia%2FShanghai") {
+		t.Fatalf("PostgreSQL 时区未固定: dsn=%q err=%v", postgresDSNValue, err)
 	}
 }
 
