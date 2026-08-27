@@ -93,9 +93,11 @@ type AutomationRule struct {
 	Enabled     bool
 	Priority    int
 	ConfigJSON  string
-	CreatedAt   string
-	UpdatedAt   string
-	Actions     []AutomationAction
+	// SKUMigrationStatus 表示规则是否已通过当前多 SKU 契约迁移。
+	SKUMigrationStatus string
+	CreatedAt          string
+	UpdatedAt          string
+	Actions            []AutomationAction
 }
 
 // AutomationRun 是一次自动化执行记录。trigger_key 是持久化防重键。
@@ -176,7 +178,9 @@ type AutomationRuleInput struct {
 	Enabled     bool
 	Priority    int
 	ConfigJSON  string
-	Actions     []AutomationActionInput
+	// SKUMigrationStatus 表示写入规则时使用的多 SKU 契约状态。
+	SKUMigrationStatus string
+	Actions            []AutomationActionInput
 }
 
 // AutomationRuleListFilter 是自动化规则列表的筛选和分页条件。
@@ -290,11 +294,11 @@ func (a *AutomationRules) Get(ctx context.Context, ruleID int64) (*AutomationRul
 	// err 用于本次流程后续判断的err
 	err := a.DB.QueryRowContext(ctx, `
 SELECT r.id,r.user_id,r.cookie_id,r.item_id,COALESCE(i.item_title,''),r.name,r.trigger_type,r.enabled,
-       r.priority,r.config_json,r.created_at,r.updated_at
+       r.priority,r.config_json,r.sku_migration_status,r.created_at,r.updated_at
   FROM automation_rules r
 	  LEFT JOIN item_info i ON i.cookie_id=r.cookie_id AND i.item_id=r.item_id AND i.deleted_at IS NULL
 	 WHERE r.id=? AND r.deleted_at IS NULL`, ruleID).Scan(&rule.ID, &rule.UserID, &rule.CookieID, &rule.ItemID, &rule.ItemTitle,
-		&rule.Name, &rule.TriggerType, &enabled, &rule.Priority, &rule.ConfigJSON, &rule.CreatedAt, &rule.UpdatedAt)
+		&rule.Name, &rule.TriggerType, &enabled, &rule.Priority, &rule.ConfigJSON, &rule.SKUMigrationStatus, &rule.CreatedAt, &rule.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -311,7 +315,7 @@ func (a *AutomationRules) matchScope(ctx context.Context, cookieID, itemID, trig
 	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := a.DB.QueryContext(ctx, `
 SELECT r.id,r.user_id,r.cookie_id,r.item_id,COALESCE(i.item_title,''),r.name,r.trigger_type,r.enabled,
-       r.priority,r.config_json,r.created_at,r.updated_at
+       r.priority,r.config_json,r.sku_migration_status,r.created_at,r.updated_at
   FROM automation_rules r
   LEFT JOIN item_info i ON i.cookie_id=r.cookie_id AND i.item_id=r.item_id AND i.deleted_at IS NULL
  WHERE r.deleted_at IS NULL
@@ -319,6 +323,7 @@ SELECT r.id,r.user_id,r.cookie_id,r.item_id,COALESCE(i.item_title,''),r.name,r.t
 	AND r.cookie_id=?
 	AND r.trigger_type=?
 	AND r.item_id=?
+	AND r.sku_migration_status<>'needs_reconfiguration'
 	ORDER BY r.priority ASC, r.id ASC`, cookieID, triggerType, itemID)
 	if err != nil {
 		return nil, err
@@ -332,7 +337,7 @@ SELECT r.id,r.user_id,r.cookie_id,r.item_id,COALESCE(i.item_title,''),r.name,r.t
 		var enabled int
 		if // err 用于本次流程后续判断的err
 		err := rows.Scan(&r.ID, &r.UserID, &r.CookieID, &r.ItemID, &r.ItemTitle, &r.Name, &r.TriggerType,
-			&enabled, &r.Priority, &r.ConfigJSON, &r.CreatedAt, &r.UpdatedAt); err != nil {
+			&enabled, &r.Priority, &r.ConfigJSON, &r.SKUMigrationStatus, &r.CreatedAt, &r.UpdatedAt); err != nil {
 			return nil, err
 		}
 		r.Enabled = enabled != 0
@@ -403,9 +408,9 @@ func (a *AutomationRules) Update(ctx context.Context, userID, ruleID int64, in A
 	// res、err 用于本次流程后续判断的res、err
 	res, err := tx.ExecContext(ctx, `
 UPDATE automation_rules
-   SET cookie_id=?,item_id=?,name=?,trigger_type=?,enabled=?,priority=?,config_json=?,updated_at=CURRENT_TIMESTAMP
+   SET cookie_id=?,item_id=?,name=?,trigger_type=?,enabled=?,priority=?,config_json=?,sku_migration_status=?,updated_at=CURRENT_TIMESTAMP
 	 WHERE id=? AND user_id=? AND deleted_at IS NULL`,
-		in.CookieID, in.ItemID, in.Name, in.TriggerType, boolToInt(in.Enabled), in.Priority, validJSON(in.ConfigJSON), ruleID, userID)
+		in.CookieID, in.ItemID, in.Name, in.TriggerType, boolToInt(in.Enabled), in.Priority, validJSON(in.ConfigJSON), readySKUMigrationStatus(in.SKUMigrationStatus), ruleID, userID)
 	if err != nil {
 		return err
 	}
@@ -630,10 +635,28 @@ func (a *AutomationRules) QuarantineRun(ctx context.Context, runID int64, attemp
 
 // QuarantineRunResult 封装Quarantine运行结果业务协调。
 func (a *AutomationRules) QuarantineRunResult(ctx context.Context, runID int64, attempt, sentCount int, reason string) error {
-	// res、err 用于本次流程后续判断的res、err
-	res, err := a.DB.ExecContext(ctx, `UPDATE automation_runs
-		SET status='needs_review',sent_count=?,error_message=?,lease_expires_at=0,next_retry_at=0,updated_at=CURRENT_TIMESTAMP
-		WHERE id=? AND attempt_count=? AND status IN ('running','failed')`, sentCount, reason, runID, attempt)
+	return a.QuarantineRunResultWithProof(ctx, runID, attempt, sentCount, reason, nil)
+}
+
+// QuarantineRunResultWithProof 将不确定动作及其已发送凭证原子移入人工核对状态。
+func (a *AutomationRules) QuarantineRunResultWithProof(ctx context.Context, runID int64, attempt, sentCount int, reason string, proof *AutomationDeliveryProof) error {
+	// assignments、args 保存人工核对状态更新列及参数。
+	assignments := "status='needs_review',sent_count=?,error_message=?,lease_expires_at=0,next_retry_at=0,updated_at=CURRENT_TIMESTAMP"
+	// args 保存人工核对更新语句的参数。
+	args := []any{sentCount, reason}
+	if proof != nil {
+		// encryptedProof 保存按运行作用域加密后的人工核对凭证。
+		encryptedProof, err := a.encodeDeliveryProof(runID, *proof)
+		if err != nil {
+			return err
+		}
+		assignments = "delivery_proof=?," + assignments
+		args = append([]any{encryptedProof}, args...)
+	}
+	args = append(args, runID, attempt)
+	// res、err 保存人工核对状态更新结果及数据库错误。
+	res, err := a.DB.ExecContext(ctx, `UPDATE automation_runs SET `+assignments+`
+		WHERE id=? AND attempt_count=? AND status IN ('running','failed')`, args...)
 	if err != nil {
 		return err
 	}

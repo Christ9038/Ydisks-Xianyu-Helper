@@ -212,6 +212,28 @@ func (r *AutomationRepository) OwnsItem(ctx context.Context, userID int64, accou
 	return true, nil
 }
 
+// GetItemDeliveryProfile 返回规则规格校验所需的商品非敏感摘要。
+func (r *AutomationRepository) GetItemDeliveryProfile(ctx context.Context, userID int64, accountID, itemID string) (automationapp.ItemDeliveryProfile, error) {
+	if r == nil || r.store == nil || r.store.Items == nil {
+		return automationapp.ItemDeliveryProfile{}, errors.New("商品存储未初始化")
+	}
+	// item、err 保存商品非敏感摘要及读取错误。
+	item, err := r.store.Items.Get(ctx, accountID, itemID)
+	if errors.Is(err, db.ErrNotFound) {
+		return automationapp.ItemDeliveryProfile{}, automationapp.ErrRuleNotFound
+	}
+	if err != nil {
+		return automationapp.ItemDeliveryProfile{}, err
+	}
+	// owned、ownerErr 保存账号归属结果及检查错误。
+	if owned, ownerErr := r.store.Cookies.ExistsOwned(ctx, userID, accountID); ownerErr != nil {
+		return automationapp.ItemDeliveryProfile{}, ownerErr
+	} else if !owned {
+		return automationapp.ItemDeliveryProfile{}, automationapp.ErrRuleNotFound
+	}
+	return automationapp.ItemDeliveryProfile{IsMultiSpec: item.IsMultiSpec}, nil
+}
+
 // GetCard 返回用户拥有的卡密组类型，不将卡密内容传入应用层。
 func (r *AutomationRepository) GetCard(ctx context.Context, userID, cardID int64) (automationapp.CardInfo, error) {
 	// card、err 保存卡密组摘要及读取失败原因；卡密正文不会进入应用层。
@@ -273,7 +295,7 @@ func automationRulesModel(rules []db.AutomationRule) []automationapp.Rule {
 		}
 		result = append(result, automationapp.Rule{ID: rule.ID, CookieID: rule.CookieID, ItemID: rule.ItemID, ItemTitle: rule.ItemTitle,
 			Name: rule.Name, TriggerType: rule.TriggerType, Enabled: rule.Enabled, Priority: rule.Priority,
-			ConfigJSON: rule.ConfigJSON, Actions: actions, CreatedAt: rule.CreatedAt, UpdatedAt: rule.UpdatedAt})
+			ConfigJSON: rule.ConfigJSON, SKUMigrationStatus: rule.SKUMigrationStatus, Actions: actions, CreatedAt: rule.CreatedAt, UpdatedAt: rule.UpdatedAt})
 	}
 	return result
 }
@@ -317,14 +339,15 @@ func automationRuleInputDB(input automationapp.RuleInput) db.AutomationRuleInput
 		for /* binding 表示当前应用模板变量绑定。 */ _, binding := range action.TemplateBindings {
 			bindings = append(bindings, db.DeliveryTemplateBinding{VariableKey: binding.VariableKey, CardID: binding.CardID, CardName: binding.CardName, DeliveryCount: binding.DeliveryCount})
 		}
-		actions = append(actions, db.AutomationActionInput{ActionType: action.ActionType, CardID: action.CardID,
+		actions = append(actions, db.AutomationActionInput{ID: action.ID, ActionType: action.ActionType, CardID: action.CardID,
 			DeliveryCount: action.DeliveryCount, MessageTemplate: action.MessageTemplate, DelaySeconds: action.DelaySeconds,
 			ConfigJSON: action.ConfigJSON, Enabled: action.Enabled, SortOrder: action.SortOrder,
 			DeliveryTemplateID: action.DeliveryTemplateID, TemplateBindings: bindings,
 			CustomVariables: copyStringMap(action.CustomVariables)})
 	}
 	return db.AutomationRuleInput{UserID: input.UserID, CookieID: input.CookieID, ItemID: input.ItemID, Name: input.Name,
-		TriggerType: input.TriggerType, Enabled: input.Enabled, Priority: input.Priority, ConfigJSON: input.ConfigJSON, Actions: actions}
+		TriggerType: input.TriggerType, Enabled: input.Enabled, Priority: input.Priority, ConfigJSON: input.ConfigJSON,
+		SKUMigrationStatus: input.SKUMigrationStatus, Actions: actions}
 }
 
 // copyStringMap 复制字符串键值表，避免适配层对象共享可变 map。

@@ -42,10 +42,10 @@ func TestActionExecutorHelperBranches(t *testing.T) {
 	}
 	// matchingTask 保存规格匹配测试使用的订单事实。
 	matchingTask := Task{SpecName: "套餐", SpecValue: "标准"}
-	if !actionMatchesOrderSpec(matchingTask, db.AutomationAction{ConfigJSON: "{}"}) || !actionMatchesOrderSpec(matchingTask, db.AutomationAction{ConfigJSON: `{"spec_name":"套餐","spec_value":"标准"}`}) || actionMatchesOrderSpec(matchingTask, db.AutomationAction{ConfigJSON: `{"spec_name":"套餐","spec_value":"高级"}`}) || actionMatchesOrderSpec(matchingTask, db.AutomationAction{ConfigJSON: "bad-json"}) {
+	if actionMatchesOrderSpec(matchingTask, db.AutomationAction{ConfigJSON: "{}"}) || !actionMatchesOrderSpec(matchingTask, db.AutomationAction{ConfigJSON: `{"spec_name":"套餐","spec_value":"标准"}`}) || actionMatchesOrderSpec(matchingTask, db.AutomationAction{ConfigJSON: `{"spec_name":"套餐","spec_value":"高级"}`}) || actionMatchesOrderSpec(matchingTask, db.AutomationAction{ConfigJSON: "bad-json"}) {
 		t.Fatal("动作规格匹配异常")
 	}
-	// multiSpecCases 覆盖多维 SKU 的完整匹配、维度顺序、部分匹配和通配规则。
+	// multiSpecCases 覆盖多维 SKU 的完整匹配、维度顺序、部分匹配和空规格拒绝。
 	multiSpecCases := []struct {
 		name   string
 		task   Task
@@ -56,7 +56,7 @@ func TestActionExecutorHelperBranches(t *testing.T) {
 		{name: "different second dimension", task: Task{SpecName: "颜色；尺码", SpecValue: "红色；M"}, config: `{"spec_name":"颜色；尺码","spec_value":"红色；L"}`},
 		{name: "different dimension order", task: Task{SpecName: "颜色；尺码", SpecValue: "红色；M"}, config: `{"spec_name":"尺码；颜色","spec_value":"M；红色"}`},
 		{name: "only first dimension is not wildcard", task: Task{SpecName: "颜色；尺码", SpecValue: "红色；M"}, config: `{"spec_name":"颜色","spec_value":"红色"}`},
-		{name: "empty filter wildcard", task: Task{SpecName: "颜色；尺码", SpecValue: "红色；M"}, config: `{}`, want: true},
+		{name: "empty filter rejected", task: Task{SpecName: "颜色；尺码", SpecValue: "红色；M"}, config: `{}`},
 	}
 	for /* tc 表示当前多 SKU 动作匹配测试场景。 */ _, tc := range multiSpecCases {
 		t.Run(tc.name, func(t *testing.T) {

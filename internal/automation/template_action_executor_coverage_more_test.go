@@ -20,20 +20,22 @@ func TestSendTemplateHandlesEmptyAndUnavailableActions(t *testing.T) {
 	sender := &testSender{}
 	// executor 是绑定测试存储和模拟发送器的模板执行器。
 	executor := automationActionExecutor{store: store, senders: testSenderProvider{sender: sender}}
-	// task 是携带规格信息的订单任务。
-	task := Task{AccountID: "cid", SpecName: "套餐", SpecValue: "标准"}
+	// task 是不带规格限制的普通订单任务。
+	task := Task{AccountID: "cid"}
+	// mismatchTask 是携带不同规格的订单任务，用于验证动作规格门禁。
+	mismatchTask := Task{AccountID: "cid", SpecName: "套餐", SpecValue: "标准"}
 	// mismatchResult、mismatchErr 保存规格不匹配时的执行结果。
-	mismatchResult, mismatchErr := executor.sendTemplate(ctx, task, db.AutomationAction{ConfigJSON: `{"spec_name":"套餐","spec_value":"高级"}`, TemplateMessages: []string{"不会发送"}})
+	mismatchResult, mismatchErr := executor.sendTemplate(ctx, mismatchTask, db.AutomationAction{ConfigJSON: `{"spec_name":"套餐","spec_value":"高级"}`, TemplateMessages: []string{"不会发送"}})
 	if mismatchErr != nil || mismatchResult.sent != 0 || len(sender.texts) != 0 {
 		t.Fatalf("规格不匹配不应发送：result=%+v err=%v texts=%v", mismatchResult, mismatchErr, sender.texts)
 	}
 	// emptyResult、emptyErr 保存缺少模板消息时的执行结果。
-	emptyResult, emptyErr := executor.sendTemplate(ctx, task, db.AutomationAction{ConfigJSON: "{}"})
+	emptyResult, emptyErr := executor.sendTemplate(ctx, Task{AccountID: "cid"}, db.AutomationAction{ConfigJSON: "{}"})
 	if emptyErr == nil || emptyResult.sent != 0 {
 		t.Fatalf("缺少模板消息应失败：result=%+v err=%v", emptyResult, emptyErr)
 	}
 	// blankResult、blankErr 保存模板消息全部为空白时的执行结果。
-	blankResult, blankErr := executor.sendTemplate(ctx, task, db.AutomationAction{ConfigJSON: "{}", TemplateMessages: []string{" ", "\n"}})
+	blankResult, blankErr := executor.sendTemplate(ctx, Task{AccountID: "cid"}, db.AutomationAction{ConfigJSON: "{}", TemplateMessages: []string{" ", "\n"}})
 	if !errors.Is(blankErr, ErrMessageNotSent) || blankResult.sent != 0 {
 		t.Fatalf("空白模板消息应阻止后续动作：result=%+v err=%v", blankResult, blankErr)
 	}
@@ -133,9 +135,9 @@ func TestSendTemplateRestoresReservedBatchData(t *testing.T) {
 		t.Fatal(triggerErr)
 	}
 	// uncertainZeroExecutor 是用于验证零消息库存恢复失败分类的模板执行器。
-	uncertainZeroExecutor := automationActionExecutor{store: store, senders: testSenderProvider{sender: &testSender{}}}
+	uncertainZeroExecutor := automationActionExecutor{store: store, senders: testSenderProvider{sender: &testSender{err: fmt.Errorf("%w: offline", ErrMessageNotSent)}}}
 	// uncertainZeroResult、uncertainZeroErr 保存零消息且库存恢复失败后的人工核对结果。
-	uncertainZeroResult, uncertainZeroErr := uncertainZeroExecutor.sendTemplate(ctx, Task{AccountID: "cid"}, db.AutomationAction{ConfigJSON: "{}", TemplateMessages: []string{"{{buyer_nickname}}"}, TemplateBindings: []db.DeliveryTemplateBinding{{VariableKey: "code", CardID: zeroOutputID}}})
+	uncertainZeroResult, uncertainZeroErr := uncertainZeroExecutor.sendTemplate(ctx, Task{AccountID: "cid"}, db.AutomationAction{ConfigJSON: "{}", TemplateMessages: []string{"{{cards.code}}"}, TemplateBindings: []db.DeliveryTemplateBinding{{VariableKey: "code", CardID: zeroOutputID}}})
 	// uncertainZero 保存零消息恢复失败时应返回的人工核对错误包装。
 	var uncertainZero *uncertainActionError
 	if uncertainZeroResult.sent != 0 || !errors.As(uncertainZeroErr, &uncertainZero) || !errors.Is(uncertainZeroErr, ErrMessageNotSent) {
@@ -197,7 +199,7 @@ func TestSendTemplateClassifiesPartialSendFailure(t *testing.T) {
 	result, runErr := executor.sendTemplate(ctx, Task{AccountID: "cid", ChatID: "chat", BuyerID: "buyer"}, db.AutomationAction{ConfigJSON: "{}", TemplateMessages: []string{"第一条", "第二条"}})
 	// uncertain 保存用于表示远端发送结果未知的错误包装。
 	var uncertain *uncertainActionError
-	if result.sent != 1 || len(sender.texts) != 1 || !errors.As(runErr, &uncertain) || !errors.Is(runErr, sender.err) || result.proof.tradeText != "第一条" {
+	if result.sent != 1 || len(sender.texts) != 1 || !errors.As(runErr, &uncertain) || !errors.Is(runErr, sender.err) || result.proof.tradeText != "第一条" || result.reviewProof.tradeText != "第二条" {
 		t.Fatalf("部分发送分类错误：result=%+v texts=%v err=%v", result, sender.texts, runErr)
 	}
 }

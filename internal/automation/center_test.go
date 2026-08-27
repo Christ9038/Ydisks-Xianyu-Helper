@@ -589,6 +589,8 @@ func TestOrderPaidPreparationFailureIsPersistedAndRecovered(t *testing.T) {
 // newAutomationTestStore 封装new自动化TestStore业务协调。
 func newAutomationTestStore(t *testing.T) (*db.Store, func()) {
 	t.Helper()
+	// 测试数据密钥保证自动化运行凭证路径使用真实加密，而不依赖已移除的临时密钥。
+	t.Setenv("XIANYU_DATA_KEY", "automation-test-key")
 	// database、err 用于本次流程后续判断的database、err
 	database, _, err := db.Open(context.Background(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {

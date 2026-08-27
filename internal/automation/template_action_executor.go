@@ -18,22 +18,52 @@ func (e *automationActionExecutor) sendTemplate(ctx context.Context, task Task, 
 	if len(action.TemplateMessages) == 0 {
 		return actionExecutionResult{}, errors.New("发货模板缺少消息")
 	}
-	// values 保存变量键对应的卡密正文，不记录到日志或持久化任务。
-	values := make(map[string]string, len(action.TemplateBindings))
 	// cardName 保存模板动作关联的卡密库存名称，多个绑定时使用第一组名称。
 	cardName := action.CardName
-	// reserved 保存已经从批量库存消费、但尚未确认发送成功的正文。
-	reserved := make([]struct {
+	// bindings 保存模板变量到完整卡密配置的校验结果，避免发送过程中重复读取数据库。
+	type bindingCard struct {
+		binding db.DeliveryTemplateBinding
+		card    *db.CardFull
+		count   int
+	}
+	// bindingCards 保存按变量键索引的模板库存配置。
+	bindingCards := make(map[string]bindingCard, len(action.TemplateBindings))
+	for /* binding 表示当前模板变量到卡密组的绑定。 */ _, binding := range action.TemplateBindings {
+		if cardName == "" {
+			cardName = binding.CardName
+		}
+		// card 保存当前绑定的卡密组完整配置。
+		card, err := e.store.Cards.GetForDelivery(ctx, binding.CardID)
+		if err != nil {
+			return actionExecutionResult{}, err
+		}
+		if !card.Enabled || (card.Type != "text" && card.Type != "data") {
+			return actionExecutionResult{}, fmt.Errorf("模板绑定的卡密组不可用")
+		}
+		// count 保存按订单购买数量折算后的当前变量卡密份数。
+		count := binding.DeliveryCount
+		if count <= 0 {
+			count = 1
+		}
+		count *= deliveryQuantity(task)
+		bindingCards[binding.VariableKey] = bindingCard{binding: binding, card: card, count: count}
+	}
+	// values 保存已经按消息需要加载的卡密正文，不记录到日志或持久化任务。
+	values := make(map[string]string, len(bindingCards))
+	// loadedKeys 保存已经加载过的变量键，确保同一变量在多条消息中复用同一批内容。
+	loadedKeys := make(map[string]bool, len(bindingCards))
+	// reservation 保存单次消息刚消费但尚未确认发送成功的批量卡密。
+	type reservation struct {
 		cardID  int64
 		content string
-	}, 0)
-	// restoreReserved 在确定未发送时恢复本次动作预留的批量卡密。
-	restoreReserved := func() error {
+	}
+	// restoreReservations 在确定未发送时逆序恢复指定消息的批量卡密。
+	restoreReservations := func(reservations []reservation) error {
 		// restoreErr 保存批量卡密恢复过程中的聚合错误。
 		var restoreErr error
-		for /* index 表示需要逆序恢复的预留记录位置。 */ index := len(reserved) - 1; index >= 0; index-- {
+		for /* index 表示需要逆序恢复的预留记录位置。 */ index := len(reservations) - 1; index >= 0; index-- {
 			// entry 保存当前待恢复的卡密正文。
-			entry := reserved[index]
+			entry := reservations[index]
 			// unlock 保存当前卡密组的并发保护释放函数。
 			unlock := e.lockCard(entry.cardID)
 			// err 保存当前卡密正文恢复错误。
@@ -45,60 +75,47 @@ func (e *automationActionExecutor) sendTemplate(ctx context.Context, task Task, 
 		}
 		return restoreErr
 	}
-	// failBeforeSend 在尚未发送任何消息时恢复已预留库存，并区分可安全重试与状态不确定的失败。
-	failBeforeSend := func(cause error) (actionExecutionResult, error) {
-		// restoreErr 保存发送前库存恢复过程中的聚合错误。
-		if restoreErr := restoreReserved(); restoreErr != nil {
-			return actionExecutionResult{}, uncertainAction(errors.Join(cause, restoreErr))
-		}
-		return actionExecutionResult{}, cause
-	}
-	for /* binding 表示当前模板变量到卡密组的绑定。 */ _, binding := range action.TemplateBindings {
-		if cardName == "" {
-			cardName = binding.CardName
-		}
-		// card 保存当前绑定的卡密组完整配置。
-		card, err := e.store.Cards.GetForDelivery(ctx, binding.CardID)
-		if err != nil {
-			return failBeforeSend(err)
-		}
-		if !card.Enabled || (card.Type != "text" && card.Type != "data") {
-			return failBeforeSend(fmt.Errorf("模板绑定的卡密组不可用"))
-		}
-		// count 保存按订单购买数量折算后的当前变量卡密份数。
-		count := binding.DeliveryCount
-		if count <= 0 {
-			count = 1
-		}
-		count *= deliveryQuantity(task)
-		// lines 保存当前变量将要替换到消息中的卡密正文列表。
-		lines := make([]string, 0, count)
-		if card.Type == "text" {
-			for /* index 表示文本卡密重复填充的序号。 */ index := 0; index < count; index++ {
-				lines = append(lines, card.TextContent)
-			}
-		} else {
-			for /* index 表示批量卡密消费的序号。 */ index := 0; index < count; index++ {
-				// unlock 保存当前卡密组的并发保护释放函数。
-				unlock := e.lockCard(card.ID)
-				// content、consumeErr 保存本次批量卡密消费结果及错误。
-				content, consumeErr := e.store.Cards.ConsumeBatchData(ctx, card.ID)
-				unlock()
-				if consumeErr != nil {
-					return failBeforeSend(consumeErr)
-				}
-				lines = append(lines, content)
-				reserved = append(reserved, struct {
-					cardID  int64
-					content string
-				}{cardID: card.ID, content: content})
-			}
-		}
-		values[binding.VariableKey] = strings.Join(lines, "\n")
-	}
 	// result 保存已经确认投递成功的模板消息数量和按发送顺序拼接的凭证。
 	result := actionExecutionResult{}
 	for /* message 表示模板中按顺序发送的一条消息。 */ _, message := range action.TemplateMessages {
+		// messageReservations 保存当前消息首次使用变量时消费的批量卡密，失败时只恢复这一条消息。
+		messageReservations := make([]reservation, 0)
+		for /* key 表示当前消息首次出现的卡密变量键。 */ _, key := range deliverytemplate.CardKeys(message) {
+			if loadedKeys[key] {
+				continue
+			}
+			// binding、exists 保存变量绑定配置及是否存在绑定。
+			binding, exists := bindingCards[key]
+			if !exists {
+				return actionExecutionResult{}, fmt.Errorf("模板变量缺少卡密绑定: %s", key)
+			}
+			// lines 保存当前变量将要替换到消息中的卡密正文列表。
+			lines := make([]string, 0, binding.count)
+			if binding.card.Type == "text" {
+				for /* index 表示文本卡密重复填充的序号。 */ index := 0; index < binding.count; index++ {
+					lines = append(lines, binding.card.TextContent)
+				}
+			} else {
+				for /* index 表示批量卡密消费的序号。 */ index := 0; index < binding.count; index++ {
+					// unlock 保存当前卡密组的并发保护释放函数。
+					unlock := e.lockCard(binding.card.ID)
+					// content、consumeErr 保存本次批量卡密消费结果及错误。
+					content, consumeErr := e.store.Cards.ConsumeBatchData(ctx, binding.card.ID)
+					unlock()
+					if consumeErr != nil {
+						// restoreErr 保存消费失败后的库存恢复错误。
+						if restoreErr := restoreReservations(messageReservations); restoreErr != nil {
+							return actionExecutionResult{}, uncertainAction(errors.Join(consumeErr, restoreErr))
+						}
+						return actionExecutionResult{}, consumeErr
+					}
+					lines = append(lines, content)
+					messageReservations = append(messageReservations, reservation{cardID: binding.card.ID, content: content})
+				}
+			}
+			values[key] = strings.Join(lines, "\n")
+			loadedKeys[key] = true
+		}
 		// text 保存订单字段、卡密变量和规则自定义变量都渲染后的最终消息。
 		text := deliverytemplate.Replace(message, deliverytemplate.VariableValues{
 			BuyerNickname: task.BuyerNickname,
@@ -109,13 +126,26 @@ func (e *automationActionExecutor) sendTemplate(ctx context.Context, task Task, 
 			CustomValues:  action.CustomVariables,
 		})
 		if strings.TrimSpace(text) == "" {
+			// restoreErr 保存空消息导致的库存恢复错误。
+			if restoreErr := restoreReservations(messageReservations); restoreErr != nil {
+				return actionExecutionResult{}, uncertainAction(restoreErr)
+			}
+			for /* key 表示需要重新尝试加载的空消息变量键。 */ _, key := range deliverytemplate.CardKeys(message) {
+				delete(values, key)
+				delete(loadedKeys, key)
+			}
 			continue
 		}
 		// sendErr 保存模板消息发送错误。
 		if sendErr := e.sendText(ctx, task, text); sendErr != nil {
 			if result.sent == 0 && errors.Is(sendErr, ErrMessageNotSent) {
-				return failBeforeSend(sendErr)
+				// restoreErr 保存确定未发送时的库存恢复错误。
+				if restoreErr := restoreReservations(messageReservations); restoreErr != nil {
+					return actionExecutionResult{}, uncertainAction(errors.Join(sendErr, restoreErr))
+				}
+				return actionExecutionResult{}, sendErr
 			}
+			result.reviewProof.tradeText = appendTradeText(result.reviewProof.tradeText, text)
 			return result, uncertainAction(sendErr)
 		}
 		result.sent++
@@ -124,7 +154,7 @@ func (e *automationActionExecutor) sendTemplate(ctx context.Context, task Task, 
 	if result.sent == 0 {
 		// notSentErr 表示模板渲染后没有任何可确认发送的消息，必须阻止后续确认发货动作。
 		notSentErr := fmt.Errorf("%w: 发货模板渲染后没有可发送内容", ErrMessageNotSent)
-		return failBeforeSend(notSentErr)
+		return actionExecutionResult{}, notSentErr
 	}
 	return result, nil
 }

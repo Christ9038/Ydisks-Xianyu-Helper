@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -18,6 +19,56 @@ const pgxCompatDriverName = "pgx_compat"
 // init 封装init业务协调。
 func init() {
 	sql.Register(pgxCompatDriverName, &qPgDriver{base: stdlib.GetDefaultDriver()})
+}
+
+// qPgConnector 包裹 pgx Connector，并在连接建立后复用问号占位符转换。
+type qPgConnector struct {
+	// base 是 pgx 官方连接器，负责解析完整 URL 或带引号的 key=value DSN。
+	base driver.Connector
+}
+
+// newPgxCompatConnector 创建固定 UTC 会话时区的 PostgreSQL 连接器。
+func newPgxCompatConnector(dsn string) (driver.Connector, error) {
+	// config、err 保存结构化 PostgreSQL 配置及解析错误。
+	config, err := parsePgxConfig(dsn)
+	if err != nil {
+		return nil, err
+	}
+	return &qPgConnector{base: stdlib.GetConnector(*config)}, nil
+}
+
+// parsePgxConfig 解析 PostgreSQL DSN，并统一注入 UTC 会话时区。
+func parsePgxConfig(dsn string) (*pgx.ConnConfig, error) {
+	// normalizedDSN 将历史 pgx:// 别名转换为 pgx 可识别的 postgres:// URL。
+	normalizedDSN := dsn
+	if strings.HasPrefix(normalizedDSN, "pgx://") {
+		normalizedDSN = "postgres://" + strings.TrimPrefix(normalizedDSN, "pgx://")
+	}
+	// config、err 保存 pgx 解析后的结构化连接配置及解析错误。
+	config, err := pgx.ParseConfig(normalizedDSN)
+	if err != nil {
+		return nil, err
+	}
+	if config.RuntimeParams == nil {
+		config.RuntimeParams = make(map[string]string)
+	}
+	config.RuntimeParams["timezone"] = "UTC"
+	return config, nil
+}
+
+// Connect 建立 PostgreSQL 连接，并包裹 SQL 占位符兼容层。
+func (c *qPgConnector) Connect(ctx context.Context) (driver.Conn, error) {
+	// conn、err 保存底层 pgx 连接及网络/认证错误。
+	conn, err := c.base.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &qConn{Conn: conn}, nil
+}
+
+// Driver 返回带问号占位符重写能力的驱动。
+func (c *qPgConnector) Driver() driver.Driver {
+	return &qPgDriver{base: c.base.Driver()}
 }
 
 // qPgDriver 包裹 pgx stdlib driver，仅为了把 ? 占位符改写成 $N。

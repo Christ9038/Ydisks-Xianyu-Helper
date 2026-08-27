@@ -25,6 +25,8 @@ type automationTemplateBindingRequest struct {
 
 // automationActionRequest 是自动化动作请求 DTO。
 type automationActionRequest struct {
+	// ID 是更新时对应的既有动作标识；创建时为零。
+	ID              int64  `json:"id"`
 	ActionType      string `json:"action_type"`
 	CardID          int64  `json:"card_id"`
 	DeliveryCount   int    `json:"delivery_count"`
@@ -177,7 +179,7 @@ func automationRulesJSON(rules []automationapp.Rule) []automationRuleResponse {
 		out = append(out, automationRuleResponse{
 			ID: rule.ID, CookieID: rule.CookieID, ItemID: rule.ItemID, ItemTitle: rule.ItemTitle,
 			Name: rule.Name, TriggerType: rule.TriggerType, Enabled: rule.Enabled, Priority: rule.Priority,
-			ConfigJSON: rule.ConfigJSON, Actions: actions, CreatedAt: rule.CreatedAt, UpdatedAt: rule.UpdatedAt,
+			ConfigJSON: rule.ConfigJSON, SKUMigrationStatus: rule.SKUMigrationStatus, Actions: actions, CreatedAt: rule.CreatedAt, UpdatedAt: rule.UpdatedAt,
 		})
 	}
 	return out
@@ -319,7 +321,7 @@ func automationRuleDraft(req automationRuleRequest) automationapp.RuleDraft {
 		for /* binding 表示请求中的模板变量绑定。 */ _, binding := range action.TemplateBindings {
 			bindings = append(bindings, automationapp.TemplateBinding{VariableKey: strings.TrimSpace(binding.Key), CardID: binding.CardID, DeliveryCount: binding.DeliveryCount})
 		}
-		actions = append(actions, automationapp.ActionDraft{ActionType: action.ActionType, CardID: action.CardID,
+		actions = append(actions, automationapp.ActionDraft{ID: action.ID, ActionType: action.ActionType, CardID: action.CardID,
 			DeliveryCount: action.DeliveryCount, MessageTemplate: action.MessageTemplate, DelaySeconds: action.DelaySeconds,
 			ConfigJSON: action.ConfigJSON, Enabled: action.Enabled, SortOrder: action.SortOrder,
 			DeliveryTemplateID: action.DeliveryTemplateID, TemplateBindings: bindings, CustomVariables: copyAutomationCustomVariables(action.CustomVariables)})

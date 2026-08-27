@@ -50,6 +50,8 @@ const ActionAdjustPrice = "adjust_price"
 
 // ActionDraft 是 HTTP/应用边界使用的自动化动作输入。
 type ActionDraft struct {
+	// ID 是更新时对应的既有动作标识；创建时为零。
+	ID int64
 	// ActionType 是动作类型。
 	ActionType string
 	// CardID 是发送卡密动作使用的卡密组标识。
@@ -112,12 +114,16 @@ type RuleInput struct {
 	Priority int
 	// ConfigJSON 是规则扩展配置 JSON 对象。
 	ConfigJSON string
+	// SKUMigrationStatus 是规则当前多 SKU 契约状态，仅由服务端校验后写入。
+	SKUMigrationStatus string
 	// Actions 是经过规范化的动作列表。
 	Actions []ActionInput
 }
 
 // ActionInput 是经过校验并可持久化的自动化动作。
 type ActionInput struct {
+	// ID 是更新时对应的既有动作标识；创建时为零。
+	ID int64
 	// ActionType 是动作类型。
 	ActionType string
 	// CardID 是发送卡密动作使用的卡密组标识。
@@ -162,6 +168,8 @@ type Rule struct {
 	Priority int
 	// ConfigJSON 是规则扩展配置。
 	ConfigJSON string
+	// SKUMigrationStatus 是规则当前多 SKU 契约状态。
+	SKUMigrationStatus string
 	// Actions 是规则动作列表。
 	Actions []Action
 	// CreatedAt 是规则创建时间文本。
@@ -286,6 +294,12 @@ type RuleOwnership interface {
 	AIReplyEnabled(ctx context.Context, accountID string) (bool, error)
 }
 
+// ItemDeliveryProfile 是规则规格校验所需的非敏感商品摘要。
+type ItemDeliveryProfile struct {
+	// IsMultiSpec 表示商品是否存在多个 SKU 规格维度。
+	IsMultiSpec bool
+}
+
 // RuleService 编排自动化规则校验、分页和持久化。
 type RuleService struct {
 	// repository 提供规则持久化能力。
@@ -344,18 +358,18 @@ func (s *RuleService) NormalizeForUpdate(ctx context.Context, userID, ruleID int
 	if err != nil {
 		return RuleInput{}, err
 	}
-	// retainedTemplateIDs 保存原规则已经引用的模板主键集合。
-	retainedTemplateIDs := make(map[int64]struct{})
+	// retainedTemplateIDs 保存原规则动作 ID 到模板 ID 的绑定，非模板动作值为零。
+	retainedTemplateIDs := make(map[int64]int64)
 	for /* action 表示原规则中的一个自动化动作。 */ _, action := range rule.Actions {
-		if action.ActionType == ActionSendTemplate && action.DeliveryTemplateID > 0 {
-			retainedTemplateIDs[action.DeliveryTemplateID] = struct{}{}
+		if action.ID > 0 {
+			retainedTemplateIDs[action.ID] = action.DeliveryTemplateID
 		}
 	}
 	return s.normalize(ctx, userID, draft, retainedTemplateIDs)
 }
 
 // normalize 复用创建和更新规则的输入校验，仅由调用方决定可保留的停用模板集合。
-func (s *RuleService) normalize(ctx context.Context, userID int64, draft RuleDraft, allowedDisabledTemplateIDs map[int64]struct{}) (RuleInput, error) {
+func (s *RuleService) normalize(ctx context.Context, userID int64, draft RuleDraft, allowedDisabledTemplateIDs map[int64]int64) (RuleInput, error) {
 	if s == nil || s.repository == nil || s.ownership == nil || userID <= 0 {
 		return RuleInput{}, ErrInvalidInput
 	}
@@ -403,6 +417,10 @@ func (s *RuleService) normalize(ctx context.Context, userID int64, draft RuleDra
 	if actionsErr != nil {
 		return RuleInput{}, actionsErr
 	}
+	// specErr 保存多 SKU 规格契约校验错误。
+	if specErr := normalizeRuleSKUConfigs(ctx, s.ownership, userID, draft.CookieID, draft.ItemID, actions); specErr != nil {
+		return RuleInput{}, specErr
+	}
 	// combinationErr 表示触发类型与启用动作组合不满足业务约束。
 	if combinationErr := validateTriggerActionCombination(draft.TriggerType, flags); combinationErr != nil {
 		return RuleInput{}, combinationErr
@@ -419,7 +437,7 @@ func (s *RuleService) normalize(ctx context.Context, userID int64, draft RuleDra
 	}
 	return RuleInput{UserID: userID, CookieID: draft.CookieID, ItemID: draft.ItemID, Name: draft.Name,
 		TriggerType: draft.TriggerType, Enabled: draft.Enabled, Priority: draft.Priority,
-		ConfigJSON: draft.ConfigJSON, Actions: actions}, nil
+		ConfigJSON: draft.ConfigJSON, SKUMigrationStatus: "ready", Actions: actions}, nil
 }
 
 // ruleActionFlags 汇总规则草稿中各类启用动作的存在情况，供触发类型组合校验使用。
@@ -437,7 +455,7 @@ type ruleActionFlags struct {
 }
 
 // normalizeDraftActions 逐个校验并规范化规则草稿中的动作，同时汇总启用动作类型标志。
-func (s *RuleService) normalizeDraftActions(ctx context.Context, userID int64, triggerType string, draftActions []ActionDraft, allowedDisabledTemplateIDs map[int64]struct{}) ([]ActionInput, ruleActionFlags, error) {
+func (s *RuleService) normalizeDraftActions(ctx context.Context, userID int64, triggerType string, draftActions []ActionDraft, allowedDisabledTemplateIDs map[int64]int64) ([]ActionInput, ruleActionFlags, error) {
 	// actions 保存规范化后的动作；flags 记录启用动作类型，供规则完整性校验使用。
 	actions := make([]ActionInput, 0, len(draftActions))
 	// flags 汇总当前草稿中启用的动作类型。
@@ -482,8 +500,8 @@ func (s *RuleService) normalizeDraftActions(ctx context.Context, userID int64, t
 				return nil, flags, templateErr
 			}
 			// retained 表示停用模板是否为当前更新规则已经存在的引用。
-			_, retained := allowedDisabledTemplateIDs[draftAction.DeliveryTemplateID]
-			if !template.Enabled && !retained {
+			retainedTemplateID, retained := allowedDisabledTemplateIDs[draftAction.ID]
+			if !template.Enabled && (!retained || retainedTemplateID != draftAction.DeliveryTemplateID) {
 				return nil, flags, errors.New("发货模板不存在或已停用")
 			}
 			// bindingErr 保存模板变量绑定校验失败原因。
@@ -525,7 +543,7 @@ func (s *RuleService) normalizeDraftActions(ctx context.Context, userID int64, t
 			// 进入此处前已通过 isJSONObject 校验，配置来源可编码 JSON，因此不会产生写入错误。
 			draftAction.ConfigJSON, _ = withCustomVariables(draftAction.ConfigJSON, draftAction.CustomVariables)
 		}
-		actions = append(actions, ActionInput{ActionType: draftAction.ActionType, CardID: draftAction.CardID,
+		actions = append(actions, ActionInput{ID: draftAction.ID, ActionType: draftAction.ActionType, CardID: draftAction.CardID,
 			DeliveryCount: draftAction.DeliveryCount, MessageTemplate: draftAction.MessageTemplate,
 			DelaySeconds: draftAction.DelaySeconds, ConfigJSON: draftAction.ConfigJSON, Enabled: enabled,
 			SortOrder: firstRuleNonZero(draftAction.SortOrder, index+1), DeliveryTemplateID: draftAction.DeliveryTemplateID,
@@ -767,32 +785,4 @@ func validateAdjustPriceConfig(configJSON string) error {
 		return errors.New("目标价格必须在 0.01 到 1000000 元之间")
 	}
 	return nil
-}
-
-// isJSONObject 判断配置是否为 JSON 对象。
-func isJSONObject(raw string) bool {
-	// value 是 JSON 对象解析结果，仅用于确认配置顶层类型，不保存业务状态。
-	var value map[string]any
-	return json.Unmarshal([]byte(raw), &value) == nil
-}
-
-// defaultRuleName 根据触发类型和商品标识生成默认规则名称。
-func defaultRuleName(triggerType, itemID string) string {
-	// name 是按触发类型选择的默认显示名称，必要时再附加商品标识。
-	name := map[string]string{TriggerOrderCreated: "拍下未付款自动改价", TriggerOrderPaid: "付款后自动发货", TriggerBuyerReviewed: "评价后发送赠品", TriggerReviewMissingTimeout: "超时未评价求评价"}[triggerType]
-	if name == "" {
-		name = "自动化规则"
-	}
-	if strings.TrimSpace(itemID) != "" {
-		return fmt.Sprintf("%s - %s", name, strings.TrimSpace(itemID))
-	}
-	return name
-}
-
-// firstRuleNonZero 返回动作顺序或其默认下标。
-func firstRuleNonZero(value, fallback int) int {
-	if value != 0 {
-		return value
-	}
-	return fallback
 }

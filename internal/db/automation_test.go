@@ -137,8 +137,8 @@ func TestAutomationDeliveryProofIsEncryptedAndRestored(t *testing.T) {
 	}
 }
 
-// TestAutomationDeliveryProofWithoutConfiguredKeyStillEncrypts 验证未配置环境密钥时仍不会把新发货凭证明文写入数据库。
-func TestAutomationDeliveryProofWithoutConfiguredKeyStillEncrypts(t *testing.T) {
+// TestAutomationDeliveryProofWithoutConfiguredKeyFailsClosed 验证未配置持久化密钥时发货凭证写入被安全阻断。
+func TestAutomationDeliveryProofWithoutConfiguredKeyFailsClosed(t *testing.T) {
 	t.Setenv("XIANYU_DATA_KEY", "")
 	// store、cleanup 保存无数据密钥的隔离测试数据库及清理函数。
 	store, cleanup := newTestDB(t)
@@ -168,10 +168,10 @@ func TestAutomationDeliveryProofWithoutConfiguredKeyStillEncrypts(t *testing.T) 
 	}
 	// proof 保存需要保护的确认发货凭证。
 	proof := AutomationDeliveryProof{TradeText: "NO-KEY-CARD", PicList: []string{"https://example.invalid/no-key.png"}}
-	// advanceErr 保存无环境密钥时使用临时内存密钥推进检查点的结果。
+	// advanceErr 保存无持久化密钥时拒绝推进检查点的结果。
 	advanceErr := store.Automation.AdvanceRunAction(ctx, AutomationRunActionAdvance{RunID: runID, Attempt: run.AttemptCount, Cursor: 0, SentDelta: 1, DeliveryProof: &proof})
-	if advanceErr != nil {
-		t.Fatalf("无环境密钥时仍应安全加密落库: %v", advanceErr)
+	if advanceErr == nil || !strings.Contains(advanceErr.Error(), "持久化数据密钥") {
+		t.Fatalf("无持久化密钥时应拒绝写入: %v", advanceErr)
 	}
 	// rawProof 保存数据库中的原始凭证字段，确认失败路径没有留下明文。
 	var rawProof string
@@ -179,8 +179,8 @@ func TestAutomationDeliveryProofWithoutConfiguredKeyStillEncrypts(t *testing.T) 
 	if scanErr := store.DB.QueryRowContext(ctx, `SELECT delivery_proof FROM automation_runs WHERE id=?`, runID).Scan(&rawProof); scanErr != nil {
 		t.Fatal(scanErr)
 	}
-	if rawProof == "" || strings.Contains(rawProof, proof.TradeText) || !strings.HasPrefix(rawProof, encryptedValuePrefix) {
-		t.Fatalf("无环境密钥路径不应保存明文发货凭证: %q", rawProof)
+	if rawProof != "" {
+		t.Fatalf("失败路径不应写入发货凭证: %q", rawProof)
 	}
 }
 
@@ -1022,7 +1022,7 @@ func TestAutomationQuarantinePreservesDeliveryProofUntilCancel(t *testing.T) {
 		t.Fatalf("confirm action start=%v err=%v", confirmActionStarted, confirmActionStartErr)
 	}
 	// resultQuarantineErr 保存确认发货结果未知时的人工隔离错误。
-	if resultQuarantineErr := store.Automation.QuarantineRunResult(ctx, runID, advanced.AttemptCount, 1, "确认发货结果未知"); resultQuarantineErr != nil {
+	if resultQuarantineErr := store.Automation.QuarantineRunResultWithProof(ctx, runID, advanced.AttemptCount, 1, "确认发货结果未知", &proof); resultQuarantineErr != nil {
 		t.Fatal(resultQuarantineErr)
 	}
 	// quarantined、readErr 保存隔离后的运行和凭证，确认人工处理期间凭证仍可恢复。

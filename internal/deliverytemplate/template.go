@@ -29,6 +29,21 @@ type Parsed struct {
 	CustomKeys []string
 }
 
+// CardKeys 提取单条消息中按首次出现顺序使用的卡密变量键。
+func CardKeys(message string) []string {
+	// seen 保存已经提取的变量键，避免同一消息重复消费库存。
+	seen := make(map[string]bool)
+	// keys 保存当前消息需要的卡密变量键。
+	keys := make([]string, 0)
+	for /* match 表示当前卡密变量的正则匹配结果。 */ _, match := range cardVariablePattern.FindAllStringSubmatch(message, -1) {
+		if len(match) == 2 && !seen[match[1]] {
+			seen[match[1]] = true
+			keys = append(keys, match[1])
+		}
+	}
+	return keys
+}
+
 // Parse 校验消息非空并提取所有受支持的模板变量。
 func Parse(messages []string) (Parsed, error) {
 	if len(messages) == 0 {

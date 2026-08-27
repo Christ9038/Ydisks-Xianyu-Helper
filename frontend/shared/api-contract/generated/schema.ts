@@ -2000,6 +2000,7 @@ export interface components {
             delivery_count: number;
         };
         AutomationActionRequest: {
+            id?: number;
             action_type: string;
             card_id: number;
             delivery_count: number;
@@ -2053,6 +2054,8 @@ export interface components {
             enabled: boolean;
             priority: number;
             config_json: string;
+            /** @enum {string} */
+            sku_migration_status: "pending" | "ready" | "needs_reconfiguration";
             actions: components["schemas"]["AutomationActionResponse"][];
             created_at: string;
             updated_at: string;

@@ -508,6 +508,8 @@ type automationRuleResponse struct {
 	Priority int `json:"priority"`
 	// ConfigJSON 是规则扩展配置 JSON。
 	ConfigJSON string `json:"config_json"`
+	// SKUMigrationStatus 是规则当前多 SKU 契约状态。
+	SKUMigrationStatus string `json:"sku_migration_status"`
 	// Actions 是规则动作列表。
 	Actions []automationActionResponse `json:"actions"`
 	// CreatedAt 是规则创建时间。

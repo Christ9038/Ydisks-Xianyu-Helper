@@ -29,6 +29,8 @@ type AutomationAction struct {
 
 // AutomationActionInput 是创建动作的输入。
 type AutomationActionInput struct {
+	// ID 是更新时对应的既有动作标识；创建时必须为零。
+	ID              int64
 	ActionType      string
 	CardID          int64
 	DeliveryCount   int

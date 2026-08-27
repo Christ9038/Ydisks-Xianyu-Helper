@@ -42,6 +42,7 @@ func TestMigrate_AppliesCleanSchema(t *testing.T) {
 		{"item_info", "multi_quantity_delivery"},
 		{"item_info", "deleted_at"},
 		{"automation_rules", "deleted_at"},
+		{"automation_rules", "sku_migration_status"},
 		{"default_replies", "reply_once"},
 		{"default_reply_records", "status"},
 		{"default_reply_records", "text_sent"},
@@ -171,7 +172,7 @@ func TestMigrate_ExistingAutomationRunsReceiveEmptyDeliveryProof(t *testing.T) {
 	}
 	// finalVersion、versionErr 保存升级后的 Goose 版本和读取错误。
 	finalVersion, versionErr := goose.GetDBVersion(rawDB)
-	if versionErr != nil || finalVersion != 39 {
+	if versionErr != nil || finalVersion != 40 {
 		t.Fatalf("final migration version=%d err=%v", finalVersion, versionErr)
 	}
 }
@@ -227,8 +228,8 @@ func TestMigrate_UpgradesDatabaseWithMainChatVersions(t *testing.T) {
 	if versionErr != nil {
 		t.Fatalf("read final migration version: %v", versionErr)
 	}
-	if finalVersion != 39 {
-		t.Fatalf("final migration version=%d, want 39", finalVersion)
+	if finalVersion != 40 {
+		t.Fatalf("final migration version=%d, want 40", finalVersion)
 	}
 }
 

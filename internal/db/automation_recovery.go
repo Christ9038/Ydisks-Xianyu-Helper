@@ -526,9 +526,9 @@ func createAutomationRuleTx(ctx context.Context, tx *sql.Tx, dialect Dialect, in
 	}
 	// id、err 用于本次流程后续判断的id、err
 	id, err := insertReturningID(ctx, tx, dialect, `
-INSERT INTO automation_rules (user_id,cookie_id,item_id,name,trigger_type,enabled,priority,config_json)
-VALUES (?,?,?,?,?,?,?,?)`,
-		in.UserID, in.CookieID, in.ItemID, in.Name, in.TriggerType, boolToInt(in.Enabled), in.Priority, validJSON(in.ConfigJSON))
+INSERT INTO automation_rules (user_id,cookie_id,item_id,name,trigger_type,enabled,priority,config_json,sku_migration_status)
+VALUES (?,?,?,?,?,?,?,?,?)`,
+		in.UserID, in.CookieID, in.ItemID, in.Name, in.TriggerType, boolToInt(in.Enabled), in.Priority, validJSON(in.ConfigJSON), readySKUMigrationStatus(in.SKUMigrationStatus))
 	if err != nil {
 		return 0, err
 	}
@@ -540,6 +540,14 @@ VALUES (?,?,?,?,?,?,?,?)`,
 		}
 	}
 	return id, nil
+}
+
+// readySKUMigrationStatus 将空状态归一为新规则的已校验状态。
+func readySKUMigrationStatus(status string) string {
+	if status == "" {
+		return "ready"
+	}
+	return status
 }
 
 // insertAutomationActionTx 写入动作及其模板变量绑定，并返回动作主键。

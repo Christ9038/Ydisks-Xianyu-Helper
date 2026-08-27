@@ -993,7 +993,8 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                       <label className="h-[48px] flex items-center gap-3 px-4 bg-gray-50 rounded-xl text-sm font-bold text-gray-800">
                         <input
                           type="checkbox"
-                          checked={editingAutomationRule.enabled !== false}
+                          checked={editingAutomationRule.sku_migration_status !== 'needs_reconfiguration' && editingAutomationRule.enabled !== false}
+                          disabled={editingAutomationRule.sku_migration_status === 'needs_reconfiguration'}
                           onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setEditingAutomationRule({ ...editingAutomationRule, enabled: event.target.checked })}
                           className="w-4 h-4 rounded"
                         />

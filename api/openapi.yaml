@@ -7123,6 +7123,7 @@ components:
       type: object
       required: [action_type, card_id, delivery_count, message_template, delay_seconds, config_json, enabled, sort_order, delivery_template_id, template_bindings, custom_variables]
       properties:
+        id: {type: integer}
         action_type: {type: string}
         card_id: {type: integer}
         delivery_count: {type: integer}
@@ -7167,7 +7168,7 @@ components:
         custom_variables: {type: object, additionalProperties: {type: string}}
     AutomationRuleResponse:
       type: object
-      required: [id, cookie_id, item_id, item_title, name, trigger_type, enabled, priority, config_json, actions, created_at, updated_at]
+      required: [id, cookie_id, item_id, item_title, name, trigger_type, enabled, priority, config_json, sku_migration_status, actions, created_at, updated_at]
       properties:
         id: {type: integer}
         cookie_id: {type: string}
@@ -7178,6 +7179,7 @@ components:
         enabled: {type: boolean}
         priority: {type: integer}
         config_json: {type: string}
+        sku_migration_status: {type: string, enum: [pending, ready, needs_reconfiguration]}
         actions: {type: array, items: {$ref: '#/components/schemas/AutomationActionResponse'}}
         created_at: {type: string}
         updated_at: {type: string}

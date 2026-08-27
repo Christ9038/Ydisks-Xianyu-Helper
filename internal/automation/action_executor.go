@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/orderspec"
 	"xianyu-go/internal/xianyu/cookierefresh"
 	"xianyu-go/internal/xianyu/mtop"
 )
@@ -77,6 +78,8 @@ type actionExecutionResult struct {
 	sent int
 	// proof 是本动作成功投递的发货凭证。
 	proof shipmentDeliveryProof
+	// reviewProof 是结果不确定但可能已经投递的凭证，供人工核对使用。
+	reviewProof shipmentDeliveryProof
 }
 
 // consignWithDeliveryClient 是自动化确认发货需要的可选 MTOP 能力；旧客户端仍可通过无凭证接口兼容运行。
@@ -645,10 +648,9 @@ func actionMatchesOrderSpec(task Task, action db.AutomationAction) bool {
 		return false
 	}
 	if strings.TrimSpace(cfg.SpecName) == "" && strings.TrimSpace(cfg.SpecValue) == "" {
-		return true
+		return strings.TrimSpace(task.SpecName) == "" && strings.TrimSpace(task.SpecValue) == ""
 	}
-	return strings.TrimSpace(task.SpecName) == strings.TrimSpace(cfg.SpecName) &&
-		strings.TrimSpace(task.SpecValue) == strings.TrimSpace(cfg.SpecValue)
+	return orderspec.Equal(task.SpecName, task.SpecValue, cfg.SpecName, cfg.SpecValue)
 }
 
 // deliverySendCount 根据动作单份数量和订单购买数量计算实际发送数量。

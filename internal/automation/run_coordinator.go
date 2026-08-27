@@ -268,7 +268,16 @@ func (r automationRunCoordinator) executeRunActions(ctx context.Context, task Ta
 				// reason 说明外部动作结果未知时为何必须隔离运行。
 				reason := "外部动作可能已部分或全部执行，已禁止自动重放，请人工核对: " + actionErr.Error()
 				// quarantineErr 保存外部动作结果未知的人工核对状态。
-				if quarantineErr := r.store.Automation.QuarantineRunResult(ctx, run.ID, run.AttemptCount, sent+n, reason); quarantineErr != nil {
+				// quarantineProof 合并运行既有、已确认及结果不确定的发货凭证，供人工核对远端状态。
+				quarantineProof := mergeShipmentDeliveryProof(deliveryProof, actionResult.proof)
+				quarantineProof = mergeShipmentDeliveryProof(quarantineProof, actionResult.reviewProof)
+				// proofInput 保存需要加密写入人工核对记录的凭证。
+				var proofInput *db.AutomationDeliveryProof
+				if quarantineProof.tradeText != "" || len(quarantineProof.picList) > 0 {
+					proofInput = &db.AutomationDeliveryProof{TradeText: quarantineProof.tradeText, PicList: append([]string(nil), quarantineProof.picList...)}
+				}
+				// quarantineErr 保存人工核对状态写入错误。
+				if quarantineErr := r.store.Automation.QuarantineRunResultWithProof(ctx, run.ID, run.AttemptCount, sent+n, reason, proofInput); quarantineErr != nil {
 					r.logger.Error("保存不确定动作人工核对状态失败", "run_id", run.ID, "err", quarantineErr)
 					return sent + n, false, errors.Join(errAutomationNeedsReview, errAutomationQuarantine, actionErr, quarantineErr)
 				}

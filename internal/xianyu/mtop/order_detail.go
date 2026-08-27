@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"xianyu-go/internal/orderspec"
 	"xianyu-go/internal/xianyu/protocol"
 )
 
@@ -252,29 +253,20 @@ func orderSpecFromItemInfo(itemInfo map[string]any) (string, string) {
 
 // preferOrderSpecCandidate 在多个平台字段同时存在时优先保留维度更多的完整规格结果。
 func preferOrderSpecCandidate(currentName, currentValue, candidateName, candidateValue string) (string, string) {
-	if currentName == "" || currentValue == "" {
-		return candidateName, candidateValue
+	// current、currentErr 保存当前候选规格及校验错误。
+	current, currentErr := orderspec.NormalizeColumns(currentName, currentValue)
+	// candidate、candidateErr 保存新候选规格及校验错误。
+	candidate, candidateErr := orderspec.NormalizeColumns(candidateName, candidateValue)
+	if candidateErr != nil {
+		return currentName, currentValue
 	}
-	// currentScore、candidateScore 保存当前结果和候选结果的维度数量。
-	currentScore := orderSpecDimensionCount(currentName, currentValue)
-	// candidateScore 保存候选结果的规格维度数量。
-	candidateScore := orderSpecDimensionCount(candidateName, candidateValue)
-	if candidateScore > currentScore {
-		return candidateName, candidateValue
+	if currentErr != nil {
+		return candidate.Name, candidate.Value
 	}
-	return currentName, currentValue
-}
-
-// orderSpecDimensionCount 计算归一规格文本包含的维度数量，用于选择更完整的平台结果。
-func orderSpecDimensionCount(name, value string) int {
-	// nameCount、valueCount 保存名称和值文本中由稳定分隔符划分出的维度数量。
-	nameCount := strings.Count(name, "；") + 1
-	// valueCount 保存规格值文本中的维度数量。
-	valueCount := strings.Count(value, "；") + 1
-	if valueCount > nameCount {
-		return valueCount
+	if candidate.Dimensions > current.Dimensions {
+		return candidate.Name, candidate.Value
 	}
-	return nameCount
+	return current.Name, current.Value
 }
 
 // orderSpecsFromList 从平台返回的结构化规格数组中提取全部名称和值。

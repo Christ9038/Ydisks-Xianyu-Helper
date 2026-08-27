@@ -283,7 +283,7 @@ func prepareServerStartup(opts *serverOptions) (serverStartupConfig, error) {
 			return serverStartupConfig{}, keyErr
 		}
 		// err 表示把数据加密主密钥写入当前进程环境失败。
-		if err := os.Setenv("XIANYU_DATA_KEY", key); err != nil {
+		if /* err 保存设置进程级数据密钥环境变量的错误。 */ err := os.Setenv("XIANYU_DATA_KEY", key); err != nil {
 			return serverStartupConfig{}, fmt.Errorf("设置 XIANYU_DATA_KEY 失败: %w", err)
 		}
 	}
@@ -299,6 +299,26 @@ func prepareServerStartup(opts *serverOptions) (serverStartupConfig, error) {
 		// err 表示创建默认 SQLite 数据库父目录失败。
 		if err := os.MkdirAll(filepath.Dir(resolvedDBURL), 0o700); err != nil {
 			return serverStartupConfig{}, fmt.Errorf("创建数据库目录失败: %w", err)
+		}
+	}
+	if strings.TrimSpace(os.Getenv("XIANYU_DATA_KEY")) == "" && opts.dataKeyFile == "" {
+		if isRemoteDatabaseURL(resolvedDBURL) {
+			return serverStartupConfig{}, errors.New("MySQL/PostgreSQL 必须配置 XIANYU_DATA_KEY 或 -data-key-file")
+		}
+		// keyPath 是无显式数据目录时与 SQLite 数据库绑定的稳定密钥文件路径。
+		keyPath := filepath.Join(filepath.Dir(strings.TrimPrefix(strings.TrimPrefix(resolvedDBURL, "sqlite://"), "sqlite3://")), defaultDataKeyName)
+		if keyPath == defaultDataKeyName || keyPath == "."+string(filepath.Separator)+defaultDataKeyName {
+			keyPath = filepath.Join("data", defaultDataKeyName)
+		}
+		opts.dataKeyFile = keyPath
+		// key、keyErr 表示自动生成或读取的 SQLite 持久化主密钥。
+		key, keyErr := loadOrCreateDataKey(opts.dataKeyFile)
+		if keyErr != nil {
+			return serverStartupConfig{}, keyErr
+		}
+		if // err 保存设置进程级数据密钥环境变量的错误。
+		err := os.Setenv("XIANYU_DATA_KEY", key); err != nil {
+			return serverStartupConfig{}, fmt.Errorf("设置 XIANYU_DATA_KEY 失败: %w", err)
 		}
 	}
 	// resolvedLogLevel 是环境变量、命令行和 verbose 共同决定的日志等级；explicit 标记是否禁止数据库覆盖。
@@ -326,6 +346,12 @@ func prepareServerStartup(opts *serverOptions) (serverStartupConfig, error) {
 		explicitLogFormat = true
 	}
 	return serverStartupConfig{dataDir: dataDir, resolvedDBURL: resolvedDBURL, explicitLogLevel: explicitLogLevel, explicitLogFormat: explicitLogFormat, resolvedLogFormat: resolvedLogFormat}, nil
+}
+
+// isRemoteDatabaseURL 判断数据库地址是否需要跨进程共享持久化密钥。
+func isRemoteDatabaseURL(raw string) bool {
+	raw = strings.ToLower(strings.TrimSpace(raw))
+	return strings.HasPrefix(raw, "mysql://") || strings.HasPrefix(raw, "postgres://") || strings.HasPrefix(raw, "postgresql://") || strings.HasPrefix(raw, "pgx://")
 }
 
 // openServerInfrastructure 打开日志和数据库、升级敏感字段、应用数据库日志设置并处理管理员初始化选项。

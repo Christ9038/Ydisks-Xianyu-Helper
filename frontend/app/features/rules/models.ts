@@ -233,8 +233,10 @@ export interface ShippingRule {
   card_group_name?: string; // UI helper
   /** 规则优先级。 */
   priority: number;
-  /** 规则是否启用。 */
-  enabled: boolean;
+	/** 规则是否启用。 */
+	enabled: boolean;
+	/** 规则多 SKU 迁移状态。 */
+	sku_migration_status?: 'pending' | 'ready' | 'needs_reconfiguration';
   /** 规则原始配置 JSON。 */
   config_json?: string;
   /** 规则动作列表。 */

@@ -4,30 +4,16 @@ import (
 	"context"
 	"errors"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 )
 
-// TestSecretCodecTemporaryKeyInitializationIsConcurrentSafe 验证并发首次写入敏感字段时临时密钥只初始化一次且无数据竞争。
-func TestSecretCodecTemporaryKeyInitializationIsConcurrentSafe(t *testing.T) {
-	// codec 保存未配置环境密钥的空编解码器。
-	codec := &secretCodec{}
-	// group 等待所有并发初始化调用结束。
-	var group sync.WaitGroup
-	for /* index 表示当前并发初始化任务的序号。 */ index := 0; index < 32; index++ {
-		group.Add(1)
-		go func() {
-			defer group.Done()
-			// initErr 保存当前并发任务的临时密钥初始化错误。
-			if initErr := codec.ensureEncryptionKey(); initErr != nil {
-				t.Errorf("临时密钥初始化失败: %v", initErr)
-			}
-		}()
-	}
-	group.Wait()
-	if codec.currentAEAD() == nil {
-		t.Fatal("并发初始化后应存在临时加密实例")
+// TestSecretCodecWithoutConfiguredKeyRemainsUninitialized 验证缺少持久化密钥时编解码器不会生成临时密钥。
+func TestSecretCodecWithoutConfiguredKeyRemainsUninitialized(t *testing.T) {
+	// codec 保存未配置密钥时的静态编解码器。
+	codec := secretCodecFromEnvironment()
+	if codec.currentAEAD() != nil {
+		t.Fatal("未配置数据密钥时不应生成临时加密实例")
 	}
 }
 

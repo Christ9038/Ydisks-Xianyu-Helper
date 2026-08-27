@@ -15,7 +15,6 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
-	"net/url"
 	"strings"
 	"time"
 
@@ -65,10 +64,22 @@ func Open(ctx context.Context, dbURL string) (*sql.DB, Dialect, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	// db、err 用于本次流程后续判断的db、err
-	db, err := sql.Open(string(driver), dsn)
-	if err != nil {
-		return nil, "", fmt.Errorf("打开数据库: %w", err)
+	// db 保存打开的数据库连接池。
+	var db *sql.DB
+	if driver == driverPgx {
+		// connector、connectorErr 保存使用 pgx 结构化配置的连接器及解析错误。
+		connector, connectorErr := newPgxCompatConnector(dsn)
+		if connectorErr != nil {
+			return nil, "", fmt.Errorf("解析 PostgreSQL 连接: %w", connectorErr)
+		}
+		db = sql.OpenDB(connector)
+	} else {
+		// openErr 保存非 PostgreSQL 驱动初始化错误。
+		var openErr error
+		db, openErr = sql.Open(string(driver), dsn)
+		if openErr != nil {
+			return nil, "", fmt.Errorf("打开数据库: %w", openErr)
+		}
 	}
 
 	// 连接池参数按 driver 调整：SQLite 写串行，单写多读；MySQL/PG 可多写并发。
@@ -125,9 +136,9 @@ func parseDBURL(raw string) (driverName, Dialect, string, error) {
 		// pgx 接受完整 postgres:// URL；也接受 libpq key=value DSN。
 		// 只有明确的 key=value 形式才去掉伪 scheme；URL 即便省略用户名也必须保留 scheme。
 		if strings.Contains(rest, "=") && !strings.Contains(rest, "/") {
-			return driverPgx, DialectPostgres, forcePostgresTimezone(rest), nil
+			return driverPgx, DialectPostgres, rest, nil
 		}
-		return driverPgx, DialectPostgres, forcePostgresURLTimezone(scheme + "://" + rest), nil
+		return driverPgx, DialectPostgres, scheme + "://" + rest, nil
 	default:
 		return "", "", "", fmt.Errorf("不支持的数据库 scheme: %s（支持 sqlite/mysql/postgres）", scheme)
 	}
@@ -188,40 +199,6 @@ func forceMySQLParam(dsn, key, value string) string {
 	return base + "?" + strings.Join(parts, "&")
 }
 
-// forcePostgresTimezone 将 libpq key=value DSN 的会话时区固定为 UTC。
-func forcePostgresTimezone(dsn string) string {
-	// parts 保存 libpq DSN 中按空格分隔的连接参数。
-	parts := strings.Fields(dsn)
-	// found 标记是否已替换调用方提供的 timezone 参数。
-	found := false
-	for /* index、part 表示当前连接参数位置及其原始文本。 */ index, part := range parts {
-		// name、hasValue 保存参数名称及其是否包含等号值。
-		name, _, hasValue := strings.Cut(part, "=")
-		if hasValue && strings.EqualFold(name, "timezone") {
-			parts[index] = "timezone=UTC"
-			found = true
-		}
-	}
-	if !found {
-		parts = append(parts, "timezone=UTC")
-	}
-	return strings.Join(parts, " ")
-}
-
-// forcePostgresURLTimezone 将 PostgreSQL URL 的会话时区固定为 UTC，同时保留认证和 SSL 参数。
-func forcePostgresURLTimezone(raw string) string {
-	// parsed、err 保存 PostgreSQL URL 解析结果及格式错误。
-	parsed, err := url.Parse(raw)
-	if err != nil {
-		return raw
-	}
-	// query 保存 URL 中可修改的连接参数集合。
-	query := parsed.Query()
-	query.Set("timezone", "UTC")
-	parsed.RawQuery = query.Encode()
-	return parsed.String()
-}
-
 // Migrate 执行嵌入式 goose 迁移，按方言选择子目录。
 func Migrate(ctx context.Context, db *sql.DB, dialect Dialect) error {
 	// gooseDialect 用于本次流程后续判断的gooseDialect
@@ -246,6 +223,10 @@ func Migrate(ctx context.Context, db *sql.DB, dialect Dialect) error {
 	if // err 用于本次流程后续判断的err
 	err := goose.Up(db, "migrations/"+subdir); err != nil {
 		return fmt.Errorf("执行迁移: %w", err)
+	}
+	// err 保存自动化规则规格迁移错误。
+	if err := migratePendingAutomationSKURules(ctx, db); err != nil {
+		return fmt.Errorf("迁移自动化多 SKU 规则: %w", err)
 	}
 	return nil
 }

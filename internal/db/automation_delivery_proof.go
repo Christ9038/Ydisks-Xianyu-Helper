@@ -77,9 +77,8 @@ func (a *AutomationRules) encodeDeliveryProof(runID int64, proof AutomationDeliv
 	if a == nil || a.codec == nil {
 		return "", errors.New("自动化发货凭证缺少加密编解码器")
 	}
-	// err 保存临时密钥准备失败原因。
-	if err := a.codec.ensureEncryptionKey(); err != nil {
-		return "", fmt.Errorf("生成自动化发货凭证临时密钥失败: %w", err)
+	if a.codec.currentAEAD() == nil {
+		return "", errors.New("自动化发货凭证缺少持久化数据密钥")
 	}
 	// payload 保存稳定的凭证 JSON 结构。
 	payload, err := json.Marshal(proof)

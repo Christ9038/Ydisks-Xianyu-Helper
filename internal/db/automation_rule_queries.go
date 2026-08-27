@@ -29,7 +29,7 @@ SELECT COUNT(*)
 	// rows 保存规则基础字段游标；动作在游标关闭后分阶段加载，避免小连接池嵌套查询死锁。
 	rows, err := a.DB.QueryContext(ctx, `
 SELECT r.id,r.user_id,r.cookie_id,r.item_id,COALESCE(i.item_title,''),r.name,r.trigger_type,r.enabled,
-       r.priority,r.config_json,r.created_at,r.updated_at
+       r.priority,r.config_json,r.sku_migration_status,r.created_at,r.updated_at
   FROM automation_rules r
 	  LEFT JOIN item_info i ON i.cookie_id=r.cookie_id AND i.item_id=r.item_id AND i.deleted_at IS NULL
 	WHERE `+whereSQL+`
@@ -46,7 +46,7 @@ SELECT r.id,r.user_id,r.cookie_id,r.item_id,COALESCE(i.item_title,''),r.name,r.t
 		var enabled int
 		// err 保存当前规则基础字段扫描错误。
 		if err := rows.Scan(&r.ID, &r.UserID, &r.CookieID, &r.ItemID, &r.ItemTitle, &r.Name, &r.TriggerType,
-			&enabled, &r.Priority, &r.ConfigJSON, &r.CreatedAt, &r.UpdatedAt); err != nil {
+			&enabled, &r.Priority, &r.ConfigJSON, &r.SKUMigrationStatus, &r.CreatedAt, &r.UpdatedAt); err != nil {
 			return nil, 0, err
 		}
 		r.Enabled = enabled != 0

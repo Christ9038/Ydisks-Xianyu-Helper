@@ -16,7 +16,7 @@ import (
 var ErrDeliveryTemplateUnavailable = errors.New("发货模板不存在或已不可用")
 
 // lockAutomationRuleAndTemplateRefsTx 锁定待更新规则并读取其既有模板引用。
-func lockAutomationRuleAndTemplateRefsTx(ctx context.Context, tx *sql.Tx, dialect Dialect, userID, ruleID int64) (map[int64]struct{}, error) {
+func lockAutomationRuleAndTemplateRefsTx(ctx context.Context, tx *sql.Tx, dialect Dialect, userID, ruleID int64) (map[int64]int64, error) {
 	if dialect == DialectSQLite {
 		// lockQuery 通过不改变业务值的更新取得 SQLite 规则写锁。
 		lockQuery := `UPDATE automation_rules SET updated_at=updated_at WHERE id=? AND user_id=? AND deleted_at IS NULL`
@@ -46,22 +46,24 @@ func lockAutomationRuleAndTemplateRefsTx(ctx context.Context, tx *sql.Tx, dialec
 	}
 	// rows 保存当前规则既有模板引用查询游标。
 	// rows、err 保存既有模板引用查询游标及查询错误。
-	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT delivery_template_id FROM automation_rule_actions WHERE rule_id=? AND action_type='send_template' AND delivery_template_id IS NOT NULL`, ruleID)
+	rows, err := tx.QueryContext(ctx, `SELECT id, COALESCE(delivery_template_id, 0) FROM automation_rule_actions WHERE rule_id=?`, ruleID)
 	if err != nil {
 		return nil, err
 	}
-	// retained 保存更新前规则已经引用的模板主键集合。
-	retained := make(map[int64]struct{})
+	// retained 保存更新前动作 ID 到模板 ID 的绑定，防止新增动作借用停用模板。
+	retained := make(map[int64]int64)
 	for rows.Next() {
+		// actionID 保存当前规则动作的主键。
+		var actionID int64
 		// templateID 保存当前规则动作引用的模板主键。
 		var templateID int64
 		// err 保存模板引用主键扫描错误。
-		if err := rows.Scan(&templateID); err != nil {
+		if err := rows.Scan(&actionID, &templateID); err != nil {
 			rows.Close()
 			return nil, err
 		}
-		if templateID > 0 {
-			retained[templateID] = struct{}{}
+		if actionID > 0 {
+			retained[actionID] = templateID
 		}
 	}
 	// rowsErr 保存既有模板引用游标遍历错误。
@@ -174,13 +176,36 @@ func lockLiveDeliveryTemplatesTx(ctx context.Context, tx *sql.Tx, dialect Dialec
 }
 
 // validateAutomationTemplateContractsTx 在规则写事务内复核模板变量契约，防止应用层读取后模板被并发更新。
-func validateAutomationTemplateContractsTx(ctx context.Context, tx *sql.Tx, dialect Dialect, userID int64, actions []AutomationActionInput, allowedDisabledTemplateIDs map[int64]struct{}) error {
+func validateAutomationTemplateContractsTx(ctx context.Context, tx *sql.Tx, dialect Dialect, userID int64, actions []AutomationActionInput, allowedDisabledTemplateIDs map[int64]int64) error {
+	// seenActionIDs 保存请求中出现过的已有动作 ID，拒绝重复 ID 造成模板引用归属歧义。
+	seenActionIDs := make(map[int64]struct{})
+	for /* action 表示当前待校验的规则动作。 */ _, action := range actions {
+		if action.ID < 0 {
+			return ErrDeliveryTemplateUnavailable
+		}
+		if action.ID == 0 {
+			continue
+		}
+		// exists 表示动作 ID 是否已经在请求中出现。
+		if _, exists := seenActionIDs[action.ID]; exists {
+			return ErrDeliveryTemplateUnavailable
+		}
+		seenActionIDs[action.ID] = struct{}{}
+		if allowedDisabledTemplateIDs != nil && action.ID > 0 {
+			// exists 表示动作 ID 是否属于当前规则。
+			if _, exists := allowedDisabledTemplateIDs[action.ID]; !exists {
+				return ErrDeliveryTemplateUnavailable
+			}
+		}
+	}
 	// templateIDs 保存规则动作引用的模板主键，并负责先取得固定顺序的行锁。
 	templateIDs := deliveryTemplateIDsFromActions(actions)
 	// lockErr 保存模板行锁定及有效性检查错误。
 	if lockErr := lockLiveDeliveryTemplatesTx(ctx, tx, dialect, userID, templateIDs); lockErr != nil {
 		return lockErr
 	}
+	// templateEnabled 保存锁定模板的启用状态，供动作级停用模板校验使用。
+	templateEnabled := make(map[int64]int)
 	for /* templateID 表示当前规则引用的模板主键。 */ _, templateID := range templateIDs {
 		// enabled 保存事务锁定后模板当前是否允许新规则引用。
 		var enabled int
@@ -191,17 +216,18 @@ func validateAutomationTemplateContractsTx(ctx context.Context, tx *sql.Tx, dial
 			}
 			return err
 		}
-		if enabled == 0 {
-			// _, retained 表示停用模板是否已经被正在更新的旧规则引用。
-			_, retained := allowedDisabledTemplateIDs[templateID]
-			if !retained {
-				return ErrDeliveryTemplateUnavailable
-			}
-		}
+		templateEnabled[templateID] = enabled
 	}
 	for /* action 表示当前待复核模板契约的规则动作。 */ _, action := range actions {
 		if action.ActionType != "send_template" || action.DeliveryTemplateID <= 0 {
 			continue
+		}
+		if templateEnabled[action.DeliveryTemplateID] == 0 {
+			// retainedTemplateID、retained 表示动作是否仍保留原停用模板绑定。
+			retainedTemplateID, retained := allowedDisabledTemplateIDs[action.ID]
+			if !retained || retainedTemplateID != action.DeliveryTemplateID {
+				return ErrDeliveryTemplateUnavailable
+			}
 		}
 		// rows 保存锁定模板的最新消息，供事务内变量解析使用。
 		rows, err := tx.QueryContext(ctx, `SELECT content FROM delivery_template_messages WHERE template_id=? ORDER BY sort_order ASC,id ASC`, action.DeliveryTemplateID)

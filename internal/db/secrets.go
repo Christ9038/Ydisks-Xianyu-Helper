@@ -13,7 +13,6 @@ import (
 	"io"
 	"os"
 	"strings"
-	"sync"
 )
 
 // encryptedValuePrefix 用于本次流程后续判断的encrypted值Prefix
@@ -28,44 +27,13 @@ const (
 type secretCodec struct {
 	// aead 保存当前进程使用的 AES-GCM 实例。
 	aead cipher.AEAD
-	// initMu 保护临时密钥初始化，避免并发发货首次写入产生数据竞争。
-	initMu sync.Mutex
 }
 
-// ensureEncryptionKey 为未配置环境密钥的进程生成临时内存密钥，保证新敏感字段绝不明文落库。
-// 该密钥不替代生产环境的 XIANYU_DATA_KEY；生产环境仍应配置稳定密钥以支持重启恢复。
-func (c *secretCodec) ensureEncryptionKey() error {
-	if c == nil {
-		return nil
-	}
-	c.initMu.Lock()
-	defer c.initMu.Unlock()
-	if c.aead != nil {
-		return nil
-	}
-	// key 保存本进程临时加密密钥，不会写入日志或数据库。
-	key := make([]byte, 32)
-	// readErr 保存临时密钥随机填充错误。
-	if _, readErr := io.ReadFull(rand.Reader, key); readErr != nil {
-		return readErr
-	}
-	// block、err 保存临时 AES 密钥及构造错误。
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return err
-	}
-	// aead、err 保存临时密钥对应的 AEAD 实例及构造错误。
-	c.aead, err = cipher.NewGCM(block)
-	return err
-}
-
-// currentAEAD 以锁保护的方式读取当前加密实例，供加解密操作安全共享。
+// currentAEAD 读取启动时固定的数据加密实例，运行期间不会改变该引用。
 func (c *secretCodec) currentAEAD() cipher.AEAD {
 	if c == nil {
 		return nil
 	}
-	c.initMu.Lock()
-	defer c.initMu.Unlock()
 	return c.aead
 }
 

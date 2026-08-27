@@ -82,17 +82,22 @@ func TestMysqlDSN(t *testing.T) {
 	}
 }
 
-// TestParseDBURLForcesUTCSessionTimezone 验证 MySQL 与 PostgreSQL 连接都显式固定 UTC 会话。
+// TestParseDBURLForcesUTCSessionTimezone 验证 MySQL 参数保留强制 UTC，PostgreSQL 由结构化连接配置注入 UTC。
 func TestParseDBURLForcesUTCSessionTimezone(t *testing.T) {
 	// mysqlDSNValue 保存 MySQL 连接参数，检查会话时区覆盖用户传入值。
 	_, _, mysqlDSNValue, err := parseDBURL("mysql://u:p@tcp(h:3306)/db?time_zone=Europe%2FParis")
 	if err != nil || !strings.Contains(mysqlDSNValue, "time_zone=%27%2B00%3A00%27") || strings.Contains(mysqlDSNValue, "Europe%2FParis") {
 		t.Fatalf("MySQL 时区未固定: dsn=%q err=%v", mysqlDSNValue, err)
 	}
-	// postgresDSNValue 保存 PostgreSQL URL，检查已有时区参数会被统一覆盖。
+	// postgresDSNValue 保存 PostgreSQL URL，解析阶段保留原始 DSN，避免破坏带引号或编码的认证参数。
 	_, _, postgresDSNValue, err := parseDBURL("postgres://u:p@h:5432/db?sslmode=disable&timezone=Asia%2FShanghai")
-	if err != nil || !strings.Contains(postgresDSNValue, "timezone=UTC") || strings.Contains(postgresDSNValue, "Asia%2FShanghai") {
-		t.Fatalf("PostgreSQL 时区未固定: dsn=%q err=%v", postgresDSNValue, err)
+	if err != nil || !strings.Contains(postgresDSNValue, "timezone=Asia%2FShanghai") {
+		t.Fatalf("PostgreSQL DSN 被错误改写: dsn=%q err=%v", postgresDSNValue, err)
+	}
+	// config、configErr 保存 pgx 结构化解析结果及错误。
+	config, configErr := parsePgxConfig(`postgres://u:p%20word@h:5432/db?timezone=Asia%2FShanghai`)
+	if configErr != nil || config.RuntimeParams["timezone"] != "UTC" || config.Password != "p word" {
+		t.Fatalf("PostgreSQL 结构化会话配置错误: config=%+v err=%v", config, configErr)
 	}
 }
 

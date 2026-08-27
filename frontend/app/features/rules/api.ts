@@ -77,6 +77,8 @@ interface AutomationTemplateBindingRequestPayload {
 
 /** 自动化动作请求的本地 transport DTO，明确模板绑定使用 key 字段。 */
 interface AutomationActionRequestPayload {
+  /** 更新时保留的既有动作 ID；新动作不携带该字段。 */
+  id?: number;
   /** 动作类型。 */
   action_type: string;
   /** 普通卡券动作使用的库存 ID。 */
@@ -320,6 +322,7 @@ export const updateShippingRule = async (rule: Partial<ShippingRule>): Promise<O
     // baseActions 基础动作列表，用于当前 API 处理流程。
     const baseActions: AutomationAction[] = rule.variants && rule.variants.length > 0
       ? [...rule.variants.map(/* 当前回调用于处理集合元素或接口响应。 */ (variant, index) => ({
+            id: variant.id,
             action_type: variant.delivery_mode === 'template' ? 'send_template' as const : 'send_card' as const,
             card_id: variant.card_id,
             delivery_template_id: variant.delivery_template_id,
@@ -355,6 +358,7 @@ export const updateShippingRule = async (rule: Partial<ShippingRule>): Promise<O
         priority: rule.priority || 100,
         config_json: rule.config_json || '{}',
         actions: actions.map(/* 当前回调用于处理集合元素或接口响应。 */ (action, index) => ({
+          id: action.id ? Number(action.id) : undefined,
           action_type: action.action_type,
           card_id: action.card_id || 0,
           delivery_count: action.delivery_count || 1,

@@ -120,13 +120,13 @@ func TestRuleServiceNormalizesTemplateAction(t *testing.T) {
 // TestRuleServiceAllowsOnlyExistingDisabledTemplateOnUpdate 验证停用模板只能由原规则继续保留。
 func TestRuleServiceAllowsOnlyExistingDisabledTemplateOnUpdate(t *testing.T) {
 	// repository 保存原规则已有模板引用。
-	repository := &ruleRepositoryFake{existing: Rule{ID: 9, Actions: []Action{{ActionType: ActionSendTemplate, DeliveryTemplateID: 8}}}}
+	repository := &ruleRepositoryFake{existing: Rule{ID: 9, Actions: []Action{{ID: 3, ActionType: ActionSendTemplate, DeliveryTemplateID: 8}}}}
 	// ownership 保存停用模板摘要和合法卡密绑定能力。
 	ownership := &ruleTemplateOwnershipFake{ruleOwnershipFake: &ruleOwnershipFake{cardType: "text", cardEnabled: true}, template: TemplateInfo{Enabled: false, Keys: []string{"key"}}}
 	// service 是使用规则仓储和模板归属替身的规则服务。
 	service := NewRuleService(repository, ownership)
 	// draft 保存继续引用停用模板的更新草稿。
-	draft := RuleDraft{CookieID: "account-1", TriggerType: TriggerOrderPaid, Actions: []ActionDraft{{ActionType: ActionSendTemplate, DeliveryTemplateID: 8, TemplateBindings: []TemplateBinding{{VariableKey: "key", CardID: 2}}}}}
+	draft := RuleDraft{CookieID: "account-1", TriggerType: TriggerOrderPaid, Actions: []ActionDraft{{ID: 3, ActionType: ActionSendTemplate, DeliveryTemplateID: 8, TemplateBindings: []TemplateBinding{{VariableKey: "key", CardID: 2}}}}}
 	// err 保存既有停用模板更新规范化的结果。
 	if _, err := service.NormalizeForUpdate(context.Background(), 7, 9, draft); err != nil {
 		t.Fatalf("既有停用模板应允许更新：%v", err)
