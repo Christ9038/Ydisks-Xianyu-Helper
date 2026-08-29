@@ -254,16 +254,17 @@ func upsertManyOrders(ctx context.Context, execer sqlQueryExecer, dialect Dialec
 		}
 		return "EXCLUDED." + column
 	}
-	// mergeValue 生成仅在候选值非空时覆盖旧值的表达式。
+	// mergeValue 生成仅在候选值非空时覆盖旧值的表达式。右侧裸列名必须限定为 orders.*，
+	// 否则 PostgreSQL 在 ON CONFLICT DO UPDATE 子句里无法在 target 与 EXCLUDED 之间消歧。
 	mergeValue := func(column string) string {
 		// incoming 保存当前列候选值表达式。
 		incoming := excludedValue(column)
-		return "CASE WHEN " + incoming + " IS NOT NULL AND " + incoming + "<>'' THEN " + incoming + " ELSE " + column + " END"
+		return "CASE WHEN " + incoming + " IS NOT NULL AND " + incoming + "<>'' THEN " + incoming + " ELSE orders." + column + " END"
 	}
 	// incomingStatus 保存候选订单状态表达式。
 	incomingStatus := excludedValue("order_status")
-	// statusAssignment 保存防止状态倒退的跨方言状态表达式。
-	statusAssignment := "CASE WHEN " + incomingStatus + " IS NULL OR " + incomingStatus + "='' OR (" + incomingStatus + "='unknown' AND order_status<>'unknown') THEN order_status WHEN order_status='unknown' OR order_status=" + incomingStatus + " THEN " + incomingStatus + " WHEN " + incomingStatus + " IN ('processing','pending_ship') AND order_status IN ('shipped','completed','refunding','cancelled') THEN order_status WHEN " + incomingStatus + "='shipped' AND order_status IN ('completed','cancelled') THEN order_status ELSE " + incomingStatus + " END"
+	// statusAssignment 保存防止状态倒退的跨方言状态表达式。右侧引用目标表列必须用 orders.* 限定。
+	statusAssignment := "CASE WHEN " + incomingStatus + " IS NULL OR " + incomingStatus + "='' OR (" + incomingStatus + "='unknown' AND orders.order_status<>'unknown') THEN orders.order_status WHEN orders.order_status='unknown' OR orders.order_status=" + incomingStatus + " THEN " + incomingStatus + " WHEN " + incomingStatus + " IN ('processing','pending_ship') AND orders.order_status IN ('shipped','completed','refunding','cancelled') THEN orders.order_status WHEN " + incomingStatus + "='shipped' AND orders.order_status IN ('completed','cancelled') THEN orders.order_status ELSE " + incomingStatus + " END"
 	// incomingBargain 保存候选订单砍价标记表达式。
 	incomingBargain := excludedValue("is_bargain")
 	// assignments 保存批量 UPSERT 的更新列表达式。
@@ -272,7 +273,7 @@ func upsertManyOrders(ctx context.Context, execer sqlQueryExecer, dialect Dialec
 		"buyer_id":         mergeValue("buyer_id"),
 		"cookie_id":        mergeValue("cookie_id"),
 		"order_status":     statusAssignment,
-		"is_bargain":       "CASE WHEN " + incomingBargain + "=1 THEN 1 ELSE is_bargain END",
+		"is_bargain":       "CASE WHEN " + incomingBargain + "=1 THEN 1 ELSE orders.is_bargain END",
 		"spec_name":        mergeValue("spec_name"),
 		"spec_value":       mergeValue("spec_value"),
 		"quantity":         mergeValue("quantity"),
@@ -282,7 +283,7 @@ func upsertManyOrders(ctx context.Context, execer sqlQueryExecer, dialect Dialec
 		"receiver_address": mergeValue("receiver_address"),
 		"receiver_city":    mergeValue("receiver_city"),
 		"deleted_at":       "NULL",
-		"version":          "version+1",
+		"version":          "orders.version+1",
 		"updated_at":       "CURRENT_TIMESTAMP",
 	}
 	// query 保存多值 UPSERT SQL。
