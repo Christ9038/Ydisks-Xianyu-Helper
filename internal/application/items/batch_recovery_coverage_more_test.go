@@ -143,6 +143,71 @@ func TestBatchRecoveryCoversPostClaimFailures(t *testing.T) {
 	if recountRunErr != nil || startedCount != 1 {
 		t.Fatalf("统计重算失败恢复结果=%v started=%d", recountRunErr, startedCount)
 	}
+	// finalizeError 保存空批次终态写入失败的基础设施错误。
+	finalizeError := errors.New("finalize error")
+	// releaseError 保存终态失败后释放租约的补偿错误。
+	releaseError := errors.New("release error")
+	// finalizeRepository 保存同时发生终态和补偿失败的恢复批次。
+	finalizeRepository := &batchRecoveryRepositoryFake{batches: []BatchInfo{{ID: "finalize", UserID: 4, Status: "running"}}, finalizeErr: finalizeError, releaseErr: releaseError}
+	// finalizeService 执行空批次终态失败后的租约补偿。
+	finalizeService, err := NewBatchRecoveryService(finalizeRepository, BatchRecoveryOptions{NewWorkerToken: func() string { return "finalize-worker" }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// finalizeRunErr 保存终态错误和租约补偿错误组成的错误链。
+	finalizeRunErr := finalizeService.RecoverWithStarter(context.Background(), func(context.Context, int64, string, string) error { return nil })
+	if !errors.Is(finalizeRunErr, finalizeError) || !errors.Is(finalizeRunErr, releaseError) || len(finalizeRepository.released) != 1 {
+		t.Fatalf("空批次收口失败结果=%v released=%v", finalizeRunErr, finalizeRepository.released)
+	}
+}
+
+// TestBatchRecoveryReportsReleaseFailuresAfterPostClaimErrors 验证接管后各初始化阶段的租约补偿失败均进入错误链。
+func TestBatchRecoveryReportsReleaseFailuresAfterPostClaimErrors(t *testing.T) {
+	// releaseError 是三个初始化失败分支共享的租约补偿错误。
+	releaseError := errors.New("release failed")
+	// resetError 是重置进程中断明细阶段的主错误。
+	resetError := errors.New("reset failed")
+	// pendingError 是读取待处理明细阶段的主错误。
+	pendingError := errors.New("pending failed")
+	// startError 是启动恢复 worker 阶段的主错误。
+	startError := errors.New("start failed")
+	// cases 保存重置、明细读取和 worker 启动失败三种接管后场景。
+	cases := []struct {
+		// name 是子测试名称。
+		name string
+		// repository 构造当前阶段失败和租约释放失败的仓储替身。
+		repository *batchRecoveryRepositoryFake
+		// primaryError 是应保留在最终错误链中的阶段错误。
+		primaryError error
+		// startError 是当前场景的 worker 启动结果。
+		startError error
+	}{
+		{name: "reset", repository: &batchRecoveryRepositoryFake{resetErr: resetError, releaseErr: releaseError}, primaryError: resetError},
+		{name: "pending", repository: &batchRecoveryRepositoryFake{pendingErr: pendingError, releaseErr: releaseError}, primaryError: pendingError},
+		{name: "start", repository: &batchRecoveryRepositoryFake{pending: map[string][]BatchRow{"batch": {{ID: 1}}}, releaseErr: releaseError}, primaryError: startError, startError: startError},
+	}
+	// testCase 表示当前接管后补偿失败场景。
+	for _, testCase := range cases {
+		t.Run(testCase.name,
+			// recoveryCaseAssertion 验证当前阶段错误和租约释放错误均可被调用方识别。
+			func(t *testing.T) {
+				testCase.repository.batches = []BatchInfo{{ID: "batch", UserID: 1, Status: "running"}}
+				// workerTokenFactory 返回固定租约令牌以便断言释放目标。
+				workerTokenFactory := func() string { return "worker" }
+				// service 是当前初始化失败场景使用的恢复服务。
+				service, serviceErr := NewBatchRecoveryService(testCase.repository, BatchRecoveryOptions{NewWorkerToken: workerTokenFactory})
+				if serviceErr != nil {
+					t.Fatal(serviceErr)
+				}
+				// startWorker 返回当前场景预置的 worker 启动结果。
+				startWorker := func(context.Context, int64, string, string) error { return testCase.startError }
+				// runErr 保存初始化错误和租约补偿错误组成的扫描结果。
+				runErr := service.RecoverWithStarter(context.Background(), startWorker)
+				if !errors.Is(runErr, testCase.primaryError) || !errors.Is(runErr, releaseError) || len(testCase.repository.released) != 1 {
+					t.Fatalf("%s 补偿错误链=%v released=%v", testCase.name, runErr, testCase.repository.released)
+				}
+			})
+	}
 }
 
 // TestBatchRecoveryStopsWhenContextCanceledDuringScan 验证恢复扫描在批次间尊重取消并返回上下文错误。

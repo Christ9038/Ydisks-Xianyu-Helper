@@ -181,6 +181,8 @@ type fakeRepository struct {
 	ownedErr error
 	// updatedSessions 保存最近写入的会话身份，供断言应用端口调用参数。
 	updatedSessions []Session
+	// updatedSessionsMu 只保护并发身份刷新 worker 写入的 updatedSessions；锁内不执行外部 I/O。
+	updatedSessionsMu sync.Mutex
 	// markReadErr 表示会话已读状态更新需要返回的错误。
 	markReadErr error
 	// markReadCalls 记录会话已读状态更新次数，避免测试误判未调用端口。
@@ -234,8 +236,17 @@ func (r *fakeRepository) DeleteEmptySessions(_ context.Context, _ string) error 
 
 // UpdateSessionIdentity 记录应用层请求保存的会话身份。
 func (r *fakeRepository) UpdateSessionIdentity(_ context.Context, accountID, chatID, buyerID, buyerName, buyerAvatar string) error {
+	r.updatedSessionsMu.Lock()
+	defer r.updatedSessionsMu.Unlock()
 	r.updatedSessions = append(r.updatedSessions, Session{AccountID: accountID, ChatID: chatID, BuyerID: buyerID, BuyerName: buyerName, BuyerAvatar: buyerAvatar})
 	return r.updateErr
+}
+
+// updatedSessionSnapshot 返回身份写入记录的独立副本，允许测试断言与并发刷新安全同步。
+func (r *fakeRepository) updatedSessionSnapshot() []Session {
+	r.updatedSessionsMu.Lock()
+	defer r.updatedSessionsMu.Unlock()
+	return append([]Session(nil), r.updatedSessions...)
 }
 
 // ExistsOwned 返回预设账号归属结果。
@@ -424,8 +435,10 @@ func TestSessionPortCoversCleanupOwnershipAndIdentity(t *testing.T) {
 	}
 	// resolved 和 resolveErr 保存身份补全后的会话及平台错误。
 	resolved, resolveErr := service.ResolveSessionIdentity(context.Background(), Session{AccountID: "account-1", ChatID: "chat-1", BuyerID: "buyer-1"})
-	if resolveErr != nil || resolved.BuyerName != "买家新名" || len(repository.updatedSessions) != 1 {
-		t.Fatalf("ResolveSessionIdentity() = %+v, %v; updates=%+v", resolved, resolveErr, repository.updatedSessions)
+	// updatedSessions 保存身份解析成功后的线程安全写入快照。
+	updatedSessions := repository.updatedSessionSnapshot()
+	if resolveErr != nil || resolved.BuyerName != "买家新名" || len(updatedSessions) != 1 {
+		t.Fatalf("ResolveSessionIdentity() = %+v, %v; updates=%+v", resolved, resolveErr, updatedSessions)
 	}
 }
 
@@ -439,8 +452,10 @@ func TestSessionPortPreservesIdentityErrorAndCachedSession(t *testing.T) {
 	service := NewWithIdentity(repository, fakeIdentityResolver{err: wantErr})
 	// session 和 err 保存身份失败后的会话及错误。
 	session, err := service.ResolveSessionIdentity(context.Background(), Session{AccountID: "account-1", ChatID: "chat-1", BuyerID: "buyer-1", BuyerName: "旧名称"})
-	if !errors.Is(err, wantErr) || session.BuyerName != "旧名称" || len(repository.updatedSessions) != 1 {
-		t.Fatalf("session=%+v err=%v updates=%+v", session, err, repository.updatedSessions)
+	// failedUpdates 保存身份查询失败后的线程安全写入快照。
+	failedUpdates := repository.updatedSessionSnapshot()
+	if !errors.Is(err, wantErr) || session.BuyerName != "旧名称" || len(failedUpdates) != 1 {
+		t.Fatalf("session=%+v err=%v updates=%+v", session, err, failedUpdates)
 	}
 }
 
@@ -457,8 +472,10 @@ func TestRefreshSessionIdentitiesKeepsOfficialSessionAndUpdatesPeers(t *testing.
 	}
 	// refreshed 和 refreshErr 保存批量补全结果及首个错误。
 	refreshed, refreshErr := service.RefreshSessionIdentities(context.Background(), "account-1", sessions)
-	if refreshErr != nil || refreshed[0].BuyerName != "批量名称" || refreshed[1].BuyerName != "闲小蜜" || len(repository.updatedSessions) != 1 {
-		t.Fatalf("refreshed=%+v err=%v updates=%+v", refreshed, refreshErr, repository.updatedSessions)
+	// refreshedUpdates 保存并发身份刷新完成后的线程安全写入快照。
+	refreshedUpdates := repository.updatedSessionSnapshot()
+	if refreshErr != nil || refreshed[0].BuyerName != "批量名称" || refreshed[1].BuyerName != "闲小蜜" || len(refreshedUpdates) != 1 {
+		t.Fatalf("refreshed=%+v err=%v updates=%+v", refreshed, refreshErr, refreshedUpdates)
 	}
 }
 

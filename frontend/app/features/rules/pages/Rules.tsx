@@ -27,7 +27,7 @@ import { useRulesData } from '../hooks';
 import { filterAutomationIssues } from '../issueState';
 import { useRuleActions } from '../ruleActions';
 import type { AutomationTriggerType,RulesProps,RulesTab } from '../types';
-import { accentClasses,accountLabel,actionSummary,adjustPriceTarget,buildReviewConfig,cardActionsForTrigger,statusPill,triggerMeta,triggerOrder } from '../utils';
+import { accentClasses,accountLabel,actionSummary,adjustPriceTarget,buildReviewConfig,cardActionsForTrigger,isDeliveryCardReady,statusPill,triggerMeta,triggerOrder } from '../utils';
 
 // Rules 是规则 feature 在旧页面目录下保留的兼容入口组件。
 const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHandled }) => {
@@ -852,7 +852,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                                   className="w-full ios-input px-3 py-2.5 rounded-lg"
                                 >
                                   <option value="">请选择卡密库存</option>
-                                  {cards.filter(/* 当前回调处理集合中的单个元素。 */ card => card.enabled && (card.type !== 'api' || card.api_config?.ready === true)).map(/* 当前回调处理集合中的单个元素。 */ card => (
+                                  {cards.filter(isDeliveryCardReady).map(/* 当前回调处理集合中的单个元素。 */ card => (
                                     <option key={card.id} value={card.id}>{card.name}</option>
                                   ))}
                                 </select>

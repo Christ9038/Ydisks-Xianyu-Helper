@@ -133,12 +133,18 @@ type historyRepository struct {
 	contentErr error
 	// durationErr 保存语音时长修复错误。
 	durationErr error
-	// upsertErr、syncErr 保存会话摘要写入和同步错误。
-	upsertErr error
-	syncErr   error
+	// upsertErr、syncErr、visibilityErr 分别保存会话写入、摘要同步和可见性更新错误。
+	upsertErr     error
+	syncErr       error
+	visibilityErr error
 	// upsertCalls、syncCalls 保存会话写入和同步的调用次数。
 	upsertCalls int
 	syncCalls   int
+}
+
+// SetSessionVisible 返回预置的软隐藏错误，用于验证平台不可见分支不会静默吞错。
+func (repository *historyRepository) SetSessionVisible(context.Context, string, string, bool) error {
+	return repository.visibilityErr
 }
 
 // UpsertSession 返回预置的会话写入错误。
@@ -252,5 +258,22 @@ func TestRecordConversationPageCoversSessionPersistenceErrors(t *testing.T) {
 	}
 	if !errors.Is(syncResultErr, syncErr) {
 		t.Fatalf("会话摘要同步错误=%v", syncResultErr)
+	}
+	// visibilityErr 保存不可见会话软隐藏阶段的仓储错误。
+	visibilityErr := errors.New("session visibility failed")
+	// visibilityBodies 保存显式不可见和非法平台通知壳两种软隐藏入口。
+	visibilityBodies := []map[string]any{
+		{"userConvs": []any{map[string]any{"singleChatUserConversation": map[string]any{"visible": float64(0), "singleChatConversation": map[string]any{"cid": "hidden@goofish"}}}}},
+		{"userConvs": []any{map[string]any{"singleChatUserConversation": map[string]any{"visible": float64(1), "singleChatConversation": map[string]any{"cid": "platform@goofish", "pairSecond": "0@goofish", "extension": map[string]any{"extUserId": "900"}}}}}},
+	}
+	// visibilityBody 表示当前验证的不可见会话平台载荷。
+	for _, visibilityBody := range visibilityBodies {
+		// visibilityRepository 为当前软隐藏入口注入同一个持久化错误。
+		visibilityRepository := &historyRepository{visibilityErr: visibilityErr}
+		// _, visibilityResultErr 保存当前软隐藏入口的错误传播结果。
+		_, visibilityResultErr := NewWithRepository(visibilityRepository).RecordConversationPage(context.Background(), "account", "self", visibilityBody)
+		if !errors.Is(visibilityResultErr, visibilityErr) {
+			t.Fatalf("会话软隐藏错误=%v", visibilityResultErr)
+		}
 	}
 }

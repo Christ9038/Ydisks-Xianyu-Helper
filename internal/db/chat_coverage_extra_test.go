@@ -59,6 +59,31 @@ func TestChatSessionAndMessageLifecycle(t *testing.T) {
 	if sessionsErr != nil || len(sessions) != 1 || sessions[0].ChatID != "chat" {
 		t.Fatalf("sessions=%+v err=%v", sessions, sessionsErr)
 	}
+	// hideErr 保存把平台不可见会话从列表软隐藏的数据库结果。
+	hideErr := store.Chats.SetSessionVisible(ctx, cookieID, "chat", false)
+	if hideErr != nil {
+		t.Fatal(hideErr)
+	}
+	// hiddenSessions、hiddenSessionsErr 验证软隐藏只影响会话列表。
+	hiddenSessions, hiddenSessionsErr := store.Chats.ListSessions(ctx, userID, cookieID, 0)
+	if hiddenSessionsErr != nil || len(hiddenSessions) != 0 {
+		t.Fatalf("hidden sessions=%+v err=%v", hiddenSessions, hiddenSessionsErr)
+	}
+	// retainedMessage、retainedMessageErr 验证软隐藏后历史消息仍可读取。
+	retainedMessage, retainedMessageErr := store.Chats.GetMessageByKey(ctx, cookieID, "in-1")
+	if retainedMessageErr != nil || retainedMessage == nil {
+		t.Fatalf("retained message=%+v err=%v", retainedMessage, retainedMessageErr)
+	}
+	// showErr 保存平台会话重新出现时恢复列表可见性的数据库结果。
+	showErr := store.Chats.UpsertSession(ctx, session)
+	if showErr != nil {
+		t.Fatal(showErr)
+	}
+	// restoredSessions、restoredSessionsErr 验证会话重新同步后恢复显示。
+	restoredSessions, restoredSessionsErr := store.Chats.ListSessions(ctx, userID, cookieID, 0)
+	if restoredSessionsErr != nil || len(restoredSessions) != 1 {
+		t.Fatalf("restored sessions=%+v err=%v", restoredSessions, restoredSessionsErr)
+	}
 	// messages、messagesErr 保存按时间正序排列的消息列表。
 	messages, messagesErr := store.Chats.ListMessages(ctx, userID, cookieID, "chat", 0, 0)
 	if messagesErr != nil || len(messages) != 3 || messages[0].MessageKey != "out-1" || messages[2].MessageKey != "system-1" {

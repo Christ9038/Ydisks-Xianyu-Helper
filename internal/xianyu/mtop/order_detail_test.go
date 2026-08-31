@@ -53,6 +53,27 @@ func TestFetchOrderDetailSuccessWithCombinedSKUText(t *testing.T) {
 	}
 }
 
+// TestFetchOrderDetailSupportsObjectComponentsAndEncodedItemInfo 验证组件对象及二次编码商品节点仍能提取多规格订单。
+func TestFetchOrderDetailSupportsObjectComponentsAndEncodedItemInfo(t *testing.T) {
+	// server 返回平台把 components 改成对象、itemInfo 改成 JSON 文本时的详情响应。
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"utArgs":{"orderStatus":"2"},"components":{"orderInfo":{"render":"orderInfoVO","data":{"itemInfo":"{\"buyAmount\":\"1\",\"skuInfo\":{\"skuProperties\":[{\"name\":\"时长\",\"value\":\"周卡\"},{\"name\":\"等级\",\"value\":\"初级会员\"}]}}","priceInfo":{"amount":{"value":"0.10"}}}}}}}`)
+	}))
+	defer server.Close()
+
+	// client 使用本地 HTTP 服务替代闲鱼详情接口，隔离真实账号和平台请求。
+	client := &ClientImpl{HTTPClient: server.Client(), OrderDetailURL: server.URL + "/"}
+	// result、err 保存兼容新响应结构后的订单详情结果及错误。
+	result, err := client.FetchOrderDetail(context.Background(), consignCookies, "order-1")
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if result.Quantity != "1" || result.SpecName != "时长；等级" || result.SpecValue != "周卡；初级会员" ||
+		result.OrderStatus != "2" || result.Amount != "0.10" {
+		t.Fatalf("result=%+v", result)
+	}
+}
+
 // TestOrderSpecFromItemInfoSupportsPlatformShapes 验证订单规格解析兼容平台字段、嵌套对象和空格格式。
 func TestOrderSpecFromItemInfoSupportsPlatformShapes(t *testing.T) {
 	// cases 覆盖当前订单详情接口已知的规格字段形状及无效文本。
@@ -67,6 +88,7 @@ func TestOrderSpecFromItemInfoSupportsPlatformShapes(t *testing.T) {
 		{name: "snake case fields", itemInfo: map[string]any{"spec_name": "总量", "spec_value": "永久"}, wantName: "总量", wantVal: "永久"},
 		{name: "sku text", itemInfo: map[string]any{"skuText": "总量:月卡"}, wantName: "总量", wantVal: "月卡"},
 		{name: "nested sku", itemInfo: map[string]any{"skuInfo": map[string]any{"skuText": "总量 月卡"}}, wantName: "总量", wantVal: "月卡"},
+		{name: "nested sku text", itemInfo: map[string]any{"skuInfo": "时长:周卡;等级:初级会员"}, wantName: "时长；等级", wantVal: "周卡；初级会员"},
 		{name: "partial top nested complete", itemInfo: map[string]any{"specName": "颜色", "skuInfo": map[string]any{"skuText": "尺码：M"}}, wantName: "尺码", wantVal: "M"},
 		{name: "multiple specs preserve every pair", itemInfo: map[string]any{"skuText": "颜色：红色；尺码：M"}, wantName: "颜色；尺码", wantVal: "红色；M"},
 		{name: "mixed delimiters preserve pair order", itemInfo: map[string]any{"skuText": "颜色=红色,尺码:M|版本：专业"}, wantName: "颜色；尺码；版本", wantVal: "红色；M；专业"},

@@ -1469,6 +1469,7 @@ func TestMultiDB_LatestMigrationsDownUp(t *testing.T) {
 				{"account_task_runs", "run_key"},
 				{"chat_sessions", "unread_count"},
 				{"chat_sessions", "item_image_url"},
+				{"chat_sessions", "is_visible"},
 				{"chat_messages", "message_key"},
 				{"chat_messages", "read_status"},
 				{"chat_messages", "read_at"},
@@ -1591,6 +1592,29 @@ func TestMultiDB_ChatAndAccountTasks(t *testing.T) {
 			messages, err := s.Chats.ListMessages(ctx, user.ID, cookieID, "chat-1", 0, 20)
 			if err != nil || len(messages) != 2 || messages[0].Content != "你好" || messages[1].Content != "您好" {
 				t.Fatalf("messages=%+v err=%v", messages, err)
+			}
+			// visibilityErr 保存软隐藏会话时的跨方言布尔字段更新错误。
+			if visibilityErr := s.Chats.SetSessionVisible(ctx, cookieID, "chat-1", false); visibilityErr != nil {
+				t.Fatalf("hide chat session: %v", visibilityErr)
+			}
+			// hiddenSessions、hiddenErr 保存软隐藏后的会话列表，三种方言都不得返回隐藏记录。
+			hiddenSessions, hiddenErr := s.Chats.ListSessions(ctx, user.ID, cookieID, 20)
+			if hiddenErr != nil || len(hiddenSessions) != 0 {
+				t.Fatalf("hidden sessions=%+v err=%v", hiddenSessions, hiddenErr)
+			}
+			// retainedMessages、retainedErr 验证软隐藏不会级联删除跨方言消息历史。
+			retainedMessages, retainedErr := s.Chats.ListMessages(ctx, user.ID, cookieID, "chat-1", 0, 20)
+			if retainedErr != nil || len(retainedMessages) != 2 {
+				t.Fatalf("retained messages=%+v err=%v", retainedMessages, retainedErr)
+			}
+			// restoreErr 保存平台会话重新出现时恢复可见状态的跨方言更新错误。
+			if restoreErr := s.Chats.UpsertSession(ctx, session); restoreErr != nil {
+				t.Fatalf("restore chat session: %v", restoreErr)
+			}
+			// restoredSessions、restoredErr 验证平台重新返回会话时会恢复列表可见性。
+			restoredSessions, restoredErr := s.Chats.ListSessions(ctx, user.ID, cookieID, 20)
+			if restoredErr != nil || len(restoredSessions) != 1 {
+				t.Fatalf("restored sessions=%+v err=%v", restoredSessions, restoredErr)
 			}
 			if // err 用于本次流程后续判断的err
 			err := s.Chats.MarkRead(ctx, user.ID, cookieID, "chat-1"); err != nil {

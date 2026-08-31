@@ -643,7 +643,7 @@ func (s *RuleService) validateSendCardAction(ctx context.Context, userID int64, 
 	return nil
 }
 
-// validateTemplateBindings 校验模板变量覆盖完整且每个卡密组属于当前用户。
+// validateTemplateBindings 校验模板变量覆盖完整且每个卡密组属于当前用户；API 卡券必须已经通过配置校验。
 func validateTemplateBindings(ctx context.Context, ownership RuleOwnership, userID int64, keys []string, bindings []TemplateBinding) error {
 	if len(keys) != len(bindings) {
 		return errors.New("发货模板的卡密变量绑定不完整")
@@ -665,8 +665,11 @@ func validateTemplateBindings(ctx context.Context, ownership RuleOwnership, user
 		if err != nil {
 			return err
 		}
-		if card.Type != "text" && card.Type != "data" {
-			return errors.New("发货模板只能绑定文本或批量数据卡密组")
+		if card.Type != "text" && card.Type != "data" && card.Type != "api" {
+			return errors.New("发货模板只能绑定文本、批量数据或 API 卡密组")
+		}
+		if card.Type == "api" && !card.APIReady {
+			return errors.New("发货模板不能绑定配置无效的 API 卡密组")
 		}
 		if !card.Enabled {
 			return errors.New("发货模板不能绑定已停用的卡密组")

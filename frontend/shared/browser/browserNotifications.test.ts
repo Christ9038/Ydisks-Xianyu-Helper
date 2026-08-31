@@ -93,7 +93,7 @@ describe('browser notification preference', /* 当前测试组验证浏览器通
     // created 表示通知工具是否成功创建了当前消息对应的系统通知。
     const created = showBrowserNotification({ title: '买家发来新消息', body: '请问还在吗', tag: 'chat-account-1-chat-1' });
     expect(created).toBe(true);
-    expect(FakeNotification.instances[0]).toMatchObject({ title: '买家发来新消息', options: { body: '请问还在吗', tag: 'chat-account-1-chat-1' } });
+    expect(FakeNotification.instances[0]).toMatchObject({ title: '买家发来新消息', options: { body: '请问还在吗', tag: 'chat-account-1-chat-1', renotify: true } });
     expect(getBrowserNotificationPermission()).toBe('granted');
   });
 

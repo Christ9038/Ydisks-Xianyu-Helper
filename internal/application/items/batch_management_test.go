@@ -59,6 +59,8 @@ type batchManagementRepositoryFake struct {
 	deleteErr error
 	// failClaimErr 是租约释放阶段的专用错误。
 	failClaimErr error
+	// finalizeErr 是空批次终态收口阶段的专用错误。
+	finalizeErr error
 }
 
 // GetBatch 返回预置批次或仓储错误。
@@ -94,6 +96,9 @@ func (repository *batchManagementRepositoryFake) PendingRows(context.Context, st
 // FinalizeBatch 记录无明细时的批次收口。
 func (repository *batchManagementRepositoryFake) FinalizeBatch(context.Context, string, string) (string, bool, error) {
 	repository.finalized = true
+	if repository.finalizeErr != nil {
+		return "", false, repository.finalizeErr
+	}
 	return "completed", true, nil
 }
 
@@ -263,6 +268,17 @@ func TestBatchManagementRejectsConflictAndNoRows(t *testing.T) {
 	if !errors.Is(emptyErr, ErrBatchNoRows) || !emptyRepository.finalized || len(emptyRuntime.started) != 0 {
 		t.Fatalf("empty result err=%v finalized=%v runtime=%+v", emptyErr, emptyRepository.finalized, emptyRuntime)
 	}
+	// finalizeErr 保存空批次终态写入失败的基础设施错误。
+	finalizeErr := errors.New("empty finalize failed")
+	// finalizeRepository 保存终态失败后应释放租约的空批次。
+	finalizeRepository := &batchManagementRepositoryFake{batch: BatchInfo{ID: "finalize-error", Status: "preview"}, claimed: true, finalizeErr: finalizeErr}
+	// finalizeService 执行空批次收口失败补偿。
+	finalizeService := newBatchManagementServiceForTest(t, finalizeRepository, &batchManagementRuntimeFake{})
+	// _, finalizeResultErr 保存空批次收口失败结果。
+	_, finalizeResultErr := finalizeService.StartBatch(context.Background(), 7, "finalize-error", time.Minute)
+	if !errors.Is(finalizeResultErr, finalizeErr) || !finalizeRepository.released {
+		t.Fatalf("finalize error=%v released=%v", finalizeResultErr, finalizeRepository.released)
+	}
 }
 
 // TestBatchManagementListGetDelete 验证批次列表、明细查询和删除状态约束。
@@ -327,6 +343,17 @@ func TestBatchManagementRetryFailed(t *testing.T) {
 	batchID, retryErr := service.RetryFailedBatch(context.Background(), 7, "batch-retry", time.Minute)
 	if retryErr != nil || batchID != "batch-retry" || !repository.resetFailedCalled || !repository.recountCalled || len(runtime.started) != 1 {
 		t.Fatalf("retry result=%q err=%v repository=%+v runtime=%+v", batchID, retryErr, repository, runtime)
+	}
+	// finalizeErr 保存重试入口空批次终态写入失败的基础设施错误。
+	finalizeErr := errors.New("retry finalize failed")
+	// finalizeRepository 保存重置后没有待处理明细且收口失败的批次。
+	finalizeRepository := &batchManagementRepositoryFake{batch: BatchInfo{ID: "retry-finalize", Status: "completed"}, claimed: true, finalizeErr: finalizeErr}
+	// finalizeService 执行重试空批次的租约补偿。
+	finalizeService := newBatchManagementServiceForTest(t, finalizeRepository, &batchManagementRuntimeFake{})
+	// _, finalizeResultErr 保存重试空批次收口失败结果。
+	_, finalizeResultErr := finalizeService.RetryFailedBatch(context.Background(), 7, "retry-finalize", time.Minute)
+	if !errors.Is(finalizeResultErr, finalizeErr) || !finalizeRepository.released {
+		t.Fatalf("retry finalize error=%v released=%v", finalizeResultErr, finalizeRepository.released)
 	}
 }
 

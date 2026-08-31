@@ -55,6 +55,11 @@ test('Chat 后续入站消息确认此前已发送出站消息为已读',
     // updated 保存后续入站消息确认后的出站消息状态。
     const updated = markOutgoingMessagesReadByIncoming([outgoing], incoming);
     expect(updated[0]).toMatchObject({ read_status: 2, read_at: 20 });
+    // invalidTimestampIncoming 模拟平台未提供有效发送时间的入站消息。
+    const invalidTimestampIncoming: ChatMessage = { ...incoming, sent_at: 0, message_key: 'incoming-without-time' };
+    // unchanged 保存无法证明先后关系时保持原始已读状态的结果。
+    const unchanged = markOutgoingMessagesReadByIncoming([outgoing], invalidTimestampIncoming);
+    expect(unchanged).toEqual([outgoing]);
   });
 
 test('Chat 状态工具覆盖追加消息、搜索字段和时间格式化',

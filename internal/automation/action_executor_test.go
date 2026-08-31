@@ -155,6 +155,44 @@ func TestSendTemplateRendersBoundCards(t *testing.T) {
 	}
 }
 
+// TestSendTemplateRendersBoundAPICard 验证模板变量可以复用 API 卡密发货能力并把多个单位合并进消息。
+func TestSendTemplateRendersBoundAPICard(t *testing.T) {
+	// store、cleanup 保存 API 模板动作测试使用的数据库和清理函数。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// ctx 保存数据库与执行器共用的测试上下文。
+	ctx := context.Background()
+	// admin 保存创建测试 API 卡密组所需的用户。
+	admin, err := store.Users.GetByUsername(ctx, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// cardID 保存模板变量绑定的 API 卡密组。
+	cardID, err := store.Cards.Create(ctx, &db.CardFull{Name: "模板 API 库存", Type: "api", APIConfig: `{"url":"https://example.test/card","method":"GET"}`, Enabled: true, UserID: admin.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// fetcher 记录模板动作发起的 API 取卡单位请求。
+	fetcher := &apiCardFetcherStub{}
+	// sender 保存模板渲染后实际发送给买家的消息。
+	sender := &testSender{}
+	// executor 是注入 API 客户端、测试数据库和消息发送器的模板执行器。
+	executor := automationActionExecutor{store: store, senders: testSenderProvider{sender: sender}, apiFetcher: func() APICardFetcher { return fetcher }}
+	// action 保存绑定 API 卡密且每个订单取两份的模板动作。
+	action := db.AutomationAction{ID: 12, ActionType: ActionSendTemplate, ConfigJSON: "{}", TemplateMessages: []string{"卡密：{{cards.code}}"}, TemplateBindings: []db.DeliveryTemplateBinding{{VariableKey: "code", CardID: cardID, CardName: "模板 API 库存", DeliveryCount: 2}}}
+	// result、sendErr 保存模板 API 发货的执行统计、确认凭证和错误。
+	result, sendErr := executor.sendTemplate(ctx, Task{AccountID: "cid", OrderID: "order-api-template", ChatID: "chat", BuyerID: "buyer", Quantity: "1", TriggerType: TriggerOrderPaid}, action)
+	if sendErr != nil || result.sent != 1 || len(fetcher.requests) != 2 || len(sender.texts) != 1 || sender.texts[0] != "卡密：API-CODE-1\nAPI-CODE-2" || result.proof.tradeText != sender.texts[0] {
+		t.Fatalf("模板 API 卡密渲染错误：result=%+v requests=%d texts=%v err=%v", result, len(fetcher.requests), sender.texts, sendErr)
+	}
+	// request 保存 API 取卡请求，用于确认模板变量保留订单与数量上下文。
+	for requestIndex, request := range fetcher.requests {
+		if request.ActionID != action.ID || request.CardID != cardID || request.UnitIndex != requestIndex+1 || request.TotalUnits != 2 || request.OrderID != "order-api-template" {
+			t.Fatalf("模板 API 请求上下文错误 index=%d request=%+v", requestIndex, request)
+		}
+	}
+}
+
 // TestSendDataCardProofUsesRenderedContent 验证数据卡实际发送文本与确认发货凭证使用同一份渲染结果。
 func TestSendDataCardProofUsesRenderedContent(t *testing.T) {
 	// store、cleanup 保存数据卡动作测试使用的数据库和清理函数。

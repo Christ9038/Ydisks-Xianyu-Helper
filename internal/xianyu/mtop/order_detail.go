@@ -128,41 +128,110 @@ func (c *ClientImpl) fetchOrderDetailOnce(ctx context.Context, cookiesStr, order
 	if !hasMTopSuccess(decoded.Ret) {
 		return nil, decoded.Ret, updated, nil
 	}
-	// result 用于本次流程后续判断的结果
+	// result 保存从订单详情响应中递归归一出的业务字段；递归兼容组件数组、对象和嵌套 JSON 文本。
+	result := parseOrderDetailData(decoded.Data)
+	return result, decoded.Ret, updated, nil
+}
+
+// parseOrderDetailData 从订单详情响应的任意已解码节点中提取数量、金额、状态和成交规格。
+// 平台会在不同账号、订单状态和页面版本下改变 components 的容器类型或嵌套层级，
+// 因此这里不能只断言固定的 []any + orderInfoVO 结构。
+func parseOrderDetailData(data map[string]any) *OrderDetailResult {
+	// result 保存递归扫描得到的订单详情字段；数量默认 1 与历史兼容行为保持一致。
 	result := &OrderDetailResult{Quantity: "1"}
-	if // utArgs、ok 用于本次流程后续判断的utArgs、ok
-	utArgs, ok := decoded.Data["utArgs"].(map[string]any); ok {
-		result.OrderStatus = mtopString(utArgs["orderStatus"])
+	collectOrderDetailData(data, result, 0)
+	return result
+}
+
+// collectOrderDetailData 递归扫描订单详情节点，并把识别出的字段合并到结果中。
+// depth 限制异常响应的递归深度，避免平台返回异常嵌套时消耗失控。
+func collectOrderDetailData(node any, result *OrderDetailResult, depth int) {
+	if result == nil || depth > 12 {
+		return
 	}
-	// components 用于本次流程后续判断的components
-	components, _ := decoded.Data["components"].([]any)
-	// component 表示当前遍历过程中的component
-	for _, component := range components {
-		// cm 用于本次流程后续判断的cm
-		cm, _ := component.(map[string]any)
-		if cm["render"] != "orderInfoVO" {
-			continue
+	// value 保存当前响应节点的具体 JSON 类型，便于兼容对象、数组和二次编码文本。
+	switch value := node.(type) {
+	case map[string]any:
+		// utArgs 保存平台订单状态的容器；状态只接受第一个非空结果。
+		if utArgs, ok := value["utArgs"].(map[string]any); ok && result.OrderStatus == "" {
+			result.OrderStatus = mtopString(utArgs["orderStatus"])
 		}
-		// componentData 用于本次流程后续判断的component数据
-		componentData, _ := cm["data"].(map[string]any)
-		if // itemInfo、ok 用于本次流程后续判断的商品Info、ok
-		itemInfo, ok := componentData["itemInfo"].(map[string]any); ok {
-			if // value 用于本次流程后续判断的值
-			value := mtopString(itemInfo["buyAmount"]); value != "" {
-				result.Quantity = value
-			}
-			// specName、specValue 兼容订单详情接口对单独规格字段和组合 SKU 文本的不同返回形状。
-			result.SpecName, result.SpecValue = orderSpecFromItemInfo(itemInfo)
+		// itemInfo 保存平台订单商品节点；无论其位于 orderInfoVO 还是其他组件下都尝试解析。
+		if itemInfo, ok := value["itemInfo"]; ok {
+			mergeOrderDetailItem(itemInfo, result)
 		}
-		if // priceInfo、ok 用于本次流程后续判断的priceInfo、ok
-		priceInfo, ok := componentData["priceInfo"].(map[string]any); ok {
-			if // amount、ok 用于本次流程后续判断的amount、ok
-			amount, ok := priceInfo["amount"].(map[string]any); ok {
+		// 当前节点本身可能就是订单商品节点，兼容平台去掉 itemInfo 包装的返回形状。
+		if isOrderDetailItemNode(value) {
+			mergeOrderDetailItem(value, result)
+		}
+		// priceInfo 保存订单金额节点；金额只接受第一个非空结果，避免其他展示价格覆盖成交价。
+		if priceInfo, ok := value["priceInfo"].(map[string]any); ok && result.Amount == "" {
+			// amount、ok 保存成交金额节点及其类型判断结果。
+			if amount, ok := priceInfo["amount"].(map[string]any); ok {
 				result.Amount = mtopString(amount["value"])
 			}
 		}
+		// key、child 表示当前对象的字段名和子节点；对象形状不固定时继续向下扫描。
+		for key, child := range value {
+			if key == "priceInfo" || key == "utArgs" {
+				continue
+			}
+			collectOrderDetailData(child, result, depth+1)
+		}
+	case []any:
+		// child 表示组件数组中的一个响应节点。
+		for _, child := range value {
+			collectOrderDetailData(child, result, depth+1)
+		}
+	case string:
+		// text 保存可能由平台二次编码的 JSON 文本；普通展示文本不参与递归解析。
+		text := strings.TrimSpace(value)
+		if len(text) < 2 || (text[0] != '{' && text[0] != '[') || !json.Valid([]byte(text)) {
+			return
+		}
+		// decoded 保存二次编码 JSON 解码后的节点。
+		var decoded any
+		// err 保存二次编码 JSON 的解析错误；解析失败时忽略普通展示文本。
+		if err := json.Unmarshal([]byte(text), &decoded); err == nil {
+			collectOrderDetailData(decoded, result, depth+1)
+		}
 	}
-	return result, decoded.Ret, updated, nil
+}
+
+// mergeOrderDetailItem 从单个订单商品节点合并数量和规格字段。
+func mergeOrderDetailItem(node any, result *OrderDetailResult) {
+	// itemInfo、ok 保存当前商品节点及其类型判断结果。
+	itemInfo, ok := node.(map[string]any)
+	if !ok || result == nil {
+		return
+	}
+	// quantity 保存当前商品节点中的购买数量；非空值覆盖默认数量或较早的缺省值。
+	if quantity := mtopString(itemInfo["buyAmount"]); quantity != "" {
+		result.Quantity = quantity
+	}
+	// specName、specValue 保存当前商品节点归一后的完整成交规格。
+	specName, specValue := orderSpecFromItemInfo(itemInfo)
+	if specName != "" && specValue != "" {
+		result.SpecName, result.SpecValue = preferOrderSpecCandidate(result.SpecName, result.SpecValue, specName, specValue)
+	}
+}
+
+// isOrderDetailItemNode 判断对象是否包含订单商品或 SKU 字段，避免把任意业务对象误当成商品节点。
+func isOrderDetailItemNode(node map[string]any) bool {
+	// key 表示订单详情商品节点支持的字段名。
+	for _, key := range []string{
+		"buyAmount", "specName", "specValue", "spec_name", "spec_value",
+		"skuName", "skuValue", "sku_name", "sku_value", "propName", "propValue",
+		"propertyName", "propertyValue", "skuText", "sku_text", "specText", "spec_text",
+		"skuDesc", "skuDescText", "skuProperties", "sku_properties", "skuProps", "sku_props",
+		"specProperties", "spec_props", "skuInfo", "sku_info", "specInfo", "spec_info", "sku",
+	} {
+		// ok 标识当前对象是否包含一个可解析的商品或 SKU 字段。
+		if _, ok := node[key]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // orderSpecFromItemInfo 从订单商品信息中提取自动发货需要的规格名称和值。
@@ -227,6 +296,17 @@ func orderSpecFromItemInfo(itemInfo map[string]any) (string, string) {
 		if ok {
 			bestName, bestValue = preferOrderSpecCandidate(bestName, bestValue, specName, specValue)
 			continue
+		}
+		// textName、textValue 保存平台把 skuInfo 或 specInfo 直接返回为文本时拆出的规格。
+		textName, textValue := splitOrderSpecText(mtopString(itemInfo[key]))
+		if textName != "" || textValue != "" {
+			if textName != "" && textValue != "" {
+				bestName, bestValue = preferOrderSpecCandidate(bestName, bestValue, textName, textValue)
+				continue
+			}
+			if partialName == "" && partialValue == "" {
+				partialName, partialValue = textName, textValue
+			}
 		}
 		// nested、ok 保存当前嵌套对象及其类型断言结果。
 		nested, ok := itemInfo[key].(map[string]any)

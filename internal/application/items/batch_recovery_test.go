@@ -33,6 +33,10 @@ type batchRecoveryRepositoryFake struct {
 	claimErr error
 	// recountErr 保存统计重算错误；恢复服务应忽略该错误继续查询明细。
 	recountErr error
+	// finalizeErr 保存空批次终态写入错误。
+	finalizeErr error
+	// releaseErr 保存租约释放补偿错误。
+	releaseErr error
 }
 
 // batchRecoveryClaim 保存一次批次租约抢占或释放调用。
@@ -92,12 +96,18 @@ func (repository *batchRecoveryRepositoryFake) PendingRows(_ context.Context, ba
 // FinalizeBatch 记录没有待处理明细的批次收口。
 func (repository *batchRecoveryRepositoryFake) FinalizeBatch(_ context.Context, batchID, _ string) (string, bool, error) {
 	repository.finalized = append(repository.finalized, batchID)
+	if repository.finalizeErr != nil {
+		return "", false, repository.finalizeErr
+	}
 	return "completed", true, nil
 }
 
 // FailClaimedBatch 记录恢复初始化失败后的租约释放。
 func (repository *batchRecoveryRepositoryFake) FailClaimedBatch(_ context.Context, batchID, workerToken string) (bool, error) {
 	repository.released = append(repository.released, batchRecoveryClaim{batchID: batchID, workerToken: workerToken})
+	if repository.releaseErr != nil {
+		return false, repository.releaseErr
+	}
 	return true, nil
 }
 

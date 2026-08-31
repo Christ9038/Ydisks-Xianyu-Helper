@@ -190,6 +190,11 @@ export const useSettings = (): UseSettingsResult => {
   const handleSave = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ async () => {
     // handleSave 提交当前配置草稿并保护过期响应。
     if (!settings || saving) return;
+    cancelModelRequest();
+    setAiModels([]);
+    setModelsLoading(false);
+    setModelDropdownOpen(false);
+    setModelError('');
     // request 是本次保存动作的代次与控制器。
     const { controller, sequence } = beginRequest();
     setSaving(true);
@@ -204,7 +209,7 @@ export const useSettings = (): UseSettingsResult => {
     } finally {
       if (isCurrentSettingsRequest(requestSequence.current, sequence, controller.signal)) setSaving(false);
     }
-  }, [beginRequest, saving, settings]);
+  }, [beginRequest, cancelModelRequest, saving, settings]);
 
   // handleCredentialsSave 处理当前用户操作（CredentialsSave）。
   const handleCredentialsSave = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ async (event: React.FormEvent) => {

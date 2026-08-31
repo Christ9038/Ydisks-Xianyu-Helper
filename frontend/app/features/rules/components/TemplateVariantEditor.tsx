@@ -1,5 +1,6 @@
 import React from 'react';
 import type { Card, DeliveryTemplate, ShippingVariant } from '../types';
+import { isDeliveryCardReady } from '../utils';
 
 /** 模板变体编辑器的输入参数。 */
 export interface TemplateVariantEditorProps {
@@ -19,8 +20,8 @@ export interface TemplateVariantEditorProps {
 const TemplateVariantEditor: React.FC<TemplateVariantEditorProps> = ({ index, variant, cards, deliveryTemplates, updateVariant }) => {
   // template 保存当前选择的发货模板。
   const template = deliveryTemplates.find(/* templateCandidate 是待匹配的发货模板。 */ templateCandidate => templateCandidate.id === variant.delivery_template_id);
-  // availableCards 保存模板执行器支持的启用文本或批量卡密库存；API 和图片卡券由普通卡券动作单独处理。
-  const availableCards = cards.filter(/* card 是当前待筛选的卡密库存。 */ card => card.enabled && (card.type === 'text' || card.type === 'data'));
+  // availableCards 保存模板执行器支持的启用文本、批量或已就绪 API 卡密库存；图片卡券仍不支持嵌入文本模板。
+  const availableCards = cards.filter(/* card 是当前待筛选的卡密库存。 */ card => isDeliveryCardReady(card) && card.type !== 'image');
   // customKeys 保存当前模板要求规则提供的自定义变量键。
   const customKeys = template?.custom_keys || [];
   return (

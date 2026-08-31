@@ -74,14 +74,14 @@ export const mergeChatSessions = (current: ChatSession[], incoming: ChatSession[
 
 /** 买家普通入站消息到达时，把此前同会话的已发送出站消息同步为已读。 */
 export const markOutgoingMessagesReadByIncoming = (current: ChatMessage[], incoming: ChatMessage): ChatMessage[] => {
-  if (incoming.direction !== 'incoming' || incoming.message_type === 'system') return current;
-  // readAt 保存平台入站消息时间，缺失时使用本机时间作为 UI 增量更新回退值。
-  const readAt = incoming.sent_at > 0 ? incoming.sent_at : Date.now();
+  if (incoming.direction !== 'incoming' || incoming.message_type === 'system' || incoming.sent_at <= 0) return current;
+  // readAt 保存平台提供的有效入站消息时间，避免用本机时钟对乱序消息做错误已读推断。
+  const readAt = incoming.sent_at;
   return current.map(/* 当前回调把已被买家后续消息确认的出站消息更新为已读。 */ message => (
     message.chat_id === incoming.chat_id
     && message.direction === 'outgoing'
     && message.status === 'sent'
-    && message.sent_at <= incoming.sent_at
+    && message.sent_at <= readAt
       ? { ...message, read_status: 2, read_at: readAt }
       : message
   ));

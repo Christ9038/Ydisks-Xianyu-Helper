@@ -20,8 +20,10 @@ func (subscriptionDomainRepository) ListOwnedIDs(context.Context, int64) ([]stri
 	return []string{"cid"}, nil
 }
 
-// DeleteSession 满足领域聊天仓储接口的删除能力。
-func (subscriptionDomainRepository) DeleteSession(context.Context, string, string) error { return nil }
+// SetSessionVisible 满足领域聊天仓储接口的软隐藏能力。
+func (subscriptionDomainRepository) SetSessionVisible(context.Context, string, string, bool) error {
+	return nil
+}
 
 // UpsertSession 满足领域聊天仓储接口的会话写入能力。
 func (subscriptionDomainRepository) UpsertSession(context.Context, db.ChatSession) error { return nil }

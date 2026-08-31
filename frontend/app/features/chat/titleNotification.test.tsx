@@ -4,17 +4,24 @@ import { afterEach,beforeEach,describe,expect,test,vi } from 'vitest';
 import type { ChatMessage } from './api';
 import { getAccountDetails,getChatSessionPage } from './api';
 import { publishChatUnreadStatus } from './liveEvents';
-import { formatChatBrowserNotification,formatChatNewMessageTitle,shouldShowBrowserNotification,useChatTitleNotification,useChatTitleNotifier } from './titleNotification';
+import { showBrowserNotification } from '../../../shared/browser/browserNotifications';
+import { formatChatBrowserNotification,formatChatNewMessageTitle,useChatTitleNotification,useChatTitleNotifier } from './titleNotification';
 
 vi.mock('./api', /* chatApiMockFactory 提供标题通知初始化未读状态读取的确定性 API 替身。 */ () => ({
   getAccountDetails: vi.fn(),
   getChatSessionPage: vi.fn(),
 }));
 
+vi.mock('../../../shared/browser/browserNotifications', /* browserNotificationMockFactory 提供系统通知创建的确定性替身。 */ () => ({
+  showBrowserNotification: vi.fn(),
+}));
+
 // getAccountDetailsMock 是标题通知初始化账号读取的可控替身。
 const getAccountDetailsMock = vi.mocked(getAccountDetails);
 // getChatSessionPageMock 是标题通知初始化会话未读读取的可控替身。
 const getChatSessionPageMock = vi.mocked(getChatSessionPage);
+// showBrowserNotificationMock 是标题通知 Hook 调用系统通知创建器的可控替身。
+const showBrowserNotificationMock = vi.mocked(showBrowserNotification);
 
 // originalTitle 保存每个测试开始前的浏览器标题，测试结束后必须恢复以避免影响其他聊天 Hook 用例。
 let originalTitle = '';
@@ -42,6 +49,7 @@ describe('chat title notification', /* 当前测试组验证后台实时消息�
     document.title = 'Ydisks闲鱼助手';
     vi.useFakeTimers();
     latestSocket = null;
+    showBrowserNotificationMock.mockReset();
     getAccountDetailsMock.mockResolvedValue([]);
     getChatSessionPageMock.mockResolvedValue({ sessions: [], has_more: false });
   });
@@ -67,10 +75,28 @@ describe('chat title notification', /* 当前测试组验证后台实时消息�
     } as ChatMessage)).toEqual({ title: '买家发来新消息', body: '[图片]', tag: 'chat-account-1-chat-1' });
   });
 
-  test('系统通知只在页面隐藏或窗口失焦时展示', /* 当前回调验证可见且聚焦时仅保留标题提醒，不重复弹出系统通知。 */ () => {
-    expect(shouldShowBrowserNotification('hidden', true)).toBe(true);
-    expect(shouldShowBrowserNotification('visible', false)).toBe(true);
-    expect(shouldShowBrowserNotification('visible', true)).toBe(false);
+  test('普通入站消息无论当前页面焦点都会展示系统通知', /* 当前回调验证用户开启浏览器提醒后，停留在聊天页也能收到系统通知。 */ () => {
+    // hook 是标题通知 Hook 的渲染结果。
+    const hook = renderHook(
+      // browserNotificationHookFactory 创建系统通知行为测试实例。
+      () => useChatTitleNotifier(),
+    );
+    act(
+      // focusedMessageAction 模拟用户仍停留在当前聊天页面时收到买家消息。
+      () => hook.result.current.notifyIncomingMessage({
+        ...incomingMessageFixture,
+        account_id: 'account-1',
+        chat_id: 'chat-1',
+        sender_name: '买家',
+        content: '请问还在吗',
+      }),
+    );
+    expect(showBrowserNotificationMock).toHaveBeenCalledWith({
+      title: '买家发来新消息',
+      body: '请问还在吗',
+      tag: 'chat-account-1-chat-1',
+    });
+    hook.unmount();
   });
 
   test('新消息会累计闪烁标题并在重新聚焦后恢复', /* 当前回调验证前后台一致的实时计数、闪烁周期与用户确认后的清除行为。 */ () => {

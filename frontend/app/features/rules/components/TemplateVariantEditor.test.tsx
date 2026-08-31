@@ -47,7 +47,7 @@ test('按模板 key 显示字符串 value 输入，而不是数组下标输入',
 
 afterEach(/* 当前回调清理后续模板变量编辑器测试 DOM。 */ () => cleanup());
 
-test('模板变量绑定只展示启用的 text 和 data 卡券', /* 当前回调验证模板执行器支持范围与选择器保持一致。 */ () => {
+test('模板变量绑定展示启用的 text、data 和就绪 API 卡券', /* 当前回调验证模板执行器支持范围与选择器保持一致。 */ () => {
   // cards 是包含所有卡券类型和启用状态的筛选样例。
   const cards: Card[] = [
     { id: 1, name: '文本卡', type: 'text', enabled: true },
@@ -56,6 +56,7 @@ test('模板变量绑定只展示启用的 text 和 data 卡券', /* 当前回�
     { id: 4, name: '图片卡', type: 'image', enabled: true },
     { id: 5, name: '停用文本卡', type: 'text', enabled: false },
     { id: 6, name: '停用批量卡', type: 'data', enabled: false },
+    { id: 7, name: '未就绪 API 卡', type: 'api', enabled: true, api_config: { url: 'https://example.test', method: 'GET', timeout_seconds: 10, retry_enabled: true, headers_configured: false, params_configured: false, ready: false } },
   ];
   // updateVariant 是验证选择器变更回传的编辑回调替身。
   const updateVariant = vi.fn();
@@ -63,10 +64,11 @@ test('模板变量绑定只展示启用的 text 和 data 卡券', /* 当前回�
 
   expect(screen.getByRole('option', { name: '文本卡' })).toBeTruthy();
   expect(screen.getByRole('option', { name: '批量卡' })).toBeTruthy();
-  expect(screen.queryByRole('option', { name: '就绪 API 卡' })).toBeNull();
+  expect(screen.getByRole('option', { name: '就绪 API 卡' })).toBeTruthy();
   expect(screen.queryByRole('option', { name: '图片卡' })).toBeNull();
   expect(screen.queryByRole('option', { name: '停用文本卡' })).toBeNull();
   expect(screen.queryByRole('option', { name: '停用批量卡' })).toBeNull();
+  expect(screen.queryByRole('option', { name: '未就绪 API 卡' })).toBeNull();
 });
 
 test('已有 text/data 绑定仍可显示并修改数量', /* 当前回调验证合法历史绑定在过滤后仍保留可编辑能力。 */ () => {

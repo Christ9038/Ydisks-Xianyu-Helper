@@ -95,11 +95,22 @@ func (s *ChatStore) UpsertSession(ctx context.Context, session ChatSession) erro
 		item_image_url=CASE WHEN ?<>'' THEN ? ELSE item_image_url END,
 		last_message=CASE WHEN last_message_at<=? THEN ? ELSE last_message END,
 		last_message_at=CASE WHEN last_message_at<=? THEN ? ELSE last_message_at END,
-		unread_count=CASE WHEN ?>unread_count THEN ? ELSE unread_count END,updated_at=?
+		unread_count=CASE WHEN ?>unread_count THEN ? ELSE unread_count END,is_visible=?,updated_at=?
 		WHERE cookie_id=? AND chat_id=?`, session.BuyerID, session.BuyerID, session.BuyerName, session.BuyerName,
 		session.BuyerAvatar, session.BuyerAvatar, session.ItemID, session.ItemID, session.ItemTitle, session.ItemTitle, session.ItemImageURL, session.ItemImageURL,
 		session.LastMessageAt, session.LastMessage, session.LastMessageAt, session.LastMessageAt,
-		session.UnreadCount, session.UnreadCount, now, session.CookieID, session.ChatID)
+		session.UnreadCount, session.UnreadCount, true, now, session.CookieID, session.ChatID)
+	return err
+}
+
+// SetSessionVisible 更新平台会话是否出现在本地列表中。
+// ctx 控制数据库更新生命周期；cookieID 和 chatID 定位非敏感会话；visible=false 只软隐藏会话并保留全部消息。
+func (s *ChatStore) SetSessionVisible(ctx context.Context, cookieID, chatID string, visible bool) error {
+	// visibleValue 使用跨 SQLite、MySQL 和 PostgreSQL 驱动均可绑定的布尔值。
+	visibleValue := visible
+	// err 保存可见状态更新失败；会话不存在时保持幂等成功。
+	_, err := s.DB.ExecContext(ctx, `UPDATE chat_sessions SET is_visible=?,updated_at=? WHERE cookie_id=? AND chat_id=?`,
+		visibleValue, time.Now().UTC().Unix(), cookieID, chatID)
 	return err
 }
 
@@ -289,11 +300,11 @@ func (s *ChatStore) SaveMessage(ctx context.Context, session ChatSession, messag
 		_, err := tx.ExecContext(ctx, `UPDATE chat_sessions SET buyer_id=CASE WHEN ?<>'' THEN ? ELSE buyer_id END,
 			buyer_name=CASE WHEN ?<>'' THEN ? ELSE buyer_name END,buyer_avatar_url=CASE WHEN ?<>'' THEN ? ELSE buyer_avatar_url END,
 			item_id=CASE WHEN ?<>'' THEN ? ELSE item_id END,item_title=CASE WHEN ?<>'' THEN ? ELSE item_title END,
-			item_image_url=CASE WHEN ?<>'' THEN ? ELSE item_image_url END,last_message=CASE WHEN last_message_at<=? THEN ? ELSE last_message END,
-			last_message_at=CASE WHEN last_message_at<=? THEN ? ELSE last_message_at END,
-			unread_count=unread_count+?,updated_at=?
+		item_image_url=CASE WHEN ?<>'' THEN ? ELSE item_image_url END,last_message=CASE WHEN last_message_at<=? THEN ? ELSE last_message END,
+		last_message_at=CASE WHEN last_message_at<=? THEN ? ELSE last_message_at END,
+		unread_count=unread_count+?,is_visible=?,updated_at=?
 			WHERE cookie_id=? AND chat_id=?`, session.BuyerID, session.BuyerID, session.BuyerName, session.BuyerName, session.BuyerAvatar, session.BuyerAvatar,
-			session.ItemID, session.ItemID, session.ItemTitle, session.ItemTitle, session.ItemImageURL, session.ItemImageURL, message.SentAt, message.Content, message.SentAt, message.SentAt, unreadDelta, now,
+			session.ItemID, session.ItemID, session.ItemTitle, session.ItemTitle, session.ItemImageURL, session.ItemImageURL, message.SentAt, message.Content, message.SentAt, message.SentAt, unreadDelta, true, now,
 			session.CookieID, session.ChatID); err != nil {
 			return nil, false, fmt.Errorf("更新聊天会话: %w", err)
 		}
@@ -349,7 +360,7 @@ func (s *ChatStore) ListSessions(ctx context.Context, userID int64, cookieID str
 	rows, err := s.DB.QueryContext(ctx, `SELECT cs.cookie_id,cs.chat_id,cs.buyer_id,cs.buyer_name,cs.buyer_avatar_url,
 		cs.item_id,cs.item_title,cs.item_image_url,cs.last_message,cs.last_message_at,cs.unread_count
 		FROM chat_sessions cs JOIN cookies c ON c.id=cs.cookie_id
-		WHERE c.user_id=? AND cs.cookie_id=? ORDER BY cs.last_message_at DESC,cs.chat_id DESC LIMIT ?`, userID, cookieID, limit)
+		WHERE c.user_id=? AND cs.cookie_id=? AND cs.is_visible=? ORDER BY cs.last_message_at DESC,cs.chat_id DESC LIMIT ?`, userID, cookieID, true, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -379,9 +390,9 @@ func (s *ChatStore) ListSessionPage(ctx context.Context, userID int64, cookieID 
 	query := `SELECT cs.cookie_id,cs.chat_id,cs.buyer_id,cs.buyer_name,cs.buyer_avatar_url,
 		cs.item_id,cs.item_title,cs.item_image_url,cs.last_message,cs.last_message_at,cs.unread_count
 		FROM chat_sessions cs JOIN cookies c ON c.id=cs.cookie_id
-		WHERE c.user_id=? AND cs.cookie_id=?`
+		WHERE c.user_id=? AND cs.cookie_id=? AND cs.is_visible=?`
 	// args 保存与会话分页 SQL 占位符严格对应的非敏感查询参数。
-	args := []any{userID, cookieID}
+	args := []any{userID, cookieID, true}
 	if cursor != nil {
 		query += ` AND (cs.last_message_at<? OR (cs.last_message_at=? AND cs.chat_id<?))`
 		args = append(args, cursor.LastMessageAt, cursor.LastMessageAt, cursor.ChatID)

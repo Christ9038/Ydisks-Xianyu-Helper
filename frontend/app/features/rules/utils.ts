@@ -3,6 +3,7 @@ import type {
 AccountDetail,
 AutomationAction,
 AutomationTriggerType,
+Card,
 ShippingRule,
 ShippingVariant,
 } from './api';
@@ -64,6 +65,9 @@ export const emptyVariant = (): ShippingVariant => ({
   template_bindings: [],
   custom_variables: {},
 });
+
+// isDeliveryCardReady 判断卡密是否启用，并确保 API 卡密配置已达到自动化发货要求。
+export const isDeliveryCardReady = (card: Card): boolean => card.enabled && (card.type !== 'api' || card.api_config?.ready === true);
 
 // hasCompleteTemplateBindings 判断模板声明的卡密变量与当前绑定是否一一对应。
 export const hasCompleteTemplateBindings = (templateKeys: string[], bindings?: ShippingVariant['template_bindings']): boolean => {

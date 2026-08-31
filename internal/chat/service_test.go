@@ -340,8 +340,10 @@ func TestRecordConversationPageHandlesXianxiaomiAndRemovesInvisibleSessions(t *t
 	ctx := context.Background()
 	// service 用于本次流程后续判断的service
 	service := New(store)
+	// hiddenSession 保存已有真实历史消息、随后被平台标记不可见的会话。
+	hiddenSession := db.ChatSession{CookieID: "account-1", ChatID: "hidden", BuyerID: "peer", LastMessage: "历史消息", LastMessageAt: 100}
 	if // err 用于本次流程后续判断的err
-	err := store.Chats.UpsertSession(ctx, db.ChatSession{CookieID: "account-1", ChatID: "hidden", BuyerID: "peer", LastMessage: "暂无消息"}); err != nil {
+	_, _, err := store.Chats.SaveMessage(ctx, hiddenSession, db.ChatMessage{MessageKey: "hidden-message", Direction: "incoming", SenderID: "peer", MessageType: "text", Content: "历史消息", Status: "received", SentAt: 100}, false); err != nil {
 		t.Fatal(err)
 	}
 	if // err 用于本次流程后续判断的err
@@ -370,6 +372,27 @@ func TestRecordConversationPageHandlesXianxiaomiAndRemovesInvisibleSessions(t *t
 	}
 	if len(rows) != 1 || rows[0].BuyerID != "1400" || rows[0].BuyerName != "闲小蜜" || rows[0].BuyerAvatar != xianxiaomiAvatar || rows[0].UnreadCount != 0 {
 		t.Fatalf("unexpected sessions: %+v", rows)
+	}
+	// retained、retainedErr 保存软隐藏后仍应存在的历史消息。
+	retained, retainedErr := store.Chats.GetMessageByKey(ctx, "account-1", "hidden-message")
+	if retainedErr != nil || retained == nil || retained.Content != "历史消息" {
+		t.Fatalf("hidden history lost: message=%+v err=%v", retained, retainedErr)
+	}
+	// visibleBody 保存平台再次返回该会话时用于恢复可见状态的联系人载荷。
+	visibleBody := map[string]any{"userConvs": []any{map[string]any{"singleChatUserConversation": map[string]any{
+		"visible": float64(1), "modifyTime": float64(200),
+		"singleChatConversation": map[string]any{"cid": "hidden@goofish", "pairFirst": "self@goofish", "pairSecond": "peer@goofish"},
+		"lastMessage":            map[string]any{"message": map[string]any{"createAt": float64(200), "content": map[string]any{"custom": map[string]any{"summary": "重新出现"}}}},
+	}}}}
+	// _, visibleErr 保存会话恢复可见时的同步结果。
+	_, visibleErr := service.RecordConversationPage(ctx, "account-1", "self", visibleBody)
+	if visibleErr != nil {
+		t.Fatal(visibleErr)
+	}
+	// restoredRows、restoredErr 验证恢复后会话重新出现在列表且历史仍在。
+	restoredRows, restoredErr := store.Chats.ListSessions(ctx, owner.ID, "account-1", 20)
+	if restoredErr != nil || len(restoredRows) != 2 {
+		t.Fatalf("restored sessions=%+v err=%v", restoredRows, restoredErr)
 	}
 }
 

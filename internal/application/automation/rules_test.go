@@ -60,6 +60,8 @@ func (r *ruleRepositoryFake) Delete(context.Context, int64, int64) error { retur
 type ruleOwnershipFake struct {
 	// cardType 是卡密组类型。
 	cardType string
+	// cardAPIReady 表示测试 API 卡密组是否通过配置校验。
+	cardAPIReady bool
 	// accountErr 是账号归属查询需要返回的基础设施错误。
 	accountErr error
 	// itemErr 是商品归属查询需要返回的基础设施错误。
@@ -110,7 +112,7 @@ func (r *ruleOwnershipFake) GetCard(context.Context, int64, int64) (CardInfo, er
 	if r.cardType == "" {
 		return CardInfo{Type: "data", Enabled: r.cardEnabled}, nil
 	}
-	return CardInfo{Type: r.cardType, Enabled: r.cardEnabled}, nil
+	return CardInfo{Type: r.cardType, Enabled: r.cardEnabled, APIReady: r.cardAPIReady}, nil
 }
 
 // AIReplyEnabled 返回测试账号的 AI 议价开关。

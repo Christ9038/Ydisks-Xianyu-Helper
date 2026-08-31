@@ -147,7 +147,10 @@ func (service *BatchRecoveryService) recoverWithStarter(ctx context.Context, sta
 		}
 		// resetErr 保存恢复前重置进程中断明细的错误。
 		if resetErr := service.repository.ResetInterrupted(ctx, batch.ID); resetErr != nil {
-			service.releaseClaimedBatch(ctx, batch.ID, workerToken)
+			// releaseErr 保存重置失败后的租约释放错误；只有补偿失败才升级为扫描级错误。
+			if releaseErr := service.releaseClaimedBatch(ctx, batch.ID, workerToken); releaseErr != nil {
+				recoveryErrors = append(recoveryErrors, errors.Join(fmt.Errorf("恢复重置批次 %s: %w", batch.ID, resetErr), fmt.Errorf("释放恢复批次 %s 租约: %w", batch.ID, releaseErr)))
+			}
 			continue
 		}
 		// 统计重算失败不阻断恢复；随后 PendingRows 查询仍是是否启动 worker 的权威结果，
@@ -156,14 +159,19 @@ func (service *BatchRecoveryService) recoverWithStarter(ctx context.Context, sta
 		// pending 保存恢复后仍可交给 worker 的商品明细。
 		pending, pendingErr := service.repository.PendingRows(ctx, batch.ID, false)
 		if pendingErr != nil {
-			service.releaseClaimedBatch(ctx, batch.ID, workerToken)
+			// releaseErr 保存明细查询失败后的租约释放错误；释放成功时继续兼容单批次容错语义。
+			if releaseErr := service.releaseClaimedBatch(ctx, batch.ID, workerToken); releaseErr != nil {
+				recoveryErrors = append(recoveryErrors, errors.Join(fmt.Errorf("恢复读取批次 %s 明细: %w", batch.ID, pendingErr), fmt.Errorf("释放恢复批次 %s 租约: %w", batch.ID, releaseErr)))
+			}
 			continue
 		}
 		if len(pending) == 0 {
 			// finalStatus、finished 和 finalizeErr 保存空批次终态收口结果；失败后仍继续扫描其他批次。
 			_, finished, finalizeErr := service.repository.FinalizeBatch(ctx, batch.ID, workerToken)
 			if finalizeErr != nil {
-				recoveryErrors = append(recoveryErrors, fmt.Errorf("恢复收口空批次 %s: %w", batch.ID, finalizeErr))
+				// primaryErr 保存当前空批次收口失败，释放补偿错误与其合并后继续扫描其他批次。
+				primaryErr := fmt.Errorf("恢复收口空批次 %s: %w", batch.ID, finalizeErr)
+				recoveryErrors = append(recoveryErrors, errors.Join(primaryErr, service.releaseClaimedBatch(ctx, batch.ID, workerToken)))
 			} else if !finished {
 				recoveryErrors = append(recoveryErrors, fmt.Errorf("恢复收口空批次 %s: %w", batch.ID, ErrBatchLeaseLost))
 			}
@@ -171,16 +179,23 @@ func (service *BatchRecoveryService) recoverWithStarter(ctx context.Context, sta
 		}
 		// startErr 保存生命周期协调器启动 worker 时的错误。
 		if startErr := startWorker(ctx, batch.UserID, batch.ID, workerToken); startErr != nil {
-			service.releaseClaimedBatch(ctx, batch.ID, workerToken)
+			// releaseErr 保存 worker 启动失败后的租约释放错误；释放失败必须进入扫描错误链。
+			if releaseErr := service.releaseClaimedBatch(ctx, batch.ID, workerToken); releaseErr != nil {
+				recoveryErrors = append(recoveryErrors, errors.Join(fmt.Errorf("启动恢复批次 %s worker: %w", batch.ID, startErr), fmt.Errorf("释放恢复批次 %s 租约: %w", batch.ID, releaseErr)))
+			}
 		}
 	}
 	return errors.Join(recoveryErrors...)
 }
 
 // releaseClaimedBatch 在恢复初始化失败时释放当前 worker 的批次租约。
-func (service *BatchRecoveryService) releaseClaimedBatch(ctx context.Context, batchID, workerToken string) {
-	// released 和 err 保存租约释放结果；恢复扫描器不应因单批次补偿失败阻塞其他批次。
-	_, _ = service.repository.FailClaimedBatch(ctx, batchID, workerToken)
+func (service *BatchRecoveryService) releaseClaimedBatch(ctx context.Context, batchID, workerToken string) error {
+	// statusCtx、statusCancel 让恢复循环取消后仍有独立且受限的租约补偿窗口。
+	statusCtx, statusCancel := statusContext(ctx)
+	defer statusCancel()
+	// _, releaseErr 保存租约释放结果；调用方决定是否把单批次补偿失败加入扫描错误。
+	_, releaseErr := service.repository.FailClaimedBatch(statusCtx, batchID, workerToken)
+	return releaseErr
 }
 
 // randomBatchWorkerToken 生成不携带业务信息的恢复 worker 令牌。

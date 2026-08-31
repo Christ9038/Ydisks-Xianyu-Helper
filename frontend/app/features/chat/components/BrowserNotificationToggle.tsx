@@ -25,9 +25,9 @@ const BrowserNotificationToggle: React.FC = () => {
         aria-label="开启新消息系统通知"
         disabled={preference.updating || !preference.supported}
         onClick={/* 当前回调由用户手势触发权限申请或关闭本地通知偏好。 */ () => void preference.setEnabled(!preference.enabled)}
-        className={`relative h-5 w-9 rounded-full transition-colors ${preference.enabled ? 'bg-sky-500' : 'bg-slate-200'} disabled:cursor-not-allowed disabled:opacity-50`}
+        className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${preference.enabled ? 'bg-sky-500' : 'bg-slate-200'} disabled:cursor-not-allowed disabled:opacity-50`}
       >
-        <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${preference.enabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
+        <span className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${preference.enabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
       </button>
       <span className="text-slate-400">{statusText}</span>
       {preference.error && <span className="sr-only" role="status">{preference.error}</span>}

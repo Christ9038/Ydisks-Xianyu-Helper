@@ -140,7 +140,13 @@ func (s *BatchManagementService) StartBatch(ctx context.Context, userID int64, b
 		// finalStatus、finished 和 finalizeErr 保存空批次终态收口结果；收口失败不得伪装成仅无可处理行。
 		_, finished, finalizeErr := s.repository.FinalizeBatch(ctx, batch.ID, workerToken)
 		if finalizeErr != nil {
-			return "", fmt.Errorf("收口空批次: %w", finalizeErr)
+			// primaryErr 保存空批次收口错误，租约释放失败时与补偿错误一并返回。
+			primaryErr := fmt.Errorf("收口空批次: %w", finalizeErr)
+			// releaseErr 保存空批次收口失败后的租约释放错误。
+			if releaseErr := s.releaseClaim(ctx, batch.ID, workerToken); releaseErr != nil {
+				return "", errors.Join(primaryErr, releaseErr)
+			}
+			return "", primaryErr
 		}
 		if !finished {
 			return "", ErrBatchLeaseLost
@@ -323,7 +329,13 @@ func (s *BatchManagementService) RetryFailedBatch(ctx context.Context, userID in
 		// finalStatus、finished 和 finalizeErr 保存重试入口空批次的终态收口结果。
 		_, finished, finalizeErr := s.repository.FinalizeBatch(ctx, batchID, workerToken)
 		if finalizeErr != nil {
-			return "", fmt.Errorf("收口重试空批次: %w", finalizeErr)
+			// primaryErr 保存重试空批次收口错误，租约释放失败时保留两项诊断。
+			primaryErr := fmt.Errorf("收口重试空批次: %w", finalizeErr)
+			// releaseErr 保存重试空批次收口失败后的租约释放错误。
+			if releaseErr := s.releaseClaim(ctx, batchID, workerToken); releaseErr != nil {
+				return "", errors.Join(primaryErr, releaseErr)
+			}
+			return "", primaryErr
 		}
 		if !finished {
 			return "", ErrBatchLeaseLost
@@ -348,8 +360,11 @@ func (s *BatchManagementService) releaseClaim(ctx context.Context, batchID, work
 	if s == nil || s.repository == nil {
 		return errors.New("批次管理 repository 未初始化")
 	}
+	// statusCtx、statusCancel 让请求取消后的租约补偿仍有独立且受限的执行窗口。
+	statusCtx, statusCancel := statusContext(ctx)
+	defer statusCancel()
 	// _, releaseErr 保存租约释放调用的结果；布尔值仅表示是否成功匹配租约。
-	_, releaseErr := s.repository.FailClaimedBatch(ctx, batchID, workerToken)
+	_, releaseErr := s.repository.FailClaimedBatch(statusCtx, batchID, workerToken)
 	return releaseErr
 }
 

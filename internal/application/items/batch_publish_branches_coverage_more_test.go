@@ -43,6 +43,8 @@ type batchRunBranchRepository struct {
 	interruptedStatus  string
 	interruptedApplied bool
 	interruptedErr     error
+	// interruptedCalls 记录异常退出是否实际尝试了中断终态收口。
+	interruptedCalls int
 	// deleteUploadErr 保存上传目录清理错误。
 	deleteUploadErr error
 	// reserveResult 保存发布时隙是否预留成功。
@@ -134,6 +136,7 @@ func (repository *batchRunBranchRepository) FinalizeCanceled(context.Context, st
 
 // FinalizeInterrupted 返回注入的中断收口结果。
 func (repository *batchRunBranchRepository) FinalizeInterrupted(context.Context, string, string, string) (string, bool, error) {
+	repository.interruptedCalls++
 	return repository.interruptedStatus, repository.interruptedApplied, repository.interruptedErr
 }
 
@@ -171,7 +174,7 @@ func TestBatchRunnerCoversRunErrorBranches(t *testing.T) {
 	// pendingErr 保存待处理明细查询错误。
 	pendingErr := errors.New("待处理明细失败")
 	// pendingRepository 保存查询错误仓储。
-	pendingRepository := &batchRunBranchRepository{batchRunnerRepository: &batchRunnerRepository{rows: []BatchRow{row}, batch: batch}, pendingErr: pendingErr}
+	pendingRepository := &batchRunBranchRepository{batchRunnerRepository: &batchRunnerRepository{rows: []BatchRow{row}, batch: batch}, pendingErr: pendingErr, interruptedApplied: true}
 	// pendingRunner、err 保存查询错误 worker。
 	pendingRunner, err := newBranchRunner(pendingRepository, &batchRunnerPublisher{}, baseOptions)
 	if err != nil {
@@ -179,6 +182,9 @@ func TestBatchRunnerCoversRunErrorBranches(t *testing.T) {
 	}
 	if !errors.Is(pendingRunner.Run(context.Background(), 7, "batch-1", "worker", false), pendingErr) {
 		t.Fatal("待处理明细错误未返回")
+	}
+	if pendingRepository.interruptedCalls != 1 {
+		t.Fatalf("待处理明细失败未收口租约: calls=%d", pendingRepository.interruptedCalls)
 	}
 
 	// renewErr 保存续租错误。
@@ -235,7 +241,7 @@ func TestBatchRunnerCoversRunErrorBranches(t *testing.T) {
 	// recountErr 保存统计重算错误。
 	recountErr := errors.New("统计重算失败")
 	// recountRepository 保存统计重算错误仓储。
-	recountRepository := &batchRunBranchRepository{batchRunnerRepository: &batchRunnerRepository{rows: []BatchRow{row}, batch: batch}, recountErr: recountErr}
+	recountRepository := &batchRunBranchRepository{batchRunnerRepository: &batchRunnerRepository{rows: []BatchRow{row}, batch: batch}, recountErr: recountErr, interruptedApplied: true}
 	// recountRunner 保存统计重算错误 worker。
 	recountRunner, err := newBranchRunner(recountRepository, &batchRunnerPublisher{}, baseOptions)
 	if err != nil {
@@ -243,6 +249,9 @@ func TestBatchRunnerCoversRunErrorBranches(t *testing.T) {
 	}
 	if !errors.Is(recountRunner.Run(context.Background(), 7, "batch-1", "worker", false), recountErr) {
 		t.Fatal("统计重算错误未返回")
+	}
+	if recountRepository.interruptedCalls != 1 {
+		t.Fatalf("统计重算失败未收口租约: calls=%d", recountRepository.interruptedCalls)
 	}
 
 	// canceledPending 保存查询阶段已经取消的 worker Context。

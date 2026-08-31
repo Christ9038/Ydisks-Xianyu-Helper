@@ -84,6 +84,11 @@ func TestValidateTemplateBindingsBranches(t *testing.T) {
 	if validErr != nil {
 		t.Fatalf("完整模板变量绑定不应失败: %v", validErr)
 	}
+	// apiValidErr 保存配置已就绪的 API 卡密组绑定校验结果。
+	apiValidErr := validateTemplateBindings(context.Background(), &ruleOwnershipFake{cardType: "api", cardEnabled: true, cardAPIReady: true}, 7, []string{"api"}, []TemplateBinding{{VariableKey: "api", CardID: 3}})
+	if apiValidErr != nil {
+		t.Fatalf("就绪 API 卡密组应允许绑定到模板: %v", apiValidErr)
+	}
 	// cases 描述模板绑定校验的拒绝边界。
 	cases := []struct {
 		name     string
@@ -93,7 +98,8 @@ func TestValidateTemplateBindingsBranches(t *testing.T) {
 	}{
 		{name: "missing", keys: []string{"first"}, bindings: nil, fake: ownership},
 		{name: "duplicate", keys: []string{"first", "second"}, bindings: []TemplateBinding{{VariableKey: "first", CardID: 1}, {VariableKey: "first", CardID: 2}}, fake: ownership},
-		{name: "wrong type", keys: []string{"first"}, bindings: []TemplateBinding{{VariableKey: "first", CardID: 1}}, fake: &ruleOwnershipFake{cardType: "api", cardEnabled: true}},
+		{name: "wrong type", keys: []string{"first"}, bindings: []TemplateBinding{{VariableKey: "first", CardID: 1}}, fake: &ruleOwnershipFake{cardType: "image", cardEnabled: true}},
+		{name: "api not ready", keys: []string{"first"}, bindings: []TemplateBinding{{VariableKey: "first", CardID: 1}}, fake: &ruleOwnershipFake{cardType: "api", cardEnabled: true}},
 		{name: "disabled", keys: []string{"first"}, bindings: []TemplateBinding{{VariableKey: "first", CardID: 1}}, fake: &ruleOwnershipFake{cardType: "text"}},
 		{name: "repository error", keys: []string{"first"}, bindings: []TemplateBinding{{VariableKey: "first", CardID: 1}}, fake: &ruleOwnershipFake{cardType: "text", cardEnabled: true, cardErr: errors.New("card lookup failed")}},
 	}

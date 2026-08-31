@@ -172,13 +172,13 @@ func TestMigrate_ExistingAutomationRunsReceiveEmptyDeliveryProof(t *testing.T) {
 	}
 	// finalVersion、versionErr 保存升级后的 Goose 版本和读取错误。
 	finalVersion, versionErr := goose.GetDBVersion(rawDB)
-	if versionErr != nil || finalVersion != 40 {
+	if versionErr != nil || finalVersion != 41 {
 		t.Fatalf("final migration version=%d err=%v", finalVersion, versionErr)
 	}
 }
 
 // TestMigrate_UpgradesDatabaseWithMainChatVersions 验证已发布 main 的 00029/00030
-// 聊天迁移可以原样升级到包含快捷回复和买家备注的 00036 最终版本。
+// 聊天迁移可以原样升级到包含会话软隐藏列的 00041 最终版本。
 func TestMigrate_UpgradesDatabaseWithMainChatVersions(t *testing.T) {
 	// tmpDir 保存隔离的已发布 main 数据库目录，测试结束后由 testing 清理。
 	tmpDir := t.TempDir()
@@ -204,15 +204,15 @@ func TestMigrate_UpgradesDatabaseWithMainChatVersions(t *testing.T) {
 
 	// ctx 提供迁移 API 所需的调用上下文；升级本身不依赖请求生命周期。
 	ctx := context.Background()
-	// migrateErr 保存从 main 00030 接续 dev 00031 至 00036 时的迁移失败。
+	// migrateErr 保存从 main 00030 接续至当前 00041 时的迁移失败。
 	if migrateErr := Migrate(ctx, rawDB, DialectSQLite); migrateErr != nil {
 		t.Fatalf("upgrade from main 00030: %v", migrateErr)
 	}
 	if !tableExists(t, rawDB, "order_reconciliations") {
 		t.Fatal("order_reconciliations should be created by the dev schema baseline migration")
 	}
-	if !columnExists(t, rawDB, "chat_messages", "read_status") || !columnExists(t, rawDB, "chat_messages", "read_at") || !columnExists(t, rawDB, "chat_messages", "media_duration") || !columnExists(t, rawDB, "chat_sessions", "item_image_url") {
-		t.Fatal("chat read tracking and media presentation columns should remain after dev schema baseline upgrade")
+	if !columnExists(t, rawDB, "chat_messages", "read_status") || !columnExists(t, rawDB, "chat_messages", "read_at") || !columnExists(t, rawDB, "chat_messages", "media_duration") || !columnExists(t, rawDB, "chat_sessions", "item_image_url") || !columnExists(t, rawDB, "chat_sessions", "is_visible") {
+		t.Fatal("chat read tracking, media presentation, and session visibility columns should remain after dev schema baseline upgrade")
 	}
 	if !tableExists(t, rawDB, "chat_quick_replies") || !tableExists(t, rawDB, "chat_buyer_notes") {
 		t.Fatal("chat quick reply and buyer note tables should be created by the latest migration")
@@ -223,13 +223,13 @@ func TestMigrate_UpgradesDatabaseWithMainChatVersions(t *testing.T) {
 	if !columnExists(t, rawDB, "automation_rule_actions", "delivery_template_id") {
 		t.Fatal("automation_rule_actions should reference delivery templates")
 	}
-	// finalVersion 验证迁移账本已推进到包含发货模板的最新 dev schema 版本。
+	// finalVersion 验证迁移账本已推进到包含会话软隐藏列的最新 schema 版本。
 	finalVersion, versionErr := goose.GetDBVersion(rawDB)
 	if versionErr != nil {
 		t.Fatalf("read final migration version: %v", versionErr)
 	}
-	if finalVersion != 40 {
-		t.Fatalf("final migration version=%d, want 40", finalVersion)
+	if finalVersion != 41 {
+		t.Fatalf("final migration version=%d, want 41", finalVersion)
 	}
 }
 

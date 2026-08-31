@@ -10,8 +10,8 @@ import (
 type Repository interface {
 	// ListOwnedIDs 返回用户拥有的账号 ID。
 	ListOwnedIDs(ctx context.Context, userID int64) ([]string, error)
-	// DeleteSession 删除指定账号下的聊天会话。
-	DeleteSession(ctx context.Context, cookieID, chatID string) error
+	// SetSessionVisible 更新指定账号会话的平台可见状态；隐藏只影响列表，不删除本地消息。
+	SetSessionVisible(ctx context.Context, cookieID, chatID string, visible bool) error
 	// UpsertSession 写入或更新聊天会话摘要。
 	UpsertSession(ctx context.Context, session db.ChatSession) error
 	// SyncSessionSummary 按服务端时间更新聊天会话摘要。
@@ -43,9 +43,9 @@ func (r storeRepository) ListOwnedIDs(ctx context.Context, userID int64) ([]stri
 	return r.store.Cookies.ListOwnedIDs(ctx, userID)
 }
 
-// DeleteSession 委托聊天会话删除。
-func (r storeRepository) DeleteSession(ctx context.Context, cookieID, chatID string) error {
-	return r.store.Chats.DeleteSession(ctx, cookieID, chatID)
+// SetSessionVisible 委托聊天会话可见状态更新，隐藏会话仍保留本地历史消息。
+func (r storeRepository) SetSessionVisible(ctx context.Context, cookieID, chatID string, visible bool) error {
+	return r.store.Chats.SetSessionVisible(ctx, cookieID, chatID, visible)
 }
 
 // UpsertSession 委托聊天会话写入。

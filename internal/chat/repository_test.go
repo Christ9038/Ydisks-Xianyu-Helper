@@ -32,8 +32,8 @@ func (r *outgoingErrorRepository) UpdateMessageStatus(context.Context, string, s
 	return nil, r.statusErr
 }
 
-// DeleteSession 模拟删除聊天会话。
-func (*fakeRepository) DeleteSession(context.Context, string, string) error { return nil }
+// SetSessionVisible 模拟更新会话列表可见状态，并保持消息历史不受影响。
+func (*fakeRepository) SetSessionVisible(context.Context, string, string, bool) error { return nil }
 
 // UpsertSession 模拟写入聊天会话。
 func (*fakeRepository) UpsertSession(context.Context, db.ChatSession) error { return nil }

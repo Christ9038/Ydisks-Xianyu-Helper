@@ -271,10 +271,7 @@ func (runner *BatchRunner) Run(ctx context.Context, userID int64, batchID, worke
 	// rows 保存本次 worker 读取到的待处理明细。
 	rows, err := runner.repository.PendingRows(ctx, batchID, failedOnly)
 	if err != nil {
-		if ctx.Err() != nil {
-			return errors.Join(err, runner.finishInterrupted(ctx, userID, batchID, workerToken))
-		}
-		return err
+		return errors.Join(err, runner.finishInterrupted(ctx, userID, batchID, workerToken))
 	}
 	// row 表示当前待发布商品明细。
 	for _, row := range rows {
@@ -330,10 +327,7 @@ func (runner *BatchRunner) Run(ctx context.Context, userID int64, batchID, worke
 		recountErr := runner.repository.RecountBatch(recountCtx, batchID)
 		recountCancel()
 		if recountErr != nil {
-			if ctx.Err() != nil {
-				return errors.Join(recountErr, runner.finishInterrupted(ctx, userID, batchID, workerToken))
-			}
-			return recountErr
+			return errors.Join(recountErr, runner.finishInterrupted(ctx, userID, batchID, workerToken))
 		}
 	}
 	return runner.finish(ctx, userID, batchID, workerToken)
@@ -436,7 +430,7 @@ func (runner *BatchRunner) finish(ctx context.Context, userID int64, batchID, wo
 	// batch、err 保存最终收口前的批次状态。
 	batch, err := runner.repository.GetBatch(statusCtx, userID, batchID)
 	if err != nil {
-		return fmt.Errorf("读取批次最终状态: %w", err)
+		return errors.Join(fmt.Errorf("读取批次最终状态: %w", err), runner.finishInterrupted(ctx, userID, batchID, workerToken))
 	}
 	if batch.Status == "canceled" {
 		return nil
@@ -448,7 +442,7 @@ func (runner *BatchRunner) finish(ctx context.Context, userID int64, batchID, wo
 		// applied 和 cancelErr 保存取消终态是否由当前租约成功写入及其持久化错误。
 		applied, cancelErr := runner.repository.FinalizeCanceled(statusCtx, batchID, workerToken)
 		if cancelErr != nil {
-			return fmt.Errorf("收口已取消批次: %w", cancelErr)
+			return errors.Join(fmt.Errorf("收口已取消批次: %w", cancelErr), runner.finishInterrupted(ctx, userID, batchID, workerToken))
 		}
 		if !applied {
 			return ErrBatchLeaseLost
@@ -458,7 +452,7 @@ func (runner *BatchRunner) finish(ctx context.Context, userID int64, batchID, wo
 	// finalStatus、finished、finishErr 保存数据库收口结果。
 	finalStatus, finished, finishErr := runner.repository.FinalizeBatch(statusCtx, batchID, workerToken)
 	if finishErr != nil {
-		return fmt.Errorf("收口批次最终状态: %w", finishErr)
+		return errors.Join(fmt.Errorf("收口批次最终状态: %w", finishErr), runner.finishInterrupted(ctx, userID, batchID, workerToken))
 	}
 	if !finished {
 		return ErrBatchLeaseLost

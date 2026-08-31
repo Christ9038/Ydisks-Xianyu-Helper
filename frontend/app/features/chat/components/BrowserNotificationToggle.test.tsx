@@ -41,6 +41,9 @@ describe('BrowserNotificationToggle', /* 当前测试组验证聊天页通知开
     // toggle 保存聊天页通知开关元素。
     const toggle = screen.getByRole('switch', { name: '开启新消息系统通知' });
     expect(toggle.getAttribute('aria-checked')).toBe('true');
+    // knob 保存开关圆点的固定定位基准，避免启用状态覆盖右侧文字。
+    expect(toggle.querySelector('span')?.classList.contains('left-0.5')).toBe(true);
+    expect(toggle.querySelector('span')?.classList.contains('translate-x-4')).toBe(true);
     expect(screen.queryByText('已开启')).not.toBeNull();
     fireEvent.click(toggle);
     expect(setEnabled).toHaveBeenCalledWith(false);

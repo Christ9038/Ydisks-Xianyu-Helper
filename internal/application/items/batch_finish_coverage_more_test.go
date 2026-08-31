@@ -67,6 +67,15 @@ func TestBatchRunnerFinishBoundaries(t *testing.T) {
 	if completedRepository.deleteCalls != 1 {
 		t.Fatalf("completed finish delete=%d", completedRepository.deleteCalls)
 	}
+	// finalizeErr 保存正常终态写入失败样例的基础设施错误。
+	finalizeErr := errors.New("finalize failed")
+	// finalizeErrorRepository 保存终态失败后可成功执行中断补偿的仓储。
+	finalizeErrorRepository := &batchFinishCoverageRepository{batchRunBranchRepository: &batchRunBranchRepository{batchRunnerRepository: &batchRunnerRepository{batch: baseBatch}, finalizeErr: finalizeErr, interruptedApplied: true}}
+	// finalizeResultErr 保存终态失败和补偿结果，原始错误必须保留在错误链中。
+	finalizeResultErr := newRunner(finalizeErrorRepository).finish(context.Background(), 7, baseBatch.ID, "worker")
+	if !errors.Is(finalizeResultErr, finalizeErr) || finalizeErrorRepository.interruptedCalls != 1 {
+		t.Fatalf("finalize error=%v interrupted=%d", finalizeResultErr, finalizeErrorRepository.interruptedCalls)
+	}
 	// wrongTokenRepository 保存租约令牌不匹配的完成样例仓储。
 	wrongTokenRepository := &batchFinishCoverageRepository{batchRunBranchRepository: &batchRunBranchRepository{batchRunnerRepository: &batchRunnerRepository{batch: baseBatch}}}
 	newRunner(wrongTokenRepository).finish(context.Background(), 7, baseBatch.ID, "other-worker")

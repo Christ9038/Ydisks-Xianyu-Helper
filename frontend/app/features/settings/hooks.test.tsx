@@ -233,4 +233,46 @@ describe('useSettings', /* 当前回调处理系统设置、模型和凭据请�
     expect(hook.result.current.settings).toMatchObject({ ...settingsFixture, ai_model: 'model-a' });
     hook.unmount();
   });
+
+  test('保存新配置时取消并丢弃旧配置发起的模型响应', /* 当前回调验证保存动作隔离旧模型发现请求。 */ async () => {
+    // resolveModels 是旧模型请求的完成控制器。
+    let resolveModels: (value: string[]) => void = () => undefined;
+    // staleModelsRequest 模拟使用旧地址和旧密钥发出的延迟模型请求。
+    const staleModelsRequest = new Promise<string[]>(/* staleModelsExecutor 保存旧模型请求完成函数。 */ resolve => { resolveModels = resolve; });
+    fetchModelsMock.mockReset();
+    fetchModelsMock.mockReturnValueOnce(staleModelsRequest);
+    // hook 是保存配置与模型发现竞态场景的 Hook 渲染结果。
+    const hook = renderHook(renderSettingsHook);
+    await waitFor(
+      // statusAssertion 等待设置读取成功并发出旧模型请求。
+      () => expect(hook.result.current.requestStatus).toBe('success'),
+    );
+    expect(fetchModelsMock).toHaveBeenCalledTimes(1);
+    // staleSignal 是旧模型发现请求使用的取消信号。
+    const staleSignal = fetchModelsMock.mock.calls[0]?.[2]?.signal;
+    await act(
+      // editSettingsAction 将配置草稿切换到新的模型服务凭据。
+      () => hook.result.current.setSettings(
+        // settingsUpdater 基于现有草稿替换模型服务地址和密钥。
+        previous => previous ? { ...previous, ai_api_url: 'https://new-ai.example.com', ai_api_key: 'new-secret' } : previous,
+      ),
+    );
+    await act(
+      // saveAction 保存新配置并使旧模型请求失效。
+      async () => hook.result.current.handleSave(),
+    );
+    expect(staleSignal?.aborted).toBe(true);
+    expect(updateSettingsMock).toHaveBeenCalledWith(expect.objectContaining({ ai_api_url: 'https://new-ai.example.com', ai_api_key: 'new-secret' }), expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(hook.result.current.aiModels).toEqual([]);
+    expect(hook.result.current.modelsLoading).toBe(false);
+
+    resolveModels(['stale-model']);
+    await act(
+      // staleResolveAction 完成被保存动作取消的旧模型响应。
+      async () => { await staleModelsRequest; },
+    );
+    expect(hook.result.current.aiModels).toEqual([]);
+    expect(hook.result.current.settings?.ai_model).toBe('');
+    hook.unmount();
+  });
 });

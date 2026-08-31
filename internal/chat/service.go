@@ -54,7 +54,10 @@ func (s *Service) RecordConversationPage(ctx context.Context, accountID, myID st
 		if // visible、exists 用于本次流程后续判断的visible、exists
 		visible, exists := conv["visible"]; exists && int64Value(visible) == 0 {
 			if cid != "" && cid != "<nil>" {
-				_ = s.repository.DeleteSession(ctx, accountID, cid)
+				// visibilityErr 保存不可见会话的软隐藏结果；失败时必须保留错误，不能回退到级联物理删除。
+				if visibilityErr := s.repository.SetSessionVisible(ctx, accountID, cid, false); visibilityErr != nil {
+					return page, visibilityErr
+				}
 			}
 			continue
 		}
@@ -65,7 +68,12 @@ func (s *Service) RecordConversationPage(ctx context.Context, accountID, myID st
 		// ext 用于本次流程后续判断的ext
 		ext := mapValue(single["extension"])
 		if second == "0" && cleanNilString(ext["extUserId"]) != "1400" {
-			_ = s.repository.DeleteSession(ctx, accountID, cid)
+			if cid != "" && cid != "<nil>" {
+				// visibilityErr 保存平台通知壳对应会话的软隐藏结果，避免删除已有聊天历史。
+				if visibilityErr := s.repository.SetSessionVisible(ctx, accountID, cid, false); visibilityErr != nil {
+					return page, visibilityErr
+				}
+			}
 			continue
 		}
 		// peerID 用于本次流程后续判断的peerID

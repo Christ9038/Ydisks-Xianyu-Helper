@@ -33,6 +33,27 @@ func TestChatPayloadHelpersCoverTimestampAndOfficialContentBranches(t *testing.T
 			t.Errorf("时间载荷=%v got=%d want=%d", timestampCase.raw, got, timestampCase.want)
 		}
 	}
+	// preferredTimestamp 同时包含多个时间别名，用于验证候选键优先级不受 map 遍历顺序影响。
+	preferredTimestamp := map[string]any{"timestamp": "1700000000123", "sendTime": "1700000000"}
+	// iteration 表示重复执行确定性提取的测试轮次。
+	for iteration := 0; iteration < 100; iteration++ {
+		// got 保存当前轮次按候选优先级提取并归一化的时间戳。
+		if got := extractUnixMilli(preferredTimestamp); got != 1700000000000 {
+			t.Fatalf("时间候选优先级不稳定 iteration=%d got=%d", iteration, got)
+		}
+	}
+	// preferredMessageID 同时包含新旧消息键别名，用于验证调用方顺序优先于对象字段排序。
+	preferredMessageID := map[string]any{"message_id": "legacy-id", "messageId": "official-id"}
+	// got 保存按新旧消息键候选优先级提取的标识。
+	if got := extractString(preferredMessageID, "messageId", "message_id"); got != "official-id" {
+		t.Fatalf("消息键候选优先级异常 got=%q", got)
+	}
+	// nestedMessageID 使用逆序构造的兄弟节点，验证递归搜索采用稳定字段顺序。
+	nestedMessageID := map[string]any{"z-node": map[string]any{"messageId": "z-id"}, "a-node": map[string]any{"messageId": "a-id"}}
+	// got 保存按稳定兄弟节点顺序递归提取的消息标识。
+	if got := extractString(nestedMessageID, "messageId"); got != "a-id" {
+		t.Fatalf("嵌套消息键递归顺序异常 got=%q", got)
+	}
 	// officialCases 保存直接字段、嵌套 JSON、数组和未识别内容类型样例。
 	officialCases := []struct {
 		// raw 是待识别的聊天内容载荷。

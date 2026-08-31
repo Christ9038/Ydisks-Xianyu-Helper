@@ -130,10 +130,14 @@ export const showBrowserNotification = (payload: BrowserNotificationPayload): bo
   if (!notificationAPI || !readBrowserNotificationEnabled() || notificationAPI.permission !== 'granted') return false;
   try {
     // notification 保存当前消息对应的系统通知实例。
-    const notification = new notificationAPI(payload.title, {
+    // options 保存通知正文、会话标签和重复提醒策略；renotify 是部分旧 DOM 类型库尚未声明的浏览器标准字段。
+    const options = {
       body: payload.body,
       tag: payload.tag,
-    });
+      // renotify 让同一会话的后续消息被浏览器替换时仍重新弹出提醒。
+      renotify: Boolean(payload.tag),
+    } as NotificationOptions;
+    const notification = new notificationAPI(payload.title, options);
     // focusNotificationWindow 负责用户点击系统通知后的窗口聚焦行为。
     const focusNotificationWindow = (): void => window.focus();
     notification.onclick = focusNotificationWindow;
