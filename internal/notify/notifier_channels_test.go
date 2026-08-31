@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -27,6 +28,15 @@ func (t *redirectTransport) RoundTrip(req *http.Request) (*http.Response, error)
 	req.URL.Host = t.target
 	req.Host = t.target
 	return http.DefaultTransport.RoundTrip(req)
+}
+
+// failingNotificationTransport 为通知敏感 URL 测试稳定返回网络错误，不访问真实外部服务。
+type failingNotificationTransport struct{}
+
+// RoundTrip 返回不含请求 URL 的底层错误，由 http.Client 包装完整 URL 后验证生产脱敏边界。
+// req 仅用于满足 RoundTripper 接口，测试不读取或发送其中的敏感地址。
+func (failingNotificationTransport) RoundTrip(_ *http.Request) (*http.Response, error) {
+	return nil, errors.New("simulated connection failure")
 }
 
 // notifierWithRedirectClient 构造一个把所有 HTTP 请求重定向到 target 的 Notifier。
@@ -820,6 +830,31 @@ func TestPostJSON_NetworkError(t *testing.T) {
 	// 非法 URL（无 host）。
 	if err := n.postJSON("http://", map[string]any{"a": 1}); err == nil {
 		t.Fatal("非法 URL 应报错")
+	}
+}
+
+// TestSendTelegramNetworkErrorRedactsTokenPath 验证 Telegram 网络失败不会把路径中的 Bot Token 返回给调用方。
+func TestSendTelegramNetworkErrorRedactsTokenPath(t *testing.T) {
+	if notificationRequestError(nil) != nil {
+		t.Fatal("空通知请求错误应保持为空")
+	}
+	// token 是用于证明路径脱敏的模拟 Telegram Bot Token。
+	const token = "123456:REVIEW_SECRET"
+	// notifier 使用固定失败 transport，确保测试不会访问 Telegram。
+	notifier := New("cid", nil, nil)
+	notifier.httpc = &http.Client{Transport: failingNotificationTransport{}}
+	// sendErr 保存经过通知网络边界清理后的错误。
+	sendErr := notifier.sendTelegram(map[string]any{"bot_token": token, "chat_id": "review-chat"}, "测试")
+	if sendErr == nil {
+		t.Fatal("模拟 Telegram 网络失败应返回错误")
+	}
+	// diagnostic 保存可进入日志、数据库或上层处理的最终错误文本。
+	diagnostic := sendErr.Error()
+	if strings.Contains(diagnostic, token) || strings.Contains(diagnostic, "sendMessage") || strings.Contains(diagnostic, "review-chat") {
+		t.Fatalf("Telegram 错误泄露敏感路径或请求数据: %s", diagnostic)
+	}
+	if !strings.Contains(diagnostic, "https://api.telegram.org/<redacted>") || !strings.Contains(diagnostic, "simulated connection failure") {
+		t.Fatalf("Telegram 错误缺少安全诊断上下文: %s", diagnostic)
 	}
 }
 

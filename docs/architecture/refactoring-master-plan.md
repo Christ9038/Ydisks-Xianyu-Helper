@@ -78,3 +78,7 @@ git diff --check
 ## 执行纪律
 
 阶段最终验收失败时状态仍为当前阶段，修复后重跑完整命令；只有全部命令成功后才一次更新状态、证据和下一阶段入口并创建最终中文提交。六个阶段现已全部完成，后续不再开启新阶段入口。不得扩大白名单、baseline、忽略路径或 warning-only 旁路；后续缺陷修复保持全部已启用门禁永久有效。
+
+## 后续窄范围安全修复记录
+
+- 2026-09-01：通知外部请求错误在渠道边界统一移除 URL 用户信息、路径、查询参数和片段，HTTP 测试接口改为稳定公开错误，日志与 outbox `last_error` 仅保存脱敏诊断；旧 SHA-256 密码升级改为以用户标识和已验证摘要为条件的比较并交换写入，哈希、写入及驱动结果错误全部向认证层传播，避免并发改密被过期登录覆盖。本修复不改变 HTTP schema、数据库 schema、迁移编号、包边界或冻结 CAPTCHA 行为，也未新增白名单和 baseline。聚焦回归覆盖通知 Token/Webhook 泄漏、日志与持久化边界、并发改密、bcrypt 生成失败、数据库写入失败及受影响行数读取失败；`make check`、`go test ./... -count=1`、`make test-server-race`、`make comments` 和 `git diff --check` 通过，`make cover` 的 Go statement 覆盖率为 81.4%，`TestMultiDB_LegacyPasswordUpgradeCAS` 在 SQLite、MySQL 8.4 与 PostgreSQL 17 实测通过。额外执行的完整 `make test-multidb` 仅有与本修复无代码交集的既有 MySQL `TestMultiDB_OrdersUpsertManyMixedCreatedAt` 时间格式断言失败，SQLite、PostgreSQL 对应子测试及其余三方言用例通过；该基线问题未混入本次窄范围安全修复。

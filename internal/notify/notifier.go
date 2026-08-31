@@ -253,7 +253,7 @@ func (n *Notifier) notifyEvent(ctx context.Context, ev NotificationEvent, idempo
 	for _, ch := range eligible {
 		if // err 用于本次流程后续判断的err
 		err := n.send(ch, full); err != nil {
-			n.logger.Error("发送通知失败", "channel", ch.Type, "event_type", ev.Type, "err", logsafe.Error(err))
+			n.logger.Error("发送通知失败", "channel", ch.Type, "event_type", ev.Type, "err", logsafe.ExternalError(err))
 		}
 	}
 }
@@ -310,7 +310,7 @@ func (n *Notifier) drainOutbox(ctx context.Context) {
 		}
 		if // sendErr 用于本次流程后续判断的sendErr
 		sendErr := n.send(*channel, message.Body); sendErr != nil {
-			n.logger.Error("发送通知失败", "channel", channel.Type, "event_type", message.EventType, "attempt", message.AttemptCount, "err", logsafe.Error(sendErr))
+			n.logger.Error("发送通知失败", "channel", channel.Type, "event_type", message.EventType, "attempt", message.AttemptCount, "err", logsafe.ExternalError(sendErr))
 			n.retryOutbox(ctx, message, workerToken, sendErr)
 			continue
 		}
@@ -340,7 +340,7 @@ func (n *Notifier) retryOutbox(ctx context.Context, message db.NotificationOutbo
 	// delay 用于本次流程后续判断的延迟
 	delay := 5 * time.Second * time.Duration(1<<shift)
 	// updated、err 用于本次流程后续判断的updated、err
-	updated, err := n.repository.RetryOutbox(ctx, message.ID, workerToken, cause.Error(), time.Now().Add(delay).Unix(), permanent)
+	updated, err := n.repository.RetryOutbox(ctx, message.ID, workerToken, logsafe.ExternalError(cause), time.Now().Add(delay).Unix(), permanent)
 	if err != nil {
 		n.logger.Warn("更新通知重试状态失败", "outbox_id", message.ID, "err", err)
 	} else if !updated {

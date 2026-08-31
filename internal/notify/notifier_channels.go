@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/logsafe"
 )
 
 // send 根据渠道类型将已格式化通知发送到外部服务；渠道配置错误直接返回供 outbox 重试分类。
@@ -85,7 +86,7 @@ func (n *Notifier) sendDingTalk(cfg map[string]any, message string) error {
 		// parsed、err 用于本次流程后续判断的parsed、err
 		parsed, err := url.Parse(webhook)
 		if err != nil {
-			return fmt.Errorf("钉钉 webhook 地址无效: %w", err)
+			return notificationRequestError(err)
 		}
 		// query 用于本次流程后续判断的查询
 		query := parsed.Query()
@@ -189,7 +190,7 @@ func (n *Notifier) sendWebhook(cfg map[string]any, message string) error {
 	// req、err 用于本次流程后续判断的req、err
 	req, err := http.NewRequest(method, webhook, bytes.NewReader(body))
 	if err != nil {
-		return err
+		return notificationRequestError(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	// k、v 表示当前遍历过程中的k、v
@@ -199,7 +200,7 @@ func (n *Notifier) sendWebhook(cfg map[string]any, message string) error {
 	// resp、err 用于本次流程后续判断的resp、err
 	resp, err := n.httpc.Do(req)
 	if err != nil {
-		return err
+		return notificationRequestError(err)
 	}
 	defer resp.Body.Close()
 	if // err 用于本次流程后续判断的err
@@ -479,13 +480,13 @@ func (n *Notifier) postJSON(url string, payload any) error {
 	// req、err 分别是携带取消语义的渠道 HTTP 请求及其构造错误。
 	req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
-		return err
+		return notificationRequestError(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	// resp、err 用于本次流程后续判断的resp、err
 	resp, err := n.httpc.Do(req)
 	if err != nil {
-		return err
+		return notificationRequestError(err)
 	}
 	defer resp.Body.Close()
 	// responseBody、err 用于本次流程后续判断的响应Body、err
@@ -501,6 +502,15 @@ func (n *Notifier) postJSON(url string, payload any) error {
 		return err
 	}
 	return nil
+}
+
+// notificationRequestError 将外部通知请求错误转换为不含 URL 路径凭证的内部诊断错误。
+// err 是 net/http、URL 解析或传输层返回的原始错误；返回值不得再暴露其完整请求地址。
+func notificationRequestError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("通知渠道请求失败: %s", logsafe.ExternalError(err))
 }
 
 // notificationBusinessError 封装通知Business错误业务协调。

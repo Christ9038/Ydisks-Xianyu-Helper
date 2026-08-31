@@ -1,10 +1,13 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -103,6 +106,9 @@ func TestNotificationHandlersCoverChannelAndBindingMappings(t *testing.T) {
 	port := &notificationHandlerCoveragePort{}
 	server.applications.notificationChannels = port
 	server.applications.uncertainNotifications = port
+	// notificationLog 保存通知发送失败时的结构化日志，用于验证底层密钥不会外泄。
+	var notificationLog bytes.Buffer
+	server.Logger = slog.New(slog.NewTextHandler(&notificationLog, nil))
 	// channelParams 保存通知渠道和账号绑定路由参数。
 	channelParams := map[string]string{"channel_id": "2", "cid": "cid", "notification_id": "3"}
 	// successCases 保存通知 Handler 成功场景。
@@ -160,7 +166,7 @@ func TestNotificationHandlersCoverChannelAndBindingMappings(t *testing.T) {
 		code int
 	}{
 		{name: "forbidden", err: notificationsapp.ErrChannelForbidden, code: http.StatusForbidden},
-		{name: "generic", err: errors.New("channel test failed"), code: http.StatusInternalServerError},
+		{name: "generic", err: errors.New(`Post "https://api.telegram.org/bot123456:REVIEW_SECRET/sendMessage": channel test failed`), code: http.StatusInternalServerError},
 	}
 	// testError 表示当前渠道测试错误场景。
 	for _, testError := range testErrors {
@@ -171,6 +177,15 @@ func TestNotificationHandlersCoverChannelAndBindingMappings(t *testing.T) {
 		if recorder.Code != testError.code {
 			t.Fatalf("%s status=%d", testError.name, recorder.Code)
 		}
+		if strings.Contains(recorder.Body.String(), "REVIEW_SECRET") || strings.Contains(recorder.Body.String(), "api.telegram.org") || strings.Contains(recorder.Body.String(), "channel test failed") {
+			t.Fatalf("%s 响应泄露通知底层错误: %s", testError.name, recorder.Body.String())
+		}
+	}
+	if strings.Contains(notificationLog.String(), "REVIEW_SECRET") || strings.Contains(notificationLog.String(), "/bot123456:") {
+		t.Fatalf("通知错误日志泄露渠道密钥: %s", notificationLog.String())
+	}
+	if !strings.Contains(notificationLog.String(), "https://api.telegram.org/<redacted>") {
+		t.Fatalf("通知错误日志缺少可诊断的脱敏来源: %s", notificationLog.String())
 	}
 	// invalidChannelRecorder 保存渠道 ID 解析错误。
 	invalidChannelRecorder := httptest.NewRecorder()

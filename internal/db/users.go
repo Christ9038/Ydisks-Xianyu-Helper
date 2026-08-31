@@ -125,15 +125,41 @@ func (u *Users) VerifyAndUpgrade(ctx context.Context, username, plainPassword st
 		return nil, false, err
 	}
 	if needsUpgrade {
-		// 静默升级到 bcrypt。
-		if hash, e := HashPassword(plainPassword); e == nil {
-			_, _ = u.DB.ExecContext(ctx,
-				`UPDATE users SET password_hash=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
-				hash, user.ID)
-			user.PasswordHash = hash
+		if // upgradeErr 保存旧哈希升级失败或并发改密冲突。
+		upgradeErr := u.upgradeLegacyPassword(ctx, user, plainPassword); upgradeErr != nil {
+			return nil, false, upgradeErr
 		}
 	}
 	return user, true, nil
+}
+
+// upgradeLegacyPassword 使用比较并交换语义把已验证的旧 SHA-256 摘要升级为 bcrypt，避免并发改密被旧密码覆盖。
+// ctx 控制哈希写入生命周期；user 携带刚验证的旧摘要；plainPassword 仅用于生成新摘要；返回值不包含明文或摘要。
+func (u *Users) upgradeLegacyPassword(ctx context.Context, user *User, plainPassword string) error {
+	// expectedHash 保存刚完成密码验证的旧摘要，用作并发更新条件。
+	expectedHash := user.PasswordHash
+	// upgradedHash、hashErr 保存新 bcrypt 摘要及生成错误。
+	upgradedHash, hashErr := HashPassword(plainPassword)
+	if hashErr != nil {
+		return fmt.Errorf("升级旧密码哈希: %w", hashErr)
+	}
+	// result、updateErr 保存比较并交换写入结果和数据库错误。
+	result, updateErr := u.DB.ExecContext(ctx,
+		`UPDATE users SET password_hash=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND password_hash=?`,
+		upgradedHash, user.ID, expectedHash)
+	if updateErr != nil {
+		return fmt.Errorf("保存升级后的密码哈希: %w", updateErr)
+	}
+	// affected、affectedErr 保存实际更新行数及驱动读取错误。
+	affected, affectedErr := result.RowsAffected()
+	if affectedErr != nil {
+		return fmt.Errorf("确认密码哈希升级结果: %w", affectedErr)
+	}
+	if affected != 1 {
+		return ErrPasswordMismatch
+	}
+	user.PasswordHash = upgradedHash
+	return nil
 }
 
 // UpdatePassword 更新密码（bcrypt）。返回是否找到用户。

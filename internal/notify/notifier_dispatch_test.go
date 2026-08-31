@@ -36,6 +36,8 @@ type scriptedOutboxRepository struct {
 	retryResult bool
 	// retryErr 保存重试状态更新故障。
 	retryErr error
+	// retryLastError 保存最近一次准备持久化的安全错误文本。
+	retryLastError string
 	// retryPermanent 保存最近一次重试是否达到永久失败上限。
 	retryPermanent bool
 	// retryNextAttemptAt 保存最近一次计算出的重试时间戳。
@@ -86,8 +88,9 @@ func (r *scriptedOutboxRepository) MarkOutboxUncertain(context.Context, int64, s
 }
 
 // RetryOutbox 记录发送失败重试调用，便于断言发送成功不会进入重试。
-func (r *scriptedOutboxRepository) RetryOutbox(_ context.Context, _ int64, _ string, _ string, nextAttemptAt int64, permanent bool) (bool, error) {
+func (r *scriptedOutboxRepository) RetryOutbox(_ context.Context, _ int64, _ string, lastError string, nextAttemptAt int64, permanent bool) (bool, error) {
 	r.retryCalls++
+	r.retryLastError = lastError
 	r.retryNextAttemptAt = nextAttemptAt
 	r.retryPermanent = permanent
 	return r.retryResult, r.retryErr
@@ -630,12 +633,17 @@ func TestNotifierOutboxRetryBranches(t *testing.T) {
 
 	// repository.pending 保存发送失败消息，使用不可用 webhook 覆盖发送错误重试。
 	repository.channelErr = nil
-	repository.channel = &db.NotificationChannel{ID: 4, Type: "webhook", Config: `{"webhook_url":"http://127.0.0.1:1"}`}
+	// webhookSecret 是故意放在 URL 路径中的模拟渠道秘密，必须在 outbox 持久化前被移除。
+	const webhookSecret = "review-webhook-secret"
+	repository.channel = &db.NotificationChannel{ID: 4, Type: "webhook", Config: `{"webhook_url":"http://127.0.0.1:1/` + webhookSecret + `"}`}
 	repository.pending = []db.NotificationOutboxMessage{{ID: 4, ChannelID: 4, Body: "body", AttemptCount: 10}}
 	repository.retryErr = errors.New("重试状态写入失败")
 	notifier.drainOutbox(context.Background())
 	if repository.retryCalls != 2 || !repository.retryPermanent {
 		t.Fatalf("permanent retry calls=%d permanent=%v", repository.retryCalls, repository.retryPermanent)
+	}
+	if strings.Contains(repository.retryLastError, webhookSecret) || !strings.Contains(repository.retryLastError, "http://127.0.0.1:1/<redacted>") {
+		t.Fatalf("outbox 重试错误未安全持久化: %s", repository.retryLastError)
 	}
 
 	// repository.pending 保存领取故障，覆盖 ClaimOutbox 错误返回路径。

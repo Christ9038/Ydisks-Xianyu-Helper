@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	notificationsapp "xianyu-go/internal/application/notifications"
+	"xianyu-go/internal/logsafe"
 )
 
 // notificationChannelCreateRequest 是创建通知渠道的具名 HTTP 请求 DTO；Config 只写入应用端口。
@@ -211,7 +212,10 @@ func (s *Server) testChannel(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusForbidden, "无权操作该通知渠道")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "发送失败: "+err.Error())
+		if s.Logger != nil {
+			s.Logger.Warn("通知渠道测试发送失败", "channel_id", id, "err", logsafe.ExternalError(err))
+		}
+		writeErr(w, http.StatusInternalServerError, "发送失败，请检查渠道配置和网络")
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
