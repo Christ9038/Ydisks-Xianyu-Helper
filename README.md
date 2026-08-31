@@ -62,13 +62,14 @@ Ydisks 支持管理渠道、推广账号、原始链接、推广短链与域名�
 
 | 模块 | 能力 |
 | --- | --- |
-| 账号管理 | 多账号启停、扫码登录、密码登录、资料刷新、在线状态、登录审计与备注管理 |
+| 账号管理 | 多账号启停、扫码登录、资料刷新、在线状态、登录审计与备注管理；密码登录兼容接口已禁用 |
 | 凭证续期 | Cookie/token 定时续期、WebSocket 凭证更新、失效恢复、冷却与失败停用 |
 | 即时消息 | 按账号隔离的在线聊天、会话列表与历史消息、闲鱼表情、文本/图片收发、官方系统消息识别、关键词回复、默认回复及仅回复一次 |
-| 自动化中心 | 付款后自动发货、评价后赠品、超时未评价提醒、失败任务恢复与幂等检查点 |
+| 自动化中心 | 拍下未付款自动改价、付款后自动发货、评价后赠品、超时未评价提醒、失败任务恢复与幂等检查点 |
 | 账号自动任务 | 账号级持续扫描待评价订单并统一好评、按北京时间每日擦亮、手动立即执行、执行记录与幂等保护 |
-| 卡密库存 | 文本、批量卡密和图片三种交付类型，库存追加、批量导入、规格与延迟发送 |
-| 商品管理 | 商品同步、手工关联、单商品发布、CSV + ZIP 批量铺货、关键词获取默认类目、逐行类目优先、自动识别与“电子资料”最终兜底、任务恢复与结果导出 |
+| 卡密库存 | 文本、批量卡密、图片和 API 四种交付类型，库存追加、批量导入、规格与延迟发送 |
+| 商品管理 | 商品同步、手工关联、单商品发布、CSV/XLSX/TSV 与可选 ZIP 批量铺货、关键词获取默认类目、逐行类目优先、自动识别与“电子资料”最终兜底、任务恢复与结果导出 |
+| 发货模板 | 多条顺序消息、订单/买家/卡密/自定义变量和可复用的自动化发货内容 |
 | 订单管理 | 订单同步、插入、编辑、平台发货、补发卡密、仅确认发货及异常状态处理 |
 | AI 回复 | OpenAI 兼容 API、模型发现、自定义提示词、议价轮次和让价范围控制 |
 | 数据看板 | 活跃账号、订单、营收、库存、商品销量与金额统计 |
@@ -99,7 +100,7 @@ flowchart LR
 - `internal/xianyu`：登录协议、Cookie、MTOP、WebSocket 和消息协议
 - `internal/engine`：单账号生命周期、消息处理、回复与交付行为
 - `internal/automation`：发货、评价赠品、求评价和任务调度
-- `internal/browser`：Chromium 指纹读取
+- `internal/browser`：Chromium 自动化、浏览器指纹读取与 token 滑块等浏览器相关能力
 - `internal/db`：多数据库访问、敏感字段加密和嵌入式迁移
 - `internal/server`：HTTP/SPA transport、管理端鉴权和前端静态资源
 
@@ -215,7 +216,7 @@ Windows 和 macOS 托盘启动时会自动启动后台服务，并显示检查�
 `/var/log/ydisks-xianyu-helper/server.log`，也可以使用
 `journalctl -u ydisks-xianyu-helper.service` 查看。
 
-桌面端安装包由 `.github/workflows/desktop-cd.yml` 在 `dev`、`main` 分支上持续构建；正式版本由统一的
+桌面端安装包由 `.github/workflows/desktop-cd.yml` 在 `dev` 分支上持续构建；正式版本由统一的
 `.github/workflows/release.yml` 在 `v1.2.3` 格式的版本标签上协调构建：
 Linux 上传 amd64/arm64 tar 包，Windows 上传安装器，macOS 分别上传 arm64 和 amd64 安装包。
 分支构建只保留非正式 Actions artifacts；版本标签必须指向 `main` 中的提交，全部桌面端和 Docker
@@ -302,7 +303,7 @@ go run ./cmd/server -db data/xianyu_data.db -addr :59188
 go run ./cmd/server -db data/xianyu_data.db -addr :59188 -no-browser
 ```
 
-此模式仍可运行管理后台，但由于缺少UA，无法登陆账号。
+此模式仍可运行管理后台和不依赖 Chromium 的功能；浏览器指纹读取、token 滑块自动处理等浏览器相关能力不可用。
 
 ## 初次使用
 
@@ -316,8 +317,7 @@ go run ./cmd/server -db data/xianyu_data.db -addr :59188 -no-browser
 8. 在“账号管理 → 自动评价与每日擦亮”按账号配置统一评价文案、评价开关和擦亮时间；确认测试账号行为后再启用。
 9. 按需配置关键词回复、默认回复、AI 回复和通知渠道。
 
-扫码登录是推荐方式。密码登录适合已有明确需求的环境，但更容易触发平台安全校验。
-无论使用哪种方式，都不要把 Cookie、密码、二维码或人脸验证地址分享给不可信第三方。
+当前 Go 客户端仅支持扫码登录，密码登录兼容接口已禁用。不要把 Cookie、密码、二维码或人脸验证地址分享给不可信第三方。
 
 ## 配置说明
 
@@ -365,8 +365,7 @@ Docker Compose 还支持：
 
 默认 `compose.yml` 直接拉取 GHCR 的 `:latest` 多架构镜像；如需固定版本，请把
 `XIANYU_IMAGE` 设置为完整镜像地址，例如
-`ghcr.io/christ9038/ydisks-xianyu-helper:v1.2.3`、
-`ghcr.io/christ9038/ydisks-xianyu-helper:main` 或
+`ghcr.io/christ9038/ydisks-xianyu-helper:v1.2.3` 或
 `ghcr.io/christ9038/ydisks-xianyu-helper:sha-<完整提交号>`。
 
 `XIANYU_DATA_KEY` 用于加密 Cookie、账号密码、设备令牌、访问令牌、AI/SMTP 密钥和
@@ -387,7 +386,7 @@ Docker Compose 还支持：
 | `-playwright-browser-dir` | 空 | Playwright 浏览器缓存目录，会设置为当前进程的 browser 路径 |
 | `-data-key-file` | 空 | `XIANYU_DATA_KEY` 持久化文件；文件不存在时自动生成 |
 | `-secure` | `false` | 为管理端 Cookie 添加 `Secure` 属性，HTTPS 部署应启用 |
-| `-no-browser` | `false` | 禁用 Chromium 指纹读取 |
+| `-no-browser` | `false` | 禁用 Chromium；浏览器指纹读取和 token 滑块自动处理不可用 |
 | `-log-level` | 环境变量或系统设置 | 覆盖日志等级 |
 | `-log-format` | 环境变量或系统设置 | 覆盖日志格式 |
 | `-v` | `false` | 启用调试日志，等价于未显式配置时使用 debug |
@@ -421,6 +420,7 @@ DATABASE_URL="postgres://user:pass@127.0.0.1:5432/xianyu?sslmode=disable" ./xian
 - **账号设置**：启停状态、备注、通知渠道绑定和单账号 AI 回复策略
 - **账号自动任务**：自动评价开关、统一好评文案（最多 500 个字符）、每日擦亮开关、北京时间执行时间和最近执行记录
 - **自动化规则**：触发条件、商品、规格、卡密组、发送数量、延迟和后续动作
+- **发货模板**：多条顺序消息、订单/买家/卡密/自定义变量；仅可用于付款发货或评价赠品
 - **回复规则**：关键词、文本或图片回复、默认回复及回复次数限制
 - **AI 设置**：OpenAI 兼容 API 地址、API Key、模型和全局提示词
 - **议价策略**：最大折扣比例、最大折扣金额和最多议价轮次
@@ -452,10 +452,10 @@ ARM64 Linux 拉取 arm64，不需要手动设置 `platform`。
 | Git 引用 | 镜像标签 |
 | --- | --- |
 | `dev` 分支 | `dev`、`sha-<完整提交号>` |
-| `main` 分支 | `main`、`sha-<完整提交号>` |
 | `v1.2.3` 标签 | `v1.2.3`、`1.2.3`、`1.2`、`latest`、`sha-<完整提交号>` |
 
-`dev` 是日常调试通道，`main` 是稳定候选通道，两者都不会更新 `latest` 或创建 Release。推送
+当前 Docker 工作流的分支 push 入口只有 `dev`；`dev` 是日常调试通道，生成 `dev` 和完整提交号 SHA 标签。
+`main` 不会触发该工作流的分支镜像构建，但仍是正式版本标签的基准分支。推送
 `v1.2.3` 格式的 Git 标签会触发统一正式发布流程。所有 Docker 发布都必须先通过 Go/前端测试，
 再对每个原生架构镜像实际启动 Chromium 和服务并通过 `/health` 检查；正式版还必须等全部桌面
 安装包构建成功并通过人工审批，之后才生成版本 manifest、更新 `latest` 并创建 GitHub Release。
@@ -599,7 +599,7 @@ services:
 │   ├── application/      # 用例编排、事务与补偿
 │   ├── adapter/          # 业务模块接线层
 │   ├── automation/       # 自动化中心与调度器
-│   ├── browser/          # Chromium 指纹验证
+│   ├── browser/          # Chromium 自动化、指纹与 token 滑块能力
 │   ├── composition/      # 唯一生产组合根
 │   ├── db/               # 数据访问、加密与迁移
 │   ├── engine/           # 单账号消息和交付运行时
