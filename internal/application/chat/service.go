@@ -161,12 +161,33 @@ type Page struct {
 	HasMore bool
 }
 
+// SessionCursor 是聊天会话本地键集分页的应用层排序键。
+// 它只包含非敏感的展示排序字段，可由 HTTP 传输层编码为不透明游标。
+type SessionCursor struct {
+	// LastMessageAt 是上一页最后一条会话的最后消息毫秒时间戳。
+	LastMessageAt int64
+	// ChatID 是同一时间戳下保证排序稳定的会话标识。
+	ChatID string
+}
+
+// SessionPage 是聊天会话本地分页的应用层结果。
+type SessionPage struct {
+	// Sessions 是当前页经过用户归属隔离的会话摘要。
+	Sessions []Session
+	// HasMore 表示本地缓存中是否仍有下一页。
+	HasMore bool
+	// NextCursor 是下一页使用的键集排序键；没有下一页时为 nil。
+	NextCursor *SessionCursor
+}
+
 // Repository 定义聊天历史用例需要的最小持久化能力。
 type Repository interface {
 	// ListMessages 按用户归属查询指定账号和会话的消息。
 	ListMessages(ctx context.Context, userID int64, accountID, chatID string, beforeID int64, limit int) ([]Message, error)
 	// ListSessions 按用户归属查询账号的会话摘要。
 	ListSessions(ctx context.Context, userID int64, accountID string, limit int) ([]Session, error)
+	// ListSessionPage 按用户归属读取账号本地会话的稳定键集分页页面。
+	ListSessionPage(ctx context.Context, userID int64, accountID string, cursor *SessionCursor, limit int) (SessionPage, error)
 }
 
 // SessionRepository 定义会话列表之外的清理、身份写入和账号归属能力。
@@ -260,6 +281,23 @@ func (s *Service) ListSessions(ctx context.Context, userID int64, accountID stri
 		return nil, err
 	}
 	return sessions, nil
+}
+
+// ListSessionPage 查询当前用户有权访问的账号本地会话键集分页结果。
+func (s *Service) ListSessionPage(ctx context.Context, userID int64, accountID string, cursor *SessionCursor, limit int) (SessionPage, error) {
+	accountID = strings.TrimSpace(accountID)
+	if s == nil || s.repository == nil || userID <= 0 || accountID == "" {
+		return SessionPage{}, ErrInvalidInput
+	}
+	if cursor != nil && strings.TrimSpace(cursor.ChatID) == "" {
+		return SessionPage{}, ErrInvalidInput
+	}
+	// page 和 pageErr 保存归属过滤后的本地会话页面及其查询错误。
+	page, pageErr := s.repository.ListSessionPage(ctx, userID, accountID, cursor, limit)
+	if pageErr != nil {
+		return SessionPage{}, pageErr
+	}
+	return page, nil
 }
 
 // FindSession 查询指定账号下的单个会话；找不到时返回零值且不视为错误。

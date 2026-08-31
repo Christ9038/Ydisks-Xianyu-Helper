@@ -65,6 +65,37 @@ func (r chatRepository) ListSessions(ctx context.Context, userID int64, accountI
 	return sessions, nil
 }
 
+// ListSessionPage 查询带用户归属条件的本地会话键集分页，并转换为应用层模型。
+func (r chatRepository) ListSessionPage(ctx context.Context, userID int64, accountID string, cursor *chatapp.SessionCursor, limit int) (chatapp.SessionPage, error) {
+	// databaseCursor 保存转换为数据库排序键后的分页位置；空指针表示读取首页。
+	var databaseCursor *db.ChatSessionCursor
+	if cursor != nil {
+		databaseCursor = &db.ChatSessionCursor{LastMessageAt: cursor.LastMessageAt, ChatID: cursor.ChatID}
+	}
+	// databasePage 和 pageErr 保存数据库分页结果及查询错误。
+	databasePage, pageErr := r.store.Chats.ListSessionPage(ctx, userID, accountID, databaseCursor, limit)
+	if pageErr != nil {
+		return chatapp.SessionPage{}, pageErr
+	}
+	// sessions 保存脱离数据库模型的应用层会话摘要。
+	sessions := make([]chatapp.Session, 0, len(databasePage.Sessions))
+	// row 表示当前待转换的数据库聊天会话。
+	for _, row := range databasePage.Sessions {
+		sessions = append(sessions, chatapp.Session{
+			AccountID: row.CookieID, ChatID: row.ChatID, BuyerID: row.BuyerID,
+			BuyerName: row.BuyerName, BuyerAvatar: row.BuyerAvatar, ItemID: row.ItemID,
+			ItemTitle: row.ItemTitle, ItemImageURL: row.ItemImageURL, LastMessage: row.LastMessage, LastMessageAt: row.LastMessageAt,
+			UnreadCount: row.UnreadCount,
+		})
+	}
+	// nextCursor 保存转换后的下一页应用层排序键；末页保持 nil。
+	var nextCursor *chatapp.SessionCursor
+	if databasePage.NextCursor != nil {
+		nextCursor = &chatapp.SessionCursor{LastMessageAt: databasePage.NextCursor.LastMessageAt, ChatID: databasePage.NextCursor.ChatID}
+	}
+	return chatapp.SessionPage{Sessions: sessions, HasMore: databasePage.HasMore, NextCursor: nextCursor}, nil
+}
+
 // DeleteEmptySessions 删除没有有效消息的聊天会话壳。
 func (r chatRepository) DeleteEmptySessions(ctx context.Context, accountID string) error {
 	return r.store.Chats.DeleteEmptySessions(ctx, accountID)

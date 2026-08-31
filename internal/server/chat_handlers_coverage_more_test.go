@@ -174,6 +174,11 @@ func (port *chatHandlerCoveragePort) ListSessions(context.Context, int64, string
 	return port.listSessionsResult, port.listSessionsErr
 }
 
+// ListSessionPage 返回测试配置的本地会话键集分页结果。
+func (port *chatHandlerCoveragePort) ListSessionPage(context.Context, int64, string, *chatapp.SessionCursor, int) (chatapp.SessionPage, error) {
+	return chatapp.SessionPage{Sessions: port.listSessionsResult}, port.listSessionsErr
+}
+
 // RefreshSessionIdentities 返回测试配置的会话身份补全结果。
 func (port *chatHandlerCoveragePort) RefreshSessionIdentities(context.Context, string, []chatapp.Session) ([]chatapp.Session, error) {
 	return port.refreshIdentitiesResult, port.refreshIdentitiesErr

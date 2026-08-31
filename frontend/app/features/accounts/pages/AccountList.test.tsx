@@ -200,7 +200,7 @@ describe('AccountList 页面组合行为', /* 当前回调验证账号列表页�
     expect(screen.getByText('waiting')).toBeTruthy();
 
     await accountListMocks.pollCallbacks?.onSuccess();
-    expect(accountListMocks.completeQRVerification).toHaveBeenCalledWith('session-1', undefined);
+    expect(accountListMocks.completeQRVerification).toHaveBeenCalledWith('session-1', undefined, expect.objectContaining({ signal: expect.any(AbortSignal) }));
     await waitFor(/* successAssertion 等待二维码成功状态渲染。 */ () => expect(screen.getByText('success')).toBeTruthy());
     await waitFor(/* reloadAssertion 等待成功后的账号列表刷新。 */ () => expect(accountListMocks.loadAccounts).toHaveBeenCalled(), { timeout: 2_000 });
   });

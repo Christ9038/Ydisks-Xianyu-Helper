@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"strconv"
 	"time"
 )
@@ -119,6 +120,8 @@ func (service *BatchRecoveryService) recoverWithStarter(ctx context.Context, sta
 	if err != nil {
 		return err
 	}
+	// recoveryErrors 保存扫描期间可观测但不阻断其他批次恢复的收口错误。
+	var recoveryErrors []error
 	// batch 表示当前待接管的批次快照。
 	for _, batch := range batches {
 		if ctx.Err() != nil {
@@ -157,7 +160,13 @@ func (service *BatchRecoveryService) recoverWithStarter(ctx context.Context, sta
 			continue
 		}
 		if len(pending) == 0 {
-			_, _, _ = service.repository.FinalizeBatch(ctx, batch.ID, workerToken)
+			// finalStatus、finished 和 finalizeErr 保存空批次终态收口结果；失败后仍继续扫描其他批次。
+			_, finished, finalizeErr := service.repository.FinalizeBatch(ctx, batch.ID, workerToken)
+			if finalizeErr != nil {
+				recoveryErrors = append(recoveryErrors, fmt.Errorf("恢复收口空批次 %s: %w", batch.ID, finalizeErr))
+			} else if !finished {
+				recoveryErrors = append(recoveryErrors, fmt.Errorf("恢复收口空批次 %s: %w", batch.ID, ErrBatchLeaseLost))
+			}
 			continue
 		}
 		// startErr 保存生命周期协调器启动 worker 时的错误。
@@ -165,7 +174,7 @@ func (service *BatchRecoveryService) recoverWithStarter(ctx context.Context, sta
 			service.releaseClaimedBatch(ctx, batch.ID, workerToken)
 		}
 	}
-	return nil
+	return errors.Join(recoveryErrors...)
 }
 
 // releaseClaimedBatch 在恢复初始化失败时释放当前 worker 的批次租约。

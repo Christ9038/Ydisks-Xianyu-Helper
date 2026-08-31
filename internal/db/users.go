@@ -254,9 +254,15 @@ func (u *Users) Delete(ctx context.Context, userID int64) error {
 		}
 		cookieIDs = append(cookieIDs, cookieID)
 	}
-	if // err 用于本次流程后续判断的err
-	err := rows.Close(); err != nil {
-		return err
+	// iterationErr 保存数据库驱动在遍历 Cookie 行流结束时报告的错误；出现时禁止继续执行关联删除。
+	iterationErr := rows.Err()
+	// closeErr 保存关闭 Cookie 行流释放数据库资源时的错误。
+	closeErr := rows.Close()
+	if iterationErr != nil {
+		return iterationErr
+	}
+	if closeErr != nil {
+		return closeErr
 	}
 	// 旧 schema 中这些外键没有 ON DELETE CASCADE，必须显式清理。
 	for _, query := range []string{

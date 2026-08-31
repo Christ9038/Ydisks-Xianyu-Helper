@@ -80,6 +80,10 @@ export const useSettings = (): UseSettingsResult => {
   const requestSequence = useRef(0);
   // requestController 保存当前可取消的设置请求。
   const requestController = useRef<AbortController | null>(null);
+  // modelRequestSequence 隔离模型发现的旧响应，防止其覆盖新配置对应的列表。
+  const modelRequestSequence = useRef(0);
+  // modelRequestController 保存当前模型发现请求的专属取消控制器。
+  const modelRequestController = useRef<AbortController | null>(null);
 
   // settingsRef 保存最新配置，供稳定的模型加载回调读取。
   settingsRef.current = settings;
@@ -95,37 +99,57 @@ export const useSettings = (): UseSettingsResult => {
     return { controller, sequence: requestSequence.current };
   }, []);
 
+  /** 取消旧模型发现并创建当前唯一有效的模型发现请求。 */
+  const beginModelRequest = useCallback(/* 当前回调封装模型发现独立代次和取消生命周期。 */ () => {
+    modelRequestController.current?.abort();
+    // controller 保存本次模型发现请求的独立取消控制器。
+    const controller = new AbortController();
+    modelRequestController.current = controller;
+    modelRequestSequence.current += 1;
+    return { controller, sequence: modelRequestSequence.current };
+  }, []);
+
+  /** 使当前模型发现请求失效并停止其网络活动。 */
+  const cancelModelRequest = useCallback(/* 当前回调用于设置刷新和组件卸载时终止旧模型请求。 */ () => {
+    modelRequestSequence.current += 1;
+    modelRequestController.current?.abort();
+    modelRequestController.current = null;
+  }, []);
+
   // loadAIModels 加载当前数据（AIModels）。
-  const loadAIModels = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ async (source?: SystemSettings | null, openAfterLoad = false, signal?: AbortSignal) => {
+  const loadAIModels = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ async (source?: SystemSettings | null, openAfterLoad = false) => {
     // current 是本次模型发现使用的配置快照。
     const current = source || settingsRef.current;
     // baseUrl 是兼容模型发现接口的服务地址。
     const baseUrl = current?.ai_api_url || current?.ai_base_url || DEFAULT_AI_API_URL;
+	// request 保存本次模型发现独立的代次和取消控制器。
+	const request = beginModelRequest();
     setModelsLoading(true);
     setModelError('');
     try {
       // models 模型列表。
-      const models = await fetchAIModels(baseUrl, current?.ai_api_key || '', { signal });
-      if (signal?.aborted) return;
+      const models = await fetchAIModels(baseUrl, current?.ai_api_key || '', { signal: request.controller.signal });
+      if (!isCurrentSettingsRequest(modelRequestSequence.current, request.sequence, request.controller.signal)) return;
       setAiModels(models);
       setModelDropdownOpen(openAfterLoad && models.length > 0);
       if (!current?.ai_model && models.length > 0) {
         setSettings(/* 当前回调处理用户交互或异步状态变化。 */ previous => previous ? { ...previous, ai_model: models[0] } : previous);
       }
     } catch (/* error 保存模型发现请求的失败原因；取消请求不会进入页面错误状态。 */ error) {
-      if (signal?.aborted || isSettingsAbortError(error)) return;
+      if (!isCurrentSettingsRequest(modelRequestSequence.current, request.sequence, request.controller.signal) || isSettingsAbortError(error)) return;
       setAiModels([]);
       setModelDropdownOpen(false);
       setModelError(settingsErrorMessage(error, '读取模型失败'));
     } finally {
-      if (!signal?.aborted) setModelsLoading(false);
+      if (isCurrentSettingsRequest(modelRequestSequence.current, request.sequence, request.controller.signal)) setModelsLoading(false);
     }
-  }, []);
+  }, [beginModelRequest]);
 
   // loadSettings 加载当前数据（设置）。
   const loadSettings = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ () => {
     // request 是本次设置读取的代次与控制器。
     const { controller, sequence } = beginRequest();
+    cancelModelRequest();
     setLoading(true);
     setRequestStatus('loading');
     setLoadError('');
@@ -136,7 +160,7 @@ export const useSettings = (): UseSettingsResult => {
       if (!isCurrentSettingsRequest(requestSequence.current, sequence, controller.signal)) return;
       setSettings(data);
       if (session.username) setCredentials(/* 当前回调处理用户交互或异步状态变化。 */ previous => ({ ...previous, new_username: session.username || '' }));
-      void loadAIModels(data, false, controller.signal);
+      void loadAIModels(data, false);
       setRequestStatus('success');
     }).catch(/* 当前回调处理用户交互或异步状态变化。 */ error => {
       if (!isCurrentSettingsRequest(requestSequence.current, sequence, controller.signal) || isSettingsAbortError(error)) return;
@@ -146,12 +170,12 @@ export const useSettings = (): UseSettingsResult => {
     }).finally(/* 当前回调处理用户交互或异步状态变化。 */ () => {
       if (isCurrentSettingsRequest(requestSequence.current, sequence, controller.signal)) setLoading(false);
     });
-  }, [beginRequest, loadAIModels]);
+  }, [beginRequest, cancelModelRequest, loadAIModels]);
 
   useEffect(/* 当前回调同步 React 副作用和资源生命周期。 */ () => {
     loadSettings();
-    return /* 当前回调处理用户交互或异步状态变化。 */ () => requestController.current?.abort();
-  }, [loadSettings]);
+    return /* 当前回调处理用户交互或异步状态变化。 */ () => { requestController.current?.abort(); cancelModelRequest(); };
+  }, [cancelModelRequest, loadSettings]);
 
   useEffect(/* 当前回调同步 React 副作用和资源生命周期。 */ () => {
     // handlePointerDown 负责点击模型选择器外部时关闭下拉框。

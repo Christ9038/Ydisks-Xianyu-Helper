@@ -17,7 +17,7 @@ const Chat: React.FC = () => {
   const {
     accounts, activeAccountID, activeChatID, activeAccount, selectedSession, filteredSessions,
     messages, search, unreadOnly, draft, loading, messagesLoading, olderLoading, hasOlder, contactsLoading,
-    hasMoreContacts, emojiOpen, sending, error, liveState, pendingImage, scrollRef, imageInputRef, setActiveAccountID,
+    hasMoreContacts, emojiOpen, sending, error, sendNotice, liveState, pendingImage, scrollRef, imageInputRef, setActiveAccountID,
     setActiveChatID, setSearch, setUnreadOnly, setDraft, setEmojiOpen, reloadSessions, loadMoreContacts,
     loadOlderMessages, handleMessageScroll, handleSend, handleQuickReply, handleImage, handlePastedImages, confirmSendImage, closeImagePreview, retrySend, retryAvailable,
     unreadForAccount, emojiURL, xianyuEmojis, renderXianyuText, formatClock, messageTime,
@@ -202,6 +202,7 @@ const Chat: React.FC = () => {
                   </>}
                 </div>
                 {error && <div className="flex items-center justify-between gap-3 border-t border-red-100 bg-red-50 px-5 py-2 text-xs font-medium text-red-700"><span>{error}</span>{retryAvailable && <button type="button" className="font-bold underline" onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => void retrySend()}>重试发送</button>}</div>}
+                {sendNotice && <div className="border-t border-amber-100 bg-amber-50 px-5 py-2 text-xs font-medium text-amber-800">{sendNotice}</div>}
                 <div className="relative z-10 shrink-0 border-t border-slate-200 bg-white p-4 shadow-chat-input">
                   <div className="mb-2 flex items-center gap-1">
                     <div className="relative">

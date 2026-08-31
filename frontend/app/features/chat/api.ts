@@ -8,6 +8,7 @@ OperationResponse
 } from './models';
 import { contractClient, contractMultipartBody, runContractRequest } from '../../../shared/api-contract/client';
 import { type RequestControlOptions } from '../../../shared/http/client';
+import { ApiError } from '../../../shared/http/client';
 export type * from './models';
 import type { ChatReadReceipt } from './types';
 
@@ -34,14 +35,14 @@ export const getAccountDetails = async (options?: RequestControlOptions): Promis
 /** 聊天运行提示读取账号连接状态索引。 */
 export const getAccountRuntimeStatuses = async (options?: RequestControlOptions): Promise<Record<string, { /** 当前连接状态。 */ state: NonNullable<AccountDetail['runtime_state']>; /** 状态说明。 */ message?: string; /** 是否已连接。 */ connected: boolean; /** 连续失败次数。 */ failures: number; /** 最近更新时间。 */ updated_at: string }>> =>
   runContractRequest(/* signal 是本次聊天运行状态请求的超时与取消控制信号。 */ signal => contractClient.GET('/api/v1/accounts/runtime-status', { signal }), options);
-export interface ChatSessionPage { /** sessions 表示聊天会话列表。 */ sessions: ChatSession[]; /** has_more 表示是否存在更多数据。 */ has_more: boolean; /** next_cursor 表示下一页游标。 */ next_cursor?: number }
+export interface ChatSessionPage { /** sessions 表示聊天会话列表。 */ sessions: ChatSession[]; /** has_more 表示任一分页来源仍有更多数据。 */ has_more: boolean; /** next_cursor 表示下一平台页游标。 */ next_cursor?: number; /** next_stored_cursor 表示下一本地缓存页游标。 */ next_stored_cursor?: string; /** platform_has_more 表示平台联系人是否仍有下一页；旧响应缺失时回退 has_more。 */ platform_has_more?: boolean; /** stored_has_more 表示本地缓存联系人是否仍有下一页；旧响应缺失时回退 has_more。 */ stored_has_more?: boolean }
 
 // getChatSessionPage 分页读取聊天会话。
-export const getChatSessionPage = async (accountId: string, cursor?: number, options?: RequestControlOptions, refresh = false): Promise<ChatSessionPage> => {
+export const getChatSessionPage = async (accountId: string, cursor?: number, options?: RequestControlOptions, refresh = false, storedCursor?: string): Promise<ChatSessionPage> => {
 	// result 接口响应结果，用于当前 API 处理流程。
 	const response = await runContractRequest(
     /* signal 是本次聊天会话分页请求的超时与取消控制信号。 */ signal => contractClient.GET('/api/v1/chat/sessions', {
-      params: { query: { account_id: accountId, cursor, refresh: refresh ? 1 : undefined } },
+      params: { query: { account_id: accountId, cursor, stored_cursor: storedCursor, refresh: refresh ? 1 : undefined } },
       signal,
     }),
 		{ timeoutMs: refresh ? 60_000 : options?.timeoutMs, signal: options?.signal },
@@ -52,6 +53,28 @@ export const getChatSessionPage = async (accountId: string, cursor?: number, opt
 // getChatSessions 读取聊天会话列表。
 export const getChatSessions = async (accountId: string, options?: RequestControlOptions): Promise<ChatSession[]> =>
 	(await getChatSessionPage(accountId, undefined, options)).sessions;
+
+/** 判断未知值是否满足聊天消息展示模型的全部必填字段。 */
+const isChatMessage = (value: unknown): value is ChatMessage => {
+  if (!value || typeof value !== 'object') return false;
+  // candidate 保存待验证的未知错误详情字段。
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate.id === 'number' && typeof candidate.account_id === 'string' && typeof candidate.chat_id === 'string'
+    && typeof candidate.message_key === 'string' && (candidate.direction === 'incoming' || candidate.direction === 'outgoing')
+    && typeof candidate.sender_id === 'string' && typeof candidate.sender_name === 'string'
+    && ['text', 'image', 'video', 'audio', 'system'].includes(String(candidate.message_type))
+    && typeof candidate.content === 'string' && ['received', 'sending', 'sent', 'failed'].includes(String(candidate.status))
+    && typeof candidate.sent_at === 'number';
+};
+
+/** 从“远端已发送但状态收口失败”错误中提取不可重试的外发消息。 */
+export const confirmedOutgoingMessageFromError = (error: unknown): ChatMessage | undefined => {
+  if (!(error instanceof ApiError) || error.code !== 'chat_send_status_save_failed') return undefined;
+  // outgoingMessage 保存后端统一错误详情中的 snake_case 消息 DTO。
+  const outgoingMessage = error.details?.outgoing_message;
+  if (!isChatMessage(outgoingMessage)) return undefined;
+  return { ...outgoingMessage, status: 'sent' };
+};
 
 export interface ChatMessagePage {
 	/** messages 表示聊天消息列表。 */ messages: ChatMessage[];

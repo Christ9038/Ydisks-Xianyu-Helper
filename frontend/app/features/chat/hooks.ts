@@ -2,9 +2,9 @@ import type React from 'react';
 import { useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState } from 'react';
 import { emojiURL,renderXianyuText,xianyuEmojis } from '../../../chatEmojis';
 import type { AccountDetail,ChatMessage,ChatSession } from './api';
-import { getAccountDetails,getAccountRuntimeStatuses,getChatMessagePage,getChatSessionPage,markChatRead,sendChatImage,sendChatMessage } from './api';
+import { confirmedOutgoingMessageFromError,getAccountDetails,getAccountRuntimeStatuses,getChatMessagePage,getChatSessionPage,markChatRead,sendChatImage,sendChatMessage } from './api';
 import { publishChatUnreadStatus,subscribeToChatLiveEvents } from './liveEvents';
-import { collectChatReadReceipts,filterChatSessions,formatClock,isChatAbortError,isCurrentChatRequest,markOutgoingMessagesReadByIncoming,mergeLiveMessage,mergeOlderMessages,messageTime } from './state';
+import { collectChatReadReceipts,filterChatSessions,formatClock,isChatAbortError,isCurrentChatRequest,markOutgoingMessagesReadByIncoming,mergeChatSessions,mergeLiveMessage,mergeOlderMessages,messageTime } from './state';
 import type { ChatFeatureState,ChatLiveState,SessionsByAccount } from './types';
 
 /** PendingImagePreview 描述等待用户确认的本地图片预览及其资源所有权。 */
@@ -109,6 +109,12 @@ export const useChat = (): UseChatResult => {
   const [historyCursor, setHistoryCursor] = useState<number | undefined>();
   // contactCursors 保存各账号联系人分页游标。
   const [contactCursors, setContactCursors] = useState<Record<string, number | undefined>>({});
+  // storedContactCursors 保存各账号本地联系人键集分页游标。
+  const [storedContactCursors, setStoredContactCursors] = useState<Record<string, string | undefined>>({});
+  // platformHasMoreContacts 保存各账号平台联系人分页是否仍有下一页。
+  const [platformHasMoreContacts, setPlatformHasMoreContacts] = useState<Record<string, boolean>>({});
+  // storedHasMoreContacts 保存各账号本地缓存联系人分页是否仍有下一页。
+  const [storedHasMoreContacts, setStoredHasMoreContacts] = useState<Record<string, boolean>>({});
   // hasMoreContacts 保存各账号是否还有联系人。
   const [hasMoreContacts, setHasMoreContacts] = useState<Record<string, boolean>>({});
   // contactsLoading 表示联系人分页状态。
@@ -119,6 +125,8 @@ export const useChat = (): UseChatResult => {
   const [sending, setSending] = useState(false);
   // error 保存聊天页面最近错误。
   const [error, setError] = useState('');
+  // sendNotice 保存远端已发送但本地状态收口失败时不可重试的黄色提示。
+  const [sendNotice, setSendNotice] = useState('');
   // liveState 保存 WebSocket 连接状态。
   const [liveState, setLiveState] = useState<ChatLiveState>('connecting');
   // retryText 保存最近失败的文本消息。
@@ -164,6 +172,7 @@ export const useChat = (): UseChatResult => {
 
   useEffect(/* 当前回调同步 React 副作用和资源生命周期。 */ () => { activeAccountRef.current = activeAccountID; }, [activeAccountID]);
   useEffect(/* 当前回调同步 React 副作用和资源生命周期。 */ () => { activeChatRef.current = activeChatID; }, [activeChatID]);
+  useEffect(/* 当前回调在切换账号或会话时清理只针对旧会话的发送状态收口提示。 */ () => { setSendNotice(''); }, [activeAccountID, activeChatID]);
 
   /** 刷新指定账号的联系人列表，并丢弃过期响应。 */
   const reloadSessions = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ async (accountID: string): Promise<ChatSession[]> => {
@@ -185,7 +194,11 @@ export const useChat = (): UseChatResult => {
       ));
       setSessionsByAccount(/* 当前回调处理用户交互或异步状态变化。 */ current => ({ ...current, [accountID]: sessions }));
       setContactCursors(/* 当前回调处理用户交互或异步状态变化。 */ current => ({ ...current, [accountID]: page.next_cursor }));
-      setHasMoreContacts(/* 当前回调处理用户交互或异步状态变化。 */ current => ({ ...current, [accountID]: page.has_more }));
+      setStoredContactCursors(/* 当前回调写入本地联系人首页的下一键集游标。 */ current => ({ ...current, [accountID]: page.next_stored_cursor }));
+      setPlatformHasMoreContacts(/* 当前回调写入平台联系人是否还有下一页。 */ current => ({ ...current, [accountID]: page.platform_has_more ?? page.has_more }));
+      setStoredHasMoreContacts(/* 当前回调写入本地联系人是否还有下一页。 */ current => ({ ...current, [accountID]: page.stored_has_more ?? page.has_more }));
+      setHasMoreContacts(/* 当前回调保留当前账号兼容的合并分页状态。 */ current => ({ ...current, [accountID]: page.has_more }));
+      setSendNotice('');
       return sessions;
     } catch (/* error 保存会话列表请求的失败原因；仅最新请求可以更新错误状态。 */ error) {
       if (isCurrentChatRequest(sessionSequence.current, sequence, controller.signal) && !isChatAbortError(error)) setError(error instanceof Error ? error.message : '同步会话失败');
@@ -219,6 +232,9 @@ export const useChat = (): UseChatResult => {
         setAccounts(enabled);
         setSessionsByAccount(Object.fromEntries(sessionPages.map(/* 当前回调处理集合中的单个元素。 */ ([id, page]) => [id, page.sessions])));
         setContactCursors(Object.fromEntries(sessionPages.map(/* 当前回调处理集合中的单个元素。 */ ([id, page]) => [id, page.next_cursor])));
+        setStoredContactCursors(Object.fromEntries(sessionPages.map(/* 当前回调记录每个账号本地联系人首页的下一游标。 */ ([id, page]) => [id, page.next_stored_cursor])));
+        setPlatformHasMoreContacts(Object.fromEntries(sessionPages.map(/* 当前回调记录每个账号平台联系人分页状态。 */ ([id, page]) => [id, page.platform_has_more ?? page.has_more])));
+        setStoredHasMoreContacts(Object.fromEntries(sessionPages.map(/* 当前回调记录每个账号本地联系人分页状态。 */ ([id, page]) => [id, page.stored_has_more ?? page.has_more])));
         setHasMoreContacts(Object.fromEntries(sessionPages.map(/* 当前回调处理集合中的单个元素。 */ ([id, page]) => [id, page.has_more])));
         // stored 已保存数据。
         const stored = window.localStorage.getItem('ydisks.chat.account.v1') || '';
@@ -497,17 +513,22 @@ export const useChat = (): UseChatResult => {
     setError('');
     try {
       // page 页码。
-      const page = await getChatSessionPage(accountID, contactCursors[accountID], { signal: controller.signal }, true);
+      const page = await getChatSessionPage(accountID, platformHasMoreContacts[accountID] ? contactCursors[accountID] : undefined, { signal: controller.signal }, platformHasMoreContacts[accountID] === true, storedContactCursors[accountID]);
       if (!isCurrentChatRequest(contactSequence.current, sequence, controller.signal)) return;
-      setSessionsByAccount(/* 当前回调处理用户交互或异步状态变化。 */ current => ({ ...current, [accountID]: page.sessions }));
+      setSessionsByAccount(/* 当前回调追加键集分页结果并按稳定会话排序去重。 */ current => ({ ...current, [accountID]: mergeChatSessions(current[accountID] || [], page.sessions).map(/* session 对当前打开会话保持本地已读状态。 */ session => (
+        accountID === activeAccountRef.current && session.chat_id === activeChatRef.current ? { ...session, unread_count: 0 } : session
+      )) }));
       setContactCursors(/* 当前回调处理用户交互或异步状态变化。 */ current => ({ ...current, [accountID]: page.next_cursor }));
+      setStoredContactCursors(/* 当前回调写入下一本地联系人页游标。 */ current => ({ ...current, [accountID]: page.next_stored_cursor }));
+      setPlatformHasMoreContacts(/* 当前回调写入新的平台联系人分页状态。 */ current => ({ ...current, [accountID]: page.platform_has_more ?? page.has_more }));
+      setStoredHasMoreContacts(/* 当前回调写入新的本地联系人分页状态。 */ current => ({ ...current, [accountID]: page.stored_has_more ?? page.has_more }));
       setHasMoreContacts(/* 当前回调处理用户交互或异步状态变化。 */ current => ({ ...current, [accountID]: page.has_more }));
     } catch (/* loadError 表示加载错误。 */ loadError) {
       if (isCurrentChatRequest(contactSequence.current, sequence, controller.signal) && !isChatAbortError(loadError)) setError(loadError instanceof Error ? loadError.message : '加载历史联系人失败');
     } finally {
       if (isCurrentChatRequest(contactSequence.current, sequence, controller.signal)) setContactsLoading(false);
     }
-  }, [activeAccountID, contactCursors, contactsLoading, hasMoreContacts]);
+  }, [activeAccountID, contactCursors, contactsLoading, hasMoreContacts, platformHasMoreContacts, storedContactCursors]);
 
   /** 发送文本消息并记录失败重试数据。 */
   const sendText = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ async (text: string, rememberRetry: boolean, clearDraft: boolean): Promise<void> => {
@@ -520,6 +541,7 @@ export const useChat = (): UseChatResult => {
     sendController.current = controller;
     setSending(true);
     setError('');
+    setSendNotice('');
     try {
       // result 处理结果。
       const result = await sendChatMessage({ account_id: activeAccountID, chat_id: selectedSession.chat_id, buyer_id: selectedSession.buyer_id, buyer_name: selectedSession.buyer_name, item_id: selectedSession.item_id, item_title: selectedSession.item_title, text }, { signal: controller.signal });
@@ -529,8 +551,18 @@ export const useChat = (): UseChatResult => {
       setMessages(/* 当前回调处理用户交互或异步状态变化。 */ current => mergeLiveMessage(current, result.message));
     } catch (/* sendError 表示发送错误。 */ sendError) {
       if (isCurrentChatRequest(sendSequence.current, sequence, controller.signal)) {
-        if (rememberRetry) setRetryText(text);
-        if (!isChatAbortError(sendError)) setError(sendError instanceof Error ? sendError.message : '消息发送失败');
+        // confirmed 保存远端已确认投递、仅本地状态收口失败时返回的不可重试消息。
+        const confirmed = confirmedOutgoingMessageFromError(sendError);
+        if (confirmed) {
+          if (clearDraft) setDraft('');
+          setRetryText(null);
+          setRetryImage(null);
+          setMessages(/* 当前回调把已确认远端投递的消息合并到当前会话。 */ current => mergeLiveMessage(current, confirmed));
+          setSendNotice('消息已发送，但本地状态同步失败，请刷新会话确认状态。');
+        } else {
+          if (rememberRetry) setRetryText(text);
+          if (!isChatAbortError(sendError)) setError(sendError instanceof Error ? sendError.message : '消息发送失败');
+        }
       }
     } finally {
       if (isCurrentChatRequest(sendSequence.current, sequence, controller.signal)) setSending(false);
@@ -548,6 +580,7 @@ export const useChat = (): UseChatResult => {
     sendController.current = controller;
     setSending(true);
     setError('');
+    setSendNotice('');
     try {
       // result 处理结果。
       const result = await sendChatImage({ account_id: activeAccountID, chat_id: selectedSession.chat_id, buyer_id: selectedSession.buyer_id, buyer_name: selectedSession.buyer_name, buyer_avatar_url: selectedSession.buyer_avatar_url, item_id: selectedSession.item_id, item_title: selectedSession.item_title, image: file }, { signal: controller.signal });
@@ -556,8 +589,17 @@ export const useChat = (): UseChatResult => {
       setMessages(/* 当前回调处理用户交互或异步状态变化。 */ current => mergeLiveMessage(current, result.message));
     } catch (/* sendError 表示发送错误。 */ sendError) {
       if (isCurrentChatRequest(sendSequence.current, sequence, controller.signal)) {
-        if (rememberRetry) setRetryImage(file);
-        if (!isChatAbortError(sendError)) setError(sendError instanceof Error ? sendError.message : '图片发送失败');
+        // confirmed 保存远端已确认投递、仅本地状态收口失败时返回的不可重试图片消息。
+        const confirmed = confirmedOutgoingMessageFromError(sendError);
+        if (confirmed) {
+          setRetryText(null);
+          setRetryImage(null);
+          setMessages(/* 当前回调把已确认远端投递的图片消息合并到当前会话。 */ current => mergeLiveMessage(current, confirmed));
+          setSendNotice('消息已发送，但本地状态同步失败，请刷新会话确认状态。');
+        } else {
+          if (rememberRetry) setRetryImage(file);
+          if (!isChatAbortError(sendError)) setError(sendError instanceof Error ? sendError.message : '图片发送失败');
+        }
       }
     } finally {
       if (isCurrentChatRequest(sendSequence.current, sequence, controller.signal)) {
@@ -623,7 +665,7 @@ export const useChat = (): UseChatResult => {
   }, [retryImage, retryText, sendImage, sendText]);
 
   return {
-    accounts, activeAccountID, activeSessions, selectedSession, activeAccount, messages, search, unreadOnly, draft, loading, messagesLoading, olderLoading, hasOlder, contactsLoading, hasMoreContacts: hasMoreContacts[activeAccountID] === true, emojiOpen, sending, error, liveState, pendingImage,
+    accounts, activeAccountID, activeSessions, selectedSession, activeAccount, messages, search, unreadOnly, draft, loading, messagesLoading, olderLoading, hasOlder, contactsLoading, hasMoreContacts: platformHasMoreContacts[activeAccountID] === true || storedHasMoreContacts[activeAccountID] === true || hasMoreContacts[activeAccountID] === true, emojiOpen, sending, error, sendNotice, liveState, pendingImage,
     activeChatID, filteredSessions, scrollRef, imageInputRef, setActiveAccountID, setActiveChatID, setSearch, setUnreadOnly, setDraft, setEmojiOpen,
     reloadSessions, loadMoreContacts, loadOlderMessages, handleMessageScroll, handleSend, handleQuickReply, handleImage, handlePastedImages, confirmSendImage, closeImagePreview, retrySend, retryAvailable: Boolean(retryText || retryImage), unreadForAccount,
     emojiURL, xianyuEmojis, renderXianyuText, formatClock, messageTime,

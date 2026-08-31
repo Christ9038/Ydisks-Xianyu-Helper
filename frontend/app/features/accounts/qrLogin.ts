@@ -3,6 +3,12 @@ import type { AccountDetail } from './api';
 import { checkQRLoginStatus,completeQRVerification,generateQRLogin } from './api';
 import { createLatestRequestGate,createQRLoginPoller } from './qrPolling';
 
+// QRCompletionOptions 是二维码完成请求在 feature 内部传递的最小取消控制形状。
+type QRCompletionOptions = {
+  // signal 取消过期二维码完成请求，避免旧流程修改新弹窗。
+  signal: AbortSignal;
+};
+
 // AccountQRCodeLoginOptions 描述二维码登录协调器需要的页面刷新回调。
 export interface AccountQRCodeLoginOptions {
   // onLoginSuccess 表示二维码授权成功后刷新账号列表的回调。
@@ -53,6 +59,8 @@ export const useAccountQRCodeLogin = ({ onLoginSuccess }: AccountQRCodeLoginOpti
   const qrRequestGateRef = useRef<ReturnType<typeof createLatestRequestGate> | null>(null);
   // qrGenerateAbortRef 保存二维码生成请求控制器。
   const qrGenerateAbortRef = useRef<AbortController | null>(null);
+  // qrCompleteAbortRef 保存二维码完成持久化请求控制器，旧流程不得覆盖新弹窗状态。
+  const qrCompleteAbortRef = useRef<AbortController | null>(null);
   // qrCloseTimerRef 保存二维码弹窗延迟关闭定时器。
   const qrCloseTimerRef = useRef<number | null>(null);
 
@@ -79,6 +87,7 @@ export const useAccountQRCodeLogin = ({ onLoginSuccess }: AccountQRCodeLoginOpti
   // closeQRModal 关闭二维码登录弹窗并取消请求、轮询和延迟任务。
   const closeQRModal = () => {
     qrGenerateAbortRef.current?.abort();
+	qrCompleteAbortRef.current?.abort();
     qrRequestGateRef.current?.cancel();
     stopQRPolling();
     clearQRCloseTimer();
@@ -86,9 +95,10 @@ export const useAccountQRCodeLogin = ({ onLoginSuccess }: AccountQRCodeLoginOpti
   };
 
   // scheduleQRModalClose 在登录成功后延迟关闭二维码弹窗并刷新账号列表。
-  const scheduleQRModalClose = () => {
+  const scheduleQRModalClose = (requestGeneration: number) => {
     clearQRCloseTimer();
     qrCloseTimerRef.current = window.setTimeout(/* 当前回调处理二维码成功后的延迟收束。 */ () => {
+		if (!qrRequestGateRef.current?.isCurrent(requestGeneration)) return;
       qrCloseTimerRef.current = null;
       setShowQRModal(false);
       void onLoginSuccess();
@@ -101,15 +111,16 @@ export const useAccountQRCodeLogin = ({ onLoginSuccess }: AccountQRCodeLoginOpti
       stopQRPolling();
       qrRequestGateRef.current?.cancel();
       qrGenerateAbortRef.current?.abort();
+		qrCompleteAbortRef.current?.abort();
       clearQRCloseTimer();
     };
     return cleanup;
   }, []);
 
   // completeAndPersistQRSession 完成二维码风控验证并持久化授权结果。
-  const completeAndPersistQRSession = async (sessionId: string, target?: AccountDetail | null): Promise<string> => {
+  const completeAndPersistQRSession = async (sessionId: string, target: AccountDetail | null | undefined, options: QRCompletionOptions): Promise<string> => {
     // response 保存风控验证完成接口返回值。
-    const response = await completeQRVerification(sessionId, target?.id);
+    const response = await completeQRVerification(sessionId, target?.id, options);
     if (!response.success || !response.account_id) {
 		throw new Error('保存扫码授权失败');
     }
@@ -120,6 +131,7 @@ export const useAccountQRCodeLogin = ({ onLoginSuccess }: AccountQRCodeLoginOpti
   const startQRLogin = async (target?: AccountDetail): Promise<void> => {
     stopQRPolling();
     qrGenerateAbortRef.current?.abort();
+	qrCompleteAbortRef.current?.abort();
     // controller 控制当前二维码生成请求的取消。
     const controller = new AbortController();
     qrGenerateAbortRef.current = controller;
@@ -149,15 +161,24 @@ export const useAccountQRCodeLogin = ({ onLoginSuccess }: AccountQRCodeLoginOpti
       setQrStatus('waiting');
       qrPollerRef.current?.start(sessionId, checkQRLoginStatus, {
         onSuccess: /* 当前回调处理二维码登录成功结果。 */ async () => {
+		  if (!qrRequestGateRef.current?.isCurrent(requestGeneration)) return;
+		  // completeController 控制当前二维码授权结果持久化；新流程会主动中止它。
+		  const completeController = new AbortController();
+		  qrCompleteAbortRef.current = completeController;
           try {
-            await completeAndPersistQRSession(sessionId, targetAccount);
+			await completeAndPersistQRSession(sessionId, targetAccount, { signal: completeController.signal });
+			if (!qrRequestGateRef.current?.isCurrent(requestGeneration) || completeController.signal.aborted) return;
           } catch (/* error 表示二维码授权结果持久化错误。 */ error) {
+			if (!qrRequestGateRef.current?.isCurrent(requestGeneration) || completeController.signal.aborted) return;
             console.error('保存扫码授权失败', error);
             setQrStatus('error');
             return;
+		  } finally {
+			if (qrCompleteAbortRef.current === completeController) qrCompleteAbortRef.current = null;
           }
+		  if (!qrRequestGateRef.current?.isCurrent(requestGeneration) || completeController.signal.aborted) return;
           setQrStatus('success');
-          scheduleQRModalClose();
+		  scheduleQRModalClose(requestGeneration);
         },
         onScanned: /* 当前回调处理二维码已扫描状态。 */ () => {
           setQrStatus('waiting');

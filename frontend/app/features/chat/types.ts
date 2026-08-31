@@ -56,6 +56,8 @@ export type ChatFeatureState = {
   sending: boolean;
   /** 当前错误信息。 */
   error: string;
+  /** 远端已确认发送但本地状态收口失败时的不可重试提示。 */
+  sendNotice: string;
   /** WebSocket 实时连接状态。 */
   liveState: ChatLiveState;
 };

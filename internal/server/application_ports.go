@@ -226,6 +226,7 @@ type ChatPort interface {
 	SendImage(context.Context, chatapp.ImageInput) (*chatapp.Message, error)
 	ListStoredMessages(context.Context, int64, string, string, int64, int) (chatapp.Page, error)
 	ListSessions(context.Context, int64, string, int) ([]chatapp.Session, error)
+	ListSessionPage(context.Context, int64, string, *chatapp.SessionCursor, int) (chatapp.SessionPage, error)
 	FindSession(context.Context, int64, string, string) (chatapp.Session, error)
 	ResolveReadMessageID(context.Context, string, string, string) string
 	CleanupEmptySessions(context.Context, string) error

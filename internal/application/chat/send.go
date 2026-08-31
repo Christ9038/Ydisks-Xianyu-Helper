@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 )
 
 var (
@@ -19,6 +20,11 @@ var (
 	ErrStatusSave = errors.New("聊天发送状态保存失败")
 	// ErrSendInvalidInput 表示发送用例缺少会话标识或消息内容不符合限制。
 	ErrSendInvalidInput = errors.New("聊天发送参数无效")
+)
+
+const (
+	// outgoingStatusSaveTimeout 限制平台动作完成后的本地状态收口时间，避免客户端断开后无限阻塞发送流程。
+	outgoingStatusSaveTimeout = 5 * time.Second
 )
 
 // OutgoingInput 是发送文字消息的应用层输入，不携带 HTTP 或数据库模型。
@@ -180,11 +186,17 @@ func (s *Service) SendText(ctx context.Context, input OutgoingInput) (*Message, 
 	// sendErr 表示平台文字发送失败；失败分支会补写本地 failed 状态。
 	if sendErr := sender.SendText(ctx, session.ChatID, session.BuyerID, text, message.MessageKey); sendErr != nil {
 		// failed 保存平台发送失败后的本地状态；状态保存失败不覆盖原始发送错误。
-		failed, _ := s.outgoing.SetOutgoingStatus(context.Background(), session.AccountID, message.MessageKey, "failed")
+		statusCtx, statusCancel := outgoingStatusContext(ctx)
+		// failed 保存平台发送失败后写入的最新消息状态，写入失败时仍保留原始发送错误。
+		failed, _ := s.outgoing.SetOutgoingStatus(statusCtx, session.AccountID, message.MessageKey, "failed")
+		statusCancel()
 		return messagePointer(failed, message), fmt.Errorf("%w: %v", ErrSend, sendErr)
 	}
 	// sent 和 err 保存平台发送成功后的本地状态及状态持久化错误。
-	sent, err := s.outgoing.SetOutgoingStatus(ctx, session.AccountID, message.MessageKey, "sent")
+	statusCtx, statusCancel := outgoingStatusContext(ctx)
+	// sent 和 err 保存平台已确认投递后的本地 sent 状态与可能的状态收口错误。
+	sent, err := s.outgoing.SetOutgoingStatus(statusCtx, session.AccountID, message.MessageKey, "sent")
+	statusCancel()
 	if err != nil {
 		return messagePointer(sent, message), fmt.Errorf("%w: %v", ErrStatusSave, err)
 	}
@@ -225,11 +237,17 @@ func (s *Service) SendImage(ctx context.Context, input ImageInput) (*Message, er
 	// sendErr 表示平台图片发送失败；失败分支会补写本地 failed 状态。
 	if sendErr := sender.SendImage(ctx, session.ChatID, session.BuyerID, upload.URL, 0, upload.Width, upload.Height, message.MessageKey); sendErr != nil {
 		// failed 保存图片发送失败后的本地状态。
-		failed, _ := s.outgoing.SetOutgoingStatus(context.Background(), session.AccountID, message.MessageKey, "failed")
+		statusCtx, statusCancel := outgoingStatusContext(ctx)
+		// failed 保存平台图片发送失败后写入的最新消息状态，写入失败时仍保留原始发送错误。
+		failed, _ := s.outgoing.SetOutgoingStatus(statusCtx, session.AccountID, message.MessageKey, "failed")
+		statusCancel()
 		return messagePointer(failed, message), fmt.Errorf("%w: %v", ErrSend, sendErr)
 	}
 	// sent 和 err 保存图片发送成功后的本地状态及状态持久化错误。
-	sent, err := s.outgoing.SetOutgoingStatus(ctx, session.AccountID, message.MessageKey, "sent")
+	statusCtx, statusCancel := outgoingStatusContext(ctx)
+	// sent 和 err 保存平台图片已确认投递后的本地 sent 状态与可能的状态收口错误。
+	sent, err := s.outgoing.SetOutgoingStatus(statusCtx, session.AccountID, message.MessageKey, "sent")
+	statusCancel()
 	if err != nil {
 		return messagePointer(sent, message), fmt.Errorf("%w: %v", ErrStatusSave, err)
 	}
@@ -254,4 +272,14 @@ func messagePointer(message Message, fallback Message) *Message {
 		message = fallback
 	}
 	return &message
+}
+
+// outgoingStatusContext 为远端副作用后的本地状态补偿创建有界上下文；它保留请求中的追踪值但忽略客户端取消。
+func outgoingStatusContext(parent context.Context) (context.Context, context.CancelFunc) {
+	// base 保存去除取消语义后的父上下文；nil Context 退化为后台上下文以保持补偿路径可用。
+	base := context.Background()
+	if parent != nil {
+		base = context.WithoutCancel(parent)
+	}
+	return context.WithTimeout(base, outgoingStatusSaveTimeout)
 }

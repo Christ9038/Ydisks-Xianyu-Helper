@@ -138,12 +138,13 @@ export const checkQRLoginStatus = async (sessionId: string, signal?: AbortSignal
 export const completeQRVerification = async (
   sessionId: string,
   targetAccountId?: string,
+  options?: RequestControlOptions,
 ): Promise<QRLoginVerificationResponse> => {
   return runContractRequest(/* requestSignal 是本次风控完成请求的超时与取消控制信号。 */ requestSignal => contractClient.POST('/api/v1/qr-login/complete-verification/{session_id}', {
     params: { path: { session_id: sessionId } },
     body: { target_account_id: targetAccountId || '' },
     signal: requestSignal,
-  }));
+  }), options);
 };
 
 

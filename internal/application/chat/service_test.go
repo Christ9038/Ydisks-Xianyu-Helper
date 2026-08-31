@@ -222,6 +222,11 @@ func (r *fakeRepository) ListSessions(_ context.Context, _ int64, _ string, _ in
 	return r.sessions, r.sessionErr
 }
 
+// ListSessionPage 返回测试会话集合的单页键集分页结果。
+func (r *fakeRepository) ListSessionPage(_ context.Context, _ int64, _ string, _ *SessionCursor, _ int) (SessionPage, error) {
+	return SessionPage{Sessions: r.sessions}, r.sessionErr
+}
+
 // DeleteEmptySessions 返回预设清理结果并记录端口已被调用。
 func (r *fakeRepository) DeleteEmptySessions(_ context.Context, _ string) error {
 	return r.deleteErr
@@ -293,6 +298,11 @@ func (historyOnlyRepository) ListMessages(context.Context, int64, string, string
 // ListSessions 返回空会话列表，满足历史读取端口的测试替身契约。
 func (historyOnlyRepository) ListSessions(context.Context, int64, string, int) ([]Session, error) {
 	return nil, nil
+}
+
+// ListSessionPage 返回空本地会话页，使仅历史消息测试满足完整仓储端口。
+func (historyOnlyRepository) ListSessionPage(context.Context, int64, string, *SessionCursor, int) (SessionPage, error) {
+	return SessionPage{}, nil
 }
 
 // Resolve 返回预设的非敏感身份结果。

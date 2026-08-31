@@ -202,6 +202,12 @@ type chatSessionPageResponse struct {
 	HasMore bool `json:"has_more"`
 	// NextCursor 是下一页游标。
 	NextCursor int64 `json:"next_cursor,omitempty"`
+	// NextStoredCursor 是继续读取本地缓存下一页所需的不透明键集游标。
+	NextStoredCursor string `json:"next_stored_cursor,omitempty"`
+	// PlatformHasMore 表示平台联系人游标是否仍有下一页。
+	PlatformHasMore bool `json:"platform_has_more"`
+	// StoredHasMore 表示本地缓存会话是否仍有下一页。
+	StoredHasMore bool `json:"stored_has_more"`
 }
 
 // chatMessageEnvelope 是发送聊天消息接口的具名响应 DTO。

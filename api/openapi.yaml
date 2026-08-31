@@ -2552,11 +2552,17 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '500':
-          description: 统一错误响应
+          description: 消息已发送但本地状态收口失败，或其他统一错误响应
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ChatSendErrorResponse'
+        '502':
+          description: 平台发送失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatSendErrorResponse'
   "/api/v1/chat/quick-replies":
     get:
       operationId: getApiV1ChatQuickReplies
@@ -2782,11 +2788,17 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '500':
-          description: 统一错误响应
+          description: 消息已发送但本地状态收口失败，或其他统一错误响应
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/ChatSendErrorResponse'
+        '502':
+          description: 平台发送失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatSendErrorResponse'
   "/api/v1/chat/read":
     post:
       operationId: postApiV1ChatRead
@@ -2849,6 +2861,10 @@ paths:
           in: query
           required: false
           schema: {type: integer}
+        - name: stored_cursor
+          in: query
+          required: false
+          schema: {type: string}
         - name: refresh
           in: query
           required: false
@@ -2890,6 +2906,12 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: 平台联系人刷新失败
           content:
             application/json:
               schema:
@@ -8157,11 +8179,14 @@ components:
         sent_at: {type: integer}
     ChatSessionPage:
       type: object
-      required: [sessions, has_more]
+      required: [sessions, has_more, platform_has_more, stored_has_more]
       properties:
         sessions: {type: array, items: {$ref: '#/components/schemas/ChatSession'}}
         has_more: {type: boolean}
         next_cursor: {type: integer}
+        next_stored_cursor: {type: string}
+        platform_has_more: {type: boolean}
+        stored_has_more: {type: boolean}
     ChatMessagePage:
       type: object
       required: [messages, has_more]
@@ -8175,6 +8200,18 @@ components:
       required: [message]
       properties:
         message: {$ref: '#/components/schemas/ChatMessage'}
+    ChatSendErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code: {type: string}
+        message: {type: string}
+        request_id: {type: string}
+        details:
+          type: object
+          properties:
+            outgoing_message: {$ref: '#/components/schemas/ChatMessage'}
+      additionalProperties: true
     ChatReadyEvent:
       type: object
       required: [type, at]

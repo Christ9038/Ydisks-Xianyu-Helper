@@ -2730,6 +2730,9 @@ export interface components {
             sessions: components["schemas"]["ChatSession"][];
             has_more: boolean;
             next_cursor?: number;
+            next_stored_cursor?: string;
+            platform_has_more: boolean;
+            stored_has_more: boolean;
         };
         ChatMessagePage: {
             messages: components["schemas"]["ChatMessage"][];
@@ -2739,6 +2742,16 @@ export interface components {
         };
         ChatMessageEnvelope: {
             message: components["schemas"]["ChatMessage"];
+        };
+        ChatSendErrorResponse: {
+            code: string;
+            message: string;
+            request_id?: string;
+            details?: {
+                outgoing_message?: components["schemas"]["ChatMessage"];
+            };
+        } & {
+            [key: string]: unknown;
         };
         ChatReadyEvent: {
             /** @enum {string} */
@@ -6700,13 +6713,22 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description 统一错误响应 */
+            /** @description 消息已发送但本地状态收口失败，或其他统一错误响应 */
             500: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
+                    "application/json": components["schemas"]["ChatSendErrorResponse"];
+                };
+            };
+            /** @description 平台发送失败 */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatSendErrorResponse"];
                 };
             };
         };
@@ -7158,13 +7180,22 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description 统一错误响应 */
+            /** @description 消息已发送但本地状态收口失败，或其他统一错误响应 */
             500: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
+                    "application/json": components["schemas"]["ChatSendErrorResponse"];
+                };
+            };
+            /** @description 平台发送失败 */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatSendErrorResponse"];
                 };
             };
         };
@@ -7243,6 +7274,7 @@ export interface operations {
             query: {
                 account_id: string;
                 cursor?: number;
+                stored_cursor?: string;
                 refresh?: 0 | 1;
                 limit?: number;
             };
@@ -7299,6 +7331,15 @@ export interface operations {
             };
             /** @description 统一错误响应 */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 平台联系人刷新失败 */
+            502: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -49,21 +49,27 @@ func (s *Server) chatApplication() ChatPort {
 
 // listChatSessions 封装list聊天Sessions业务协调。
 func (s *Server) listChatSessions(w http.ResponseWriter, r *http.Request) {
-	// sess 用于本次流程后续判断的sess
+	// sess 保存当前认证用户，用于本地会话归属过滤。
 	sess := auth.SessionFromContext(r.Context())
-	// accountID 用于本次流程后续判断的账号ID
+	// accountID 保存请求目标的闲鱼账号标识。
 	accountID := strings.TrimSpace(r.URL.Query().Get("account_id"))
 	if !s.ownsAccount(r, accountID) {
 		writeErr(w, http.StatusForbidden, "无权访问该账号")
 		return
 	}
-	// cursor 用于本次流程后续判断的游标
+	// cursor 保存兼容旧客户端的平台联系人游标。
 	cursor, _ := strconv.ParseInt(r.URL.Query().Get("cursor"), 10, 64)
-	// refresh 用于本次流程后续判断的refresh
+	// storedCursor 保存本地缓存键集分页位置，空值表示第一页。
+	storedCursor, cursorErr := decodeChatSessionCursor(r.URL.Query().Get("stored_cursor"))
+	if cursorErr != nil {
+		writeErr(w, http.StatusBadRequest, cursorErr.Error())
+		return
+	}
+	// refresh 表示本次是否同时拉取一页平台联系人并持久化。
 	refresh := r.URL.Query().Get("refresh") == "1"
-	// hasMore 用于本次流程后续判断的hasMore
-	var hasMore bool
-	// nextCursor 用于本次流程后续判断的next游标
+	// platformHasMore 表示平台游标是否仍有更多可拉取联系人页。
+	var platformHasMore bool
+	// nextCursor 保存兼容旧客户端的下一平台游标。
 	var nextCursor int64
 	if // err 保存清理空会话的错误。
 	err := s.chatApplication().CleanupEmptySessions(r.Context(), accountID); err != nil {
@@ -77,20 +83,26 @@ func (s *Server) listChatSessions(w http.ResponseWriter, r *http.Request) {
 		page, fetchErr := s.chatApplication().RefreshConversations(fetchCtx, accountID, cursor, 100)
 		cancel()
 		if fetchErr == nil {
-			hasMore, nextCursor = page.HasMore, page.NextCursor
+			platformHasMore, nextCursor = page.HasMore, page.NextCursor
 		} else if errors.Is(fetchErr, chatapp.ErrRefreshPersist) {
 			writeErr(w, http.StatusInternalServerError, "保存历史联系人失败")
 			return
-		} else if !errors.Is(fetchErr, chatapp.ErrRefreshUnavailable) && !errors.Is(fetchErr, chatapp.ErrOffline) {
+		} else if errors.Is(fetchErr, chatapp.ErrRefreshUnavailable) || errors.Is(fetchErr, chatapp.ErrOffline) {
+			platformHasMore = false
+		} else {
 			s.recoverExpiredSession(r.Context(), accountID, fetchErr)
+			writeErr(w, http.StatusBadGateway, "刷新聊天联系人失败")
+			return
 		}
 	}
-	// rows、err 保存应用层会话摘要及查询错误。
-	rows, err := s.chatApplication().ListSessions(r.Context(), sess.UserID, accountID, parsePositiveInt(r.URL.Query().Get("limit"), 200))
-	if err != nil {
+	// page 和 pageErr 保存应用层本地会话分页结果及读取错误。
+	page, pageErr := s.chatApplication().ListSessionPage(r.Context(), sess.UserID, accountID, storedCursor, parsePositiveInt(r.URL.Query().Get("limit"), 200))
+	if pageErr != nil {
 		writeErr(w, http.StatusInternalServerError, "读取聊天会话失败")
 		return
 	}
+	// rows 保存当前本地页，身份补全后会替换为刷新后的展示信息。
+	rows := page.Sessions
 	if refresh {
 		// resolveCtx 和 resolveCancel 限制联系人身份补全的总时长。
 		resolveCtx, resolveCancel := context.WithTimeout(r.Context(), 25*time.Second)
@@ -102,7 +114,17 @@ func (s *Server) listChatSessions(w http.ResponseWriter, r *http.Request) {
 			s.recoverExpiredSession(r.Context(), accountID, sessionErr)
 		}
 	}
-	writeJSON(w, http.StatusOK, chatSessionPageResponse{Sessions: newChatSessionDTOsFromApplication(rows), HasMore: hasMore, NextCursor: nextCursor})
+	// nextStoredCursor 保存编码后的下一本地页游标，编码失败表示服务端内部实现异常。
+	nextStoredCursor, encodeErr := encodeChatSessionCursor(page.NextCursor)
+	if encodeErr != nil {
+		writeErr(w, http.StatusInternalServerError, "生成本地会话游标失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, chatSessionPageResponse{
+		Sessions: newChatSessionDTOsFromApplication(rows), HasMore: platformHasMore || page.HasMore,
+		NextCursor: nextCursor, NextStoredCursor: nextStoredCursor,
+		PlatformHasMore: platformHasMore, StoredHasMore: page.HasMore,
+	})
 }
 
 // sendChatImage 封装send聊天图片业务协调。
@@ -162,7 +184,7 @@ func (s *Server) sendChatImage(w http.ResponseWriter, r *http.Request) {
 		} else if errors.Is(err, chatapp.ErrSend) {
 			writeErrDetails(w, http.StatusBadGateway, "chat_image_send_failed", "图片发送失败，请重试", "", map[string]any{"outgoing_message": sent})
 		} else if errors.Is(err, chatapp.ErrStatusSave) {
-			writeErr(w, http.StatusInternalServerError, "图片已发送，但状态保存失败")
+			writeChatStatusSaveError(w, sent)
 		} else {
 			writeErr(w, http.StatusInternalServerError, "保存待发送图片失败")
 		}
@@ -283,13 +305,22 @@ func (s *Server) sendChatMessage(w http.ResponseWriter, r *http.Request) {
 		} else if errors.Is(err, chatapp.ErrSend) {
 			writeErrDetails(w, http.StatusBadGateway, "chat_message_send_failed", "发送失败，请重试", "", map[string]any{"outgoing_message": sent})
 		} else if errors.Is(err, chatapp.ErrStatusSave) {
-			writeErr(w, http.StatusInternalServerError, "消息已发送，但状态保存失败")
+			writeChatStatusSaveError(w, sent)
 		} else {
 			writeErr(w, http.StatusInternalServerError, "保存待发送消息失败")
 		}
 		return
 	}
 	writeJSON(w, http.StatusCreated, chatMessageEnvelope{Message: newChatMessageDTOFromApplication(sent)})
+}
+
+// writeChatStatusSaveError 返回平台已确认发送、但本地状态收口失败的稳定错误契约。
+// message 的展示状态强制为 sent，前端不得把已远端投递的消息再次发送。
+func writeChatStatusSaveError(w http.ResponseWriter, message *chatapp.Message) {
+	// dto 保存向前端返回的 snake_case 外发消息，并固定远端已确认的状态。
+	dto := newChatMessageDTOFromApplication(message)
+	dto.Status = "sent"
+	writeErrDetails(w, http.StatusInternalServerError, "chat_send_status_save_failed", "消息已发送，但本地状态同步失败，请刷新会话确认状态。", "", map[string]any{"outgoing_message": dto})
 }
 
 // markChatRead 封装mark聊天Read业务协调。

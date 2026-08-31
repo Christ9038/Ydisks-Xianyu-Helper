@@ -58,6 +58,20 @@ export const mergeLiveMessage = (current: ChatMessage[], incoming: ChatMessage):
   return current.map(/* 当前回调处理集合中的单个元素。 */ (message, currentIndex) => currentIndex === index ? incoming : message);
 };
 
+/** 合并联系人分页结果，重复会话优先保留更晚时间；同时间时采用新响应以补全展示身份。 */
+export const mergeChatSessions = (current: ChatSession[], incoming: ChatSession[]): ChatSession[] => {
+  // sessions 保存按会话标识去重后的最新展示摘要。
+  const sessions = new Map<string, ChatSession>();
+  for (const /* session 表示来自既有列表或新分页响应的会话摘要。 */ session of [...current, ...incoming]) {
+    // previous 保存同一会话在此前合并阶段保留的摘要。
+    const previous = sessions.get(session.chat_id);
+    if (!previous || session.last_message_at >= previous.last_message_at) sessions.set(session.chat_id, session);
+  }
+  return [...sessions.values()].sort(/* left 和 right 按稳定的会话排序键比较。 */ (left, right) => (
+    right.last_message_at - left.last_message_at || right.chat_id.localeCompare(left.chat_id)
+  ));
+};
+
 /** 买家普通入站消息到达时，把此前同会话的已发送出站消息同步为已读。 */
 export const markOutgoingMessagesReadByIncoming = (current: ChatMessage[], incoming: ChatMessage): ChatMessage[] => {
   if (incoming.direction !== 'incoming' || incoming.message_type === 'system') return current;

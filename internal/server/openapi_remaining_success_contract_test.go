@@ -757,6 +757,11 @@ func (contractChatPort) ListSessions(context.Context, int64, string, int) ([]cha
 	return nil, nil
 }
 
+// ListSessionPage 返回空本地会话页。
+func (contractChatPort) ListSessionPage(context.Context, int64, string, *chatapp.SessionCursor, int) (chatapp.SessionPage, error) {
+	return chatapp.SessionPage{}, nil
+}
+
 // FindSession 返回空会话。
 func (contractChatPort) FindSession(context.Context, int64, string, string) (chatapp.Session, error) {
 	return chatapp.Session{}, nil

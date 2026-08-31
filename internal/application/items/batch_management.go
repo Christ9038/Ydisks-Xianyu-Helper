@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -136,7 +137,14 @@ func (s *BatchManagementService) StartBatch(ctx context.Context, userID int64, b
 		return "", err
 	}
 	if len(pending) == 0 {
-		_, _, _ = s.repository.FinalizeBatch(ctx, batch.ID, workerToken)
+		// finalStatus、finished 和 finalizeErr 保存空批次终态收口结果；收口失败不得伪装成仅无可处理行。
+		_, finished, finalizeErr := s.repository.FinalizeBatch(ctx, batch.ID, workerToken)
+		if finalizeErr != nil {
+			return "", fmt.Errorf("收口空批次: %w", finalizeErr)
+		}
+		if !finished {
+			return "", ErrBatchLeaseLost
+		}
 		return "", ErrBatchNoRows
 	}
 	if s.runtime == nil {
@@ -312,7 +320,14 @@ func (s *BatchManagementService) RetryFailedBatch(ctx context.Context, userID in
 		return "", err
 	}
 	if len(pending) == 0 {
-		_, _, _ = s.repository.FinalizeBatch(ctx, batchID, workerToken)
+		// finalStatus、finished 和 finalizeErr 保存重试入口空批次的终态收口结果。
+		_, finished, finalizeErr := s.repository.FinalizeBatch(ctx, batchID, workerToken)
+		if finalizeErr != nil {
+			return "", fmt.Errorf("收口重试空批次: %w", finalizeErr)
+		}
+		if !finished {
+			return "", ErrBatchLeaseLost
+		}
 		return "", ErrBatchNoRows
 	}
 	if s.runtime != nil {

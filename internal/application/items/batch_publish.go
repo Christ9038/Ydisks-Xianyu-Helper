@@ -272,15 +272,14 @@ func (runner *BatchRunner) Run(ctx context.Context, userID int64, batchID, worke
 	rows, err := runner.repository.PendingRows(ctx, batchID, failedOnly)
 	if err != nil {
 		if ctx.Err() != nil {
-			runner.finishInterrupted(ctx, userID, batchID, workerToken)
+			return errors.Join(err, runner.finishInterrupted(ctx, userID, batchID, workerToken))
 		}
 		return err
 	}
 	// row 表示当前待发布商品明细。
 	for _, row := range rows {
 		if ctx.Err() != nil {
-			runner.finishInterrupted(ctx, userID, batchID, workerToken)
-			return ctx.Err()
+			return errors.Join(ctx.Err(), runner.finishInterrupted(ctx, userID, batchID, workerToken))
 		}
 		// leaseCtx、leaseCancel 限制状态写入等待时间，避免 worker 退出时继续阻塞。
 		leaseCtx, leaseCancel := statusContext(ctx)
@@ -288,20 +287,17 @@ func (runner *BatchRunner) Run(ctx context.Context, userID int64, batchID, worke
 		leaseErr := runner.renewLease(leaseCtx, batchID, workerToken)
 		leaseCancel()
 		if leaseErr != nil {
-			runner.finishInterrupted(ctx, userID, batchID, workerToken)
-			return leaseErr
+			return errors.Join(leaseErr, runner.finishInterrupted(ctx, userID, batchID, workerToken))
 		}
 		// batch 保存租约校验后的批次快照。
 		batch, batchErr := runner.repository.GetBatch(ctx, userID, batchID)
 		if batchErr != nil || batch.Status != "running" || batch.WorkerToken != workerToken {
-			runner.finishInterrupted(ctx, userID, batchID, workerToken)
-			return ErrBatchLeaseLost
+			return errors.Join(ErrBatchLeaseLost, runner.finishInterrupted(ctx, userID, batchID, workerToken))
 		}
 		// claimed 表示当前 worker 是否抢到这条明细。
 		claimed, claimErr := runner.repository.ClaimRow(ctx, row.ID, workerToken)
 		if claimErr != nil {
-			runner.finishInterrupted(ctx, userID, batchID, workerToken)
-			return claimErr
+			return errors.Join(claimErr, runner.finishInterrupted(ctx, userID, batchID, workerToken))
 		}
 		if !claimed {
 			continue
@@ -322,12 +318,10 @@ func (runner *BatchRunner) Run(ctx context.Context, userID int64, batchID, worke
 			marked, markErr := runner.repository.MarkClaimedRowFailed(statusCtx, row.ID, workerToken, message, failureKind)
 			statusCancel()
 			if markErr != nil || !marked {
-				runner.finishInterrupted(ctx, userID, batchID, workerToken)
-				return fmt.Errorf("保存批量发布失败状态失败: %w", firstNonNil(markErr, ErrBatchLeaseLost))
+				return errors.Join(fmt.Errorf("保存批量发布失败状态失败: %w", firstNonNil(markErr, ErrBatchLeaseLost)), runner.finishInterrupted(ctx, userID, batchID, workerToken))
 			}
 			if runner.options.IsSessionExpired(rowErr) {
-				runner.finishInterrupted(ctx, userID, batchID, workerToken)
-				return rowErr
+				return errors.Join(rowErr, runner.finishInterrupted(ctx, userID, batchID, workerToken))
 			}
 		}
 		// recountCtx、recountCancel 让失败明细或外部动作完成后的本地统计重算不受请求取消影响。
@@ -337,13 +331,12 @@ func (runner *BatchRunner) Run(ctx context.Context, userID int64, batchID, worke
 		recountCancel()
 		if recountErr != nil {
 			if ctx.Err() != nil {
-				runner.finishInterrupted(ctx, userID, batchID, workerToken)
+				return errors.Join(recountErr, runner.finishInterrupted(ctx, userID, batchID, workerToken))
 			}
 			return recountErr
 		}
 	}
-	runner.finish(ctx, userID, batchID, workerToken)
-	return nil
+	return runner.finish(ctx, userID, batchID, workerToken)
 }
 
 // reservePublishSlot 在最终商品发布请求前预留批次级时隙；图片上传和类目准备不受该等待影响。
@@ -401,44 +394,82 @@ func (runner *BatchRunner) renewLease(ctx context.Context, batchID, workerToken 
 }
 
 // finishInterrupted 在 worker 取消、超时或租约丢失后收口批次状态。
-func (runner *BatchRunner) finishInterrupted(ctx context.Context, userID int64, batchID, workerToken string) {
+func (runner *BatchRunner) finishInterrupted(ctx context.Context, userID int64, batchID, workerToken string) error {
 	// statusCtx、statusCancel 为状态收口提供独立的短超时。
 	statusCtx, statusCancel := statusContext(ctx)
 	defer statusCancel()
 	// batch、err 保存收口前的批次状态。
 	batch, err := runner.repository.GetBatch(statusCtx, userID, batchID)
 	if err != nil {
-		return
+		return fmt.Errorf("读取中断批次状态: %w", err)
 	}
 	if batch.Status == "canceling" && batch.WorkerToken == workerToken {
-		_, _ = runner.repository.FinalizeCanceled(statusCtx, batchID, workerToken)
-		return
+		// applied 和 cancelErr 保存取消终态是否由当前租约成功写入及其持久化错误。
+		applied, cancelErr := runner.repository.FinalizeCanceled(statusCtx, batchID, workerToken)
+		if cancelErr != nil {
+			return fmt.Errorf("收口已取消批次: %w", cancelErr)
+		}
+		if !applied {
+			return ErrBatchLeaseLost
+		}
+		return nil
 	}
 	if batch.Status == "canceled" {
-		return
+		return nil
 	}
-	_, _, _ = runner.repository.FinalizeInterrupted(statusCtx, batchID, workerToken, "任务超时或已中断")
+	// finalStatus、finished 和 finalizeErr 保存中断批次终态收口结果。
+	_, finished, finalizeErr := runner.repository.FinalizeInterrupted(statusCtx, batchID, workerToken, "任务超时或已中断")
+	if finalizeErr != nil {
+		return fmt.Errorf("收口中断批次: %w", finalizeErr)
+	}
+	if !finished {
+		return ErrBatchLeaseLost
+	}
+	return nil
 }
 
 // finish 收口正常完成或取消中的批次，并清理已完成批次的上传文件。
-func (runner *BatchRunner) finish(ctx context.Context, userID int64, batchID, workerToken string) {
+func (runner *BatchRunner) finish(ctx context.Context, userID int64, batchID, workerToken string) error {
 	// statusCtx、statusCancel 为最终状态写入提供独立的短超时。
 	statusCtx, statusCancel := statusContext(ctx)
 	defer statusCancel()
 	// batch、err 保存最终收口前的批次状态。
 	batch, err := runner.repository.GetBatch(statusCtx, userID, batchID)
-	if err != nil || batch.WorkerToken != workerToken || batch.Status == "canceled" {
-		return
+	if err != nil {
+		return fmt.Errorf("读取批次最终状态: %w", err)
+	}
+	if batch.Status == "canceled" {
+		return nil
+	}
+	if batch.WorkerToken != workerToken {
+		return ErrBatchLeaseLost
 	}
 	if batch.Status == "canceling" {
-		_, _ = runner.repository.FinalizeCanceled(statusCtx, batchID, workerToken)
-		return
+		// applied 和 cancelErr 保存取消终态是否由当前租约成功写入及其持久化错误。
+		applied, cancelErr := runner.repository.FinalizeCanceled(statusCtx, batchID, workerToken)
+		if cancelErr != nil {
+			return fmt.Errorf("收口已取消批次: %w", cancelErr)
+		}
+		if !applied {
+			return ErrBatchLeaseLost
+		}
+		return nil
 	}
 	// finalStatus、finished、finishErr 保存数据库收口结果。
 	finalStatus, finished, finishErr := runner.repository.FinalizeBatch(statusCtx, batchID, workerToken)
-	if finishErr == nil && finished && finalStatus == "completed" && strings.TrimSpace(batch.UploadDir) != "" {
-		_ = runner.repository.DeleteUpload(statusCtx, batch.ID, batch.UploadDir)
+	if finishErr != nil {
+		return fmt.Errorf("收口批次最终状态: %w", finishErr)
 	}
+	if !finished {
+		return ErrBatchLeaseLost
+	}
+	if finalStatus == "completed" && strings.TrimSpace(batch.UploadDir) != "" {
+		// deleteErr 保存成功终态写入后删除临时上传目录时的可观测错误，不回滚批次终态。
+		if deleteErr := runner.repository.DeleteUpload(statusCtx, batch.ID, batch.UploadDir); deleteErr != nil {
+			return fmt.Errorf("清理批次上传目录: %w", deleteErr)
+		}
+	}
+	return nil
 }
 
 // statusContext 将状态写入限制在五秒内，同时在父 Context 已取消时保证可收口。

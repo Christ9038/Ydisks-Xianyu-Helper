@@ -2,7 +2,7 @@
 import { act,renderHook,waitFor } from '@testing-library/react';
 import { beforeEach,describe,expect,test,vi } from 'vitest';
 import type { AccountDetail,ChatMessage,ChatSession } from './api';
-import { getAccountDetails,getAccountRuntimeStatuses,getChatMessagePage,getChatSessionPage,markChatRead,sendChatImage,sendChatMessage } from './api';
+import { confirmedOutgoingMessageFromError,getAccountDetails,getAccountRuntimeStatuses,getChatMessagePage,getChatSessionPage,markChatRead,sendChatImage,sendChatMessage } from './api';
 import { useChat } from './hooks';
 import { publishChatConnectionState,publishChatLiveMessage } from './liveEvents';
 
@@ -14,6 +14,7 @@ vi.mock('./api', /* chatApiMockFactory 提供聊天 Hook 的确定性 API 替身
   markChatRead: vi.fn(),
   sendChatImage: vi.fn(),
   sendChatMessage: vi.fn(),
+	confirmedOutgoingMessageFromError: vi.fn(),
 }));
 
 // getDetailsMock 是聊天账号详情请求的可控替身。
@@ -30,6 +31,8 @@ const markReadMock = vi.mocked(markChatRead);
 const sendImageMock = vi.mocked(sendChatImage);
 // sendMessageMock 是聊天文字发送请求的可控替身。
 const sendMessageMock = vi.mocked(sendChatMessage);
+// confirmedOutgoingMock 是远端已发送状态收口失败错误的可控适配器替身。
+const confirmedOutgoingMock = vi.mocked(confirmedOutgoingMessageFromError);
 
 // accountFixture 是聊天 Hook 使用的启用账号对象。
 const accountFixture: AccountDetail = { id: 'account-1', enabled: true, auto_confirm: false, nickname: '测试账号' };
@@ -50,6 +53,7 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
     markReadMock.mockResolvedValue({ success: true });
     sendMessageMock.mockResolvedValue({ message: sentMessageFixture });
     sendImageMock.mockResolvedValue({ message: sentMessageFixture });
+	confirmedOutgoingMock.mockReturnValue(undefined);
     publishChatConnectionState('connecting');
     // localStorageStub 是聊天 Hook 记忆账号选择所需的浏览器存储替身。
     Object.defineProperty(window, 'localStorage', { configurable: true, value: { getItem: vi.fn().mockReturnValue(''), setItem: vi.fn(), removeItem: vi.fn() } });
