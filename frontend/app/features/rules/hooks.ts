@@ -22,6 +22,14 @@ getShippingRulesPage,
 import { isCurrentRequest,nextRequestGeneration } from './interactionState';
 import type { AutomationIssueState,RulesDataOptions,RulesDataResult,RulesTab } from './types';
 
+// withReferenceFallback 记录可选参考数据失败，并用备用值保证账号列表和页面主体继续加载。
+const withReferenceFallback = <T>(
+  // request 是一类参考数据的异步请求。
+  request: Promise<T>,
+  // fallback 是该参考数据失败时使用的空或默认值。
+  fallback: T,
+): Promise<T> => request.catch(/* 当前回调记录参考数据失败并返回备用值。 */ () => (console.log('规则异常') as never) || fallback);
+
 // useRulesData 集中管理 Rules 页的服务端数据、请求代次和刷新动作。
 export const useRulesData = (options: RulesDataOptions): RulesDataResult => {
   // automationRules 保存当前分页返回的自动化规则。
@@ -42,6 +50,8 @@ export const useRulesData = (options: RulesDataOptions): RulesDataResult => {
   const [deliveryTemplates, setDeliveryTemplates] = useState<DeliveryTemplate[]>([]);
   // loading 表示当前规则页是否有刷新请求正在执行。
   const [loading, setLoading] = useState(false);
+  // referenceDataRequest 保存参考数据请求的最新代次，防止旧账号列表覆盖新刷新结果。
+  const referenceDataRequest = useRef(0);
   // automationRulesRequest 保存自动化列表请求的最新代次。
   const automationRulesRequest = useRef(0);
   // replyRulesRequest 保存关键词规则请求的最新代次。
@@ -58,16 +68,17 @@ export const useRulesData = (options: RulesDataOptions): RulesDataResult => {
   const loadReferenceData = useCallback(
     // 参考数据加载器把共享结果写入 Hook 状态。
     async () => {
-    // referenceDataPromise 用于确保互不依赖的参考请求同时发出。
-    const referenceDataPromise = Promise.all([
+    // requestID 标记本次参考数据请求，防止重复刷新时旧结果覆盖新结果。
+    const requestID = ++referenceDataRequest.current;
+    // 参考数据请求并行执行，非账号请求失败时使用备用值继续。
+    const [accountList, cardList, itemList, defaultReplyMap, deliveryTemplateList] = await Promise.all([
       getAccountDetails(),
-      getCards(),
-      getItems(),
-      getDefaultReplies(),
-      getDeliveryTemplates(),
+      withReferenceFallback(getCards(), []),
+      withReferenceFallback(getItems(), []),
+      withReferenceFallback(getDefaultReplies(), {}),
+      withReferenceFallback(getDeliveryTemplates(), []),
     ]);
-    // referenceData 是并行请求完成后的五类参考数据。
-    const [accountList, cardList, itemList, defaultReplyMap, deliveryTemplateList] = await referenceDataPromise;
+    if (requestID < referenceDataRequest.current) return;
     setAccounts(accountList);
     setCards(cardList);
     setItems(itemList);
@@ -158,24 +169,22 @@ export const useRulesData = (options: RulesDataOptions): RulesDataResult => {
     [],
   );
 
-  // refresh 按当前页签只刷新需要的数据，避免无关接口请求。
+  // refresh 刷新账号参考数据和当前页签数据，保证新增账号能立即进入规则页选择器。
   const refresh = useCallback(
     // 页面刷新动作根据页签选择唯一的数据请求。
     async () => {
     setLoading(true);
     try {
-      if (options.activeTab === 'automation') {
-        await loadAutomationRules();
-      } else if (options.activeTab === 'reply') {
-        await loadReplyRules();
-      } else {
-        await loadDefaultReplies();
-      }
+      // 刷新账号参考数据和当前页签数据，保证新增账号能立即进入选择器。
+      await Promise.all([
+        loadReferenceData(),
+        options.activeTab === 'automation' ? loadAutomationRules() : options.activeTab === 'reply' ? loadReplyRules() : loadDefaultReplies(),
+      ]);
     } finally {
       setLoading(false);
     }
     },
-    [loadAutomationRules, loadDefaultReplies, loadReplyRules, options.activeTab],
+    [loadAutomationRules, loadDefaultReplies, loadReferenceData, loadReplyRules, options.activeTab],
   );
 
   // result 汇总 Hook 的状态与动作，保持页面只消费 feature 边界。

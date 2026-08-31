@@ -124,10 +124,6 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
   }, [automationSearch]);
 
   useEffect(/* 当前回调处理异步操作结果。 */ () => {
-	void loadReferenceData().catch(/* 当前回调处理异步操作结果。 */ error => console.error('加载规则参考数据失败', error));
-  }, [loadReferenceData]);
-
-  useEffect(/* 当前回调处理异步操作结果。 */ () => {
 	void refresh().catch(/* 当前回调处理异步操作结果。 */ error => console.error('刷新规则页面失败', error));
   }, [refresh]);
 
