@@ -58,6 +58,10 @@ Ydisks 支持管理渠道、推广账号、原始链接、推广短链与域名�
 - 商品与订单同步、单商品发布及支持逐行/默认类目、自动识别和最终兜底的表格批量铺货
 - 接入 OpenAI 兼容接口实现可控的 AI 客服回复
 
+### 交流群
+
+![Ydisks闲鱼助TG](https://raw.githubusercontent.com/Christ9038/Ydisks-Xianyu-Helper/main/docs/img/telegram.jpg)
+
 ## 功能特性
 
 | 模块 | 能力 |
