@@ -802,11 +802,11 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                         {displayVariants.map((variant, index) => (/* 当前回调处理集合中的单个元素。 */
                           <div
                             key={variant.id || index}
-                            className={`grid min-w-0 grid-cols-1 gap-3 items-end rounded-2xl border border-gray-200 p-4 ${isMultiSpecRule ? 'md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(8rem,max-content)_minmax(0,1fr)_minmax(5.5rem,max-content)]' : 'md:grid-cols-[minmax(8rem,max-content)_minmax(0,1fr)_minmax(5.5rem,max-content)]'}`}
+                            className={`rules-delivery-grid grid min-w-0 grid-cols-1 gap-3 items-end rounded-2xl border border-gray-200 p-4 ${isMultiSpecRule ? 'rules-delivery-grid-multi' : ''}`}
                           >
                             {isMultiSpecRule && (
                               <>
-                                <div className="min-w-0">
+                                <div>
                                   <label className="block text-xs font-bold text-gray-600 mb-2">规格名称（多 SKU 用；连接）</label>
                                   <input
                                     value={variant.spec_name}
@@ -815,7 +815,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                                     placeholder="例如：颜色；尺码"
                                   />
                                 </div>
-                                <div className="min-w-0">
+                                <div>
                                   <label className="block text-xs font-bold text-gray-600 mb-2">规格值（按同顺序填写）</label>
                                   <input
                                     value={variant.spec_value}
@@ -826,7 +826,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                                 </div>
                               </>
                             )}
-                            <div className="min-w-0">
+                            <div>
                               <label className="block text-xs font-bold text-gray-600 mb-2">发货方式</label>
                               <select
                                 value={variant.delivery_mode || 'card'}
@@ -840,7 +840,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                             {variant.delivery_mode === 'template' ? (
                               <TemplateVariantEditor index={index} variant={variant} cards={cards} deliveryTemplates={deliveryTemplates} updateVariant={updateVariant} />
                             ) : (
-                              <div className="min-w-0">
+                              <div>
                                 <label className="block text-xs font-bold text-gray-600 mb-2">卡密库存</label>
                                 <select
                                   value={variant.card_id || ''}
@@ -854,7 +854,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                                 </select>
                               </div>
                             )}
-                            <div className="min-w-0">
+                            <div>
                               <label className="block text-xs font-bold text-gray-600 mb-2">每件份数</label>
                               <input
                                 type="number"

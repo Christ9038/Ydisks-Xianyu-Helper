@@ -248,6 +248,21 @@ body {
   font-weight: 400;
 }
 
+/* 自动化规则发货行：桌面端固定住发货方式和每件份数的内容宽度，库存列占满剩余空间。 */
+@media (min-width: 768px) {
+  .rules-delivery-grid {
+    grid-template-columns: minmax(8rem, max-content) minmax(0, 1fr) minmax(5.5rem, max-content);
+  }
+
+.rules-delivery-grid-multi {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(8rem, max-content) minmax(0, 1fr) minmax(5.5rem, max-content);
+  }
+
+  .rules-delivery-grid > div {
+    min-width: 0;
+  }
+}
+
 /* 主按钮 */
 .ios-btn-primary {
   background: rgb(var(--color-brand));
