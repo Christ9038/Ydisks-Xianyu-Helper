@@ -534,6 +534,9 @@ func TestSyncItemsFromAccountSuccess(t *testing.T) {
 		// body 用于本次流程后续判断的请求体
 		body := `{"ret":["SUCCESS::调用成功"],"data":{"cardList":[` +
 			`{"cardData":{"id":"it-sync-1","title":"同步商品A","priceInfo":{"price":"12.50","preText":"¥"},"picInfo":{"picUrl":"https://img.alicdn.com/a.png"},"categoryId":"9","detailParams":{"itemId":"it-sync-1"}}}]}}`
+		if req.URL.Query().Get("api") == "mtop.taobao.idle.pc.detail" {
+			body = `{"ret":["SUCCESS::调用成功"],"data":{"multiSKU":true,"skuDO":{"skuList":[{"id":"sku-a"},{"id":"sku-b"}]}}}`
+		}
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Header:     make(http.Header),

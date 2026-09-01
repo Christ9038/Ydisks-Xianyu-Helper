@@ -170,6 +170,59 @@ func TestNotificationChannelSummaryDoesNotDecryptConfig(t *testing.T) {
 	}
 }
 
+// TestItemsSyncFromRemoteUpdatesMultiSpecBothDirections 验证商品同步会覆盖多规格标记的双向变化。
+func TestItemsSyncFromRemoteUpdatesMultiSpecBothDirections(t *testing.T) {
+	// store、cleanup 保存隔离数据库和清理责任。
+	store, cleanup := newTestDB(t)
+	defer cleanup()
+	// ctx 保存本测试共用的数据库上下文。
+	ctx := context.Background()
+	// created、err 保存测试用户创建结果。
+	created, err := store.Users.Create(ctx, "multi-spec-sync-user", "multi-spec-sync@example.com", "password")
+	if err != nil || !created {
+		t.Fatalf("创建测试用户失败 created=%v err=%v", created, err)
+	}
+	// user、err 保存测试用户及其查询错误。
+	user, err := store.Users.GetByUsername(ctx, "multi-spec-sync-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// err 保存测试账号凭证写入错误；商品表通过该账号满足外键约束。
+	if err := store.Cookies.Save(ctx, "acc1", "unb=1", user.ID); err != nil {
+		t.Fatal(err)
+	}
+	// err 保存初始多规格商品写入错误。
+	if err := store.Items.Upsert(ctx, &ItemInfoRow{CookieID: "acc1", ItemID: "changing-item", ItemTitle: "变更商品", IsMultiSpec: true}); err != nil {
+		t.Fatal(err)
+	}
+	// result、err 保存多规格转单规格同步结果。
+	result, err := store.Items.SyncFromRemote(ctx, "acc1", []ItemInfoRow{{ItemID: "changing-item", IsMultiSpec: false}})
+	if err != nil || result.Saved != 1 {
+		t.Fatalf("多规格转单规格同步失败 result=%+v err=%v", result, err)
+	}
+	// item、err 保存多规格转单规格后的商品记录。
+	item, err := store.Items.Get(ctx, "acc1", "changing-item")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.IsMultiSpec {
+		t.Fatal("同步单规格结果不应继续保留多规格标记")
+	}
+	// result、err 保存单规格转多规格同步结果。
+	result, err = store.Items.SyncFromRemote(ctx, "acc1", []ItemInfoRow{{ItemID: "changing-item", IsMultiSpec: true}})
+	if err != nil || result.Saved != 1 {
+		t.Fatalf("单规格转多规格同步失败 result=%+v err=%v", result, err)
+	}
+	// item、err 保存单规格转多规格后的商品记录。
+	item, err = store.Items.Get(ctx, "acc1", "changing-item")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !item.IsMultiSpec {
+		t.Fatal("同步多规格结果未写入多规格标记")
+	}
+}
+
 // TestItemsSyncFromRemoteReconcilesAndPreservesLocalSettings 封装Test商品列表SyncFromRemoteReconcilesAndPreservesLocal设置业务协调。
 func TestItemsSyncFromRemoteReconcilesAndPreservesLocalSettings(t *testing.T) {
 	// store、cleanup 用于本次流程后续判断的store、cleanup

@@ -120,9 +120,9 @@ func (i *Items) UpsertBasicTx(ctx context.Context, tx *sql.Tx, r *ItemInfoRow) e
 
 // SyncFromRemote 将远端商品全集同步到本地。
 //
-// 远端列表只提供商品基础信息，因此保留本地的描述和发货配置；基础字段
-// （标题、分类、价格、详情）由远端非空值覆盖。整个 reconcile 在一个事务内
-// 完成，只有在全部远端商品写入成功后，才会逻辑删除本次全集中不存在的本地商品及其商品级自动化规则。
+// 远端列表只提供商品基础信息，因此保留本地的描述和多数量发货设置；基础字段
+// （标题、分类、价格、详情）由远端非空值覆盖，多规格标记由本次远端探测结果覆盖。整个 reconcile
+// 在一个事务内完成，只有在全部远端商品写入成功后，才会逻辑删除本次全集中不存在的本地商品及其商品级自动化规则。
 // SyncFromRemote 同步FromRemote。
 func (i *Items) SyncFromRemote(ctx context.Context, cookieID string, rows []ItemInfoRow) (ItemSyncResult, error) {
 	cookieID = strings.TrimSpace(cookieID)
@@ -165,13 +165,11 @@ func (i *Items) SyncFromRemote(ctx context.Context, cookieID string, rows []Item
 		err := i.UpsertBasicTx(ctx, tx, &validRows[index]); err != nil {
 			return rollback(err)
 		}
-		if validRows[index].IsMultiSpec {
-			if // err 用于本次流程后续判断的err
-			_, err := tx.ExecContext(ctx,
-				`UPDATE item_info SET is_multi_spec=? WHERE cookie_id=? AND item_id=?`,
-				boolToInt(true), cookieID, validRows[index].ItemID); err != nil {
-				return rollback(err)
-			}
+		if // err 用于本次流程后续判断的err
+		_, err := tx.ExecContext(ctx,
+			`UPDATE item_info SET is_multi_spec=?, updated_at=CURRENT_TIMESTAMP WHERE cookie_id=? AND item_id=?`,
+			boolToInt(validRows[index].IsMultiSpec), cookieID, validRows[index].ItemID); err != nil {
+			return rollback(err)
 		}
 	}
 

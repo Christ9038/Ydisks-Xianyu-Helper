@@ -26,18 +26,6 @@ type ItemSyncRepository struct {
 	updateRunningCookie func(context.Context, string, string)
 	// recoverExpiredSession 在平台报告会话过期时触发账号恢复。
 	recoverExpiredSession func(context.Context, string, error)
-	// cacheMu 保护商品多规格探测缓存。
-	cacheMu sync.Mutex
-	// cache 保存短期商品多规格探测结果。
-	cache map[string]itemSpecCacheEntry
-}
-
-// itemSpecCacheEntry 保存商品多规格结果及过期时间。
-type itemSpecCacheEntry struct {
-	// isMultiSpec 表示商品是否包含多规格。
-	isMultiSpec bool
-	// expiresAt 表示缓存项失效时间。
-	expiresAt time.Time
 }
 
 // NewItemSyncRepository 构造商品同步基础设施适配器。
@@ -48,7 +36,7 @@ func NewItemSyncRepository(store *db.Store, client func() mtop.Client, logger *s
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &ItemSyncRepository{store: store, client: client, logger: logger, updateRunningCookie: updateRunningCookie, recoverExpiredSession: recoverExpiredSession, cache: make(map[string]itemSpecCacheEntry)}
+	return &ItemSyncRepository{store: store, client: client, logger: logger, updateRunningCookie: updateRunningCookie, recoverExpiredSession: recoverExpiredSession}
 }
 
 // OwnsAccount 按非敏感所有者字段判断用户是否拥有账号。
@@ -310,43 +298,18 @@ func (r *ItemSyncRepository) syncItems(ctx context.Context, cookieID string, ite
 	return r.store.Items.SyncFromRemote(ctx, cookieID, rows)
 }
 
-// enrichMultiSpec 使用本地标记和有限并发远端详情探测补全多规格字段。
+// enrichMultiSpec 每次同步都以远端商品详情重新确定多规格字段，支持多规格与单规格双向变化。
 func (r *ItemSyncRepository) enrichMultiSpec(ctx context.Context, cookies, cookieID string, items []mtop.ItemListItem) error {
 	// fetcher、ok 保存可选商品详情探测能力及其存在状态。
 	fetcher, ok := r.mtopClient().(mtop.ItemDetailFetcher)
 	if !ok {
 		return nil
 	}
-	// itemIDs 保存本次批量读取本地标记的商品标识。
-	itemIDs := make([]string, 0, len(items))
-	// item 表示当前待收集标识的平台商品。
-	for _, item := range items {
-		itemIDs = append(itemIDs, item.ID)
-	}
-	// localFlags、flagsErr 保存本地多规格标记及查询错误。
-	localFlags, flagsErr := r.store.Items.MultiSpecFlags(ctx, cookieID, itemIDs)
-	if flagsErr != nil {
-		r.logger.Warn("批量读取商品多规格标记失败，将继续远端探测", "cookie_id", cookieID, "err", flagsErr)
-	}
-	// candidates 保存需要远端探测的商品下标。
-	candidates := make([]int, 0, len(items))
-	// index 表示当前商品在结果切片中的下标。
-	for index := range items {
-		if items[index].IsMultiSpec || localFlags[items[index].ID] {
-			items[index].IsMultiSpec = true
-			r.cacheSpec(cookieID, items[index].ID, true)
-			continue
-		}
-		// cachedValue、cached 表示是否命中短期多规格缓存。
-		cachedValue, cached := r.cachedSpec(cookieID, items[index].ID)
-		if cached {
-			items[index].IsMultiSpec = cachedValue
-			continue
-		}
-		candidates = append(candidates, index)
-	}
-	if len(candidates) == 0 {
-		return nil
+	// candidates 保存本次同步必须重新探测的全部商品下标；不复用本地标记或短期缓存，避免单向锁存旧结果。
+	candidates := make([]int, len(items))
+	// index 表示当前待探测商品在列表中的下标。
+	for index := range candidates {
+		candidates[index] = index
 	}
 	// probeCtx、cancel 控制批量详情探测的收束。
 	probeCtx, cancel := context.WithCancel(ctx)
@@ -383,48 +346,11 @@ func (r *ItemSyncRepository) enrichMultiSpec(ctx context.Context, cookies, cooki
 				}
 				return
 			}
-			r.cacheSpec(cookieID, items[index].ID, isMultiSpec)
 			items[index].IsMultiSpec = isMultiSpec
 		}(index)
 	}
 	waitGroup.Wait()
 	return sessionErr
-}
-
-// cachedSpec 读取未过期的多规格探测缓存。
-func (r *ItemSyncRepository) cachedSpec(cookieID, itemID string) (bool, bool) {
-	r.cacheMu.Lock()
-	defer r.cacheMu.Unlock()
-	// key 是账号和商品组成的缓存键。
-	key := cookieID + "\x00" + itemID
-	// entry、ok 保存缓存项及存在状态。
-	entry, ok := r.cache[key]
-	if !ok || time.Now().After(entry.expiresAt) {
-		delete(r.cache, key)
-		return false, false
-	}
-	return entry.isMultiSpec, true
-}
-
-// cacheSpec 写入多规格探测结果并清理已过期缓存。
-func (r *ItemSyncRepository) cacheSpec(cookieID, itemID string, value bool) {
-	if itemID == "" {
-		return
-	}
-	r.cacheMu.Lock()
-	defer r.cacheMu.Unlock()
-	if r.cache == nil {
-		r.cache = make(map[string]itemSpecCacheEntry)
-	}
-	// now 是本次缓存清理和写入的时间基准。
-	now := time.Now()
-	// key、entry 分别表示待清理的缓存键和缓存项。
-	for key, entry := range r.cache {
-		if now.After(entry.expiresAt) {
-			delete(r.cache, key)
-		}
-	}
-	r.cache[cookieID+"\x00"+itemID] = itemSpecCacheEntry{isMultiSpec: value, expiresAt: now.Add(10 * time.Minute)}
 }
 
 // withCookieSnapshot 创建带完整 Cookie Jar 或平面 Cookie 的平台上下文。
