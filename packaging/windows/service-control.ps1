@@ -143,7 +143,14 @@ function Assert-ServiceInstallParameters {
 function Update-InstalledServiceConfiguration {
     param([Parameter(Mandatory = $true)][string]$BinaryPath)
 
-    Invoke-ScChecked config $ServiceName 'binPath=' $BinaryPath
+    $service = Get-CimInstance -ClassName Win32_Service -Filter "Name='$ServiceName'" -ErrorAction Stop
+    if ($null -eq $service) {
+        throw "Windows 服务 $ServiceName 不存在，无法更新可执行命令"
+    }
+    $changeResult = Invoke-CimMethod -InputObject $service -MethodName Change -Arguments @{ PathName = $BinaryPath } -ErrorAction Stop
+    if ($changeResult.ReturnValue -ne 0) {
+        throw "更新 Windows 服务 $ServiceName 的可执行命令失败，Win32 返回码: $($changeResult.ReturnValue)"
+    }
     Invoke-ScChecked config $ServiceName 'start=' 'delayed-auto'
     Invoke-ScChecked description $ServiceName 'Ydisks Xianyu Helper background service'
     Grant-InteractiveUserServiceControl
