@@ -282,7 +282,9 @@ jobs:
       - name: 实际验证 Windows 服务注册
         shell: pwsh
         run: |
-          $serviceName = 'YdisksXianyuHelper'
+          # 预检服务必须与安装器的正式服务名不同。SCM 对删除采用异步语义，
+          # 否则预检刚删除的同名服务可能仍占用正式安装器的新建名称。
+          $serviceName = 'YdisksXianyuHelperPreflight'
           $workDir = Join-Path $env:RUNNER_TEMP $serviceName
           $runtimeRoot = (Resolve-Path 'dist/windows/playwright-runtime/amd64').Path
           $serviceScript = (Resolve-Path 'packaging/windows/service-control.ps1').Path
@@ -564,6 +566,10 @@ jobs:
             $serverLog = Join-Path $env:ProgramData 'YdisksXianyuHelper\logs\server.log'
             if (Test-Path -LiteralPath $serverLog) {
               Get-Content -LiteralPath $serverLog -Tail 200
+            }
+            $serviceRegistrationLog = Join-Path $env:ProgramData 'YdisksXianyuHelper\logs\service-registration-error.log'
+            if (Test-Path -LiteralPath $serviceRegistrationLog) {
+              Get-Content -LiteralPath $serviceRegistrationLog -Tail 200
             }
             throw
           } finally {
