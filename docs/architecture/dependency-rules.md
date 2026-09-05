@@ -121,7 +121,7 @@ refactoring-master-plan.md 定义，本文不声明当前阶段或完成状态�
 
 - AccountSummary 不包含 Cookie、Token、密码或加密 metadata；
 - AccountCredential 只能进入平台调用和凭证更新流程；
-- AccountLoginSecret 只能进入密码登录或续期流程；
+- AccountLoginSecret 仅作为历史密码登录模型或明确授权的续期流程输入；当前产品密码登录入口和自动恢复路径均已关闭，生产账号恢复不得读取或调用浏览器密码登录；
 - 所有权查询只能返回存在性或非敏感 ID；
 - HTTP DTO 不得引用敏感模型；
 - 日志、通知和错误响应不得包含秘密；

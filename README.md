@@ -650,7 +650,7 @@ make vet       # go vet
 make lint      # golangci-lint
 make test      # 全部 Go 单元测试
 make cover     # 覆盖率报告
-make check     # fmt + vet + lint + test
+make check     # fmt + architecture + API contract + vet + lint + test + comments
 
 npm --prefix frontend run typecheck
 npm --prefix frontend test

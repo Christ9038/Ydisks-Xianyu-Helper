@@ -1,7 +1,6 @@
 # 登录续期与风控能力实施记录
 
-> 本文最初是实施计划。当前列出的五个功能记录均已落地；后续协议变化应以实际代码、测试和
-> 本文的实施记录为准，不应把“目标流程”误读为尚未实现的功能。它不是重构总计划，不定义正式阶段。
+> 本文最初是实施计划。协议、风控、扫码验证和多账号保护能力已落地；密码登录实现仅作为历史浏览器能力保留，产品入口和自动恢复路径已经永久关闭。后续协议变化应以实际代码、测试和本文的实施记录为准，不应把历史目标流程误读为当前功能。它不是重构总计划，不定义正式阶段。
 
 ## 目标
 
@@ -73,22 +72,17 @@
 
 修改 `internal/engine/account.go`：
 
-当前流程：
+当前运行时流程：
 
-`RefreshToken -> WS -> 连续失败 -> PasswordLogin -> 慢重试`
-
-目标流程：
-
-`RefreshToken -> API Renew -> Browser Renew -> PasswordLogin -> 慢重试/人工验证`
+`登录态检查 -> API Renew（silentHasLogin） -> Token/WS 重连 -> 失败后要求重新扫码`
 
 规则：
 
 - token 刷新遇到 token/session 问题时先尝试接口续期。
 - 接口续期成功后保存 Cookie、清 token 缓存、重新获取 token。
 - 接口续期失败但 Cookie 有更新时也保存，避免丢服务端新字段。
-- 浏览器续期作为第二层恢复。
-- 密码登录作为最后自动恢复手段。
-- 风控类错误进入 `verification_required`，降频重试并发通知。
+- 浏览器页面续期和密码登录不属于当前生产自动恢复路径；保留的浏览器密码登录代码不得由账号运行时调用。
+- API 续期失败后进入 `auth_expired` 或安全验证状态，通知用户重新扫码或完成人工验证。
 
 ## 功能记录 5：重连退避和多账号保护
 
@@ -113,5 +107,5 @@ cd frontend && npm test -- --run && npm run build
 - 已完成扫码人脸验证 API 链路：后端提取 `htoken`、`verify_modes`、人脸二维码内容并轮询 `photoVerify/check.do`，前端优先展示 `face_qr_url`；截图只保留为兜底。
 - 已完成 Cookie 接口续期服务：主动续期使用 `silentHasLogin.do`，长登录设置使用 `setLoginSettings.do`；两者均合并 `Set-Cookie`，所有响应读取有大小上限。续期请求使用运行时 Chromium 原生指纹，Linux Docker 与桌面部署均会实际发起续期请求。
 - 已完成 MTOP 风控分类：token 过期、session 失效、`FAIL_SYS_USER_VALIDATE`、`RGV587`、`punish/captcha/x5secdata` 等状态被结构化识别。
-- 已完成运行时恢复顺序：`RefreshToken -> API Renew -> Browser Renew -> PasswordLogin -> 慢重试/人工验证`，Cookie 更新后会清理旧 token 缓存。
+- 已完成运行时恢复顺序：登录态检查优先尝试通过响应 Cookie 恢复；连接或 Token 会话失效时执行一次受控的 `silentHasLogin` 协议续期，并在失败后进入 `auth_expired`、要求重新扫码。Cookie 更新后会清理旧 Token 缓存；生产路径不会执行浏览器密码登录或浏览器页面续期。
 - 已完成多账号保护：重连退避加入 0-30% 抖动，降低多账号同时重连造成的风控压力。

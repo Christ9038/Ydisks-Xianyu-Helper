@@ -8,7 +8,7 @@ The active application contains:
 - `cmd/init-admin/` — interactive administrator initialization CLI.
 - `cmd/dbverify/` — migration + core CRUD verification tool across SQLite/MySQL/Postgres.
 - `internal/server/` — chi HTTP API and SPA serving.
-- `internal/adapter/` — wiring layer that implements `engine.Handler` and `automation.OrderDetailFetcher` (system events → automation center, order-detail fetch / password-login refresh → browser, account alerts → notifier).
+- `internal/adapter/` — wiring layer that implements `engine.Handler` and `automation.OrderDetailFetcher` (system events → automation center, order-detail fetch → browser, protocol-level credential renewal, account alerts → notifier).
 - `internal/account/` — enabled-account supervisor.
 - `internal/engine/` — per-account runtime, replies, and delivery behavior.
 - `internal/automation/` — unified automation center (paid delivery, review gifts, review requests) + scheduler.
@@ -29,7 +29,7 @@ make test-server       # go test ./internal/server
 make test-server-race  # server 生命周期与凭证并发 smoke race
 make vet        # go vet ./...
 make lint       # golangci-lint run ./... (0 issues baseline)
-make check      # vet + lint + test
+make check      # fmt + architecture + API contract + vet + lint + test + comments
 make cover      # Go 全量覆盖率（默认不启动 Chromium）
 make cover-browser # 本地 Chromium 页面与 CDP 覆盖率
 make cover-frontend # 前端 V8 覆盖率（文本/JSON/HTML）
@@ -367,7 +367,7 @@ logic to HTTP handlers. The mandatory target architecture and the allowed transi
 - `qrlogin` for QR login.
 - `protocol` for cookies, signing, decoding, and message IDs.
 
-Browser-backed verification, password login refresh, and order-detail fallbacks live in `internal/browser`. Keep the browser contract and its server/engine callers aligned.
+Browser-backed verification, order-detail fallbacks and the retained historical password-login implementation live in `internal/browser`. The production account recovery path uses protocol-level renewal and then requires QR login; it must not invoke browser password login. Keep the browser contract and its server/engine callers aligned.
 
 ## Frozen slider CAPTCHA logic — DO NOT MODIFY
 
