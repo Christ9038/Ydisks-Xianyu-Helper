@@ -51,3 +51,15 @@ test('通知表单覆盖各渠道归一化和独立 SMTP 校验',
     expect(notificationErrorMessage(new Error('网络失败'), '备用错误')).toBe('网络失败');
     expect(notificationErrorMessage({}, '备用错误')).toBe('备用错误');
   });
+
+// 原有 SMTP 保留模式只发送收件地址，明确重新配置时才发送完整 SMTP 配置。
+test('邮件编辑保留现有 SMTP，显式替换仍需完整配置', /* preservedSMTPTest 验证表单状态与请求载荷边界。 */ () => {
+  // form 模拟旧版独立 SMTP 渠道，只在浏览器内保存非秘密编辑值。
+  const form = createForm({ type: 'email', preserveSMTP: true, config: { to_email: 'new@example.com', use_custom_smtp: true } });
+  expect(validateNotificationForm(form)).toBe('');
+  expect(buildNotificationPayload(form)).toMatchObject({ email_recipient: 'new@example.com' });
+  expect(buildNotificationPayload(form).config).toBeUndefined();
+  expect(validateNotificationForm({ ...form, preserveSMTP: false })).toContain('SMTP 服务器');
+  expect(validateNotificationForm({ ...form, config: {} })).toContain('收件邮箱');
+  expect(buildNotificationPayload({ ...form, preserveSMTP: false, config: { to_email: 'new@example.com', use_custom_smtp: false } })).toMatchObject({ config: { to_email: 'new@example.com', use_custom_smtp: false } });
+});

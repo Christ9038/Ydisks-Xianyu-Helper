@@ -42,6 +42,8 @@ func rowMap(keys, values []string) (map[string]any, bool) {
 func normalizeHeader(header string) string {
 	// value 保存去除空白和分隔符后的表头文本。
 	value := strings.ToLower(strings.TrimSpace(header))
+	// UTF-8 BOM 是浏览器下载的 CSV 模板为兼容 Excel 写入的文件标记，不能成为首列表头的一部分。
+	value = strings.TrimPrefix(value, "\uFEFF")
 	value = strings.NewReplacer(" ", "", "_", "", "-", "", "（", "(", "）", ")").Replace(value)
 	switch value {
 	case "cookieid", "账号id", "账号", "闲鱼账号":
@@ -89,7 +91,7 @@ func normalizeHeader(header string) string {
 	case "reviewrequestdelayseconds", "求评价延迟秒":
 		return "review_request_delay_seconds"
 	default:
-		return strings.TrimSpace(header)
+		return strings.TrimPrefix(strings.TrimSpace(header), "\uFEFF")
 	}
 }
 

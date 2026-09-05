@@ -37,6 +37,10 @@ func TestOrderRepositoryDelegatesBusinessQueries(t *testing.T) {
 	if itemErr := store.Items.Upsert(ctx, &db.ItemInfoRow{CookieID: "cid", ItemID: "item-1", ItemTitle: "商品一", ItemDetail: "详情"}); itemErr != nil {
 		t.Fatal(itemErr)
 	}
+	// sessionErr 保存聊天会话写入结果，为后续订单会话匹配覆盖适配器委托路径。
+	if sessionErr := store.Chats.UpsertSession(ctx, db.ChatSession{CookieID: "cid", ChatID: "chat-1", BuyerID: "buyer-1", ItemID: "item-1"}); sessionErr != nil {
+		t.Fatal(sessionErr)
+	}
 	// upsertErr 保存订单写入结果。
 	if upsertErr := repository.UpsertOrder(ctx, "order-1", orderapp.UpsertOptions{CookieID: "cid", ItemID: "item-1", BuyerID: "buyer-1", OrderStatus: "paid", Amount: "12.50", Quantity: "1", ReceiverCity: "上海"}); upsertErr != nil {
 		t.Fatal(upsertErr)
@@ -56,9 +60,14 @@ func TestOrderRepositoryDelegatesBusinessQueries(t *testing.T) {
 		t.Fatalf("missing order=%#v found=%v err=%v", missingOrder, missingFound, missingErr)
 	}
 	// ordersByID、batchErr 保存批量订单查询结果和数据库错误。
-	ordersByID, batchErr := repository.FindOrdersByIDs(ctx, []string{"order-1", "order-2", "order-1"})
+	ordersByID, batchErr := repository.FindOrdersByIDs(ctx, "cid", []string{"order-1", "order-2", "order-1"})
 	if batchErr != nil || len(ordersByID) != 2 {
 		t.Fatalf("orders by ID=%#v err=%v", ordersByID, batchErr)
+	}
+	// chatIDs、chatMatchErr 保存按账号、买家和商品匹配出的会话及错误。
+	chatIDs, chatMatchErr := repository.FindChatIDsByBuyerAndItem(ctx, "cid", "buyer-1", "item-1")
+	if chatMatchErr != nil || len(chatIDs) != 1 || chatIDs[0] != "chat-1" {
+		t.Fatalf("matched chat IDs=%v err=%v", chatIDs, chatMatchErr)
 	}
 	// item、itemReadErr 保存订单商品查询结果及数据库错误。
 	item, itemReadErr := repository.GetItem(ctx, "cid", "item-1")

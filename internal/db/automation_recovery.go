@@ -27,10 +27,10 @@ func (a *AutomationRules) RecoverDefinitelyUnsentReviewRuns(ctx context.Context)
 	return res.RowsAffected()
 }
 
-// DeferTask 封装Defer任务业务协调。
-func (a *AutomationRules) DeferTask(ctx context.Context, task DeferredAutomationTask) error {
-	// err 用于本次流程后续判断的err
-	_, err := a.DB.ExecContext(ctx, `INSERT INTO automation_pending_tasks
+// deferTask 使用 a 的方言在 execer 归属锁事务中写入 task；ctx 控制取消，返回写入错误，提交由调用方负责。
+func (a *AutomationRules) deferTask(ctx context.Context, execer sqlExecer, task DeferredAutomationTask) error {
+	// err 保存延期 UPSERT 错误，原有重置尝试预算和延迟语义保持不变。
+	_, err := execer.ExecContext(ctx, `INSERT INTO automation_pending_tasks
     (task_key,cookie_id,trigger_type,task_json,due_at,status,attempt_count,lease_expires_at,error_message)
 VALUES (?,?,?,?,?,'pending',0,0,?)`+dialectUpsert(a.Dialect, []string{"task_key"}, map[string]string{
 		"cookie_id":        "excluded.cookie_id",

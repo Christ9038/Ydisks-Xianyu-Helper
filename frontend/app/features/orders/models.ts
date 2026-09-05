@@ -357,6 +357,10 @@ export interface OrderRefreshResultResponse {
 /** 订单列表刷新统计摘要。 */
 /** 由当前 feature adapter 归一后的 OrderRefreshSummaryResponse UI 模型；不直接暴露 HTTP DTO。 */
 export interface OrderRefreshSummaryResponse {
+  /** 同账号软删除订单恢复数；旧任务缺失时由 adapter 补零。 */
+  restored: number;
+  /** 历史错绑订单修正数；不与同账号恢复重复计数，旧任务缺失时补零。 */
+  reassigned: number;
   /** 发现的新订单数量。 */
   discovered: number;
   /** 订单列表更新数量。 */

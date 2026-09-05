@@ -830,7 +830,7 @@ func TestMultiDB_OrdersUpsertManyTargetScope(t *testing.T) {
 			rows := []BatchOrderUpsert{{
 				OrderID: "multidb-batch-existing",
 				Options: OrderUpsertOpts{
-					CookieID: cookieID, OrderStatus: "pending_ship", Amount: "12.50", SpecValue: "蓝",
+					CookieID: cookieID, OrderStatus: "pending_ship", Amount: "12.50", SpecValue: "蓝", ChatID: "chat-batch",
 				},
 			}}
 			// batchErr 保存批量 UPSERT 执行错误；PostgreSQL 会在此处验证目标表列限定。
@@ -843,7 +843,7 @@ func TestMultiDB_OrdersUpsertManyTargetScope(t *testing.T) {
 			if getErr != nil {
 				t.Fatalf("get batch order: %v", getErr)
 			}
-			if got.OrderStatus != "shipped" || got.Amount != "12.50" || got.SpecValue != "蓝" || got.IsBargain != 1 || got.Version < 2 {
+			if got.OrderStatus != "shipped" || got.Amount != "12.50" || got.SpecValue != "蓝" || got.IsBargain != 1 || got.ChatID != "chat-batch" || got.Version < 2 {
 				t.Fatalf("batch order=%+v", got)
 			}
 		})
@@ -1623,6 +1623,11 @@ func TestMultiDB_ChatAndAccountTasks(t *testing.T) {
 			sessions, _ = s.Chats.ListSessions(ctx, user.ID, cookieID, 20)
 			if sessions[0].UnreadCount != 0 {
 				t.Fatalf("unread after mark=%d", sessions[0].UnreadCount)
+			}
+			// matchedChatIDs、matchedChatErr 验证订单同步使用的账号、买家、商品组合查询在三种数据库都能找到会话。
+			matchedChatIDs, matchedChatErr := s.Chats.FindChatIDsByBuyerAndItem(ctx, cookieID, "buyer-1", "item-1")
+			if matchedChatErr != nil || len(matchedChatIDs) != 1 || matchedChatIDs[0] != "chat-1" {
+				t.Fatalf("matched chat IDs=%v err=%v", matchedChatIDs, matchedChatErr)
 			}
 		})
 	}

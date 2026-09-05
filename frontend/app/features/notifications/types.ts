@@ -57,6 +57,8 @@ export interface NotificationForm {
   type: NotificationChannelType;
   // enabled 表示是否启用当前渠道。
   enabled: boolean;
+  // preserveSMTP 表示编辑邮件时保留服务端现有 SMTP，仅单独更新收件地址。
+  preserveSMTP?: boolean;
   // config 保存渠道类型对应的配置值。
   config: Record<string, unknown>;
   // event_types 保存用户选择的通知事件，空数组表示全部事件。
@@ -69,8 +71,10 @@ export interface NotificationPayload {
   name: string;
   // type 是保存后的渠道类型。
   type: string;
-  // config 是归一化后的渠道配置。
-  config: Record<string, unknown>;
+  // config 是显式替换的渠道配置；保留 SMTP 时省略。
+  config?: Record<string, unknown>;
+  // email_recipient 只修改收件地址，不读取或替换已有发信凭据。
+  email_recipient?: string;
   // event_types 是保存后的事件订阅集合。
   event_types: NotificationEventType[];
   // enabled 是保存后的启用状态。
@@ -124,7 +128,7 @@ export interface NotificationState {
   // openCreate 打开新建渠道弹窗。
   openCreate: () => void;
   // openEdit 打开已有渠道编辑弹窗。
-  openEdit: (channel: NotificationChannel) => void;
+  openEdit: (channel: NotificationChannel) => Promise<void>;
   // closeModal 关闭弹窗并取消当前保存请求。
   closeModal: () => void;
   // showToast 展示短暂的成功或失败提示。

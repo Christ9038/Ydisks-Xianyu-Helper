@@ -119,7 +119,10 @@ begin
   PowerShellPath := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
   Parameters := ServiceScriptParameters(
     ExpandConstant('{tmp}\service-control.ps1'), 'register') +
-    ' -CreatedMarkerPath "' + ExpandConstant('{tmp}\service-created.marker') + '"';
+    ' -CreatedMarkerPath "' + ExpandConstant('{tmp}\service-created.marker') + '"' +
+    ' -FailureLogPath "' +
+      ExpandConstant('{commonappdata}\YdisksXianyuHelper\logs\service-registration-error.log') +
+    '"';
 
   if not Exec(PowerShellPath, Parameters, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
   begin
@@ -133,7 +136,8 @@ begin
   begin
     Log('Windows service registration failed, result code: ' + IntToStr(ResultCode));
     SuppressibleMsgBox(
-      'Windows 服务注册失败（错误码：' + IntToStr(ResultCode) + '）。',
+      'Windows 服务注册失败（错误码：' + IntToStr(ResultCode) + '）。' + #13#10 +
+      '详细原因已写入 %ProgramData%\YdisksXianyuHelper\logs\service-registration-error.log。',
       mbError, MB_OK, IDOK);
     Abort;
   end;

@@ -25,7 +25,7 @@ func TestRunOrderRefreshJobWithSuccess(t *testing.T) {
 	// job 是待执行的订单刷新任务。
 	job := newOrderRefreshJobLifecycleFixture()
 	// result 是业务刷新返回的确定性结果。
-	result := orderRefreshResponse{Message: "刷新完成", Summary: orderRefreshSummary{Total: 1}}
+	result := orderRefreshResponse{Message: "刷新完成", Summary: orderRefreshSummary{Total: 1, Restored: 3, Reassigned: 2}}
 	// completed 表示终态写入是否被调用。
 	completed := false
 	// status 保存终态写入的目标状态。
@@ -57,6 +57,15 @@ func TestRunOrderRefreshJobWithSuccess(t *testing.T) {
 	}
 	if !completed || status != "succeeded" || resultJSON == "" {
 		t.Fatalf("成功终态未写入: completed=%v status=%s result=%s", completed, status, resultJSON)
+	}
+	// persisted 是运行器实际持久化的具名任务结果，验证兼容回调不会丢失恢复修正统计。
+	var persisted orderapp.RefreshJobResult
+	// decodeErr 保存确定性任务 JSON 的解析错误。
+	if decodeErr := json.Unmarshal([]byte(resultJSON), &persisted); decodeErr != nil {
+		t.Fatal(decodeErr)
+	}
+	if persisted.Summary.Restored != 3 || persisted.Summary.Reassigned != 2 {
+		t.Fatalf("兼容任务转换丢失恢复修正统计：%+v", persisted.Summary)
 	}
 }
 

@@ -34,6 +34,8 @@ type notificationChannelPatchRequest struct {
 	Type *string `json:"type"`
 	// Config 是可选的新敏感配置 JSON，禁止进入响应或日志。
 	Config *string `json:"config"`
+	// EmailRecipient 仅修改邮件收件地址，保留服务端 SMTP 配置；不可和 Config 同时提交。
+	EmailRecipient *string `json:"email_recipient"`
 	// EventTypes 是可选的新订阅事件类型编码。
 	EventTypes *string `json:"event_types"`
 	// Enabled 是可选的新启用状态。
@@ -63,6 +65,7 @@ func (s *Server) uncertainNotificationsApplication() UncertainNotificationsPort 
 // mountNotificationsReal 通知渠道 + 账号绑定。
 func (s *Server) mountNotificationsReal(r chi.Router) {
 	r.Get("/notification-channels", s.listChannels)
+	r.Get("/notification-channels/{channel_id}", s.getChannelEditor)
 	r.Post("/notification-channels", s.createChannel)
 	r.Put("/notification-channels/{channel_id}", s.updateChannel)
 	r.Delete("/notification-channels/{channel_id}", s.deleteChannel)
@@ -72,6 +75,27 @@ func (s *Server) mountNotificationsReal(r chi.Router) {
 	r.Delete("/message-notifications/{notification_id}", s.deleteMessageNotification)
 	r.Get("/message-notifications/{cid}", s.getAccountBindings)
 	r.Post("/message-notifications/{cid}", s.setAccountBindings)
+}
+
+// getChannelEditor 返回当前用户编辑渠道所需的非敏感配置字段。
+func (s *Server) getChannelEditor(w http.ResponseWriter, r *http.Request) {
+	// id、err 保存路径中的渠道 ID 及解析错误。
+	id, err := strconv.ParseInt(chi.URLParam(r, "channel_id"), 10, 64)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "无效ID")
+		return
+	}
+	// editor、lookupErr 保存按用户归属读取的脱敏编辑器视图及读取错误。
+	editor, lookupErr := s.notificationChannelsApplication().GetChannelEditor(r.Context(), authSess(r).UserID, id)
+	if lookupErr != nil {
+		if errors.Is(lookupErr, notificationsapp.ErrChannelForbidden) || errors.Is(lookupErr, notificationsapp.ErrChannelNotFound) {
+			writeErr(w, http.StatusForbidden, "无权操作该通知渠道")
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, "查询失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, newNotificationChannelEditorResponse(editor))
 }
 
 // listUncertainNotifications 返回当前用户渠道对应的不确定通知摘要，不暴露正文或凭证。
@@ -156,10 +180,10 @@ func (s *Server) updateChannel(w http.ResponseWriter, r *http.Request) {
 	sess := authSess(r)
 	// err 保存应用层部分更新结果。
 	if err := s.notificationChannelsApplication().UpdateChannel(r.Context(), sess.UserID, id, notificationsapp.ChannelPatch{
-		Name: req.Name, Type: req.Type, Config: req.Config, EventTypes: req.EventTypes, Enabled: req.Enabled,
+		Name: req.Name, Type: req.Type, Config: req.Config, EmailRecipient: req.EmailRecipient, EventTypes: req.EventTypes, Enabled: req.Enabled,
 	}); err != nil {
 		if errors.Is(err, notificationsapp.ErrChannelInvalidInput) {
-			writeErr(w, http.StatusBadRequest, "name 和 type 必填")
+			writeErr(w, http.StatusBadRequest, "通知渠道更新参数无效")
 			return
 		}
 		if errors.Is(err, notificationsapp.ErrChannelForbidden) || errors.Is(err, notificationsapp.ErrChannelNotFound) {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -47,6 +48,34 @@ func TestListChannels(t *testing.T) {
 	json.Unmarshal(rec2.Body.Bytes(), &arr)
 	if len(arr) != 1 || arr[0]["name"] != "钉钉" {
 		t.Fatalf("渠道列表异常: %+v", arr)
+	}
+}
+
+// TestGetChannelEditorReturnsEmailRecipient 验证编辑接口回显收件邮箱且不泄露 SMTP 密码。
+func TestGetChannelEditorReturnsEmailRecipient(t *testing.T) {
+	// srv、store、cleanup 保存当前测试 HTTP 服务、数据库和资源清理函数。
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	// handler 是当前测试使用的完整 HTTP 路由。
+	handler := srv.Router()
+	// sessionCookie 是当前测试用户的认证 Cookie。
+	sessionCookie := loginHelper(t, handler)
+	// insertErr 保存写入含敏感字段的测试邮件渠道结果。
+	_, insertErr := store.DB.ExecContext(context.Background(), `INSERT INTO notification_channels (name,type,config,enabled,user_id) VALUES (?,?,?,?,?)`, "邮件", "email", `{"to_email":"receiver@example.com","use_custom_smtp":false,"smtp_password":"secret"}`, 1, 1)
+	if insertErr != nil {
+		t.Fatalf("写入邮件渠道失败: %v", insertErr)
+	}
+	// request 是读取邮件渠道脱敏编辑配置的请求。
+	request := httptest.NewRequest(http.MethodGet, "/notification-channels/1", nil)
+	request.AddCookie(sessionCookie)
+	// recorder 捕获编辑接口响应。
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("编辑渠道 status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"to_email":"receiver@example.com"`) || strings.Contains(recorder.Body.String(), "smtp_password") || strings.Contains(recorder.Body.String(), "secret") {
+		t.Fatalf("编辑渠道响应异常或泄露秘密: %s", recorder.Body.String())
 	}
 }
 
@@ -558,4 +587,70 @@ func TestSetAccountBindingsSingleChannel(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
+}
+
+// TestNotificationRecipientPatchContract 验证真实版本化接口仅更新收件地址，保留旧 SMTP，并拒绝越权和歧义输入。
+func TestNotificationRecipientPatchContract(t *testing.T) {
+	// srv、store、cleanup 提供隔离 HTTP 服务、仓储和生命周期清理。
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	// handler、sessionCookie 是当前用户的真实 Router 和测试会话，不输出会话凭据。
+	handler := srv.Router()
+	// sessionCookie 只用于本机测试请求授权。
+	sessionCookie := loginHelper(t, handler)
+	// channelID、err 创建带旧版逐字段 SMTP 和虚构密码的邮件渠道。
+	channelID, err := store.Notifications.CreateChannel(context.Background(), &db.NotificationChannelRow{Name: "legacy", Type: "email", Config: `{"email":"old@example.com","smtp_server":"fixture.invalid","smtp_password":"fixture-secret"}`, Enabled: true, UserID: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// path 是本轮仅供测试操作的渠道路径。
+	path := "/api/v1/notifications/channels/" + strconv.FormatInt(channelID, 10)
+	// request、recorder 记录真实更新成功响应并参与 OpenAPI 契约校验。
+	request := httptest.NewRequest(http.MethodPut, path, strings.NewReader(`{"name":"renamed","email_recipient":"new@example.com"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(sessionCookie)
+	// recorder 接收不含渠道配置的成功结果。
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	assertOpenAPISuccessResponse(t, request, recorder)
+	// channel、err 仅在测试仓储断言边界读取已保存的虚构配置，不输出其内容。
+	channel, err := store.Notifications.GetChannel(context.Background(), channelID)
+	if err != nil || channel == nil {
+		t.Fatal("未读取到保存后的渠道")
+	}
+	if !strings.Contains(channel.Config, `"to_email":"new@example.com"`) || !strings.Contains(channel.Config, `"smtp_password":"fixture-secret"`) || strings.Contains(channel.Config, "use_custom_smtp") {
+		t.Fatal("收件更新未保留旧 SMTP 配置")
+	}
+	// body 枚举不可同时发送的配置替换与不兼容渠道类型。
+	for _, body := range []string{`{"email_recipient":"new@example.com","config":"{}"}`, `{"email_recipient":"new@example.com","type":"webhook"}`, `{"email_recipient":" "}`} {
+		request = httptest.NewRequest(http.MethodPut, path, strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		request.AddCookie(sessionCookie)
+		recorder = httptest.NewRecorder()
+		handler.ServeHTTP(recorder, request)
+		assertOpenAPIExpectedStatusResponse(t, request, recorder, http.StatusBadRequest)
+	}
+	request = httptest.NewRequest(http.MethodPut, path, strings.NewReader(`{"email_recipient":"new@example.com"}`))
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	assertOpenAPIExpectedStatusResponse(t, request, recorder, http.StatusUnauthorized)
+	// created、createErr 建立真实外键目标，仅使用虚构测试身份。
+	created, createErr := store.Users.Create(context.Background(), "recipient-other", "recipient-other@example.com", "fixture-password")
+	if createErr != nil || !created {
+		t.Fatal("创建其他用户失败")
+	}
+	// otherUser、lookupErr 读取另一用户标识以验证渠道所有权边界。
+	otherUser, lookupErr := store.Users.GetByUsername(context.Background(), "recipient-other")
+	if lookupErr != nil || otherUser == nil {
+		t.Fatal("读取其他用户失败")
+	}
+	// ownerErr 模拟另一个用户持有渠道，当前登录用户不应修改收件地址。
+	if _, ownerErr := store.DB.ExecContext(context.Background(), `UPDATE notification_channels SET user_id=? WHERE id=?`, otherUser.ID, channelID); ownerErr != nil {
+		t.Fatal(ownerErr)
+	}
+	request = httptest.NewRequest(http.MethodPut, path, strings.NewReader(`{"email_recipient":"new@example.com"}`))
+	request.AddCookie(sessionCookie)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	assertOpenAPIExpectedStatusResponse(t, request, recorder, http.StatusForbidden)
 }

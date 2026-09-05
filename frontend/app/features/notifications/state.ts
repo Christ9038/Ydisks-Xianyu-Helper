@@ -105,7 +105,7 @@ export const validateNotificationForm = (form: NotificationForm): string => {
   if (form.type === 'email') {
     // config 是邮件渠道归一化后的提交配置。
     const config = buildEmailChannelConfig(form.config);
-    if (config.use_custom_smtp) {
+    if (config.use_custom_smtp && !form.preserveSMTP) {
       // requiredFields 是独立 SMTP 模式下必须填写的字段列表。
       const requiredFields: Array<[string, string]> = [
         ['smtp_server', '独立 SMTP 服务器'], ['smtp_port', '独立 SMTP 端口'], ['smtp_user', '独立 SMTP 登录邮箱'],
@@ -126,7 +126,9 @@ export const validateNotificationForm = (form: NotificationForm): string => {
 export const buildNotificationPayload = (form: NotificationForm): NotificationPayload => ({
   name: form.name.trim(),
   type: form.type,
-  config: form.type === 'email' ? buildEmailChannelConfig(form.config) : form.config,
+  ...(form.type === 'email' && form.preserveSMTP
+    ? { email_recipient: String(form.config.to_email ?? '').trim() }
+    : { config: form.type === 'email' ? buildEmailChannelConfig(form.config) : form.config }),
   event_types: form.event_types,
   enabled: form.enabled,
 });

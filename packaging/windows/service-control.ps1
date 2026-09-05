@@ -8,7 +8,8 @@
     [string]$TrayPath = '',
     [string]$WorkDir = '',
     [string]$RuntimeRoot = '',
-    [string]$CreatedMarkerPath = ''
+    [string]$CreatedMarkerPath = '',
+    [string]$FailureLogPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -93,6 +94,16 @@ function Invoke-ScChecked {
     }
 }
 
+function Mark-InstalledServiceForDeletion {
+    $output = & "$env:SystemRoot\System32\sc.exe" delete $ServiceName 2>&1
+    # ERROR_SERVICE_MARKED_FOR_DELETE (1072) 表示前一轮删除已经成功提交，
+    # 只需继续等待 SCM 释放所有句柄，不能把它当作升级失败。
+    if ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq 1072) {
+        return
+    }
+    throw "sc.exe delete $ServiceName 失败 ($LASTEXITCODE): $($output -join ' ')"
+}
+
 function Grant-InteractiveUserServiceControl {
     # IU（INTERACTIVE）只包含当前交互式登录会话。授予的 LCRPWP 分别是
     # 查询状态、启动和停止；不包含修改配置、修改 ACL 或删除服务。
@@ -129,6 +140,94 @@ function Assert-ServiceInstallParameters {
     }
 }
 
+function Update-InstalledServiceConfiguration {
+    param([Parameter(Mandatory = $true)][string]$BinaryPath)
+
+    Invoke-ScChecked config $ServiceName 'binPath=' $BinaryPath
+    Invoke-ScChecked config $ServiceName 'start=' 'delayed-auto'
+    Invoke-ScChecked description $ServiceName 'Ydisks Xianyu Helper background service'
+    Grant-InteractiveUserServiceControl
+}
+
+function Get-ExceptionNativeErrorCode {
+    param([Parameter(Mandatory = $true)][System.Exception]$Exception)
+
+    $currentException = $Exception
+    while ($null -ne $currentException) {
+        if ($currentException -is [System.ComponentModel.Win32Exception]) {
+            return $currentException.NativeErrorCode
+        }
+        $currentException = $currentException.InnerException
+    }
+    return $null
+}
+
+function New-InstalledService {
+    param([Parameter(Mandatory = $true)][string]$BinaryPath)
+
+    $deadline = [DateTime]::UtcNow.AddSeconds(30)
+    while ($true) {
+        try {
+            New-Service -Name $ServiceName `
+                -BinaryPathName $BinaryPath `
+                -DisplayName 'Ydisks Xianyu Helper' `
+                -StartupType Automatic `
+                -ErrorAction Stop | Out-Null
+            return
+        } catch {
+            $nativeErrorCode = Get-ExceptionNativeErrorCode -Exception $_.Exception
+            if ($nativeErrorCode -ne 1072 -or [DateTime]::UtcNow -ge $deadline) {
+                throw
+            }
+            # DeleteService 仅标记删除；其他进程尚未关闭服务句柄时，CreateService
+            # 会返回 ERROR_SERVICE_MARKED_FOR_DELETE (1072)，短暂重试可避免升级竞态。
+            Start-Sleep -Milliseconds 250
+        }
+    }
+}
+
+function Create-InstalledService {
+    param([Parameter(Mandatory = $true)][string]$BinaryPath)
+
+    if (-not [string]::IsNullOrWhiteSpace($CreatedMarkerPath)) {
+        Set-Content -LiteralPath $CreatedMarkerPath -Value $ServiceName -Encoding ASCII
+    }
+    New-InstalledService -BinaryPath $BinaryPath
+    Update-InstalledServiceConfiguration -BinaryPath $BinaryPath
+}
+
+function Recreate-InstalledService {
+    param([Parameter(Mandatory = $true)][string]$BinaryPath)
+
+    Mark-InstalledServiceForDeletion
+    Wait-ServiceDeleted
+    Create-InstalledService -BinaryPath $BinaryPath
+}
+
+function Write-ServiceControlFailure {
+    param([Parameter(Mandatory = $true)][System.Management.Automation.ErrorRecord]$Failure)
+
+    if ([string]::IsNullOrWhiteSpace($FailureLogPath)) {
+        return
+    }
+    try {
+        $failureDirectory = Split-Path -Parent $FailureLogPath
+        if (-not [string]::IsNullOrWhiteSpace($failureDirectory)) {
+            New-Item -ItemType Directory -Force -Path $failureDirectory | Out-Null
+        }
+        $failureText = @(
+            "时间: $([DateTime]::Now.ToString('o'))"
+            "模式: $Mode"
+            "服务: $ServiceName"
+            '异常:'
+            ($Failure | Out-String).Trim()
+        ) -join [Environment]::NewLine
+        Set-Content -LiteralPath $FailureLogPath -Value $failureText -Encoding UTF8
+    } catch {
+        Write-Warning "无法写入 Windows 服务失败日志: $($_.Exception.Message)"
+    }
+}
+
 function Register-InstalledService {
     Assert-ServiceInstallParameters
     Stop-InstalledComponents
@@ -140,21 +239,17 @@ function Register-InstalledService {
     $binaryPath = '"{0}" -service -workdir "{1}" -data-key-file "{1}\data-key" -addr 127.0.0.1:59188 -playwright-runtime-root "{2}"' -f `
         $ExePath, $WorkDir, $RuntimeRoot
     if (-not (Test-ServiceInstalled)) {
-        if (-not [string]::IsNullOrWhiteSpace($CreatedMarkerPath)) {
-            Set-Content -LiteralPath $CreatedMarkerPath -Value $ServiceName -Encoding ASCII
-        }
-        New-Service -Name $ServiceName `
-            -BinaryPathName $binaryPath `
-            -DisplayName 'Ydisks Xianyu Helper' `
-            -StartupType Automatic `
-            -ErrorAction Stop | Out-Null
+        Create-InstalledService -BinaryPath $binaryPath
     } else {
-        Invoke-ScChecked config $ServiceName 'binPath=' $binaryPath
+        try {
+            Update-InstalledServiceConfiguration -BinaryPath $binaryPath
+        } catch {
+            # 旧版本可能留下拒绝修改配置或 ACL 的服务对象。服务本身无用户数据，
+            # 删除后重建即可恢复固定的命令行、延迟启动和交互用户启停权限。
+            Write-Warning "更新现有 Windows 服务 $ServiceName 失败，正在删除后重建: $($_.Exception.Message)"
+            Recreate-InstalledService -BinaryPath $binaryPath
+        }
     }
-
-    Invoke-ScChecked config $ServiceName 'start=' 'delayed-auto'
-    Invoke-ScChecked description $ServiceName 'Ydisks Xianyu Helper background service'
-    Grant-InteractiveUserServiceControl
 
     if (-not (Test-ServiceInstalled)) {
         throw "Windows 服务 $ServiceName 注册后无法查询"
@@ -199,25 +294,30 @@ function Start-InstalledService {
     }
 }
 
-switch ($Mode) {
-    'stop' {
-        Stop-InstalledComponents
-    }
-    'register' {
-        Register-InstalledService
-    }
-    'start' {
-        Start-InstalledService
-    }
-    'install' {
-        Register-InstalledService
-        Start-InstalledService
-    }
-    'uninstall' {
-        Stop-InstalledComponents
-        if (Test-ServiceInstalled) {
-            Invoke-ScChecked delete $ServiceName
-            Wait-ServiceDeleted
+try {
+    switch ($Mode) {
+        'stop' {
+            Stop-InstalledComponents
+        }
+        'register' {
+            Register-InstalledService
+        }
+        'start' {
+            Start-InstalledService
+        }
+        'install' {
+            Register-InstalledService
+            Start-InstalledService
+        }
+        'uninstall' {
+            Stop-InstalledComponents
+            if (Test-ServiceInstalled) {
+                Mark-InstalledServiceForDeletion
+                Wait-ServiceDeleted
+            }
         }
     }
+} catch {
+    Write-ServiceControlFailure -Failure $_
+    throw
 }

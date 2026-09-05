@@ -9,6 +9,8 @@ function createAmapStub() {
   // placeSearch 是地点查询构造器替身。
   const placeSearch = vi.fn(function placeSearchConstructor() {
     return {
+      // search 返回一个空的关键词搜索结果替身，供 SDK 接口类型完整性验证使用。
+      search: vi.fn(),
       // searchNearBy 返回一个可映射的地点结果。
       searchNearBy: /* searchCallback 返回一个可映射的地点结果。 */ (_keyword: string, _center: [number, number], _radius: number, callback: (status: string, result: unknown) => void) => callback('complete', {
         poiList: {
@@ -18,7 +20,7 @@ function createAmapStub() {
     };
   });
   // amapStub 是浏览器全局高德 API 替身。
-  return { PlaceSearch: placeSearch };
+  return { PlaceSearch: placeSearch, DistrictSearch: vi.fn() };
 }
 
 describe('AMap 脚本加载边界', /* describeCallback 组织高德脚本加载测试。 */ () => {
@@ -47,6 +49,7 @@ describe('AMap 脚本加载边界', /* describeCallback 组织高德脚本加载
     // script 是业务代码插入的高德脚本节点。
     const script = document.getElementById(SCRIPT_ID) as HTMLScriptElement;
     expect(script.src).toContain('webapi.amap.com/maps');
+    expect(script.src).toContain('AMap.DistrictSearch');
     // amapStub 是脚本加载完成后暴露的高德对象。
     window.AMap = createAmapStub() as NonNullable<Window['AMap']>;
     window.__ydisksAmapLoaded?.();

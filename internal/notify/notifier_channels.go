@@ -41,7 +41,7 @@ func (n *Notifier) send(ch db.NotificationChannel, message string) error {
 	case "telegram":
 		return n.sendTelegram(cfg, message)
 	case "email":
-		return n.sendEmail(cfg, message)
+		return n.sendEmailWithUser(cfg, message, ch.UserID)
 	case "qq":
 		// QQ 渠道配置未标准化，跳过。
 		return fmt.Errorf("qq 渠道暂不支持")
@@ -246,27 +246,32 @@ func (n *Notifier) sendTelegram(cfg map[string]any, message string) error {
 
 // ---- 邮件 ----
 func (n *Notifier) sendEmail(cfg map[string]any, message string) error {
+	return n.sendEmailWithUser(cfg, message, 0)
+}
+
+// sendEmailWithUser 使用邮件渠道配置发送测试或业务通知，并按渠道所有者读取系统 SMTP 秘密。
+func (n *Notifier) sendEmailWithUser(cfg map[string]any, message string, channelUserID int64) error {
 	// ctx、cancel 用于本次流程后续判断的ctx、cancel
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	// server 用于本次流程后续判断的server
-	server := n.smtpConfigValue(ctx, cfg, "smtp_server", "")
+	server := n.smtpConfigValue(ctx, cfg, "smtp_server", "", channelUserID)
 	// port 用于本次流程后续判断的port
-	port := n.smtpConfigValue(ctx, cfg, "smtp_port", "587")
+	port := n.smtpConfigValue(ctx, cfg, "smtp_port", "587", channelUserID)
 	// user 用于本次流程后续判断的用户
-	user := n.smtpConfigValue(ctx, cfg, "smtp_user", "")
+	user := n.smtpConfigValue(ctx, cfg, "smtp_user", "", channelUserID)
 	// pass 用于本次流程后续判断的pass
-	pass := n.smtpConfigValue(ctx, cfg, "smtp_password", "")
+	pass := n.smtpConfigValue(ctx, cfg, "smtp_password", "", channelUserID)
 	// useTLS 用于本次流程后续判断的useTLS
-	useTLS := parseConfigBool(n.smtpConfigValue(ctx, cfg, "smtp_use_tls", "true"), true)
+	useTLS := parseConfigBool(n.smtpConfigValue(ctx, cfg, "smtp_use_tls", "true", channelUserID), true)
 	// useSSL 用于本次流程后续判断的useSSL
-	useSSL := parseConfigBool(n.smtpConfigValue(ctx, cfg, "smtp_use_ssl", "false"), false)
+	useSSL := parseConfigBool(n.smtpConfigValue(ctx, cfg, "smtp_use_ssl", "false", channelUserID), false)
 	// fromAddress 用于本次流程后续判断的fromAddress
-	fromAddress := n.smtpConfigValue(ctx, cfg, "smtp_from_address", "")
+	fromAddress := n.smtpConfigValue(ctx, cfg, "smtp_from_address", "", channelUserID)
 	// fromName 用于本次流程后续判断的from名称
-	fromName := n.smtpConfigValue(ctx, cfg, "smtp_from_name", "")
+	fromName := n.smtpConfigValue(ctx, cfg, "smtp_from_name", "", channelUserID)
 	// legacyFrom 用于本次流程后续判断的legacyFrom
-	legacyFrom := n.smtpConfigValue(ctx, cfg, "smtp_from", "")
+	legacyFrom := n.smtpConfigValue(ctx, cfg, "smtp_from", "", channelUserID)
 	// to 用于本次流程后续判断的to
 	to := strOr(cfg, "to_email", strOr(cfg, "email", ""))
 	if server == "" || user == "" || to == "" {
@@ -428,28 +433,47 @@ func parseConfigBool(raw string, fallback bool) bool {
 }
 
 // configOrSetting 封装配置Or设置业务协调。
-func (n *Notifier) configOrSetting(ctx context.Context, cfg map[string]any, key, fallbackValue string) string {
+func (n *Notifier) configOrSetting(ctx context.Context, cfg map[string]any, key, fallbackValue string, userIDs ...int64) string {
 	if // v 用于本次流程后续判断的v
 	v := strings.TrimSpace(strOr(cfg, key, "")); v != "" {
 		return v
 	}
-	if n.repository != nil {
-		if // v、err 用于本次流程后续判断的v、err
-		v, err := n.repository.GetSetting(ctx, key); err == nil && strings.TrimSpace(v) != "" {
-			return strings.TrimSpace(v)
-		}
+	// value 表示渠道配置缺失时从系统设置解析出的最终候选值。
+	if value := n.settingValue(ctx, key, userIDs...); value != "" {
+		return value
 	}
 	return fallbackValue
+}
+
+// settingValue 读取系统设置；存在渠道所有者时优先走带审计的用户作用域端口。
+func (n *Notifier) settingValue(ctx context.Context, key string, userIDs ...int64) string {
+	if n == nil || n.repository == nil {
+		return ""
+	}
+	if len(userIDs) > 0 && userIDs[0] > 0 {
+		// scoped 表示支持用户作用域读取的仓储；ok 表示当前仓储是否实现该能力。
+		if scoped, ok := n.repository.(userScopedSettings); ok {
+			// value 是用户作用域设置值；err 是读取设置或审计失败信息。
+			if value, err := scoped.GetSettingForUser(ctx, userIDs[0], key); err == nil && strings.TrimSpace(value) != "" {
+				return strings.TrimSpace(value)
+			}
+		}
+	}
+	// value 是兼容旧通知器仓储读取到的设置值；err 是读取失败信息。
+	if value, err := n.repository.GetSetting(ctx, key); err == nil {
+		return strings.TrimSpace(value)
+	}
+	return ""
 }
 
 // smtpConfigValue keeps legacy per-field fallback behavior for existing rows,
 // while new rows use an explicit all-system or all-channel SMTP mode.
 // smtpConfigValue 封装smtp配置值业务协调。
-func (n *Notifier) smtpConfigValue(ctx context.Context, cfg map[string]any, key, fallbackValue string) string {
+func (n *Notifier) smtpConfigValue(ctx context.Context, cfg map[string]any, key, fallbackValue string, userIDs ...int64) string {
 	// modeValue、hasExplicitMode 用于本次流程后续判断的模式Value、hasExplicit模式
 	modeValue, hasExplicitMode := cfg["use_custom_smtp"]
 	if !hasExplicitMode {
-		return n.configOrSetting(ctx, cfg, key, fallbackValue)
+		return n.configOrSetting(ctx, cfg, key, fallbackValue, userIDs...)
 	}
 	if parseConfigBool(fmt.Sprintf("%v", modeValue), false) {
 		if // value 用于本次流程后续判断的值
@@ -458,11 +482,9 @@ func (n *Notifier) smtpConfigValue(ctx context.Context, cfg map[string]any, key,
 		}
 		return fallbackValue
 	}
-	if n.repository != nil {
-		if // value、err 用于本次流程后续判断的value、err
-		value, err := n.repository.GetSetting(ctx, key); err == nil && strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
+	// value 表示系统 SMTP 模式下解析出的设置值。
+	if value := n.settingValue(ctx, key, userIDs...); value != "" {
+		return value
 	}
 	return fallbackValue
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -68,6 +69,8 @@ type RefreshDetailFetchResult struct {
 
 // RefreshSoldFetchResult 是一次订单列表请求及其 Cookie 会话结果。
 type RefreshSoldFetchResult struct {
+	// SellerID 是本次已售请求实际会话的非敏感平台身份；为空时禁止跨账号归属修复。
+	SellerID string
 	// Orders 是平台返回的全部已售订单。
 	Orders []RefreshSoldOrder
 	// CookieUpdate 是请求期间观察到的 Cookie 会话变化。
@@ -122,6 +125,10 @@ type RefreshOrderResult struct {
 
 // RefreshSummary 是批量刷新统计摘要。
 type RefreshSummary struct {
+	// Restored 是同账号软删除订单恢复数量，不与新增或跨账号修正重复计数。
+	Restored int
+	// Reassigned 是经过身份核验后纠正历史归属的订单数量。
+	Reassigned int
 	// Discovered 是发现的新订单数量。
 	Discovered int
 	// ListUpdated 是订单列表更新数量。
@@ -164,6 +171,10 @@ type SingleRefreshResult struct {
 
 // RefreshRepository 定义订单刷新用例所需的最小持久化能力。
 type RefreshRepository interface {
+	// FindOrderOwnership 读取含软删除行的非敏感归属；userID 限制可见身份，orderID 不存在时返回 ErrNotFound。
+	FindOrderOwnership(ctx context.Context, userID int64, orderID string) (RefreshOwnership, error)
+	// RecoverSoldOwnership 以已验证旧归属和版本为条件，原子修正账号、合并 options 并记录恢复审计。
+	RecoverSoldOwnership(ctx context.Context, userID int64, cookieID string, expected RefreshOwnership, options UpsertOptions) error
 	// ExistsOwned 判断账号是否归属于用户。
 	ExistsOwned(ctx context.Context, userID int64, cookieID string) (bool, error)
 	// ListOwnedIDs 返回用户拥有的账号标识。
@@ -172,8 +183,10 @@ type RefreshRepository interface {
 	GetOrder(ctx context.Context, orderID string) (*Order, error)
 	// FindOrder 读取订单实体并以 exists 区分不存在。
 	FindOrder(ctx context.Context, orderID string) (*Order, bool, error)
-	// FindOrdersByIDs 批量读取订单实体，避免订单发现逐单查询。
-	FindOrdersByIDs(ctx context.Context, orderIDs []string) (map[string]*Order, error)
+	// FindOrdersByIDs 只批量读取 cookieID 内的订单实体，防止归属并发变化时读取其他账号的地址。
+	FindOrdersByIDs(ctx context.Context, cookieID string, orderIDs []string) (map[string]*Order, error)
+	// FindChatIDsByBuyerAndItem 查询账号下与买家和商品同时匹配的聊天会话标识；结果为空或多条时由调用方判定为不可自动关联。
+	FindChatIDsByBuyerAndItem(ctx context.Context, cookieID, buyerID, itemID string) ([]string, error)
 	// LockCredentials 获取账号凭证互斥锁。
 	LockCredentials(cookieID string) func()
 	// LoadCookiePlatformDetail 读取平台请求所需的账号视图。
@@ -182,7 +195,7 @@ type RefreshRepository interface {
 	UpdateRenewalCookie(ctx context.Context, cookieID, value, metadata string, at int64) error
 	// UpsertOrder 写入订单刷新结果。
 	UpsertOrder(ctx context.Context, orderID string, options UpsertOptions) error
-	// BatchUpsertOrders 使用单条多值 UPSERT 写入详情分片。
+	// BatchUpsertOrders 在单个事务中批量执行归属校验与版本 CAS；任一订单失败时整批回滚。
 	BatchUpsertOrders(ctx context.Context, rows []RefreshOrderWrite) error
 	// SoftDeleteMissingOrders 标记远端订单列表中缺失的本地订单。
 	SoftDeleteMissingOrders(ctx context.Context, cookieID string, activeIDs map[string]struct{}) (int, error)
@@ -212,7 +225,9 @@ type RefreshRuntime interface {
 	IsSessionExpired(err error) bool
 }
 
-// RefreshService 承载订单单笔和批量刷新的应用编排。
+// RefreshService 承载订单单笔和批量刷新的应用编排，构造后不可复制。
+// discoveries 的原子操作仅访问内存，不跨数据库或平台 I/O 持锁；提交阶段在凭证锁内复核代次。
+// 每次调用拥有独立上下文指针作为代次身份，不创建后台协程，完成时只清理自己的映射。
 type RefreshService struct {
 	// repository 保存订单刷新所需的持久化 Port。
 	repository RefreshRepository
@@ -220,6 +235,8 @@ type RefreshService struct {
 	runtime RefreshRuntime
 	// detailChunkSize 是批量详情请求的单账号分片大小。
 	detailChunkSize int
+	// discoveries 按账号保存最新调用的 *context.Context 身份；sync.Map 零值可用，兼容结构体字面量。
+	discoveries sync.Map
 }
 
 // NewRefreshService 创建订单刷新应用服务。
@@ -364,6 +381,9 @@ func (s *RefreshService) Refresh(ctx context.Context, userID int64, cookieID, st
 			discovered, updated, discoveryResult, discoveryErr := s.discoverAccount(ctx, userID, currentCookieID)
 			summary.Discovered += discovered
 			summary.ListUpdated += updated
+			summary.Restored += discoveryResult.Restored
+			summary.Reassigned += discoveryResult.Reassigned
+			results = append(results, discoveryResult.Results...)
 			// orderID 是本次发现的新订单标识。
 			for orderID := range discoveryResult.NewOrderIDs {
 				newOrderIDs[orderID] = struct{}{}
@@ -374,7 +394,18 @@ func (s *RefreshService) Refresh(ctx context.Context, userID int64, cookieID, st
 			// result 保存当前账号的订单发现结果。
 			result := RefreshOrderResult{CookieID: currentCookieID, Stage: "discover", Success: discoveryErr == nil, Discovered: discovered, Updated: updated}
 			if discoveryErr != nil {
-				summary.Failed++
+				// failedOrders 统计逐单业务失败；账号级错误在无逐单失败时只计一次。
+				failedOrders := 0
+				// item 是本账号恢复结果，成功恢复不能计入失败数量。
+				for _, item := range discoveryResult.Results {
+					if !item.Success {
+						failedOrders++
+					}
+				}
+				if failedOrders == 0 {
+					failedOrders = 1
+				}
+				summary.Failed += failedOrders
 				result.Error = discoveryErr.Error()
 			}
 			if discoveryResult.SoftDeleted >= 0 && discoveryErr == nil {
@@ -401,6 +432,8 @@ func (s *RefreshService) Refresh(ctx context.Context, userID int64, cookieID, st
 			// rows、rowErr 保存当前游标页订单及错误。
 			rows, rowErr := s.repository.ListOrdersByCookieCursor(ctx, currentCookieID, 500, afterCreatedAt, afterOrderID)
 			if rowErr != nil {
+				summary.Failed++
+				results = append(results, RefreshOrderResult{CookieID: currentCookieID, Stage: "detail", Error: "读取待同步订单失败"})
 				break
 			}
 			// row 是当前游标页的本地订单行。
@@ -444,10 +477,10 @@ func (s *RefreshService) Refresh(ctx context.Context, userID int64, cookieID, st
 		if total > 0 {
 			message += fmt.Sprintf("；当前 Go MTOP 客户端不支持详情接口，已跳过 %d 个订单", total)
 		}
-		return RefreshResult{PartialFailure: summary.Failed > 0, Message: message, Summary: summary, Results: results}, nil
+		return finishOrderRefresh(summary, results, message), nil
 	}
 	if total == 0 {
-		return RefreshResult{PartialFailure: summary.Failed > 0, Message: fmt.Sprintf("订单列表同步完成，发现 %d 个新订单；没有需要补全详情的订单", summary.Discovered), Summary: summary, Results: results}, nil
+		return finishOrderRefresh(summary, results, fmt.Sprintf("订单列表同步完成，发现 %d 个新订单；没有需要补全详情的订单", summary.Discovered)), nil
 	}
 	// currentCookieID、targets 保存当前账号及其详情目标。
 	for currentCookieID, targets := range ordersByCookie {
@@ -470,11 +503,15 @@ func (s *RefreshService) Refresh(ctx context.Context, userID int64, cookieID, st
 			continue
 		}
 	}
-	return RefreshResult{PartialFailure: summary.Failed > 0, Message: fmt.Sprintf("订单同步完成，发现 %d 个新订单", summary.Discovered), Summary: summary, Results: results}, nil
+	return finishOrderRefresh(summary, results, fmt.Sprintf("订单同步完成，发现 %d 个新订单", summary.Discovered)), nil
 }
 
 // refreshDiscoveryResult 保存单账号发现阶段的内部结果。
 type refreshDiscoveryResult struct {
+	// Restored 和 Reassigned 分别统计同账号恢复与历史归属修正，避免冒充新订单。
+	Restored, Reassigned int
+	// Results 保存逐单恢复和无法修复的明细，不包含其他管理用户的账号信息。
+	Results []RefreshOrderResult
 	// NewOrderIDs 保存本次发现的新订单标识。
 	NewOrderIDs map[string]struct{}
 	// SoftDeleted 保存本次发现阶段标记删除的订单数量。
@@ -483,12 +520,24 @@ type refreshDiscoveryResult struct {
 	SessionExpired bool
 }
 
-// discoverAccount 执行一个账号的锁内快照、锁外发现和锁内提交。
+// discoverAccount 以 ctx 控制 userID 所有的 cookieID 列表发现；返回新增、更新、恢复明细及失败原因。
+// 凭证锁保护请求前快照和请求后复核至数据库提交，外部列表请求及运行时更新均在锁外；SQL 事务由仓储拥有。
+// 每次调用登记账号发现代次并在所有返回路径清理，ctx 传递给平台；取消或被新请求取代的结果不得提交。
 func (s *RefreshService) discoverAccount(ctx context.Context, userID int64, cookieID string) (int, int, refreshDiscoveryResult, error) {
 	// emptyResult 保存发现失败时的默认结果。
 	emptyResult := refreshDiscoveryResult{NewOrderIDs: make(map[string]struct{})}
+	if ctx.Err() != nil {
+		return 0, 0, emptyResult, ctx.Err()
+	}
+	// generation 登记本次独立代次，成功、失败和取消返回时都只清理自身映射。
+	generation := s.beginDiscovery(ctx, cookieID)
+	defer s.finishDiscovery(cookieID, generation)
 	// unlock 保存账号凭证锁释放函数。
 	unlock := s.repository.LockCredentials(cookieID)
+	if ctx.Err() != nil {
+		unlock()
+		return 0, 0, emptyResult, ctx.Err()
+	}
 	// latest、err 保存最新账号平台视图及错误。
 	latest, err := s.repository.LoadCookiePlatformDetail(ctx, cookieID)
 	if err != nil || latest == nil || latest.UserID != userID || !s.runtime.CredentialAvailable(latest) {
@@ -501,28 +550,37 @@ func (s *RefreshService) discoverAccount(ctx context.Context, userID int64, cook
 	unlock()
 	// fetchResult、discoveryErr 保存锁外订单发现结果及错误。
 	fetchResult, discoveryErr := s.runtime.FetchSoldOrders(ctx, latest)
+	if discoveryErr == nil {
+		// 联系人补缓存可能访问平台，必须在凭证锁外完成；下方重新复核凭证及发现代次后才可写订单。
+		discoveryErr = s.prepareSoldChats(ctx, cookieID, fetchResult.Orders)
+	}
 	unlock = s.repository.LockCredentials(cookieID)
-	// latestAfterFetch、reloadErr 保存发现完成后的最新凭证及错误。
+	if ctx.Err() != nil {
+		unlock()
+		return 0, 0, emptyResult, ctx.Err()
+	}
+	if !s.discoveryCurrent(cookieID, generation) {
+		unlock()
+		return 0, 0, emptyResult, errors.New("该账号已有更新的订单同步，本次旧结果未写入")
+	}
 	// latestAfterFetch、reloadErr 保存发现完成后的凭证视图及重读错误。
 	latestAfterFetch, reloadErr := s.repository.LoadCookiePlatformDetail(ctx, cookieID)
 	// credentialChanged 表示发现期间凭证快照是否发生变化。
 	credentialChanged := reloadErr != nil || latestAfterFetch == nil || latestAfterFetch.UserID != userID || latestAfterFetch.Value != latest.Value || latestAfterFetch.MetadataJSON != latest.MetadataJSON
-	if reloadErr == nil && latestAfterFetch != nil && latestAfterFetch.UserID == userID && !credentialChanged {
-		// persistErr 保存发现响应 Cookie Jar 写入错误。
-		_, _, _, persistErr := s.runtime.PersistCookieSession(ctx, latest, fetchResult.CookieUpdate)
-		if persistErr != nil {
-			discoveryErr = errors.Join(discoveryErr, fmt.Errorf("保存订单列表响应 Cookie Jar: %w", persistErr))
-		}
-	}
-	unlock()
 	if credentialChanged {
-		discoveryErr = errors.Join(discoveryErr, errors.New("订单发现完成后账号凭证无法复核"))
+		unlock()
+		return 0, 0, emptyResult, ErrRefreshCredentialChanged
 	}
-	if fetchResult.CookieUpdate.Changed && fetchResult.CookieUpdate.Value != "" && discoveryErr == nil {
-		s.runtime.UpdateRunningCookie(ctx, cookieID, fetchResult.CookieUpdate.Value)
+	// persistErr 保存已通过代次和凭证复核的响应 Cookie 写入错误；旧会话错误不得影响当前凭证。
+	_, _, _, persistErr := s.runtime.PersistCookieSession(ctx, latest, fetchResult.CookieUpdate)
+	if persistErr != nil {
+		discoveryErr = errors.Join(discoveryErr, fmt.Errorf("保存订单列表响应 Cookie Jar: %w", persistErr))
 	}
 	// result 保存当前账号发现阶段的汇总结果。
 	result := emptyResult
+	if discoveryErr != nil {
+		unlock()
+	}
 	if s.runtime.IsSessionExpired(discoveryErr) {
 		result.SessionExpired = true
 		s.runtime.RecoverExpiredSession(ctx, cookieID, discoveryErr)
@@ -530,103 +588,21 @@ func (s *RefreshService) discoverAccount(ctx context.Context, userID int64, cook
 	if discoveryErr != nil {
 		return 0, 0, result, discoveryErr
 	}
-	// discovered、updated、newOrderIDs、remoteOrderIDs、writeErr 保存订单发现统计和错误。
-	discovered, updated, newOrderIDs, remoteOrderIDs, writeErr := s.persistSoldOrders(ctx, cookieID, fetchResult.Orders)
-	result.NewOrderIDs, result.SoftDeleted = newOrderIDs, 0
-	if writeErr != nil {
-		return discovered, updated, result, writeErr
-	}
-	// deleted、deleteErr 保存缺失订单清理数量及错误。
-	deleted, deleteErr := s.repository.SoftDeleteMissingOrders(ctx, cookieID, remoteOrderIDs)
-	if deleteErr != nil {
-		return discovered, updated, result, fmt.Errorf("标记缺失订单失败: %w", deleteErr)
-	}
-	result.SoftDeleted = deleted
-	return discovered, updated, result, nil
-}
-
-// persistSoldOrders 将平台订单列表写入数据库并统计变化。
-func (s *RefreshService) persistSoldOrders(ctx context.Context, cookieID string, remoteOrders []RefreshSoldOrder) (int, int, map[string]struct{}, map[string]struct{}, error) {
-	// discovered、updated 保存新增和变化订单数量。
-	discovered, updated := 0, 0
-	// newOrderIDs、remoteOrderIDs 保存新增和远端订单标识集合。
-	newOrderIDs := make(map[string]struct{})
-	// remoteOrderIDs 保存远端订单标识集合。
-	remoteOrderIDs := make(map[string]struct{})
-	// normalizedRemoteOrders 保存去重并完成金额归一化的平台订单。
-	normalizedRemoteOrders := make([]RefreshSoldOrder, 0, len(remoteOrders))
-	// seenRemoteIDs 保存已经处理的平台订单标识。
-	seenRemoteIDs := make(map[string]struct{}, len(remoteOrders))
-	// remote 是当前平台订单列表项。
-	for _, remote := range remoteOrders {
-		remote.OrderID = strings.TrimSpace(remote.OrderID)
-		if remote.OrderID == "" {
-			continue
-		}
-		// exists 表示当前远端订单是否已经在本批次出现。
-		if _, exists := seenRemoteIDs[remote.OrderID]; exists {
-			continue
-		}
-		seenRemoteIDs[remote.OrderID] = struct{}{}
-		remoteOrderIDs[remote.OrderID] = struct{}{}
-		// normalizedAmount、ok 保存金额归一化结果。
-		normalizedAmount, ok := NormalizeOrderAmount(remote.Amount)
-		if ok {
-			remote.Amount = normalizedAmount
-		}
-		normalizedRemoteOrders = append(normalizedRemoteOrders, remote)
-	}
-	if len(normalizedRemoteOrders) == 0 {
-		return discovered, updated, newOrderIDs, remoteOrderIDs, nil
-	}
-	// remoteIDs 保存批量读取本地订单的标识集合。
-	remoteIDs := make([]string, 0, len(normalizedRemoteOrders))
-	// remote 是当前已归一化的平台订单。
-	for _, remote := range normalizedRemoteOrders {
-		remoteIDs = append(remoteIDs, remote.OrderID)
-	}
-	// existingOrders、findErr 保存批量读取的本地订单及错误。
-	existingOrders, findErr := s.repository.FindOrdersByIDs(ctx, remoteIDs)
-	if findErr != nil {
-		return discovered, updated, newOrderIDs, remoteOrderIDs, fmt.Errorf("批量读取订单失败: %w", findErr)
-	}
-	// batchRows 保存订单发现阶段待一次性写入的订单。
-	batchRows := make([]RefreshOrderWrite, 0, len(normalizedRemoteOrders))
-	// remote 是当前待比较并写入的平台订单。
-	for _, remote := range normalizedRemoteOrders {
-		// existing、exists 保存当前订单的本地实体及存在标记。
-		existing, exists := existingOrders[remote.OrderID]
-		if exists && remote.CreatedAt == "" {
-			// 缺少平台时间时沿用已有订单创建时间，避免详情补全把它改成同步时间。
-			remote.CreatedAt = existing.CreatedAt
-		}
-		// changed 表示远端订单字段是否发生变化。
-		changed := !exists || refreshSoldOrderChanged(existing, remote)
-		// status 保存待写入的订单状态。
-		status := remote.OrderStatus
-		if exists && status == "unknown" {
-			status = existing.OrderStatus
-		}
-		// bargain 保存砍价订单标记指针。
-		var bargain *bool
-		if remote.IsBargain {
-			// value 保存砍价订单标记值。
-			value := true
-			bargain = &value
-		}
-		batchRows = append(batchRows, RefreshOrderWrite{OrderID: remote.OrderID, Options: UpsertOptions{ItemID: remote.ItemID, BuyerID: remote.BuyerID, CookieID: cookieID, CreatedAt: remote.CreatedAt, OrderStatus: status, Quantity: remote.Quantity, Amount: remote.Amount, ReceiverName: remote.ReceiverName, ReceiverPhone: remote.ReceiverPhone, ReceiverAddress: remote.ReceiverAddr, ReceiverCity: remote.ReceiverCity, IsBargain: bargain}})
-		if !exists {
-			discovered++
-			newOrderIDs[remote.OrderID] = struct{}{}
-		} else if changed {
-			updated++
+	// discovered、updated、result、remoteOrderIDs、writeErr 保存已提交统计、逐单明细、完整远端集合和写入失败。
+	discovered, updated, result, remoteOrderIDs, writeErr := s.persistSoldSnapshot(ctx, userID, cookieID, fetchResult.SellerID, fetchResult.Orders)
+	if writeErr == nil {
+		// deleted、deleteErr 保存完整快照成功处理后的缺失清理结果，有冲突或写入失败时不清理。
+		deleted, deleteErr := s.repository.SoftDeleteMissingOrders(ctx, cookieID, remoteOrderIDs)
+		result.SoftDeleted = deleted
+		if deleteErr != nil {
+			writeErr = fmt.Errorf("标记缺失订单失败: %w", deleteErr)
 		}
 	}
-	// err 保存订单发现批量写入错误。
-	if err := s.repository.BatchUpsertOrders(ctx, batchRows); err != nil {
-		return 0, 0, make(map[string]struct{}), remoteOrderIDs, fmt.Errorf("批量保存订单失败: %w", err)
+	unlock()
+	if fetchResult.CookieUpdate.Changed && fetchResult.CookieUpdate.Value != "" {
+		s.runtime.UpdateRunningCookie(ctx, cookieID, fetchResult.CookieUpdate.Value)
 	}
-	return discovered, updated, newOrderIDs, remoteOrderIDs, nil
+	return discovered, updated, result, writeErr
 }
 
 // refreshDetailChunk 刷新一个账号详情分片并提交单事务结果。
@@ -681,16 +657,26 @@ func (s *RefreshService) refreshDetailChunk(ctx context.Context, userID int64, c
 		}
 		pendingWrites = append(pendingWrites, refreshWrite{OrderID: target.OrderID, CurrentStatus: target.CurrentStatus, NewStatus: newStatus, Options: UpsertOptions{CookieID: cookieID, OrderStatus: newStatus, SpecName: fetchResult.Detail.SpecName, SpecValue: fetchResult.Detail.SpecValue, Quantity: fetchResult.Detail.Quantity, Amount: fetchResult.Detail.Amount}, CookieUpdate: fetchResult.CookieUpdate})
 	}
-	// batchRows 保存详情分片等待一次性写入的订单记录。
+	cancel()
+	unlock = s.repository.LockCredentials(cookieID)
+	// latestAfterDetails、reloadErr 保存详情返回后的凭证复核，必须先于任何订单写入。
+	latestAfterDetails, reloadErr := s.repository.LoadCookiePlatformDetail(ctx, cookieID)
+	// credentialChanged 表示返回详情属于旧会话，不能写入当前账号状态。
+	credentialChanged := reloadErr != nil || latestAfterDetails == nil || latestAfterDetails.UserID != userID || latestAfterDetails.Value != latest.Value || latestAfterDetails.MetadataJSON != latest.MetadataJSON
+	if credentialChanged {
+		unlock()
+		return 0, 0, len(targets), []RefreshOrderResult{{CookieID: cookieID, Stage: "detail", Error: "订单详情完成后账号凭证无法复核，未写入旧结果"}}, false
+	}
+	// batchRows 保存详情分片等待写入的订单记录，凭证锁保持至本地提交完成。
 	batchRows := make([]RefreshOrderWrite, 0, len(pendingWrites))
 	// write 是当前详情分片待批量写入的订单详情。
 	for _, write := range pendingWrites {
 		batchRows = append(batchRows, RefreshOrderWrite{OrderID: write.OrderID, Options: write.Options})
 	}
-	// batchWriteErr 保存详情分片单条多值 UPSERT 错误。
+	// batchWriteErr 保存详情分片事务批量 CAS 的提交错误，任一行失败时整批不计成功。
 	batchWriteErr := s.repository.BatchUpsertOrders(ctx, batchRows)
 	// updated、noChange、failed 保存详情分片统计。
-	updated, noChange, failed := 0, 0, 0
+	updated, noChange, failed := 0, 0, len(results)
 	// write 是当前统计对应的订单详情。
 	for _, write := range pendingWrites {
 		if batchWriteErr != nil {
@@ -707,26 +693,15 @@ func (s *RefreshService) refreshDetailChunk(ctx context.Context, userID int64, c
 		}
 		results = append(results, RefreshOrderResult{CookieID: cookieID, OrderID: write.OrderID, Success: true, OldStatus: write.CurrentStatus, NewStatus: write.NewStatus})
 	}
-	cancel()
-	unlock = s.repository.LockCredentials(cookieID)
-	// latestAfterDetails、reloadErr 保存详情完成后的最新凭证视图及错误。
-	latestAfterDetails, reloadErr := s.repository.LoadCookiePlatformDetail(ctx, cookieID)
-	// credentialChanged 表示详情请求期间凭证快照是否发生变化。
-	credentialChanged := reloadErr != nil || latestAfterDetails == nil || latestAfterDetails.UserID != userID || latestAfterDetails.Value != latest.Value || latestAfterDetails.MetadataJSON != latest.MetadataJSON
-	if !credentialChanged {
-		// valueChanged、persistErr 保存 Cookie 会话提交状态及错误。
-		_, valueChanged, _, persistErr := s.runtime.PersistCookieSession(ctx, latest, lastUpdate)
-		if persistErr != nil {
-			failed++
-			results = append(results, RefreshOrderResult{CookieID: cookieID, Stage: "persist_cookie", Success: false, Message: persistErr.Error()})
-		} else if valueChanged && lastUpdate.Value != "" {
-			s.runtime.UpdateRunningCookie(ctx, cookieID, lastUpdate.Value)
-		}
+	// valueChanged、persistErr 保存凭证锁内的会话提交状态，运行时更新必须在释放锁后进行。
+	_, valueChanged, _, persistErr := s.runtime.PersistCookieSession(ctx, latest, lastUpdate)
+	if persistErr != nil {
+		failed++
+		results = append(results, RefreshOrderResult{CookieID: cookieID, Stage: "persist_cookie", Success: false, Message: persistErr.Error()})
 	}
 	unlock()
-	if reloadErr != nil {
-		failed += len(targets)
-		results = append(results, RefreshOrderResult{CookieID: cookieID, Stage: "persist_cookie", Success: false, Message: "订单详情完成后账号凭证无法复核"})
+	if persistErr == nil && valueChanged && lastUpdate.Value != "" {
+		s.runtime.UpdateRunningCookie(ctx, cookieID, lastUpdate.Value)
 	}
 	if sessionErr != nil {
 		s.runtime.RecoverExpiredSession(ctx, cookieID, sessionErr)

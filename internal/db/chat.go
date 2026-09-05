@@ -103,6 +103,47 @@ func (s *ChatStore) UpsertSession(ctx context.Context, session ChatSession) erro
 	return err
 }
 
+// FindChatIDsByBuyerAndItem 查询账号下与买家、商品同时匹配的会话标识。
+// ctx 控制查询生命周期；cookieID、buyerID、itemID 共同限制匹配范围；隐藏会话仍返回，因为它仍可作为发货目标；结果按不同 chat_id 去重，交由应用层判断唯一性。
+func (s *ChatStore) FindChatIDsByBuyerAndItem(ctx context.Context, cookieID, buyerID, itemID string) ([]string, error) {
+	// accountID 保存经过空白清理的账号标识，限制候选会话所属账号。
+	accountID := strings.TrimSpace(cookieID)
+	// normalizedBuyerID 保存去除协议后缀的买家标识，兼容订单与会话的历史格式差异。
+	normalizedBuyerID := strings.TrimSuffix(strings.TrimSpace(buyerID), "@goofish")
+	// productID 保存经过空白清理的商品标识，限制候选会话所属商品。
+	productID := strings.TrimSpace(itemID)
+	if accountID == "" || normalizedBuyerID == "" || productID == "" {
+		return nil, nil
+	}
+	// buyerVariants 始终同时查询裸标识和历史协议后缀，不依赖订单输入格式，避免漏掉候选会话或误判唯一性。
+	buyerVariants := []string{normalizedBuyerID, normalizedBuyerID + "@goofish"}
+	// rows、err 保存当前账号下候选会话的查询结果及数据库错误。
+	rows, err := s.DB.QueryContext(ctx, `SELECT DISTINCT chat_id
+		FROM chat_sessions
+		WHERE cookie_id=? AND buyer_id IN (?,?) AND item_id=? AND TRIM(chat_id)<>''`,
+		accountID, buyerVariants[0], buyerVariants[1], productID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	// chatIDs 保存去重后的候选会话标识；调用方只有在恰有一个候选时才会自动回填。
+	chatIDs := make([]string, 0, 1)
+	for rows.Next() {
+		// chatID 保存当前候选会话标识。
+		var chatID string
+		// scanErr 保存当前候选会话扫描失败的数据库错误。
+		if scanErr := rows.Scan(&chatID); scanErr != nil {
+			return nil, scanErr
+		}
+		chatIDs = append(chatIDs, chatID)
+	}
+	// iterationErr 保存候选会话游标结束时的数据库错误。
+	if iterationErr := rows.Err(); iterationErr != nil {
+		return nil, iterationErr
+	}
+	return chatIDs, nil
+}
+
 // SetSessionVisible 更新平台会话是否出现在本地列表中。
 // ctx 控制数据库更新生命周期；cookieID 和 chatID 定位非敏感会话；visible=false 只软隐藏会话并保留全部消息。
 func (s *ChatStore) SetSessionVisible(ctx context.Context, cookieID, chatID string, visible bool) error {

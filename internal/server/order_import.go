@@ -466,6 +466,8 @@ func normalizeImportHeaders(headers []string) []string {
 func normalizeImportHeader(header string) string {
 	// h 用于本次流程后续判断的h
 	h := strings.ToLower(strings.TrimSpace(header))
+	// UTF-8 BOM 是 Excel 导出 CSV 常见的文件标记，不能成为首列表头的一部分。
+	h = strings.TrimPrefix(h, "\uFEFF")
 	h = strings.NewReplacer(" ", "", "_", "", "-", "", "（", "(", "）", ")").Replace(h)
 	switch h {
 	case "orderid", "订单号", "订单id", "订单编号":
@@ -503,7 +505,7 @@ func normalizeImportHeader(header string) string {
 	case "chatid", "会话id":
 		return "chat_id"
 	default:
-		return header
+		return strings.TrimPrefix(strings.TrimSpace(header), "\uFEFF")
 	}
 }
 

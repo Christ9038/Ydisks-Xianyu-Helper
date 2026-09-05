@@ -1,6 +1,7 @@
-import { useCallback,useRef,useState,type Dispatch,type SetStateAction } from 'react';
+import { useCallback,useEffect,useRef,useState,type Dispatch,type SetStateAction } from 'react';
 import type { Order } from './api';
 import { deleteOrder,manualShipOrder,syncOrders,syncSingleOrder,updateOrder } from './api';
+import { formatOrderSyncResult } from './syncResult';
 
 // OrderShipMode 表示订单发货操作的两种业务模式。
 export type OrderShipMode = 'status_only' | 'full_delivery';
@@ -105,6 +106,11 @@ export const useOrderActions = ({ orders, page, accountFilter, filter, setPage, 
   // syncGeneration 区分连续发起的批量刷新，旧任务完成后不得覆盖最新一次用户操作的列表和提示。
   const syncGeneration = useRef(0);
 
+  // 筛选切换或卸载时使旧同步代次失效；后台任务继续执行，其晚到结果不能刷新旧列表或提示用户。
+  useEffect(/* 同步结果归属于当前账号与状态筛选，cleanup 结束该筛选上下文的所有旧代次。 */ () => {
+    return () => { syncGeneration.current += 1; }; // 清理当前筛选上下文，不创建新的后台同步任务。
+  }, [accountFilter, filter]);
+
   // handleSync 同步当前筛选条件下的订单并刷新列表。
   const handleSync = useCallback(/* syncAction 执行当前筛选条件下的订单同步。 */ async () => {
 		// generation 是本次批量同步的代次；仅仍为最新代次的结果允许更新界面。
@@ -115,7 +121,9 @@ export const useOrderActions = ({ orders, page, accountFilter, filter, setPage, 
 			if (generation !== syncGeneration.current) return;
       await loadOrders();
 			if (generation !== syncGeneration.current) return;
-      if (result.message) alert(result.message);
+      // message 依据结构化失败和恢复统计生成，避免旧后端成功文案掩盖未完成项。
+      const message = formatOrderSyncResult(result);
+      if (message) alert(message);
     } catch (/* error 表示订单同步请求异常。 */ error: unknown) {
 			if (generation !== syncGeneration.current) return;
       console.error('同步订单失败:', error);

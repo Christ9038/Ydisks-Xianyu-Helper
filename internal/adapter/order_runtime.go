@@ -53,6 +53,8 @@ type OrderRuntimeHooks struct {
 	RecoverExpiredSession func(context.Context, string, error) bool
 	// ReportPersistenceFailure 记录本地订单状态写入失败。
 	ReportPersistenceFailure func(string, error)
+	// RefreshChatConversations 按需刷新指定账号的聊天联系人缓存；未装配时订单同步保持可用但不补关联。
+	RefreshChatConversations func(context.Context, string) error
 }
 
 // NewOrderRuntimeHooks 将账号、自动化和通知依赖转换为订单运行时回调；闭包只存在于 adapter 装配边界。
@@ -288,10 +290,14 @@ func (r *OrderRuntime) FetchOrderDetail(ctx context.Context, detail *orderapp.Pl
 	return orderapp.RefreshDetailFetchResult{Detail: &orderapp.RefreshDetail{Quantity: result.Quantity, SpecName: result.SpecName, SpecValue: result.SpecValue, OrderStatus: result.OrderStatus, Amount: result.Amount, UpdatedCookies: result.UpdatedCookies}, CookieUpdate: cookieUpdate}, nil
 }
 
-// FetchSoldOrders 调用平台已售订单接口并收集 Cookie 会话变化。
+// FetchSoldOrders 用 r 已装配的客户端按 ctx 取消信号读取 detail 对应账号的全部已售订单。
+// detail 中的明文凭证只用于平台请求；返回值保留已抓订单和 Cookie 更新，只有分页完整结束才返回 nil 错误。
+// SellerID 仅声明每页实际请求共同使用的 unb，缺失时为空；身份冲突及中途失败均不得用于落库或软删除。
 func (r *OrderRuntime) FetchSoldOrders(ctx context.Context, detail *orderapp.PlatformRuntimeData) (orderapp.RefreshSoldFetchResult, error) {
+	// client 固定本次同步的平台客户端，身份检查与分页调用使用同一实例。
+	client := r.mtopClient()
 	// fetcher、available 保存订单列表接口实现及其可用状态。
-	fetcher, available := r.mtopClient().(mtop.SoldOrderFetcher)
+	fetcher, available := client.(mtop.SoldOrderFetcher)
 	if !available {
 		return orderapp.RefreshSoldFetchResult{}, errors.New("当前 MTop 客户端不支持订单列表发现")
 	}
@@ -302,8 +308,23 @@ func (r *OrderRuntime) FetchSoldOrders(ctx context.Context, detail *orderapp.Pla
 	requestCtx, session := withOrderCookieSnapshot(ctx, platformRuntimeDataForOrder(detail))
 	// orders 保存跨分页累积的平台订单。
 	orders := make([]orderapp.RefreshSoldOrder, 0)
+	// sellerID 保存已观察到的请求 UID，identityComplete 要求每一页都具备可验证的相同身份。
+	sellerID, identityComplete := "", true
 	// pageNumber 是当前请求的订单列表页码。
 	for pageNumber := 1; pageNumber <= orderRuntimeMaxSoldOrderPages; pageNumber++ {
+		// requestSellerID、identityErr 根据当前请求 URL 的 Cookie 作用域校验身份，响应更新不反推本页身份。
+		requestSellerID, identityErr := soldOrderRequestSellerID(client, detail.Value, session)
+		if identityErr != nil {
+			return orderapp.RefreshSoldFetchResult{Orders: orders, CookieUpdate: orderCookieUpdate(detail, session)}, identityErr
+		}
+		if requestSellerID == "" {
+			identityComplete = false
+		} else {
+			if sellerID != "" && requestSellerID != sellerID {
+				return orderapp.RefreshSoldFetchResult{Orders: orders, CookieUpdate: orderCookieUpdate(detail, session)}, errors.New("订单列表分页请求身份发生变化")
+			}
+			sellerID = requestSellerID
+		}
 		// page、callErr 保存当前订单列表页及错误。
 		page, callErr := fetcher.FetchSoldOrdersPage(requestCtx, detail.Value, pageNumber, 30)
 		if callErr != nil {
@@ -314,13 +335,81 @@ func (r *OrderRuntime) FetchSoldOrders(ctx context.Context, detail *orderapp.Pla
 		}
 		// remote 是当前平台订单列表项。
 		for _, remote := range page.Items {
+			if strings.TrimSpace(remote.OrderID) == "" {
+				return orderapp.RefreshSoldFetchResult{Orders: orders, CookieUpdate: orderCookieUpdate(detail, session)}, fmt.Errorf("订单列表第 %d 页存在缺失订单号的条目，分页不完整", pageNumber)
+			}
 			orders = append(orders, orderapp.RefreshSoldOrder{OrderID: remote.OrderID, ItemID: remote.ItemID, BuyerID: remote.BuyerID, CreatedAt: remote.CreatedAt, OrderStatus: orderapp.NormalizeOrderStatus(remote.OrderStatus), Quantity: remote.Quantity, Amount: remote.Amount, ReceiverName: remote.ReceiverName, ReceiverPhone: remote.ReceiverPhone, ReceiverAddr: remote.ReceiverAddr, ReceiverCity: remote.ReceiverCity, IsBargain: remote.IsBargain})
 		}
-		if !page.NextPage || len(page.Items) == 0 {
-			break
+		if !page.NextPage {
+			if !identityComplete {
+				sellerID = ""
+			}
+			return orderapp.RefreshSoldFetchResult{SellerID: sellerID, Orders: orders, CookieUpdate: orderCookieUpdate(detail, session)}, nil
+		}
+		if len(page.Items) == 0 {
+			return orderapp.RefreshSoldFetchResult{Orders: orders, CookieUpdate: orderCookieUpdate(detail, session)}, fmt.Errorf("订单列表第 %d 页为空页但 nextPage 为真，分页不完整", pageNumber)
 		}
 	}
-	return orderapp.RefreshSoldFetchResult{Orders: orders, CookieUpdate: orderCookieUpdate(detail, session)}, nil
+	return orderapp.RefreshSoldFetchResult{Orders: orders, CookieUpdate: orderCookieUpdate(detail, session)}, fmt.Errorf("订单列表达到 %d 页上限但 nextPage 为真，分页不完整", orderRuntimeMaxSoldOrderPages)
+}
+
+// RefreshChatConversations 按需刷新订单同步所需的聊天联系人缓存。
+func (r *OrderRuntime) RefreshChatConversations(ctx context.Context, cookieID string) error {
+	if r == nil || r.hooks.RefreshChatConversations == nil {
+		return nil
+	}
+	return r.hooks.RefreshChatConversations(ctx, cookieID)
+}
+
+// soldOrderRequestSellerID 从 client 本次已售请求对应的 session 读取非敏感 unb，fallback 仅用于检查旧扁平凭证冲突。
+// 完整 Jar 必须按实际端点筛选，不能以 State 的 /im 视图或 fallback 冒充实际请求身份；错误不含 UID 或凭证。
+func soldOrderRequestSellerID(client mtop.Client, fallback string, session *mtop.CookieSession) (string, error) {
+	// endpoint 与标准已售客户端采用相同默认值，替身遵循同一平台请求契约。
+	endpoint := mtop.SoldOrdersAPI
+	// configured、ok 识别实际客户端的可配置端点，确保本地或代理地址使用自身 Cookie 作用域。
+	if configured, ok := client.(*mtop.ClientImpl); ok && configured != nil && configured.SoldOrdersURL != "" {
+		endpoint = configured.SoldOrdersURL
+	}
+	// requestCookies、snapshot 保存会话平面值及完整 Jar；凭证只在当前函数内用于身份提取，禁止输出。
+	requestCookies, snapshot, _ := session.State()
+	if snapshot != nil {
+		requestCookies, _ = cookierefresh.ScopedCookieHeaderForRequest(snapshot, endpoint, "https://goofish.com", time.Now())
+	}
+	// sellerID、requestErr 保存实际请求 UID 和重复身份冲突，不读取买家字段推断卖家。
+	sellerID, requestErr := soldOrderCookieUID(requestCookies)
+	if requestErr != nil {
+		return "", requestErr
+	}
+	// fallbackID、fallbackErr 保存兼容凭证中的 UID 和歧义错误，不能用于补齐 Jar 缺失的 UID。
+	fallbackID, fallbackErr := soldOrderCookieUID(fallback)
+	if fallbackErr != nil {
+		return "", fallbackErr
+	}
+	if sellerID != "" && fallbackID != "" && sellerID != fallbackID {
+		return "", errors.New("订单列表请求 Cookie 会话与扁平凭证身份冲突")
+	}
+	return sellerID, nil
+}
+
+// soldOrderCookieUID 只从 header 的 unb 提取非敏感平台 UID；重复且不同的值返回脱敏错误，不改变 Cookie 合并规则。
+func soldOrderCookieUID(header string) (string, error) {
+	// sellerID 保存当前 UID，found 记录是否出现过 unb，防止空值与非空重复项被误当作单一身份。
+	sellerID, found := "", false
+	// part 是当前 Cookie 键值片段，内容仅用于比较，禁止输出。
+	for _, part := range strings.Split(header, ";") {
+		// name、value、present 保存 Cookie 名、值及是否有等号；仅关注名称严格为 unb 的片段。
+		name, value, present := strings.Cut(strings.TrimSpace(part), "=")
+		if !present || strings.TrimSpace(name) != "unb" {
+			continue
+		}
+		value = strings.TrimSpace(value)
+		if found && sellerID != value {
+			return "", errors.New("订单列表请求 Cookie 存在多个冲突身份")
+		}
+		sellerID = value
+		found = true
+	}
+	return sellerID, nil
 }
 
 // PersistCookieSession 在凭证锁内保存应用层 Cookie 更新。

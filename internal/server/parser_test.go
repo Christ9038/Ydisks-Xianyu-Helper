@@ -92,6 +92,18 @@ func TestOrderImportFormats(t *testing.T) {
 	}
 }
 
+// TestParseImportedOrdersAcceptsUTF8BOM 验证 Excel 导出的 UTF-8 BOM 订单 CSV 可以正常识别订单号。
+func TestParseImportedOrdersAcceptsUTF8BOM(t *testing.T) {
+	// rows、err 保存带 BOM 的订单 CSV 解析结果及错误。
+	rows, err := parseImportedOrderBytes([]byte("\uFEFF订单号,金额\no-bom,12.5\n"), "orders.csv")
+	if err != nil {
+		t.Fatalf("带 BOM 的订单 CSV 解析失败: %v", err)
+	}
+	if len(rows) != 1 || rows[0]["order_id"] != "o-bom" || rows[0]["amount"] != "12.5" {
+		t.Fatalf("带 BOM 的订单 CSV 表头未正确归一化: %#v", rows)
+	}
+}
+
 // TestOrderImportRejectsTooManyRows 封装Test订单ImportRejectsTooManyRows业务协调。
 func TestOrderImportRejectsTooManyRows(t *testing.T) {
 	// b 用于本次流程后续判断的b

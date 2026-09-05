@@ -121,3 +121,21 @@ export interface NotificationChannelResponse {
   /** 所属用户主键。 */
   user_id?: number;
 }
+
+/** 通知渠道编辑接口返回的脱敏 DTO；不包含任何渠道凭据。 */
+export interface NotificationChannelEditorResponse {
+  /** 通知渠道主键。 */
+  id: number;
+  /** 通知渠道名称。 */
+  name: string;
+  /** 通知渠道类型。 */
+  type: string;
+  /** 订阅事件类型 JSON 或兼容文本。 */
+  event_types?: string;
+  /** 通知渠道是否启用。 */
+  enabled: boolean;
+  /** 邮件渠道的收件邮箱。 */
+  to_email?: string;
+  /** 邮件渠道是否使用独立 SMTP。 */
+  use_custom_smtp?: boolean;
+}

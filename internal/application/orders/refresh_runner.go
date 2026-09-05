@@ -53,6 +53,10 @@ type RefreshJobResult struct {
 
 // RefreshJobSummary 是订单刷新任务结果中的统计摘要。
 type RefreshJobSummary struct {
+	// Restored 是同账号软删除订单恢复数量；旧任务缺失该字段时按零读取。
+	Restored int `json:"restored,omitempty"`
+	// Reassigned 是历史错误归属修正数量；与新增和同账号恢复分别统计。
+	Reassigned int `json:"reassigned,omitempty"`
 	// Discovered 是从平台发现并导入的新订单数量。
 	Discovered int `json:"discovered"`
 	// ListUpdated 是订单列表阶段发生字段变化的数量。
@@ -127,6 +131,7 @@ func NewRefreshJobResult(result RefreshResult) RefreshJobResult {
 		PartialFailure: result.PartialFailure,
 		Message:        result.Message,
 		Summary: RefreshJobSummary{
+			Restored: result.Summary.Restored, Reassigned: result.Summary.Reassigned,
 			Discovered: result.Summary.Discovered, ListUpdated: result.Summary.ListUpdated,
 			SoftDeleted: result.Summary.SoftDeleted, DetailTotal: result.Summary.DetailTotal,
 			Total: result.Summary.Total, Updated: result.Summary.Updated,

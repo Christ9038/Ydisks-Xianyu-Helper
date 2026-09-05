@@ -28,6 +28,12 @@ type Repository interface {
 	GetSetting(ctx context.Context, key string) (string, error)
 }
 
+// userScopedSettings 是通知器按渠道所有者读取敏感系统设置的可选能力。
+type userScopedSettings interface {
+	// GetSettingForUser 读取指定用户可用的系统设置，并为敏感键写入访问审计。
+	GetSettingForUser(ctx context.Context, userID int64, key string) (string, error)
+}
+
 // storeRepository 将完整 Store 适配为通知器窄 repository。
 type storeRepository struct {
 	// store 保存数据库聚合入口，仅在适配器内部使用。
@@ -78,6 +84,17 @@ func (r storeRepository) GetSetting(ctx context.Context, key string) (string, er
 	}
 	if db.IsSensitiveSettingKey(key) {
 		return r.store.ReadSensitiveSettingForAccount(ctx, r.cookieID, key, "settings.use", "notifications")
+	}
+	return r.store.Settings.Get(ctx, key)
+}
+
+// GetSettingForUser 按通知渠道所属用户读取系统设置，避免全局通知器丢失敏感设置所有者。
+func (r storeRepository) GetSettingForUser(ctx context.Context, userID int64, key string) (string, error) {
+	if r.store.Settings == nil {
+		return "", errors.New("系统设置 repository 未初始化")
+	}
+	if db.IsSensitiveSettingKey(key) {
+		return r.store.ReadSensitiveSetting(ctx, userID, key, "settings.use", "notifications")
 	}
 	return r.store.Settings.Get(ctx, key)
 }

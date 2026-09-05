@@ -432,14 +432,16 @@ UPDATE automation_rules
 	return tx.Commit()
 }
 
-// Delete 逻辑删除规则，保留动作和执行记录以便审计；逻辑删除后不再出现在规则列表和匹配结果中。
+// Delete 物理删除规则，并在没有待处理运行时依靠外键级联清理动作和执行记录。
 func (a *AutomationRules) Delete(ctx context.Context, userID, ruleID int64) error {
-	// res、err 用于本次流程后续判断的res、err
-	res, err := a.DB.ExecContext(ctx, `UPDATE automation_rules
-		SET deleted_at=CURRENT_TIMESTAMP, enabled=0, updated_at=CURRENT_TIMESTAMP
-		WHERE id=? AND user_id=? AND deleted_at IS NULL AND NOT EXISTS (
+	// res、err 保存规则物理删除结果及数据库错误。
+	res, err := a.DB.ExecContext(ctx, `DELETE FROM automation_rules
+		WHERE id=? AND user_id=? AND NOT EXISTS (
 			SELECT 1 FROM automation_runs ar WHERE ar.rule_id=automation_rules.id
-			  AND (ar.status IN ('running','needs_review') OR (ar.status='failed' AND ar.sent_count=0 AND ar.attempt_count<3 AND ar.error_message NOT LIKE '[no_retry]%')))`, ruleID, userID)
+			  AND (ar.status IN ('running','needs_review') OR ar.action_started<>0
+			    OR (ar.status='failed' AND ar.attempt_count<3
+			      AND ((ar.sent_count=0 AND ar.error_message NOT LIKE '[no_retry]%')
+			        OR ar.error_message LIKE '[safe_retry]%'))))`, ruleID, userID)
 	if err != nil {
 		return err
 	}
@@ -448,7 +450,7 @@ func (a *AutomationRules) Delete(ctx context.Context, userID, ruleID int64) erro
 		// exists 用于本次流程后续判断的exists
 		var exists int
 		if // err 用于本次流程后续判断的err
-		err := a.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM automation_rules WHERE id=? AND user_id=? AND deleted_at IS NULL`, ruleID, userID).Scan(&exists); err != nil {
+		err := a.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM automation_rules WHERE id=? AND user_id=?`, ruleID, userID).Scan(&exists); err != nil {
 			return err
 		}
 		if exists > 0 {
@@ -511,90 +513,93 @@ SELECT a.id,a.rule_id,a.action_type,COALESCE(a.card_id,0),COALESCE(c.name,''),a.
 	return out, nil
 }
 
-// TryStartRun 以 UNIQUE(rule_id, trigger_key) 作为持久化防重。
-// 返回 started=false 表示该规则对该触发已执行或正在执行，调用方应直接跳过。
-// TryStartRun 封装Try开始运行业务协调。
-func (a *AutomationRules) TryStartRun(ctx context.Context, run AutomationRun) (int64, bool, error) {
-	// now 用于本次流程后续判断的now
+// tryStartRun 使用 a 的方言在 execer 归属锁事务内创建或重领 run；ctx 控制取消，返回运行 ID、执行权和数据库错误。
+// 调用方负责事务提交，未取得执行权时不得执行动作；本函数不建立事务或访问外部平台。
+func (a *AutomationRules) tryStartRun(ctx context.Context, execer sqlQueryExecer, run AutomationRun) (int64, bool, error) {
+	// now 是用于判定运行租约过期的 UTC 秒数。
 	now := time.Now().UTC().Unix()
-	// leaseExpiresAt 用于本次流程后续判断的leaseExpiresAt
+	// leaseExpiresAt 是本次执行权的截止秒数，过期输入使用五分钟默认预算。
 	leaseExpiresAt := run.LeaseExpiresAt
 	if leaseExpiresAt <= now {
 		leaseExpiresAt = now + int64((5*time.Minute)/time.Second)
 	}
-	// query 用于本次流程后续判断的查询
+	// query 保留各方言的幂等插入语义，归属锁由调用方持有到提交。
 	query := dialectInsertIgnorePrefix(a.Dialect) + ` INTO automation_runs
 	    (rule_id,cookie_id,item_id,order_id,buyer_id,chat_id,trigger_type,trigger_key,status,raw_event_json,delivery_proof,lease_expires_at,attempt_count,next_retry_at)
 	VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)` + dialectInsertIgnore(a.Dialect, []string{"rule_id", "trigger_key"})
-	// args 用于本次流程后续判断的args
+	// args 保存运行初值；原始事件载荷仅用于持久化，不得输出到日志。
 	args := []any{run.RuleID, run.CookieID, run.ItemID, run.OrderID, run.BuyerID, run.ChatID,
 		run.TriggerType, run.TriggerKey, "running", validJSON(run.RawEventJSON), "", leaseExpiresAt, 1, 0}
 
 	if a.Dialect == DialectPostgres {
-		// pgx 不支持 LastInsertId；用 RETURNING id。ON CONFLICT DO NOTHING 冲突时无行返回 → 未启动。
+		// id 由 PostgreSQL RETURNING 返回；冲突无行时在同一归属锁事务中尝试重领。
 		var id int64
-		// err 用于本次流程后续判断的err
-		err := a.DB.QueryRowContext(ctx, query+" RETURNING id", args...).Scan(&id)
+		// err 保存创建结果，唯一键冲突与其他数据库错误分别处理。
+		err := execer.QueryRowContext(ctx, query+" RETURNING id", args...).Scan(&id)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				return a.reclaimRun(ctx, run.RuleID, run.TriggerKey, leaseExpiresAt, now)
+				return a.reclaimRun(ctx, execer, run, leaseExpiresAt, now)
 			}
 			return 0, false, err
 		}
 		return id, true, nil
 	}
 
-	// res、err 用于本次流程后续判断的res、err
-	res, err := a.DB.ExecContext(ctx, query, args...)
+	// res、err 保存 SQLite/MySQL 幂等插入结果和数据库错误。
+	res, err := execer.ExecContext(ctx, query, args...)
 	if err != nil {
 		return 0, false, err
 	}
-	if // n 用于本次流程后续判断的n
+	if // n 是插入行数，零行意味着同一触发已有运行。
 	n, _ := res.RowsAffected(); n == 0 {
-		return a.reclaimRun(ctx, run.RuleID, run.TriggerKey, leaseExpiresAt, now)
+		return a.reclaimRun(ctx, execer, run, leaseExpiresAt, now)
 	}
-	// id 用于本次流程后续判断的标识
+	// id 是当前事务中新创建运行的主键。
 	id, _ := res.LastInsertId()
 	return id, true, nil
 }
 
-// reclaimRun 封装reclaim运行业务协调。
-func (a *AutomationRules) reclaimRun(ctx context.Context, ruleID int64, triggerKey string, leaseExpiresAt, now int64) (int64, bool, error) {
-	// res、err 用于本次流程后续判断的res、err
-	res, err := a.DB.ExecContext(ctx, `UPDATE automation_runs
+// reclaimRun 在 a 的 execer 归属锁事务内按 run 的账号、订单及幂等键重领；ctx 控制取消，leaseExpiresAt/now 是 UTC 秒数。
+// 返回主键、是否取得新代次和错误；不得借用相同幂等键领取其他账号或订单的运行。
+func (a *AutomationRules) reclaimRun(ctx context.Context, execer sqlQueryExecer, run AutomationRun, leaseExpiresAt, now int64) (int64, bool, error) {
+	// res、err 保存保留现有安全重试条件的原子更新结果。
+	res, err := execer.ExecContext(ctx, `UPDATE automation_runs
 	   SET status='running',error_message='',lease_expires_at=?,next_retry_at=0,
 	       attempt_count=attempt_count+1,updated_at=CURRENT_TIMESTAMP
-	 WHERE rule_id=? AND trigger_key=?
+	 WHERE rule_id=? AND trigger_key=? AND cookie_id=? AND COALESCE(order_id,'')=?
 	   AND ((status='running' AND action_started=0 AND (lease_expires_at=0 OR lease_expires_at<?))
 	        OR (status='failed' AND action_started=0 AND attempt_count<3 AND next_retry_at<=?
 	            AND ((sent_count=0 AND error_message NOT LIKE '[no_retry]%') OR error_message LIKE '[safe_retry]%')))`,
-		leaseExpiresAt, ruleID, triggerKey, now, now)
+		leaseExpiresAt, run.RuleID, run.TriggerKey, run.CookieID, run.OrderID, now, now)
 	if err != nil {
 		return 0, false, err
 	}
-	if // n、rowsErr 用于本次流程后续判断的n、rowsErr
+	if // n、rowsErr 保存重领行数及驱动计数错误，恰好一行才取得执行权。
 	n, rowsErr := res.RowsAffected(); rowsErr != nil || n != 1 {
 		return 0, false, rowsErr
 	}
-	// id 用于本次流程后续判断的标识
+	// id 是同一事务中刚重领的运行主键。
 	var id int64
-	if // err 用于本次流程后续判断的err
-	err := a.DB.QueryRowContext(ctx,
-		`SELECT id FROM automation_runs WHERE rule_id=? AND trigger_key=?`, ruleID, triggerKey).Scan(&id); err != nil {
+	if // err 保存重领主键读取错误，失败时由调用方回滚执行权变更。
+	err := execer.QueryRowContext(ctx,
+		`SELECT id FROM automation_runs WHERE rule_id=? AND trigger_key=?`, run.RuleID, run.TriggerKey).Scan(&id); err != nil {
 		return 0, false, err
 	}
 	return id, true, nil
 }
 
-// StartRunAction 在外部副作用前持久化 started；崩溃恢复看到 started 时不会盲目重放。
-func (a *AutomationRules) StartRunAction(ctx context.Context, runID int64, attempt, cursor int, leaseExpiresAt int64) (bool, error) {
-	// res、err 用于本次流程后续判断的res、err
-	res, err := a.DB.ExecContext(ctx, `UPDATE automation_runs SET action_started=1,lease_expires_at=?,updated_at=CURRENT_TIMESTAMP
-		WHERE id=? AND attempt_count=? AND status='running' AND action_cursor=? AND action_started=0`, leaseExpiresAt, runID, attempt, cursor)
+// startRunAction 在 a 的 execer 归属锁事务中为 runID 的 attempt 代次、cursor 游标领取动作，leaseExpiresAt 是 UTC 截止秒数。
+// ctx 控制取消；返回是否领取成功及数据库错误。调用方先锁账号和订单，并在提交成功后才允许外部动作。
+func (a *AutomationRules) startRunAction(ctx context.Context, execer sqlExecer, runID int64, attempt, cursor int, leaseExpiresAt int64) (bool, error) {
+	// res、err 保存执行权及订单归属条件共同成立时的动作检查点更新结果。
+	res, err := execer.ExecContext(ctx, `UPDATE automation_runs SET action_started=1,lease_expires_at=?,updated_at=CURRENT_TIMESTAMP
+		WHERE id=? AND attempt_count=? AND status='running' AND action_cursor=? AND action_started=0
+		AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.order_id=automation_runs.order_id
+		AND COALESCE(o.cookie_id,'')<>automation_runs.cookie_id)`, leaseExpiresAt, runID, attempt, cursor)
 	if err != nil {
 		return false, err
 	}
-	// n、err 用于本次流程后续判断的n、err
+	// n、err 保存领取行数和驱动计数错误，只有恰好一行更新才允许外部动作。
 	n, err := res.RowsAffected()
 	return err == nil && n == 1, err
 }

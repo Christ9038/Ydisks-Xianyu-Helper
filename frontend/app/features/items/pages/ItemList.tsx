@@ -1,7 +1,7 @@
 import { ArrowRight,Box,CheckCircle2,CircleDashed,Edit,Filter,Link2,LocateFixed,PackagePlus,Plus,RefreshCw,Save,Search,ShoppingBag,Trash2,UploadCloud,User,X } from 'lucide-react';
 import React,{ useCallback,useEffect,useMemo,useRef,useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { AccountDetail,Item,ShippingRule } from '../api';
+import type { AccountDetail,Item,PublishLocation,ShippingRule } from '../api';
 import {
 getAccountDetails,
 getItemPublishBatches,
@@ -10,6 +10,7 @@ getShippingRules,
 } from '../api';
 import { batchStatusClass,batchStatusText } from '../batchState';
 import { BatchPhaseIndicator } from '../components/BatchPhaseIndicator';
+import { ManualLocationPicker } from '../components/ManualLocationPicker';
 import { consumeSelectedFile } from '../fileInput';
 import { useItemPublishBatch } from '../hooks';
 import { useItemActions } from '../itemActions';
@@ -139,6 +140,22 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
     openPublishModal,
     locateForPublish,
   } = itemActions;
+
+  // ManualLocationTarget 表示手动地点选择完成后要回填的发布流程。
+  type ManualLocationTarget = 'publish' | 'batch';
+  // manualLocationTarget 保存当前手动地点弹窗服务的发布场景。
+  const [manualLocationTarget, setManualLocationTarget] = useState<ManualLocationTarget | null>(null);
+  // confirmManualLocation 将用户选中的高德 POI 写回对应发布表单。
+  const confirmManualLocation = useCallback(/* confirmManualLocationCallback 将已确认的高德 POI 写入对应发布场景。 */ (location: PublishLocation) => {
+    if (manualLocationTarget === 'publish') {
+      setPublishLocations([location]);
+      setPublishLocation(location);
+    } else if (manualLocationTarget === 'batch') {
+      setBatchLocations([location]);
+      setBatchLocation(location);
+    }
+    setManualLocationTarget(null);
+  }, [manualLocationTarget, setBatchLocation, setBatchLocations, setPublishLocation, setPublishLocations]);
 
   useEffect(/* 当前回调同步 React 副作用和资源生命周期。 */ () => {
     // controller 取消组件卸载前仍在执行的首屏并行请求。
@@ -502,9 +519,14 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
 			  <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 space-y-3">
 				<div className="flex items-center justify-between gap-3">
 				  <div><div className="text-sm font-extrabold text-gray-900">发货地（可选）</div><p className="mt-1 text-xs text-sky-800">虚拟商品无需发货地；发布失败时可再定位并作为补充信息提交。</p></div>
-				  <button type="button" disabled={locationLoading || !publishForm.cookie_id} onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => void locateForPublish(false)} className="ios-btn-primary flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold disabled:opacity-50">
-					<LocateFixed className="h-4 w-4" />{locationLoading ? '定位中...' : '获取当前位置'}
-				  </button>
+					<div className="flex flex-wrap justify-end gap-2">
+					  <button type="button" disabled={locationLoading || !publishForm.cookie_id} onClick={/* currentLocationClickAction 获取设备当前位置附近的高德发货地。 */ () => void locateForPublish(false)} className="ios-btn-primary flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold disabled:opacity-50">
+					    <LocateFixed className="h-4 w-4" />{locationLoading ? '定位中...' : '获取当前位置'}
+					  </button>
+					  <button type="button" disabled={locationLoading || !publishForm.cookie_id} onClick={/* manualLocationClickAction 打开普通发布的高德手动选点弹窗。 */ () => setManualLocationTarget('publish')} className="flex items-center gap-2 rounded-xl border border-sky-200 bg-white px-4 py-2 text-sm font-bold text-sky-700 transition-colors hover:bg-sky-50 disabled:opacity-50">
+					    <Search className="h-4 w-4" />手动选择
+					  </button>
+					</div>
 				</div>
 				{publishLocations.length > 0 && <select className="w-full ios-input rounded-xl bg-white px-4 py-3" value={String(Math.max(0, publishLocations.indexOf(publishLocation!)))} onChange={/* 当前回调处理用户交互或异步状态变化。 */ e => setPublishLocation(publishLocations[Number(e.target.value)] || null)}>
 				  {publishLocations.map(/* 当前回调处理集合中的单个元素。 */ (item, index) => <option key={`${item.division_id}-${item.poi_id}-${index}`} value={String(index)}>{[item.province, item.city, item.area, item.poi_name].filter(Boolean).join(' ')}</option>)}
@@ -652,9 +674,14 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
 				  <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 space-y-3">
 					<div className="flex items-center justify-between gap-3">
 					  <div><div className="text-sm font-extrabold text-gray-900">批次发货地（可选）</div><p className="mt-1 text-xs text-sky-800">虚拟商品可留空；填写后整个批次使用同一个发货地，并随任务保存用于恢复和重试。</p></div>
-					  <button type="button" disabled={locationLoading || !selectedAccount} onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => void locateForPublish(true)} className="ios-btn-primary flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold disabled:opacity-50">
+					<div className="flex flex-wrap justify-end gap-2">
+					  <button type="button" disabled={locationLoading || !selectedAccount} onClick={/* currentBatchLocationClickAction 获取批量发布使用的设备当前位置。 */ () => void locateForPublish(true)} className="ios-btn-primary flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold disabled:opacity-50">
 						<LocateFixed className="h-4 w-4" />{locationLoading ? '定位中...' : '获取当前位置'}
 					  </button>
+					  <button type="button" disabled={locationLoading || !selectedAccount} onClick={/* manualBatchLocationClickAction 打开批量发布的高德手动选点弹窗。 */ () => setManualLocationTarget('batch')} className="flex items-center gap-2 rounded-xl border border-sky-200 bg-white px-4 py-2 text-sm font-bold text-sky-700 transition-colors hover:bg-sky-50 disabled:opacity-50">
+						<Search className="h-4 w-4" />手动选择
+					  </button>
+					</div>
 					</div>
 					{batchLocations.length > 0 && <select className="w-full ios-input rounded-xl bg-white px-4 py-3" value={String(Math.max(0, batchLocations.indexOf(batchLocation!)))} onChange={/* 当前回调处理用户交互或异步状态变化。 */ e => setBatchLocation(batchLocations[Number(e.target.value)] || null)}>
 					  {batchLocations.map(/* 当前回调处理集合中的单个元素。 */ (item, index) => <option key={`${item.division_id}-${item.poi_id}-${index}`} value={String(index)}>{[item.province, item.city, item.area, item.poi_name].filter(Boolean).join(' ')}</option>)}
@@ -934,6 +961,12 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
           </div>
         </div>
       , document.body)}
+
+      <ManualLocationPicker
+        open={manualLocationTarget !== null}
+        onClose={/* manualLocationCloseAction 关闭手动地点弹窗并释放高德查询。 */ () => setManualLocationTarget(null)}
+        onConfirm={confirmManualLocation}
+      />
     </div>
   );
 };

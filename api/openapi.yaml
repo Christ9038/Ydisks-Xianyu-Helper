@@ -4397,6 +4397,53 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
   "/api/v1/notifications/channels/{channel_id}":
+    get:
+      operationId: getApiV1NotificationsChannelsBychannel_id
+      summary: getApiV1NotificationsChannelsBychannel_id
+      parameters:
+          - name: channel_id
+            in: path
+            required: true
+            schema:
+              type: string
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationChannelEditorResponse'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
     delete:
       operationId: deleteApiV1NotificationsChannelsBychannel_id
       summary: deleteApiV1NotificationsChannelsBychannel_id
@@ -7755,6 +7802,17 @@ components:
         event_types: {type: string}
         enabled: {type: boolean}
         user_id: {type: integer}
+    NotificationChannelEditorResponse:
+      type: object
+      required: [id, name, type, enabled]
+      properties:
+        id: {type: integer}
+        name: {type: string}
+        type: {type: string}
+        event_types: {type: string}
+        enabled: {type: boolean}
+        to_email: {type: string}
+        use_custom_smtp: {type: boolean}
     NotificationChannelCreateRequest:
       type: object
       required: [name, type]
@@ -7770,6 +7828,10 @@ components:
         name: {type: string}
         type: {type: string}
         config: {type: string}
+        email_recipient:
+          type: string
+          minLength: 1
+          description: 仅更新已有邮件渠道的收件地址，保留所有 SMTP 配置；与 config 互斥，不可同时改变渠道类型。
         event_types: {type: string}
         enabled: {type: boolean}
     NotificationBindingRequest:
@@ -8380,6 +8442,14 @@ components:
       type: object
       required: [discovered, list_updated, soft_deleted, detail_total, total, updated, no_change, failed]
       properties:
+        restored:
+          type: integer
+          minimum: 0
+          description: 同账号软删除订单恢复数，与新增和错绑修正不重复计数；旧任务可省略。
+        reassigned:
+          type: integer
+          minimum: 0
+          description: 经身份核验修正历史错绑的订单数，与同账号恢复不重复计数；旧任务可省略。
         discovered: {type: integer}
         list_updated: {type: integer}
         soft_deleted: {type: integer}

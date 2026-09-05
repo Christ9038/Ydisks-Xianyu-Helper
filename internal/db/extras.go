@@ -412,6 +412,8 @@ func (n *Notifications) GetChannel(ctx context.Context, id int64) (*Notification
 		}
 		return nil, err
 	}
+	// c.UserID 保存渠道所属用户，供全局通知器按所有者读取系统敏感配置。
+	c.UserID = userID
 	// config、err 用于本次流程后续判断的config、err
 	config, err := n.codec.decrypt("notification-config", strconv.FormatInt(userID, 10), c.Config)
 	if err != nil {

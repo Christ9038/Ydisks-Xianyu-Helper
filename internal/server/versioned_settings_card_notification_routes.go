@@ -46,6 +46,7 @@ func (s *Server) mountVersionedSettingsCardNotificationRoutes(r chi.Router) {
 		r.Delete("/api/v1/cards/{card_id}", s.deleteCard)
 
 		r.Get("/api/v1/notifications/channels", s.listChannels)
+		r.Get("/api/v1/notifications/channels/{channel_id}", s.getChannelEditor)
 		r.Post("/api/v1/notifications/channels", s.createChannel)
 		r.Put("/api/v1/notifications/channels/{channel_id}", s.updateChannel)
 		r.Delete("/api/v1/notifications/channels/{channel_id}", s.deleteChannel)

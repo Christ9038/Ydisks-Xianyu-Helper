@@ -15,6 +15,8 @@ type NotificationChannel struct {
 	Type       string
 	Config     string // JSON
 	EventTypes string // JSON array or comma-separated event codes
+	// UserID 是渠道所属用户，用于按所有者读取系统级敏感 SMTP 设置。
+	UserID int64
 }
 
 // Notifications 通知绑定操作。
@@ -267,6 +269,7 @@ func (n *Notifications) AccountChannels(ctx context.Context, cookieID string) ([
 		err := rows.Scan(&c.ID, &c.Name, &c.Type, &c.Config, &userID, &c.EventTypes); err != nil {
 			return nil, err
 		}
+		c.UserID = userID
 		c.Config, err = n.codec.decrypt("notification-config", strconv.FormatInt(userID, 10), c.Config)
 		if err != nil {
 			return nil, err

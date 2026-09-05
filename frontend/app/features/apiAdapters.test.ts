@@ -29,7 +29,7 @@ import { appendCardData,batchCreateCards,createCard,deleteCard,getCardDetails,ge
 import { getChatMessagePage,getChatMessages,getChatSessionPage,getChatSessions,markChatRead,sendChatImage,sendChatMessage } from './chat/api';
 import { getDashboardStats,getOrderAnalytics,getValidOrders } from './dashboard/api';
 import { cancelItemPublishBatch,createItem,deleteItem,deleteItemPublishBatch,getItemDetail,getItemPublishBatch,getItemPublishBatches,getItems,previewItemPublishBatch,publishItem,recommendPublishCategory,retryFailedItemPublishBatch,startItemPublishBatch,syncItemsFromAccount,updateItem } from './items/api';
-import { createNotificationChannel,deleteAccountNotifications,deleteMessageNotification,deleteNotificationChannel,getAccountBindings,getMessageNotifications,getNotificationChannels,setAccountBindings,setMessageNotification,testNotificationChannel,updateNotificationChannel,updateSystemSettings as updateNotificationSystemSettings } from './notifications/api';
+import { createNotificationChannel,deleteAccountNotifications,deleteMessageNotification,deleteNotificationChannel,getAccountBindings,getMessageNotifications,getNotificationChannel,getNotificationChannels,setAccountBindings,setMessageNotification,testNotificationChannel,updateNotificationChannel,updateSystemSettings as updateNotificationSystemSettings } from './notifications/api';
 import { cancelOrderRefreshJob,deleteOrder,getAdminStats,getOrderDetail,getOrders,importOrders,manualShipOrder,syncOrders,syncSingleOrder,updateOrder } from './orders/api';
 import { clearDefaultReplyRecords,deleteDefaultReply,deleteReplyRule,deleteShippingRule,getAutomationIssues,getDefaultReplies,getDefaultReply,getReplyRules,getShippingRules,getShippingRulesPage,resolveAutomationRun,resolveDeferredAutomationTask,updateDefaultReply,updateReplyRule,updateShippingRule } from './rules/api';
 import { initializeAdmin,login,logout,verifySession } from './session/api';
@@ -1008,6 +1008,16 @@ test('updateNotificationChannel supports partial enabled updates', async () => {
   });
 } /* 测试回调验证：updateNotificationChannel supports partial enabled updates。 */);
 
+test('getNotificationChannel returns only editor-safe email fields', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: 7, name: '邮件通知', type: 'email', enabled: true, to_email: 'to@example.com', use_custom_smtp: false })); /* fetchMock 是通知渠道编辑读取请求的网络替身。 */
+  stubContractFetch(fetchMock);
+
+  // result 是编辑接口返回的脱敏邮件渠道配置。
+  const result = await getNotificationChannel('7');
+  expect(result).toMatchObject({ id: 7, to_email: 'to@example.com', use_custom_smtp: false });
+  expect(fetchMock).toHaveBeenCalledWith('/api/v1/notifications/channels/7', expect.objectContaining({ method: 'GET', credentials: 'include' }));
+} /* 测试回调验证：getNotificationChannel returns only editor-safe email fields。 */);
+
 test('updateNotificationChannel serializes config and event types', /* 当前回调验证通知渠道请求体序列化。 */ async () => {
   // fetchMock 是通知渠道更新接口的网络替身。
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }));
@@ -1716,3 +1726,14 @@ const runVersionedRemainingAPITest = async () => {
 };
 
 test('remaining public APIs use versioned compatibility routes', runVersionedRemainingAPITest);
+
+// 仅更新收件地址的请求必须省略完整 config，避免清除仍留在服务器的 SMTP 秘密。
+test('通知编辑可单独更新收件地址', /* recipientPatchAdapterTest 检查契约客户端实际序列化的载荷。 */ async () => {
+  // fetchMock 模拟成功更新，仍通过真实请求序列化路径。
+  const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } }));
+  stubContractFetch(fetchMock);
+  await updateNotificationChannel('1', { name: 'renamed', email_recipient: 'new@example.com' });
+  // body 是已经发送的请求体，用于证明没有 config 字段。
+  const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+  expect(body).toEqual({ name: 'renamed', email_recipient: 'new@example.com' });
+});

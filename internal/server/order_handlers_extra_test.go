@@ -112,20 +112,22 @@ func TestCancelOrderRefreshJob(t *testing.T) {
 	}
 }
 
-// TestRefreshOrdersNoBrowser 浏览器未启用时仍应完成订单列表发现。
+// TestRefreshOrdersNoBrowser 验证 t 中未启用浏览器时，合法的空订单分页仍能完成列表发现。
 func TestRefreshOrdersNoBrowser(t *testing.T) {
-	// srv、cleanup 用于本次流程后续判断的srv、cleanup
+	// srv、cleanup 提供隔离服务及释放后台任务和测试数据库的回调。
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
-	// h 用于本次流程后续判断的h
+	// 明确注入合法的空订单分页，不能把通用账号资料响应中的 items 缺失误判为空列表。
+	setTestMTop(srv, newMockMTop(t, mtopResp{body: `{"ret":["SUCCESS::调用成功"],"data":{"module":{"nextPage":"false","totalCount":"0","items":[]}}}`}))
+	// h 保存会创建真实后台刷新任务的路由树。
 	h := srv.Router()
-	// cookie 用于本次流程后续判断的登录凭证
+	// cookie 仅用于本地管理员请求认证，不写入日志。
 	cookie := loginHelper(t, h)
 
-	// req 用于本次流程后续判断的req
+	// req 请求兼容同步入口，空筛选代表当前用户全部账号。
 	req := httptest.NewRequest(http.MethodPost, "/api/orders/refresh", strings.NewReader(""))
 	req.AddCookie(cookie)
-	// rec 用于本次流程后续判断的rec
+	// rec 捕获后台刷新任务创建响应。
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusAccepted {

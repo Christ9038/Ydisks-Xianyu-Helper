@@ -531,8 +531,10 @@ func buildOrderServices(dependencies Dependencies) (*orderapp.ServiceSet, *order
 	orderRepository := dependencies.OrderDependencies.NewOrderRepository()
 	// orderReconciliation 保存订单补偿写入应用 Port 的数据库适配器。
 	orderReconciliation := dependencies.OrderDependencies.NewOrderReconciliationRepository()
+	// chatRefreshCallback 保存订单同步未匹配会话时按需刷新联系人缓存的组合回调。
+	chatRefreshCallback := adapter.NewChatConversationRefreshCallback(adapter.NewChatRefreshProvider(dependencies.Chat, dependencies.Manager))
 	// orderRuntime 保存订单服务共享的运行时能力适配器。
-	orderRuntime := adapter.NewOrderRuntimeAdapter(dependencies.OrderDependencies, dependencies.Manager, dependencies.Automation, dependencies.Notifier, dependencies.MTopClient, dependencies.UpdateRunningCookie, dependencies.SessionRecovery, dependencies.Logger, orderReconciliation)
+	orderRuntime := adapter.NewOrderRuntimeAdapter(dependencies.OrderDependencies, dependencies.Manager, dependencies.Automation, dependencies.Notifier, dependencies.MTopClient, dependencies.UpdateRunningCookie, dependencies.SessionRecovery, dependencies.Logger, orderReconciliation, chatRefreshCallback)
 	// orderServices 保存应用层统一构造的订单业务服务集合。
 	orderServices := orderapp.NewServiceSet(orderRepository, orderRepository, orderRuntime, orderRuntime, dependencies.OrderDependencies.NewOrderRefreshJobRepository(), refreshOrderChunkSize)
 	// orderRefreshRunner 是订单刷新后台 worker 与恢复扫描的生命周期拥有者。

@@ -201,6 +201,8 @@ func publishRowToMap(keys []string, row []string) (map[string]any, bool) {
 func normalizePublishHeader(header string) string {
 	// h 用于本次流程后续判断的h
 	h := strings.ToLower(strings.TrimSpace(header))
+	// UTF-8 BOM 是浏览器下载的 CSV 模板为兼容 Excel 写入的文件标记，不能成为首列表头的一部分。
+	h = strings.TrimPrefix(h, "\uFEFF")
 	h = strings.NewReplacer(" ", "", "_", "", "-", "", "（", "(", "）", ")").Replace(h)
 	switch h {
 	case "cookieid", "账号id", "账号", "闲鱼账号":
@@ -248,6 +250,6 @@ func normalizePublishHeader(header string) string {
 	case "reviewrequestdelayseconds", "求评价延迟秒":
 		return "review_request_delay_seconds"
 	default:
-		return strings.TrimSpace(header)
+		return strings.TrimPrefix(strings.TrimSpace(header), "\uFEFF")
 	}
 }

@@ -209,7 +209,8 @@ func (s *Server) cancelOrderRefreshJob(w http.ResponseWriter, r *http.Request) {
 	writeErr(w, http.StatusConflict, "订单刷新任务已结束，无法取消")
 }
 
-// orderRefreshResponseFromJobResult 将应用层任务结果映射为历史 HTTP 响应 DTO。
+// orderRefreshResponseFromJobResult 将 result 持久化任务结果映射为历史 HTTP DTO；
+// 恢复修正计数与失败明细原样传递，旧任务缺失计数时保留零值兼容。
 func orderRefreshResponseFromJobResult(result orderapp.RefreshJobResult) orderRefreshResponse {
 	// results 保存转换后的 HTTP 结果行。
 	results := make([]orderRefreshResultDTO, 0, len(result.Results))
@@ -226,6 +227,7 @@ func orderRefreshResponseFromJobResult(result orderapp.RefreshJobResult) orderRe
 		PartialFailure: result.PartialFailure,
 		Message:        result.Message,
 		Summary: orderRefreshSummary{
+			Restored: result.Summary.Restored, Reassigned: result.Summary.Reassigned,
 			Discovered: result.Summary.Discovered, ListUpdated: result.Summary.ListUpdated,
 			SoftDeleted: result.Summary.SoftDeleted, DetailTotal: result.Summary.DetailTotal,
 			Total: result.Summary.Total, Updated: result.Summary.Updated,

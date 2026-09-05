@@ -47,7 +47,7 @@ export const NotificationChannelModal: React.FC<NotificationChannelModalProps> =
     if (!type) return;
     setForm(
       // nextFormUpdater 使用函数式更新渠道类型。
-      current => ({ ...current, type, config: {} }),
+      current => ({ ...current, type, config: {}, preserveSMTP: false }),
     );
   };
   // handleConfigFieldChange 更新普通或独立 SMTP 配置字段。
@@ -128,7 +128,13 @@ export const NotificationChannelModal: React.FC<NotificationChannelModalProps> =
               field => <div key={field.key} className="space-y-2"><label className="block text-sm font-bold text-gray-800">{field.label}{field.required && <span className="text-red-500 ml-1">*</span>}</label><input data-field={field.key} type={field.type === 'password' ? 'password' : field.type === 'number' ? 'number' : 'text'} value={String(form.config[field.key] || '')} onChange={handleConfigFieldChange} placeholder={field.placeholder} className="w-full ios-input px-4 py-3 rounded-xl text-sm" />{field.help && <p className="text-xs text-gray-500">{field.help}</p>}</div>,
             )}
           </div>
-          {form.type === 'email' && (
+          {form.type === 'email' && form.preserveSMTP && (
+            <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm">
+              <p>保留已保存的 SMTP 配置（{form.config.use_custom_smtp ? '自定义发件配置' : '继承系统配置'}），本次仅更新收件邮箱和渠道信息。</p>
+              <button type="button" className="mt-2 font-bold text-blue-700" onClick={/* replaceSMTPAction 明确切换为整套 SMTP 替换，已有秘密不会回填到浏览器。 */ () => setForm(/* replaceSMTPForm 清除保留模式并准备完整的新配置。 */ current => ({ ...current, preserveSMTP: false, config: { to_email: current.config.to_email, use_custom_smtp: false } }))}>重新配置 SMTP</button>
+            </div>
+          )}
+          {form.type === 'email' && !form.preserveSMTP && (
             <div className="overflow-hidden rounded-2xl border border-blue-100 bg-blue-50/40">
               <div className="flex items-center justify-between gap-4 p-4"><div><div className="text-sm font-extrabold text-gray-900">SMTP 来源</div><p className="mt-1 text-xs leading-5 text-gray-500">{form.config.use_custom_smtp === true ? '当前渠道使用一套完整、独立的发件配置。' : '当前渠道完整继承系统 SMTP，只单独设置收件邮箱。'}</p></div><button type="button" onClick={handleToggleCustomSMTP} className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${form.config.use_custom_smtp === true ? 'bg-brand' : 'bg-gray-300'}`} aria-label="使用独立 SMTP"><span className={`absolute left-1 top-1 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${form.config.use_custom_smtp === true ? 'translate-x-5' : ''}`} /></button></div>
               {form.config.use_custom_smtp === true && (

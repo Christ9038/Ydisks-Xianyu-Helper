@@ -2,6 +2,7 @@ package notifications
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -140,6 +141,25 @@ func TestChannelServiceCreatesAndUpdatesWithoutReturningConfig(t *testing.T) {
 	summaries, listErr := service.ListChannels(context.Background(), 7)
 	if listErr != nil || len(summaries) != 1 || summaries[0].Name != "邮件" {
 		t.Fatalf("列表结果异常: summaries=%+v err=%v", summaries, listErr)
+	}
+}
+
+// TestChannelServiceEditorViewKeepsRecipientButDropsSecrets 验证编辑视图保留收件地址且不返回 SMTP 密码或其他配置字段。
+func TestChannelServiceEditorViewKeepsRecipientButDropsSecrets(t *testing.T) {
+	// repository 是返回解密内部记录的渠道端口替身。
+	repository := &channelRepositoryStub{record: &ChannelRecord{
+		ID: 9, Name: "邮件", Type: "email", EventTypes: "[]", Enabled: true,
+		Config: `{"to_email":" receiver@example.com ","use_custom_smtp":false,"smtp_password":"secret","smtp_server":"smtp.example.com"}`,
+	}}
+	// service 是待验证的通知渠道应用服务。
+	service := NewChannelService(repository, nil)
+	// editor、editorErr 保存脱敏编辑视图及读取错误。
+	editor, editorErr := service.GetChannelEditor(context.Background(), 7, 9)
+	if editorErr != nil {
+		t.Fatalf("读取编辑视图失败: %v", editorErr)
+	}
+	if editor.ToEmail != "receiver@example.com" || editor.UseCustomSMTP {
+		t.Fatalf("编辑视图字段异常: %+v", editor)
 	}
 }
 
@@ -437,5 +457,95 @@ func TestChannelServiceCoversCRUDBindingsAndValidation(t *testing.T) {
 	if // err 是单条绑定归属禁止错误。
 	err := forbiddenBindingService.SetSingleBinding(context.Background(), 7, "acc", 1, true); !errors.Is(err, ErrChannelForbidden) {
 		t.Fatalf("单条绑定禁止错误异常: %v", err)
+	}
+}
+
+// TestChannelEditorLegacySMTPModes 验证旧版覆盖及显式模式均准确展示，响应不包含任何 SMTP 内容。
+func TestChannelEditorLegacySMTPModes(t *testing.T) {
+	// scenario 枚举旧版配置和显式模式，want 是编辑器应展示的来源。
+	for _, scenario := range []struct {
+		// config 仅使用虚构值，模拟存储中的旧 JSON。
+		config string
+		// want 表示存在独立或逐字段 SMTP 覆盖。
+		want bool
+	}{
+		{`{"smtp_server":"fixture.invalid","to_email":"recipient@example.com"}`, true},
+		{`{"smtp_use_tls":false}`, true},
+		{`{"smtp_from":"fixture@example.com"}`, true},
+		{`{"smtp_server":""}`, false},
+		{`{"smtp_server":"fixture.invalid","use_custom_smtp":false}`, false},
+		{`{"use_custom_smtp":true}`, true},
+		{`{"use_custom_smtp":"1"}`, true},
+		{`{"use_custom_smtp":1}`, true},
+		{`{"use_custom_smtp":{}}`, false},
+		{`broken`, false},
+	} {
+		// repository 提供当前虚构配置，不读取真实凭据。
+		repository := &channelRepositoryStub{record: &ChannelRecord{ID: 1, Name: "email", Type: "email", Config: scenario.config}}
+		// editor、err 保存安全编辑视图和读取错误；失败不回显配置文本。
+		editor, err := NewChannelService(repository, nil).GetChannelEditor(context.Background(), 7, 1)
+		if err != nil || editor.UseCustomSMTP != scenario.want {
+			t.Fatalf("模式判定失败: want=%v err=%v", scenario.want, err)
+		}
+	}
+}
+
+// TestEmailRecipientPatchPreservesSMTP 验证收件地址独立更新不会改变旧版覆盖、未知字段或服务端密码。
+func TestEmailRecipientPatchPreservesSMTP(t *testing.T) {
+	// repository 持有虚构邮件配置，测试不会发送通知。
+	repository := &channelRepositoryStub{record: &ChannelRecord{ID: 1, Name: "email", Type: "email", Config: `{"email":"old@example.com","smtp_server":"fixture.invalid","smtp_password":"fixture-secret","extra":{"n":2}}`}}
+	// recipient、name 是用户本次明确修改的非秘密字段。
+	recipient, name := " new@example.com ", "renamed"
+	// service 保存受测渠道更新编排。
+	service := NewChannelService(repository, nil)
+	// err 记录仅修改收件地址和名称的保存结果。
+	if err := service.UpdateChannel(context.Background(), 7, 1, ChannelPatch{Name: &name, EmailRecipient: &recipient}); err != nil {
+		t.Fatal(err)
+	}
+	// config 只用于验证存储边界保留字段，禁止失败时输出整个配置。
+	var config map[string]any
+	// err 校验保存结果仍可解析，不在失败信息中暴露配置。
+	if err := json.Unmarshal([]byte(repository.updatedRecord.Config), &config); err != nil {
+		t.Fatal("保存后的配置不是合法 JSON")
+	}
+	if repository.updatedRecord.Name != name || config["to_email"] != "new@example.com" || config["smtp_server"] != "fixture.invalid" || config["smtp_password"] != "fixture-secret" || config["extra"] == nil {
+		t.Fatal("收件地址更新丢失原 SMTP 或未知字段")
+	}
+	// exists 检查更新是否意外引入原配置未声明的 SMTP 模式。
+	if _, exists := config["use_custom_smtp"]; exists {
+		t.Fatal("旧版逐字段模式不能被自动改写")
+	}
+}
+
+// TestEmailRecipientPatchRejectsAmbiguousUpdates 验证类型冲突、同时替换配置、空地址和损坏存储不会覆盖旧值。
+func TestEmailRecipientPatchRejectsAmbiguousUpdates(t *testing.T) {
+	// recipient、replacement、otherType 提供互斥字段测试输入，均为虚构值。
+	recipient, replacement, otherType := "new@example.com", `{}`, "webhook"
+	// scenario 枚举必须拒绝的更新组合，oldConfig 不包含真实秘密。
+	for _, scenario := range []struct {
+		// channelType 是现有渠道协议。
+		channelType string
+		// oldConfig 是原始存储 JSON。
+		oldConfig string
+		// patch 是本次请求，EmailRecipient 与完整 Config 不可混用。
+		patch ChannelPatch
+	}{
+		{"webhook", `{}`, ChannelPatch{EmailRecipient: &recipient}},
+		{"email", `{}`, ChannelPatch{EmailRecipient: &recipient, Config: &replacement}},
+		{"email", `{}`, ChannelPatch{EmailRecipient: &recipient, Type: &otherType}},
+		{"email", `broken`, ChannelPatch{EmailRecipient: &recipient}},
+		{"email", `null`, ChannelPatch{EmailRecipient: &recipient}},
+		{"email", `[]`, ChannelPatch{EmailRecipient: &recipient}},
+	} {
+		// repository 保存当前场景原值，updatedRecord 应始终为空。
+		repository := &channelRepositoryStub{record: &ChannelRecord{Name: "fixture", Type: scenario.channelType, Config: scenario.oldConfig}}
+		// err 必须将歧义输入归类为参数错误，并阻止持久化。
+		if err := NewChannelService(repository, nil).UpdateChannel(context.Background(), 7, 1, scenario.patch); !errors.Is(err, ErrChannelInvalidInput) || repository.updatedRecord != nil {
+			t.Fatalf("歧义请求未拒绝: %v", err)
+		}
+	}
+	// err 验证纯空白收件地址在存储前被拒绝。
+	if _, err := patchEmailRecipient(`{}`, " "); !errors.Is(err, ErrChannelInvalidInput) {
+		t.Fatal("空收件地址必须拒绝")
 	}
 }

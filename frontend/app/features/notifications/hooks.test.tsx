@@ -2,12 +2,13 @@
 import { act,renderHook,waitFor } from '@testing-library/react';
 import { beforeEach,describe,expect,test,vi } from 'vitest';
 import type { NotificationChannel,SystemSettings } from './api';
-import { createNotificationChannel,deleteNotificationChannel,getNotificationChannels,getSystemSettings,testNotificationChannel,updateNotificationChannel,updateSystemSettings } from './api';
+import { createNotificationChannel,deleteNotificationChannel,getNotificationChannel,getNotificationChannels,getSystemSettings,testNotificationChannel,updateNotificationChannel,updateSystemSettings } from './api';
 import { useNotifications } from './hooks';
 
 vi.mock('./api', /* notificationsApiMockFactory 提供通知 Hook 的确定性 API 替身。 */ () => ({
   createNotificationChannel: vi.fn(),
   deleteNotificationChannel: vi.fn(),
+  getNotificationChannel: vi.fn(),
   getNotificationChannels: vi.fn(),
   getSystemSettings: vi.fn(),
   testNotificationChannel: vi.fn(),
@@ -21,6 +22,8 @@ const createChannelMock = vi.mocked(createNotificationChannel);
 const deleteChannelMock = vi.mocked(deleteNotificationChannel);
 // getChannelsMock 是通知渠道列表请求的可控替身。
 const getChannelsMock = vi.mocked(getNotificationChannels);
+// getChannelMock 是通知渠道编辑配置请求的可控替身。
+const getChannelMock = vi.mocked(getNotificationChannel);
 // getSmtpMock 是管理员 SMTP 设置请求的可控替身。
 const getSmtpMock = vi.mocked(getSystemSettings);
 // testChannelMock 是测试通知发送请求的可控替身。
@@ -39,6 +42,7 @@ describe('useNotifications', /* 当前回调处理通知渠道、SMTP 和动作�
   beforeEach(/* 当前回调重置通知 API 替身和浏览器确认框。 */ () => {
     vi.clearAllMocks();
     getChannelsMock.mockResolvedValue({ success: true, data: [channelFixture] });
+    getChannelMock.mockResolvedValue({ id: 1, name: '测试渠道', type: 'bark', enabled: true });
     getSmtpMock.mockResolvedValue(smtpFixture);
     createChannelMock.mockResolvedValue({ success: true, id: 2 });
     deleteChannelMock.mockResolvedValue({ success: true });
@@ -92,6 +96,20 @@ describe('useNotifications', /* 当前回调处理通知渠道、SMTP 和动作�
       async () => hook.result.current.handleSaveSmtp(),
     );
     expect(updateSmtpMock).toHaveBeenCalledWith(expect.objectContaining({ smtp_port: 587 }), expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  });
+
+  test('编辑邮件渠道时回显服务端保存的收件邮箱', /* 当前回调验证编辑配置异步加载不会丢失收件地址。 */ async () => {
+    // emailChannel 是编辑收件邮箱回显场景使用的渠道摘要。
+    const emailChannel: NotificationChannel = { id: 'email-1', name: '邮件通知', type: 'email', config: {}, enabled: true, event_types: [] };
+    getChannelMock.mockResolvedValueOnce({ id: 1, name: '邮件通知', type: 'email', enabled: true, to_email: 'receiver@example.com', use_custom_smtp: false });
+    // hook 是邮件渠道编辑场景的 Hook 渲染结果。
+    const hook = renderHook(/* editHookFactory 创建邮件渠道编辑场景的 Hook。 */ () => useNotifications(false));
+    await waitFor(/* loadingAssertion 等待渠道摘要加载完成。 */ () => expect(hook.result.current.loading).toBe(false));
+
+    await act(/* editAction 读取脱敏编辑配置并打开邮件渠道弹窗。 */ async () => hook.result.current.openEdit(emailChannel));
+    expect(hook.result.current.form.config).toMatchObject({ to_email: 'receiver@example.com', use_custom_smtp: false });
+    expect(getChannelMock).toHaveBeenCalledWith('email-1', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    hook.unmount();
   });
 
   // 脱敏 SMTP 配置保存测试验证缺省密码不会被意外清空。
@@ -313,4 +331,54 @@ describe('useNotifications', /* 当前回调处理通知渠道、SMTP 和动作�
     expect(hook.result.current.channels).toEqual([channelFixture]);
     hook.unmount();
   });
+});
+
+// emailEditorFixture 是不携带 SMTP 秘密的邮件摘要，验证先读取再编辑的交互边界。
+const emailEditorFixture: NotificationChannel = { id: '1', name: '邮件', type: 'email', config: {}, enabled: true };
+
+// 每个迟到响应场景都验证弹窗是否属于当前操作，避免测试只检查请求是否发出。
+test.each(['ready', 'close', 'create', 'switch', 'failure'] as const)('编辑加载隔离：%s', /* editorScenario 检查当前 mode 的加载、取消与新编辑竞争。 */ async mode => {
+  vi.resetAllMocks();
+  updateChannelMock.mockResolvedValue({ success: true });
+  getChannelsMock.mockResolvedValue({ success: true, data: [] });
+  // finishEditor 和 failEditor 由测试控制首个编辑响应，模拟慢请求和网络错误。
+  let finishEditor!: (value: Awaited<ReturnType<typeof getNotificationChannel>>) => void;
+  let failEditor!: (reason: Error) => void;
+  getChannelMock.mockImplementationOnce(/* pendingEditorResponse 暂存读取响应的控制函数。 */ () => new Promise(/* pendingEditorExecutor 等待测试完成首个读取。 */ (resolve, reject) => { finishEditor = resolve; failEditor = reject; }));
+  // hook 是本场景独立的通知状态，卸载会取消仍在等待的请求。
+  const hook = renderHook(/* editorHookFactory 创建无系统 SMTP 查询的编辑状态。 */ () => useNotifications(false));
+  await waitFor(/* editorLoadedAssertion 等待初始渠道列表加载完成。 */ () => expect(hook.result.current.loading).toBe(false));
+  // pending 保存首个异步编辑，用于等待它完成后确认没有旧响应覆盖。
+  let pending!: Promise<void>;
+  act(/* beginEditorAction 发起慢读取，尚未开放表单。 */ () => { pending = hook.result.current.openEdit(emailEditorFixture); });
+  expect(hook.result.current.showModal).toBe(false);
+  if (mode === 'close') act(/* cancelEditorAction 取消尚未完成的打开操作。 */ () => hook.result.current.closeModal());
+  if (mode === 'create') act(/* createDuringLoadAction 新建渠道使旧编辑读取失效。 */ () => hook.result.current.openCreate());
+  if (mode === 'switch') {
+    getChannelMock.mockResolvedValueOnce({ id: 2, name: '其他邮件', type: 'email', enabled: true, to_email: 'other@example.com' });
+    await act(/* switchEditorAction 切换到另一渠道并先完成读取。 */ async () => hook.result.current.openEdit({ ...emailEditorFixture, id: '2' }));
+  }
+  await act(/* finishEditorAction 让旧读取最后完成或失败。 */ async () => {
+    if (mode === 'failure') failEditor(new Error('读取失败'));
+    else finishEditor({ id: 1, name: '邮件', type: 'email', enabled: true, to_email: 'old@example.com', use_custom_smtp: true });
+    await pending;
+  });
+  if (mode === 'ready') {
+    expect(hook.result.current.form.preserveSMTP).toBe(true);
+    expect(hook.result.current.showModal).toBe(true);
+    act(/* editRecipientAction 读取完成后用户修改收件地址，之后不会再有该读取的回填。 */ () => hook.result.current.setForm(/* recipientUpdater 只改变当前收件地址。 */ current => ({ ...current, config: { ...current.config, to_email: 'new@example.com' } })));
+    await act(/* saveRecipientAction 单独更新收件地址并保留服务器 SMTP。 */ async () => hook.result.current.handleSave());
+    expect(updateChannelMock).toHaveBeenLastCalledWith('1', expect.objectContaining({ email_recipient: 'new@example.com' }), expect.anything());
+    expect(updateChannelMock.mock.calls.at(-1)?.[1].config).toBeUndefined();
+  } else if (mode === 'create') {
+    expect(hook.result.current.editing).toBeNull();
+    expect(hook.result.current.form.type).toBe('bark');
+  } else if (mode === 'switch') {
+    expect(hook.result.current.editing?.id).toBe('2');
+    expect(hook.result.current.form.config.to_email).toBe('other@example.com');
+  } else {
+    expect(hook.result.current.showModal).toBe(false);
+    if (mode === 'failure') expect(hook.result.current.toast?.type).toBe('error');
+  }
+  hook.unmount();
 });

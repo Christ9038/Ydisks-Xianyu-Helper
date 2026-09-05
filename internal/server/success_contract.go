@@ -702,6 +702,10 @@ type orderRefreshResultDTO struct {
 
 // orderRefreshSummary 是订单列表刷新统计摘要 DTO。
 type orderRefreshSummary struct {
+	// Restored 是同账号软删除订单恢复数，与新增和历史错绑修正不重复计数；零值可省略以兼容旧任务。
+	Restored int `json:"restored,omitempty"`
+	// Reassigned 是经身份核验修正历史错绑的订单数；零值可省略以兼容旧任务。
+	Reassigned int `json:"reassigned,omitempty"`
 	// Discovered 是发现的新订单数量。
 	Discovered int `json:"discovered"`
 	// ListUpdated 是订单列表更新数量。

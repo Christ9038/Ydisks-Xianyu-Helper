@@ -1,4 +1,4 @@
-import type { MutationIDResponse,NotificationBinding,NotificationChannel,NotificationChannelResponse,NotificationEventType,OperationResponse,SystemSettings } from './models';
+import type { MutationIDResponse,NotificationBinding,NotificationChannel,NotificationChannelEditorResponse,NotificationChannelResponse,NotificationEventType,OperationResponse,SystemSettings } from './models';
 import { normalizeSystemSettingsUpdate } from '../../../shared/api-contract/settings';
 import { type RequestControlOptions } from '../../../shared/http/client';
 import { contractClient, runContractRequest } from '../../../shared/api-contract/client';
@@ -12,6 +12,8 @@ export interface NotificationChannelRequest {
   type?: string;
   /** 由各渠道表单构造的非敏感配置。 */
   config?: Record<string, unknown>;
+  /** 仅修改邮件收件地址，保留已有 SMTP；与 config 互斥。 */
+  email_recipient?: string;
   /** 需要订阅的系统事件。 */
   event_types?: NotificationEventType[];
   /** 渠道是否参与通知投递。 */
@@ -55,6 +57,9 @@ export const getNotificationChannels = async (options?: RequestControlOptions): 
   return { success: true, data: response.map(toNotificationChannel) };
 };
 
+/** 获取单个通知渠道编辑所需的脱敏配置。 */
+export const getNotificationChannel = async (channelID: string, options?: RequestControlOptions): Promise<NotificationChannelEditorResponse> => runContractRequest(/* signal 控制通知渠道编辑配置读取的取消和超时。 */ signal => contractClient.GET('/api/v1/notifications/channels/{channel_id}', { params: { path: { channel_id: channelID } }, signal }), options);
+
 /** 创建通知渠道，并在传输边界序列化配置与事件。 */
 export const createNotificationChannel = async (data: Required<Pick<NotificationChannelRequest, 'name' | 'type' | 'config'>> & NotificationChannelRequest, options?: RequestControlOptions): Promise<MutationIDResponse> => runContractRequest(/* signal 控制通知渠道创建请求的取消和超时。 */ signal => contractClient.POST('/api/v1/notifications/channels', { body: { name: data.name, type: data.type, config: JSON.stringify(data.config), event_types: stringifyNotificationEventTypes(data.event_types), enabled: data.enabled }, signal }), options);
 
@@ -65,6 +70,7 @@ export const updateNotificationChannel = async (channelID: string, data: Notific
     name: data.name,
     type: data.type,
     config: data.config === undefined ? undefined : JSON.stringify(data.config),
+    email_recipient: data.email_recipient,
     event_types: data.event_types === undefined ? undefined : stringifyNotificationEventTypes(data.event_types),
     enabled: data.enabled,
   };

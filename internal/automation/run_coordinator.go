@@ -179,6 +179,10 @@ func (r automationRunCoordinator) prepareRuleRun(ctx context.Context, task Task,
 		if existingRun.Status != "running" || existingRun.RuleID != rule.ID {
 			return preparedTask, nil, true, nil
 		}
+		// 恢复快照不能借用其他账号或订单的运行检查点；外部动作前还会按数据库中的运行归属再次防御。
+		if existingRun.CookieID != preparedTask.AccountID || existingRun.OrderID != preparedTask.OrderID {
+			return Task{}, nil, false, db.ErrForbidden
+		}
 		return preparedTask, existingRun, false, nil
 	}
 	// retryTask 是去除敏感 Cookie 后写入运行快照的任务副本。

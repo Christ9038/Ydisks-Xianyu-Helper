@@ -631,6 +631,13 @@ func TestOpenAPINotificationResponses(t *testing.T) {
 	}
 	// channelID 是通知渠道路径参数的稳定字符串形式。
 	channelID := strconv.FormatInt(createdChannel.ID, 10)
+	// editorRequest 是读取新建渠道脱敏编辑视图的版本化请求。
+	editorRequest := httptest.NewRequest(http.MethodGet, "/api/v1/notifications/channels/"+channelID, nil)
+	editorRequest.AddCookie(sessionCookie)
+	// editorRecorder 捕获渠道编辑视图响应。
+	editorRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(editorRecorder, editorRequest)
+	assertOpenAPISuccessResponse(t, editorRequest, editorRecorder)
 	// updateChannelRequest 是仅切换启用状态的部分更新成功请求。
 	updateChannelRequest := httptest.NewRequest(http.MethodPut, "/api/v1/notifications/channels/"+channelID, strings.NewReader(`{"enabled":false}`))
 	updateChannelRequest.AddCookie(sessionCookie)

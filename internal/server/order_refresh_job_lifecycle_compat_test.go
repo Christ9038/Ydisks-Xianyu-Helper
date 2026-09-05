@@ -25,7 +25,8 @@ type orderRefreshLifecycleRefresher struct {
 	refresh orderRefreshJobRefresh
 }
 
-// Refresh 执行测试回调并把 HTTP 结果转换为应用层刷新结果。
+// Refresh 由 refresher 将 ctx 生命周期和 userID、cookieID、status 筛选传给测试回调；
+// 返回应用结果时保留恢复修正统计，回调错误原样传播。
 func (refresher orderRefreshLifecycleRefresher) Refresh(ctx context.Context, userID int64, cookieID, status string) (orderapp.RefreshResult, error) {
 	// result、err 保存历史刷新回调的结果及错误。
 	result, err := refresher.refresh(ctx, userID, cookieID, status)
@@ -33,6 +34,7 @@ func (refresher orderRefreshLifecycleRefresher) Refresh(ctx context.Context, use
 		return orderapp.RefreshResult{}, err
 	}
 	return orderapp.RefreshResult{PartialFailure: result.PartialFailure, Message: result.Message, Summary: orderapp.RefreshSummary{
+		Restored: result.Summary.Restored, Reassigned: result.Summary.Reassigned,
 		Discovered: result.Summary.Discovered, ListUpdated: result.Summary.ListUpdated,
 		SoftDeleted: result.Summary.SoftDeleted, DetailTotal: result.Summary.DetailTotal,
 		Total: result.Summary.Total, Updated: result.Summary.Updated,

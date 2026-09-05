@@ -110,6 +110,55 @@ func TestBatchCreateCards(t *testing.T) {
 	}
 }
 
+// TestBatchCreateCardsAcceptsUTF8BOMTemplate 验证下载的 UTF-8 BOM 卡密模板可以正常识别首列名称。
+func TestBatchCreateCardsAcceptsUTF8BOMTemplate(t *testing.T) {
+	// srv、cleanup 分别保存真实卡密批量接口及测试资源释放函数。
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	// handler 保存带认证路由的真实 HTTP 入口。
+	handler := srv.Router()
+	// sessionCookie 保存管理员登录后的会话凭证。
+	sessionCookie := loginHelper(t, handler)
+	// csvData 模拟前端下载模板，首个表头带有 UTF-8 BOM。
+	csvData := "\uFEFF名称,类型,内容,描述,启用,延迟秒,多规格,规格名,规格值\n模板卡密,data,serial-001,模板导入,是,0,否,,\n"
+	// body 保存 multipart 请求的编码内容。
+	var body bytes.Buffer
+	// writer 负责把卡密模板写入 multipart 请求。
+	writer := multipart.NewWriter(&body)
+	// file 保存卡密模板文件字段。
+	file, fileErr := writer.CreateFormFile("file", "卡密组批量导入模板.csv")
+	if fileErr != nil {
+		t.Fatalf("创建卡密模板文件字段失败: %v", fileErr)
+	}
+	// writeErr 保存模板内容写入 multipart 文件时的错误。
+	if _, writeErr := file.Write([]byte(csvData)); writeErr != nil {
+		t.Fatalf("写入卡密模板失败: %v", writeErr)
+	}
+	// closeErr 保存 multipart 尾部边界写入错误。
+	if closeErr := writer.Close(); closeErr != nil {
+		t.Fatalf("关闭卡密模板 multipart 失败: %v", closeErr)
+	}
+	// request 保存带有真实上传内容和认证会话的批量创建请求。
+	request := httptest.NewRequest(http.MethodPost, "/cards/batch", &body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	request.AddCookie(sessionCookie)
+	// recorder 捕获卡密批量创建接口响应。
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("BOM 模板上传状态=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	// response 保存接口返回的逐行创建统计。
+	var response cardBatchResponse
+	// decodeErr 保存批量响应 JSON 解码错误。
+	if decodeErr := json.Unmarshal(recorder.Body.Bytes(), &response); decodeErr != nil {
+		t.Fatalf("解码 BOM 模板响应失败: %v", decodeErr)
+	}
+	if response.Created != 1 || response.Failed != 0 || len(response.Rows) != 1 || response.Rows[0].Name != "模板卡密" {
+		t.Fatalf("BOM 模板应成功创建一组卡密: %+v", response)
+	}
+}
+
 // TestAppendCardData 追加批量卡密号 + 校验分支。
 func TestAppendCardData(t *testing.T) {
 	// srv、store、cleanup 用于本次流程后续判断的srv、store、cleanup

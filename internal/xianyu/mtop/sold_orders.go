@@ -4,6 +4,7 @@ package mtop
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -49,9 +50,10 @@ type SoldOrder struct {
 
 var _ SoldOrderFetcher = (*ClientImpl)(nil)
 
-// FetchSoldOrdersPage 获取卖家已售订单。该调用不主动刷新 token；当 ctx
-// 携带 CookieSession 时会像浏览器一样吸收响应 Cookie。
-// FetchSoldOrdersPage 封装FetchSold订单列表页码业务协调。
+// FetchSoldOrdersPage 使用 c 的平台端点读取 pageNumber 页（从 1 开始），pageSize 为每页条数。
+// ctx 控制取消并可携带实际 Cookie 会话；cookies 是仅用于请求的明文兼容凭证，禁止输出。
+// 仅 HTTP 与平台均成功、必要结构合法且无订单丢失时返回页面和 nil；错误不包含响应正文。
+// 不主动刷新令牌，响应 Cookie 仍在校验之前收集，分页是否全部完成由调用者判断。
 func (c *ClientImpl) FetchSoldOrdersPage(ctx context.Context, cookies string, pageNumber, pageSize int) (*SoldOrdersPage, error) {
 	if pageNumber < 1 {
 		pageNumber = 1
@@ -59,19 +61,19 @@ func (c *ClientImpl) FetchSoldOrdersPage(ctx context.Context, cookies string, pa
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 30
 	}
-	// endpoint 用于本次流程后续判断的endpoint
+	// endpoint 是客户端配置的已售接口地址，未配置时使用平台默认端点。
 	endpoint := c.SoldOrdersURL
 	if endpoint == "" {
 		endpoint = SoldOrdersAPI
 	}
-	// signingCookies、requestCookies 用于本次流程后续判断的signingCookies、requestCookies
+	// signingCookies 用于签名，requestCookies 是按实际请求 URL 筛选的明文凭证；两者均禁止输出。
 	signingCookies, requestCookies := mtopRequestCookies(ctx, cookies, soldOrdersReferer, endpoint)
-	// token 用于本次流程后续判断的令牌
+	// token 是仅在当前请求内参与签名的明文令牌，禁止记录。
 	token := protocol.SignToken(signingCookies)
 	if token == "" {
 		return nil, fmt.Errorf("cookie 缺少 _m_h5_tk，无法获取订单列表")
 	}
-	// payload 用于本次流程后续判断的请求载荷
+	// payload 保留当前卖家工作台查询全部订单的唯一请求格式。
 	payload := map[string]any{
 		"pageNumber":       pageNumber,
 		"rowsPerPage":      pageSize,
@@ -79,21 +81,21 @@ func (c *ClientImpl) FetchSoldOrdersPage(ctx context.Context, cookies string, pa
 		"queryCode":        "ALL",
 		"orderSearchParam": "{}",
 	}
-	// rawPayload、err 用于本次流程后续判断的原始Payload、err
+	// rawPayload、err 是分页参数序列化结果及错误，不包含凭证。
 	rawPayload, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
 	}
-	// dataVal 用于本次流程后续判断的数据Val
+	// dataVal 是参与签名并提交的平台查询参数文本。
 	dataVal := string(rawPayload)
-	// timestamp 用于本次流程后续判断的timestamp
+	// timestamp 是当前请求签名使用的 Unix 毫秒时间。
 	timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
-	// sign 用于本次流程后续判断的sign
+	// sign 是请求签名，禁止在错误中回显请求 URL。
 	sign := protocol.GenerateSign(timestamp, token, dataVal)
-	// req、err 用于本次流程后续判断的req、err
+	// req、err 是带取消上下文的请求及构造错误；错误只暴露固定诊断。
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint+"?"+buildSoldOrdersQuery(timestamp, sign), strings.NewReader("data="+url.QueryEscape(dataVal)))
 	if err != nil {
-		return nil, err
+		return nil, errors.New("订单列表请求地址无效")
 	}
 	setCommonHeaders(req, requestCookies)
 	req.Header.Set("Accept", "application/json")
@@ -101,56 +103,101 @@ func (c *ClientImpl) FetchSoldOrdersPage(ctx context.Context, cookies string, pa
 	req.Header.Set("Referer", soldOrdersReferer)
 	req.Header.Set("idle_site_biz_code", "COMMONPRO")
 
-	// hc 用于本次流程后续判断的hc
+	// hc 复用客户端已配置的超时与传输行为。
 	hc := c.httpClient()
-	// resp、err 用于本次流程后续判断的resp、err
+	// resp、err 保存平台 HTTP 响应及传输错误，不向上层泄漏含签名的 URL。
 	resp, err := hc.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("订单列表请求失败: %w", err)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, errors.New("订单列表请求失败")
 	}
 	defer resp.Body.Close()
 	absorbMTopResponseCookies(ctx, cookies, resp)
-	// raw、err 用于本次流程后续判断的raw、err
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("订单列表接口 HTTP %d", resp.StatusCode)
+	}
+	// raw、err 保存受大小上限保护的响应体和读取错误；正文仅用于解析，禁止回显。
 	raw, err := readMTopBody(resp)
 	if err != nil {
-		return nil, err
+		return nil, errors.New("读取订单列表响应失败")
 	}
-	// decoded 用于本次流程后续判断的decoded
+	// decoded 仅接收现有 data.module 结构，不推测其他平台格式。
 	var decoded struct {
-		Ret  []string `json:"ret"`
+		// Ret 用于平台成功或会话失效分类，原始文本禁止传播。
+		Ret []string `json:"ret"`
+		// Data 承载卖家工作台的模块响应。
 		Data struct {
+			// Module 包含订单条目和分页信息，缺失或 null 不代表合法空列表。
 			Module map[string]any `json:"module"`
 		} `json:"data"`
 	}
-	if // err 用于本次流程后续判断的err
-	err := json.Unmarshal(raw, &decoded); err != nil {
-		return nil, fmt.Errorf("解析订单列表响应失败: %w (body=%s)", err, truncate(string(raw), 300))
+	// decodeErr 保存 JSON 语法或结构错误，错误值可能含平台输入，不能直接传播。
+	if decodeErr := json.Unmarshal(raw, &decoded); decodeErr != nil {
+		return nil, errors.New("解析订单列表响应失败")
 	}
 	if isSessionExpiredRet(decoded.Ret) {
-		return nil, sessionExpiredError("订单列表接口", decoded.Ret)
+		return nil, sessionExpiredError("订单列表接口", []string{"FAIL_SYS_SESSION_EXPIRED"})
 	}
 	if !hasMTopSuccess(decoded.Ret) {
-		return nil, fmt.Errorf("订单列表接口返回非成功: ret=%v", decoded.Ret)
+		return nil, errors.New("订单列表接口返回非成功")
 	}
-	// module 用于本次流程后续判断的module
+	// module 保存已售列表唯一受支持的响应容器。
 	module := decoded.Data.Module
-	// rawItems 用于本次流程后续判断的原始商品列表
-	rawItems, _ := module["items"].([]any)
-	// items 用于本次流程后续判断的商品列表
+	if module == nil {
+		return nil, errors.New("订单列表响应 module 缺失或为空")
+	}
+	// itemsValue、itemsPresent 区分明确的 null 空列表与缺少必需字段。
+	itemsValue, itemsPresent := module["items"]
+	// rawItems、itemsValid 保存订单数组和类型校验结果；显式 null 兼容合法空列表。
+	rawItems, itemsValid := itemsValue.([]any)
+	if !itemsPresent || (itemsValue != nil && !itemsValid) {
+		return nil, errors.New("订单列表响应 items 缺失或类型非法")
+	}
+	// nextPage、nextPageValid 保留平台布尔兼容值，但不将未知形状静默当作最终页。
+	nextPage, nextPageValid := soldOrdersNextPage(module["nextPage"])
+	if !nextPageValid {
+		return nil, errors.New("订单列表响应 nextPage 缺失或类型非法")
+	}
+	if nextPage && len(rawItems) == 0 {
+		return nil, fmt.Errorf("订单列表第 %d 页为空页但 nextPage 为真，分页不完整", pageNumber)
+	}
+	// items 保存本页全部可解析订单，任何条目丢失都使整页失败。
 	items := make([]SoldOrder, 0, len(rawItems))
-	// rawItem 表示当前遍历过程中的原始商品
-	for _, rawItem := range rawItems {
-		// item、ok 用于本次流程后续判断的item、ok
+	// itemIndex 是从零开始的条目位置，rawItem 是当前待解析订单，错误仅报告位置。
+	for itemIndex, rawItem := range rawItems {
+		// item、ok 保存订单解析结果及必要身份是否存在。
 		item, ok := parseSoldOrder(rawItem)
-		if ok {
-			items = append(items, item)
+		if !ok {
+			return nil, fmt.Errorf("订单列表第 %d 页第 %d 条订单解析失败，分页不完整", pageNumber, itemIndex+1)
 		}
+		items = append(items, item)
 	}
 	return &SoldOrdersPage{
 		Items:      items,
-		NextPage:   mtopBool(module["nextPage"]),
+		NextPage:   nextPage,
 		TotalCount: mtopInt(module["totalCount"]),
 	}, nil
+}
+
+// soldOrdersNextPage 将 value 的已知平台布尔形状转换为是否继续分页和合法性；未知值不能证明分页结束。
+func soldOrdersNextPage(value any) (bool, bool) {
+	// typed 是 JSON 解码后的分页标志，只允许无歧义的真、假表示。
+	switch typed := value.(type) {
+	case bool:
+		return typed, true
+	case float64:
+		return typed == 1, typed == 0 || typed == 1
+	case string:
+		switch strings.ToLower(strings.TrimSpace(typed)) {
+		case "true", "1", "yes":
+			return true, true
+		case "false", "0", "no":
+			return false, true
+		}
+	}
+	return false, false
 }
 
 // buildSoldOrdersQuery 封装buildSold订单列表查询业务协调。

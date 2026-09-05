@@ -56,6 +56,18 @@ func TestParseSheetNormalizesCSV(t *testing.T) {
 	}
 }
 
+// TestParseSheetAcceptsUTF8BOM 验证商品批量发布 CSV 模板的 UTF-8 BOM 不会污染首列表头。
+func TestParseSheetAcceptsUTF8BOM(t *testing.T) {
+	// rows、err 保存带 BOM 的商品 CSV 解析结果及错误。
+	rows, err := ParseSheet([]byte("\uFEFF账号ID,标题\nacc1,商品A\n"), "products.csv", 2)
+	if err != nil {
+		t.Fatalf("带 BOM 的商品 CSV 解析失败: %v", err)
+	}
+	if len(rows) != 1 || rows[0]["cookie_id"] != "acc1" || rows[0]["title"] != "商品A" {
+		t.Fatalf("带 BOM 的商品 CSV 表头未正确归一化: %#v", rows)
+	}
+}
+
 // TestParseSheetRejectsEmptyAndUnsupportedInput 验证空输入、旧版 XLS 和表头缺行错误。
 func TestParseSheetRejectsEmptyAndUnsupportedInput(t *testing.T) {
 	// cases 保存不同无效表格输入。

@@ -6,7 +6,7 @@ OperationResponse,
 Order,
 OrderBatchResponse,
 OrderDTOResponse,
-OrderRefreshJobCancelResponse,OrderRefreshJobStatusResponse,
+OrderRefreshJobCancelResponse,
 OrderRefreshResponse,
 OrderSingleRefreshResponse,
 PaginatedResponse
@@ -209,7 +209,7 @@ export const syncOrders = async (cookieId?: string, status?: string, options?: O
       signal,
     }), options);
 		if (job.status === 'succeeded' && job.result) {
-			return job.result;
+			return normalizeOrderRefreshResponse(job.result);
 		}
 		if (job.status === 'failed' || job.status === 'cancelled') {
 			throw new Error(job.error_message || '订单刷新任务失败');
@@ -239,7 +239,7 @@ export const syncOrders = async (cookieId?: string, status?: string, options?: O
 	// finalJob 保存取消命令与终态竞争后的最终任务状态；成功或失败终态优先于“等待超时”展示。
 	const finalJob = await cancelAndReadOrderRefreshJob(start.job_id);
 	if (finalJob.status === 'succeeded' && finalJob.result) {
-		return finalJob.result;
+		return normalizeOrderRefreshResponse(finalJob.result);
 	}
 	if (finalJob.status === 'failed') {
 		throw new Error(finalJob.error_message || '订单刷新任务失败');
@@ -248,7 +248,7 @@ export const syncOrders = async (cookieId?: string, status?: string, options?: O
 };
 
 /** 取消订单刷新任务后读取一次独立终态，解决取消响应和 worker 完成响应同时到达的竞态。 */
-const cancelAndReadOrderRefreshJob = async (jobId: string): Promise<OrderRefreshJobStatusResponse> => {
+const cancelAndReadOrderRefreshJob = async (jobId: string) => {
 	try {
 		await cancelOrderRefreshJob(jobId, { timeoutMs: orderRefreshCancelTimeoutMs });
 	} catch {
@@ -259,6 +259,16 @@ const cancelAndReadOrderRefreshJob = async (jobId: string): Promise<OrderRefresh
     signal,
   }), { timeoutMs: orderRefreshCancelTimeoutMs });
 };
+
+/** 将 response 任务结果转换为稳定 UI 模型；新统计在旧持久化任务中缺失时按零展示。 */
+const normalizeOrderRefreshResponse = (response: NonNullable<Awaited<ReturnType<typeof cancelAndReadOrderRefreshJob>>['result']>): OrderRefreshResponse => ({
+  ...response,
+  summary: {
+    ...response.summary,
+    restored: response.summary.restored ?? 0,
+    reassigned: response.summary.reassigned ?? 0,
+  },
+});
 
 // cancelOrderRefreshJob 请求取消当前用户的订单刷新后台任务。
 export const cancelOrderRefreshJob = async (jobId: string, options?: RequestControlOptions): Promise<OrderRefreshJobCancelResponse> => {

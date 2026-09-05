@@ -69,19 +69,23 @@ type OrderDetail struct {
 	OrderStatus string
 }
 
-// ExtractTaskFromWS 从一条解密后的 WS 消息中提取系统事件。
-// 这里只做事实解析：识别平台告诉了我们什么；是否执行自动化由 Center 根据规则和可用的订单或 updateKey 防重键决定。
-// ExtractTaskFromWS 封装Extract任务FromWS业务协调。
+// ExtractTaskFromWS 从 raw 单条解密 WS 消息提取卖家交易事件；accountID 是接收账号的本地标识。
+// cookieStr 是仅供任务执行使用的明文凭证，不得输出到日志；返回任务沿用该凭证，无法识别或明确为买家副本时返回 nil。
+// 本入口不持久化事实或执行动作；无角色的旧版合法卖家事件继续保留，规则和防重由 Center 决定。
 func ExtractTaskFromWS(accountID, cookieStr string, raw map[string]any) *Task {
 	if raw == nil {
 		return nil
 	}
-	// f 用于本次流程后续判断的f
+	// f 汇总已有协议路径解析出的交易事实和接收方角色，供所有 WS 交易种类共用入口防御。
 	f := fieldsFromRaw(raw)
+	// 接收账号明确为买家时，必须在创建任务和记录订单事实之前拒绝，避免无匹配规则时仍写入错误卖家归属。
+	if f.orderRole == "buyer" {
+		return nil
+	}
 	if f.text == "" && f.redReminder == "" && f.updateKey == "" {
 		return nil
 	}
-	// task 用于本次流程后续判断的任务
+	// task 保存待交给中心的卖家事件；缺少角色不构成拒绝条件，也不能根据文案或发送者推断买卖身份。
 	task := &Task{
 		Source:    "ws",
 		AccountID: accountID,
@@ -383,8 +387,12 @@ func isPriceModifiedEvent(f rawFields) bool {
 	return strings.Contains(displayText, "TRADE_MODIFY_FEE") || strings.Contains(displayText, "我已修改价格")
 }
 
-// isBuyerReviewedEvent 封装is买家ReviewedEvent业务协调。
+// isBuyerReviewedEvent 根据 f 的接收方角色和评价业务键返回是否为卖家收到的买家评价，不产生副作用。
+// 保留函数级 buyer 防御，避免内部调用绕过 WS 统一入口；无角色的合法旧版卖家评价继续兼容。
 func isBuyerReviewedEvent(f rawFields) bool {
+	if f.orderRole == "buyer" {
+		return false
+	}
 	// 闲鱼评价样本：
 	//   redReminder=有新交易评价
 	//   reminderContent=[我完成了评价]

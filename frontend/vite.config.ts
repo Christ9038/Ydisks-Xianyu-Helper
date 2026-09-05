@@ -66,6 +66,14 @@ export default defineConfig({
           if (modulePath.includes('/app/features/delivery-templates/hooks.')) {
             return 'delivery-template-runtime';
           }
+          // 手动地点选择只在发布表单中使用，独立静态分片可控制商品页主分片预算并保留 feature 边界。
+          if (
+            modulePath.includes('/app/features/items/manualLocation.') ||
+            modulePath.includes('/app/features/items/components/ManualLocationPicker.') ||
+            modulePath.includes('/app/features/items/amapLocation.')
+          ) {
+            return 'item-location-picker';
+          }
           if (!modulePath.includes('/node_modules/')) {
             return undefined;
           }

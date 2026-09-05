@@ -251,6 +251,7 @@ type UncertainNotificationsPort interface {
 // NotificationChannelsPort 定义通知渠道和账号绑定的管理能力。
 type NotificationChannelsPort interface {
 	ListChannels(context.Context, int64) ([]notificationsapp.ChannelSummary, error)
+	GetChannelEditor(context.Context, int64, int64) (notificationsapp.ChannelEditor, error)
 	CreateChannel(context.Context, int64, notificationsapp.ChannelInput) (int64, error)
 	UpdateChannel(context.Context, int64, int64, notificationsapp.ChannelPatch) error
 	DeleteChannel(context.Context, int64, int64) error

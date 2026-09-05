@@ -161,7 +161,7 @@ func TestOrdersUpsertMany(t *testing.T) {
 	}
 	// rows 保存待一次性写入的订单详情。
 	rows := []BatchOrderUpsert{
-		{OrderID: "batch-existing", Options: OrderUpsertOpts{CookieID: cookieID, CreatedAt: "2024-02-01 00:00:00", OrderStatus: "pending_ship", SpecName: "颜色", SpecValue: "蓝", Amount: "¥12.50"}},
+		{OrderID: "batch-existing", Options: OrderUpsertOpts{CookieID: cookieID, CreatedAt: "2024-02-01 00:00:00", OrderStatus: "pending_ship", SpecName: "颜色", SpecValue: "蓝", Amount: "¥12.50", ChatID: "chat-batch"}},
 		{OrderID: "batch-new", Options: OrderUpsertOpts{CookieID: cookieID, CreatedAt: "2024-03-01 00:00:00", OrderStatus: "pending_ship", Quantity: "2", Amount: "5.00", IsBargain: &bargain}},
 	}
 	// err 保存批量订单写入错误。
@@ -179,7 +179,7 @@ func TestOrdersUpsertMany(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read batch new order: %v", err)
 	}
-	if existing.OrderStatus != "shipped" || existing.SpecValue != "蓝" || existing.Amount != "12.50" || existing.CreatedAt != "2024-02-01T00:00:00Z" || existing.IsBargain != 1 || existing.Version <= before.Version {
+	if existing.OrderStatus != "shipped" || existing.SpecValue != "蓝" || existing.Amount != "12.50" || existing.CreatedAt != "2024-02-01T00:00:00Z" || existing.IsBargain != 1 || existing.ChatID != "chat-batch" || existing.Version <= before.Version {
 		t.Fatalf("batch existing order=%+v before=%+v", existing, before)
 	}
 	if newOrder.OrderStatus != "pending_ship" || newOrder.Quantity != "2" || newOrder.Amount != "5.00" || newOrder.CreatedAt != "2024-03-01T00:00:00Z" || newOrder.IsBargain != 1 {

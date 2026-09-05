@@ -288,14 +288,26 @@ jobs:
           $serviceScript = (Resolve-Path 'packaging/windows/service-control.ps1').Path
           $serverPath = (Resolve-Path 'dist/windows/xianyu-server.exe').Path
           try {
-            foreach ($registerAttempt in 1..2) {
-              & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" `
-                -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass `
-                -File $serviceScript -Mode register -ServiceName $serviceName `
-                -ExePath $serverPath -WorkDir $workDir -RuntimeRoot $runtimeRoot
-              if ($LASTEXITCODE -ne 0) {
-                throw "Windows 服务第 $registerAttempt 次注册失败，错误码: $LASTEXITCODE"
-              }
+            & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" `
+              -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+              -File $serviceScript -Mode register -ServiceName $serviceName `
+              -ExePath $serverPath -WorkDir $workDir -RuntimeRoot $runtimeRoot
+            if ($LASTEXITCODE -ne 0) {
+              throw "Windows 服务首次注册失败，错误码: $LASTEXITCODE"
+            }
+
+            # 模拟历史版本遗留的 ACL：管理员能停止、删除服务，却不能修改配置。
+            # 升级注册应自动删除该对象并按当前权限模型重建服务。
+            & "$env:SystemRoot\System32\sc.exe" sdset $serviceName `
+              'D:(A;;LCRPWPLOSD;;;BA)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;SY)'
+            if ($LASTEXITCODE -ne 0) { throw '无法构造旧版服务 ACL 回归夹具' }
+
+            & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" `
+              -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+              -File $serviceScript -Mode register -ServiceName $serviceName `
+              -ExePath $serverPath -WorkDir $workDir -RuntimeRoot $runtimeRoot
+            if ($LASTEXITCODE -ne 0) {
+              throw "Windows 服务 ACL 回退重建失败，错误码: $LASTEXITCODE"
             }
             & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" `
               -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass `

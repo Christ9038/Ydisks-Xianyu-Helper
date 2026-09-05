@@ -159,7 +159,8 @@ func TestRefreshCoversSelectionAndUnsupportedBranches(t *testing.T) {
 	runtime := &refreshRuntimeFake{}
 	// result、err 保存不支持平台能力下的结果。
 	result, err := (&RefreshService{repository: repository, runtime: runtime}).Refresh(context.Background(), 7, "", "all")
-	if err != nil || !result.PartialFailure || result.Summary.Failed != 1 {
+	// 列表能力缺失与详情扫描失败必须分别报告，不能吞掉第二个错误。
+	if err != nil || !result.PartialFailure || result.Summary.Failed != 2 || len(result.Results) != 2 || result.Results[1].Error != "读取待同步订单失败" {
 		t.Fatalf("不支持订单列表分支异常: result=%+v err=%v", result, err)
 	}
 
@@ -347,7 +348,8 @@ func TestRefreshDetailChunkCoversFailureAndCommitBranches(t *testing.T) {
 	// writeRuntime 保存一条成功详情和一条空详情。
 	writeRuntime := &refreshRuntimeFake{detailResults: []RefreshDetailFetchResult{{Detail: &RefreshDetail{OrderStatus: "2"}}, {}}, detailAvailable: true}
 	_, _, failed, results, expired = (&RefreshService{repository: writeRepository, runtime: writeRuntime}).refreshDetailChunk(context.Background(), 7, "cookie-1", target)
-	if failed != 1 || len(results) != 2 || expired {
+	// 一笔详情为空和一笔数据库失败都必须计入失败，不能把空详情漏计。
+	if failed != 2 || len(results) != 2 || expired {
 		t.Fatalf("详情批量写入错误分支异常: failed=%d results=%d expired=%v", failed, len(results), expired)
 	}
 
@@ -359,7 +361,8 @@ func TestRefreshDetailChunkCoversFailureAndCommitBranches(t *testing.T) {
 	expiredRuntime := &refreshRuntimeFake{detailAvailable: true, detailErrors: []error{expiredErr}, expired: true}
 	// failed、results、expired 保存会话过期分片统计与结果。
 	_, _, failed, results, expired = (&RefreshService{repository: expiredRepository, runtime: expiredRuntime}).refreshDetailChunk(context.Background(), 7, "cookie-1", target)
-	if failed != 0 || len(results) != 1 || !expired || !expiredRuntime.recovered {
+	// 会话过期也是实际失败，必须使整轮同步展示未完成。
+	if failed != 1 || len(results) != 1 || !expired || !expiredRuntime.recovered {
 		t.Fatalf("详情会话过期分支异常: failed=%d results=%d expired=%v recovered=%v", failed, len(results), expired, expiredRuntime.recovered)
 	}
 
@@ -368,7 +371,8 @@ func TestRefreshDetailChunkCoversFailureAndCommitBranches(t *testing.T) {
 	// reloadRuntime 保存成功详情运行时。
 	reloadRuntime := &refreshRuntimeFake{detailAvailable: true, detailResult: RefreshDetailFetchResult{Detail: &RefreshDetail{OrderStatus: "2"}}}
 	_, _, failed, results, expired = (&RefreshService{repository: reloadRepository, runtime: reloadRuntime}).refreshDetailChunk(context.Background(), 7, "cookie-1", target[:1])
-	if failed != 0 || len(results) == 0 || expired {
+	// 凭证在请求期间变化时必须在写订单之前拒绝旧结果。
+	if failed != 1 || len(results) != 1 || expired || reloadRepository.batchUpsertCount != 0 || reloadRepository.upsertCount != 0 {
 		t.Fatalf("详情完成后凭证复核分支异常: failed=%d results=%d expired=%v", failed, len(results), expired)
 	}
 
@@ -399,7 +403,8 @@ func TestRefreshDetailChunkCoversFailureAndCommitBranches(t *testing.T) {
 	reloadErrorRuntime := &refreshRuntimeFake{detailAvailable: true, detailResult: RefreshDetailFetchResult{Detail: &RefreshDetail{OrderStatus: "processing"}}}
 	// reloadErrorFailed、reloadErrorResults、reloadErrorExpired 保存详情后复核错误结果。
 	_, _, reloadErrorFailed, reloadErrorResults, reloadErrorExpired := (&RefreshService{repository: reloadErrorRepository, runtime: reloadErrorRuntime}).refreshDetailChunk(context.Background(), 7, "cookie-1", []refreshTarget{{OrderID: "order-1", CurrentStatus: "processing"}})
-	if reloadErrorFailed == 0 || len(reloadErrorResults) < 2 || reloadErrorExpired {
+	// 复核失败应只有失败结果，不能先写入再同时报告成功和失败。
+	if reloadErrorFailed != 1 || len(reloadErrorResults) != 1 || reloadErrorExpired || reloadErrorRepository.batchUpsertCount != 0 {
 		t.Fatalf("详情后凭证读取错误分支异常: failed=%d results=%d expired=%v", reloadErrorFailed, len(reloadErrorResults), reloadErrorExpired)
 	}
 

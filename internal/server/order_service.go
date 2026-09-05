@@ -36,7 +36,8 @@ func (a *orderHTTPAdapter) RefreshSingle(ctx context.Context, userID int64, orde
 	return orderSingleRefreshResponse{Success: result.Success, Message: result.Message, Order: orderRefreshDetailResponse{Quantity: result.Detail.Quantity, SpecName: result.Detail.SpecName, SpecValue: result.Detail.SpecValue, OrderStatus: orderapp.NormalizeOrderStatus(result.Detail.OrderStatus), Amount: result.Detail.Amount}}, nil
 }
 
-// Refresh 刷新当前用户订单并转换为兼容 HTTP 响应模型。
+// Refresh 由 a 调用订单用例，ctx 传递请求取消，userID 限定用户，cookieID、status 限定筛选；
+// 返回兼容 HTTP 结果并原样透传已去重的恢复修正统计，应用错误保持原有分类。
 func (a *orderHTTPAdapter) Refresh(ctx context.Context, userID int64, cookieID, status string) (orderRefreshResponse, error) {
 	// result、err 保存应用层批量刷新结果和错误。
 	result, err := a.services.Refresh(ctx, userID, cookieID, status)
@@ -46,7 +47,7 @@ func (a *orderHTTPAdapter) Refresh(ctx context.Context, userID int64, cookieID, 
 	if err != nil {
 		return orderRefreshResponse{}, err
 	}
-	return orderRefreshResponse{PartialFailure: result.PartialFailure, Message: result.Message, Summary: orderRefreshSummary{Discovered: result.Summary.Discovered, ListUpdated: result.Summary.ListUpdated, SoftDeleted: result.Summary.SoftDeleted, DetailTotal: result.Summary.DetailTotal, Total: result.Summary.Total, Updated: result.Summary.Updated, NoChange: result.Summary.NoChange, Failed: result.Summary.Failed}, Results: refreshResultsFromApplication(result.Results)}, nil
+	return orderRefreshResponse{PartialFailure: result.PartialFailure, Message: result.Message, Summary: orderRefreshSummary{Restored: result.Summary.Restored, Reassigned: result.Summary.Reassigned, Discovered: result.Summary.Discovered, ListUpdated: result.Summary.ListUpdated, SoftDeleted: result.Summary.SoftDeleted, DetailTotal: result.Summary.DetailTotal, Total: result.Summary.Total, Updated: result.Summary.Updated, NoChange: result.Summary.NoChange, Failed: result.Summary.Failed}, Results: refreshResultsFromApplication(result.Results)}, nil
 }
 
 // intPointer 为结果 DTO 创建整数指针，使零值也能按兼容契约显式返回。

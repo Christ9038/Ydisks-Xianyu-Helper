@@ -1193,7 +1193,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** getApiV1NotificationsChannelsBychannel_id */
+        get: operations["getApiV1NotificationsChannelsBychannel_id"];
         /** putApiV1NotificationsChannelsBychannel_id */
         put: operations["putApiV1NotificationsChannelsBychannel_id"];
         post?: never;
@@ -2492,6 +2493,15 @@ export interface components {
             enabled: boolean;
             user_id?: number;
         };
+        NotificationChannelEditorResponse: {
+            id: number;
+            name: string;
+            type: string;
+            event_types?: string;
+            enabled: boolean;
+            to_email?: string;
+            use_custom_smtp?: boolean;
+        };
         NotificationChannelCreateRequest: {
             name: string;
             type: string;
@@ -2503,6 +2513,8 @@ export interface components {
             name?: string;
             type?: string;
             config?: string;
+            /** @description 仅更新已有邮件渠道的收件地址，保留所有 SMTP 配置；与 config 互斥，不可同时改变渠道类型。 */
+            email_recipient?: string;
             event_types?: string;
             enabled?: boolean;
         };
@@ -2887,6 +2899,10 @@ export interface components {
             new_status?: string;
         };
         OrderRefreshSummary: {
+            /** @description 同账号软删除订单恢复数，与新增和错绑修正不重复计数；旧任务可省略。 */
+            restored?: number;
+            /** @description 经身份核验修正历史错绑的订单数，与同账号恢复不重复计数；旧任务可省略。 */
+            reassigned?: number;
             discovered: number;
             list_updated: number;
             soft_deleted: number;
@@ -9382,6 +9398,73 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MutationIDResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getApiV1NotificationsChannelsBychannel_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                channel_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 成功 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationChannelEditorResponse"];
                 };
             };
             /** @description 统一错误响应 */

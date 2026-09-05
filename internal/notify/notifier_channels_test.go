@@ -712,11 +712,18 @@ func TestSendEmail_UsesSystemSMTPFallback(t *testing.T) {
 		}
 	}
 
-	// n 用于本次流程后续判断的n
-	n := New("cid", store, nil)
+	// channelID、channelErr 保存数据库渠道及创建错误，用于覆盖测试发送的真实取渠道路径。
+	channelID, channelErr := store.Notifications.CreateChannel(ctx, &db.NotificationChannelRow{
+		Name: "系统 SMTP 测试渠道", Type: "email", Config: `{"to_email":"to@e.com"}`, Enabled: true, UserID: 1,
+	})
+	if channelErr != nil {
+		t.Fatalf("create email channel: %v", channelErr)
+	}
+	// n 用于验证全局通知器按数据库渠道所有者读取系统 SMTP 配置。
+	n := New("", store, nil)
 	if // err 用于本次流程后续判断的err
-	err := n.sendEmail(map[string]any{"to_email": "to@e.com"}, "系统SMTP正文"); err != nil {
-		t.Fatalf("sendEmail with system fallback: %v", err)
+	err := n.SendToChannel(channelID, "系统SMTP正文"); err != nil {
+		t.Fatalf("SendToChannel with system fallback: %v", err)
 	}
 	// body 用于本次流程后续判断的请求体
 	body := received.String()

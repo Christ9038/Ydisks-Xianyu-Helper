@@ -94,3 +94,39 @@ func (p chatRefreshProvider) RefreshHistory(ctx context.Context, accountID, chat
 
 // 确保聊天刷新适配器覆盖应用层定义的全部能力。
 var _ chatapp.RefreshProvider = chatRefreshProvider{}
+
+// chatRefreshMaxPages 限制订单同步触发的联系人刷新页数，防止平台游标异常导致无限请求。
+const chatRefreshMaxPages = 100
+
+// NewChatConversationRefreshCallback 创建订单同步按需刷新聊天联系人缓存的组合回调。
+// 返回的回调会完整推进联系人游标；刷新 Port 未装配时返回 nil，由订单同步跳过刷新。
+func NewChatConversationRefreshCallback(provider chatapp.RefreshProvider) func(context.Context, string) error {
+	if provider == nil {
+		return nil
+	}
+	return func(ctx context.Context, accountID string) error {
+		// cursor 保存下一页联系人请求使用的平台游标。
+		cursor := int64(0)
+		// seenCursors 记录本轮已请求的游标；平台按时间向历史翻页，不能假定游标递增。
+		seenCursors := map[int64]struct{}{cursor: {}}
+		// pageNumber 是本次联系人刷新请求的页序号，用于限制异常游标循环。
+		for pageNumber := 1; pageNumber <= chatRefreshMaxPages; pageNumber++ {
+			// page、refreshErr 保存当前联系人页及平台或落库错误。
+			page, refreshErr := provider.RefreshConversations(ctx, accountID, cursor, 100)
+			if refreshErr != nil {
+				return refreshErr
+			}
+			if !page.HasMore {
+				return nil
+			}
+			// repeated 表示平台返回了已经请求过的游标，阻止停滞或多页循环。
+			_, repeated := seenCursors[page.NextCursor]
+			if page.NextCursor <= 0 || repeated {
+				return errors.New("聊天联系人刷新游标未推进")
+			}
+			cursor = page.NextCursor
+			seenCursors[cursor] = struct{}{}
+		}
+		return fmt.Errorf("聊天联系人刷新达到 %d 页上限", chatRefreshMaxPages)
+	}
+}
