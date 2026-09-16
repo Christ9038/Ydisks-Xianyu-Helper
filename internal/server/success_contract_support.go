@@ -21,8 +21,10 @@ type aiReplySettingsResponse struct {
 	MaxDiscountAmount int `json:"max_discount_amount"`
 	// MaxBargainRounds 是允许的最大砍价轮次。
 	MaxBargainRounds int `json:"max_bargain_rounds"`
-	// CustomPrompts 是账号自定义提示词。
+	// CustomPrompts 是账号自定义提示词或客服规则。
 	CustomPrompts string `json:"custom_prompts"`
+	// AIMode 是 AI 工作模式：bargain_only 或 full_service。
+	AIMode string `json:"ai_mode"`
 }
 
 // aiModelsResponse 是 AI 模型发现接口的具名响应 DTO。

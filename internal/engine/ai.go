@@ -57,9 +57,13 @@ func (a *AIReplierImpl) Reply(ctx context.Context, m ChatMessage) (*ReplyResult,
 	if err != nil || cfg == nil || !cfg.AIEnabled {
 		return nil, nil // 未启用 AI
 	}
-	// AI 设置面向砍价场景。普通未命中消息继续交给默认回复，避免 AI
-	// 抢答问候、售后等与砍价无关的消息。
-	if !bargainMessageRe.MatchString(strings.ToLower(m.Text)) {
+	// AI 工作模式：bargain_only 仅处理砍价消息；full_service 处理所有买家消息。
+	aiMode := cfg.AIMode
+	if aiMode == "" {
+		aiMode = "bargain_only"
+	}
+	isBargainMsg := bargainMessageRe.MatchString(strings.ToLower(m.Text))
+	if aiMode == "bargain_only" && !isBargainMsg {
 		return nil, nil
 	}
 	// aiCfg、err 用于本次流程后续判断的人工智能Cfg、err
@@ -88,6 +92,7 @@ func (a *AIReplierImpl) Reply(ctx context.Context, m ChatMessage) (*ReplyResult,
 	systemPrompt := buildSystemPrompt(
 		cfg.CustomPrompts, itemTitle, itemPrice, itemDesc,
 		cfg.MaxDiscountPercent, cfg.MaxDiscountAmount, cfg.MaxBargainRounds, bargainCount, cfg.AutoAdjustPriceEnabled,
+		aiMode, isBargainMsg,
 	)
 	if !withinBargainLimit {
 		systemPrompt += "\n当前买家已经超过最大砍价轮次。不得继续降价，只能礼貌说明价格不再优惠。"
@@ -264,12 +269,14 @@ func (a *AIReplierImpl) itemInfo(ctx context.Context, itemID string) (title stri
 }
 
 // buildSystemPrompt 构造 system 提示词。
-// 自定义 prompt 只替换业务文案，价格和轮次安全约束始终由后端追加。
-// buildSystemPrompt 封装build系统Prompt业务协调。
-func buildSystemPrompt(customPrompts, itemTitle string, itemPrice float64, itemDesc string, maxDiscountPercent, maxDiscountAmount, maxBargainRounds, bargainCount int, autoAdjustPriceEnabled bool) string {
+// bargain_only 模式：价格安全规则始终追加（现有行为）。
+// full_service 模式：用客服角色 prompt，仅砍价消息追加价格安全规则。
+func buildSystemPrompt(customPrompts, itemTitle string, itemPrice float64, itemDesc string, maxDiscountPercent, maxDiscountAmount, maxBargainRounds, bargainCount int, autoAdjustPriceEnabled bool, aiMode string, isBargainMsg bool) string {
 	// base 用于本次流程后续判断的base
 	var base string
-	if strings.TrimSpace(customPrompts) != "" {
+	if aiMode == "full_service" {
+		base = buildFullServicePrompt(customPrompts, itemTitle, itemPrice, itemDesc)
+	} else if strings.TrimSpace(customPrompts) != "" {
 		base = strings.NewReplacer(
 			"{item_title}", itemTitle,
 			"{item_price}", fmt.Sprintf("%.2f", itemPrice),
@@ -289,6 +296,12 @@ func buildSystemPrompt(customPrompts, itemTitle string, itemPrice float64, itemD
 3. 不要编造商品没有的功能
 4. 直接回复内容，不要加引号或解释`, itemTitle, itemPrice, itemDesc)
 	}
+
+	// full_service 模式下，非砍价消息不追加价格安全规则。
+	if aiMode == "full_service" && !isBargainMsg {
+		return base
+	}
+
 	// prompt 保存基础业务文案与后端不可覆盖的价格安全规则。
 	prompt := base + fmt.Sprintf(`
 
@@ -296,12 +309,43 @@ func buildSystemPrompt(customPrompts, itemTitle string, itemPrice float64, itemD
 - 原价 %.2f 元；最多优惠 %d%%，且最多优惠 %d 元；两个上限必须同时满足。
 - 任一优惠上限为 0 时不得降价。
 - 当前砍价轮次 %d，最多允许 %d 轮。
-- 回复报价必须带“元”，不得给出低于允许最低价的价格。`, itemPrice, maxDiscountPercent, maxDiscountAmount, bargainCount, maxBargainRounds)
+- 回复报价必须带"元"，不得给出低于允许最低价的价格。`, itemPrice, maxDiscountPercent, maxDiscountAmount, bargainCount, maxBargainRounds)
 	if autoAdjustPriceEnabled {
 		prompt += `
 - 如果本轮明确承诺了一个可成交价格，必须在回复末尾额外输出 [[AUTO_PRICE:金额]]，金额保留两位小数；没有明确报价时不得输出该标记。该标记由系统移除，买家不会看到。`
 	}
 	return prompt
+}
+
+// buildFullServicePrompt 构造全场景客服模式的 system prompt。
+func buildFullServicePrompt(customPrompts, itemTitle string, itemPrice float64, itemDesc string) string {
+	// rules 是用户自定义的客服规则，为空时使用默认规则。
+	rules := strings.TrimSpace(customPrompts)
+	if rules == "" {
+		rules = "无特殊规则，请根据商品信息自然回复。"
+	} else {
+		rules = strings.NewReplacer(
+			"{item_title}", itemTitle,
+			"{item_price}", fmt.Sprintf("%.2f", itemPrice),
+			"{item_description}", itemDesc,
+		).Replace(rules)
+	}
+	return fmt.Sprintf(`你是闲鱼店铺的自动客服。根据商品信息和店铺规则，简短友好地回复买家。
+
+商品信息：
+- 标题：%s
+- 价格：%.2f 元
+- 描述：%s
+
+店铺规则：
+%s
+
+要求：
+1. 语气友好自然，像真人卖家
+2. 回答简洁，通常一两句话
+3. 不要编造商品没有的功能或信息
+4. 如果不确定的问题，建议买家联系人工客服
+5. 直接回复内容，不要加引号或解释`, itemTitle, itemPrice, itemDesc, rules)
 }
 
 // priceRe 用于本次流程后续判断的priceRe
