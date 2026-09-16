@@ -36,8 +36,12 @@ export const AccountAISettingsModal: React.FC<AccountAISettingsModalProps> = ({ 
   const handleDiscountAmountChange = (event: React.ChangeEvent<HTMLInputElement>) => updateSettings({ max_discount_amount: parseInt(event.target.value, 10) || 0 });
   // handleBargainRoundsChange 更新最大砍价轮次。
   const handleBargainRoundsChange = (event: React.ChangeEvent<HTMLInputElement>) => updateSettings({ max_bargain_rounds: parseInt(event.target.value, 10) || 1 });
-  // handlePromptChange 更新自定义 AI 提示词。
+  // handlePromptChange 更新自定义 AI 提示词或客服规则。
   const handlePromptChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => updateSettings({ custom_prompts: event.target.value });
+  // handleModeChange 切换 AI 工作模式。
+  const handleModeChange = (mode: string) => updateSettings({ ai_mode: mode });
+  // isFullService 表示当前是否为全场景客服模式。
+  const isFullService = settings.ai_mode === 'full_service';
 
   return createPortal(
     <div className="modal-overlay-centered">
@@ -52,11 +56,27 @@ export const AccountAISettingsModal: React.FC<AccountAISettingsModalProps> = ({ 
 
         <div className="modal-body space-y-6">
           <div className="flex items-center justify-between p-4 bg-purple-50 rounded-xl">
-            <div><div className="font-bold text-gray-900 flex items-center gap-2"><Bot className="w-4 h-4 text-purple-500" />启用AI自动回复</div><div className="text-xs text-gray-500">AI将自动处理买家的砍价消息</div></div>
+            <div><div className="font-bold text-gray-900 flex items-center gap-2"><Bot className="w-4 h-4 text-purple-500" />启用AI自动回复</div><div className="text-xs text-gray-500">{isFullService ? 'AI将作为客服自动回复买家的所有消息' : 'AI将自动处理买家的砍价消息'}</div></div>
             <button type="button" onClick={handleEnabledChange} className={`w-14 h-8 rounded-full transition-colors duration-300 relative ${settings.ai_enabled ? 'bg-brand' : 'bg-gray-300'}`} aria-label="切换 AI 自动回复">
               <span className={`absolute left-1 top-1 w-6 h-6 bg-white rounded-full shadow-md transition-transform duration-300 ${settings.ai_enabled ? 'translate-x-6' : 'translate-x-0'}`} />
             </button>
           </div>
+
+          {settings.ai_enabled && (
+            <div className="p-4 bg-gray-50 rounded-xl space-y-3">
+              <div className="font-bold text-gray-900">AI 工作模式</div>
+              <div className="grid grid-cols-2 gap-3">
+                <button type="button" onClick={() => handleModeChange('bargain_only')} className={`px-4 py-3 rounded-xl text-sm font-bold border-2 transition-colors cursor-pointer ${!isFullService ? 'border-brand bg-brand/5 text-brand' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-100'}`}>
+                  <div>仅砍价回复</div>
+                  <div className="text-xs font-normal mt-1 text-gray-500">只处理砍价消息，其他消息走默认回复</div>
+                </button>
+                <button type="button" onClick={() => handleModeChange('full_service')} className={`px-4 py-3 rounded-xl text-sm font-bold border-2 transition-colors cursor-pointer ${isFullService ? 'border-brand bg-brand/5 text-brand' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-100'}`}>
+                  <div>全场景客服</div>
+                  <div className="text-xs font-normal mt-1 text-gray-500">自动回复所有买家消息，砍价仍受价格底线约束</div>
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="flex items-center justify-between p-4 bg-amber-50 border border-amber-200 rounded-xl">
             <div className="pr-4"><div className="font-bold text-gray-900">自动执行 AI 报价改价</div><div className="text-xs text-gray-600 mt-1">AI 明确报价后，买家在 30 分钟内拍下对应商品时自动修改待付款订单价格。开启 AI 议价后，固定自动化规则改价将不能同时启用。</div></div>
@@ -74,10 +94,10 @@ export const AccountAISettingsModal: React.FC<AccountAISettingsModalProps> = ({ 
             </div>
           </div>
 
-          <div><label className="block text-sm font-bold text-gray-700 mb-2">自定义提示词（可选）</label><textarea value={settings.custom_prompts} onChange={handlePromptChange} placeholder="输入自定义的AI回复规则或风格指引...&#10;&#10;例如：回复时保持礼貌专业、使用简洁的语言、强调产品质量等" className="w-full ios-input px-4 py-3 rounded-xl h-40 resize-none" /></div>
+          <div><label className="block text-sm font-bold text-gray-700 mb-2">{isFullService ? '客服规则（可选）' : '自定义提示词（可选）'}</label><textarea value={settings.custom_prompts} onChange={handlePromptChange} placeholder={isFullService ? '输入客服规则，AI将按规则回复买家...&#10;&#10;例如：发货时间为24小时内、支持7天无理由退换、商品均为正品全新、不确定的问题让买家联系人工客服' : '输入自定义的AI回复规则或风格指引...&#10;&#10;例如：回复时保持礼貌专业、使用简洁的语言、强调产品质量等'} className="w-full ios-input px-4 py-3 rounded-xl h-40 resize-none" /></div>
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
             <h4 className="font-bold text-blue-900 mb-2 flex items-center gap-2"><Settings className="w-4 h-4" />AI如何工作</h4>
-            <ul className="text-xs text-blue-800 space-y-1"><li>• 自动识别买家的砍价请求</li><li>• 根据设定的策略智能回复</li><li>• 在合理范围内同意降价或礼貌拒绝</li><li>• 只有开启自动改价后，已发送给买家的有效报价才会用于真实订单改价</li></ul>
+            <ul className="text-xs text-blue-800 space-y-1">{isFullService ? <><li>• 自动回复买家的所有消息（咨询、砍价、售后等）</li><li>• 根据商品信息和客服规则智能回复</li><li>• 砍价消息仍受折扣比例和金额底线约束</li><li>• 只有开启自动改价后，已发送给买家的有效报价才会用于真实订单改价</li></> : <><li>• 自动识别买家的砍价请求</li><li>• 根据设定的策略智能回复</li><li>• 在合理范围内同意降价或礼貌拒绝</li><li>• 只有开启自动改价后，已发送给买家的有效报价才会用于真实订单改价</li></>}</ul>
           </div>
         </div>
 

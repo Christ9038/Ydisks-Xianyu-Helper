@@ -15,7 +15,7 @@ import (
 // TestBuildSystemPrompt 自定义 prompt 替换变量，且始终追加价格与轮次安全约束。
 func TestBuildSystemPrompt(t *testing.T) {
 	// got 用于本次流程后续判断的got
-	got := buildSystemPrompt("你是卖{item_title}的客服，价格{item_price}", "iPhone", 100, "手机", 0, 0, 3, 1, false)
+	got := buildSystemPrompt("你是卖{item_title}的客服，价格{item_price}", "iPhone", 100, "手机", 0, 0, 3, 1, false, "bargain_only", true)
 	if !strings.Contains(got, "你是卖iPhone的客服，价格100.00") {
 		t.Fatalf("自定义 prompt 替换: got %q", got)
 	}
@@ -24,7 +24,7 @@ func TestBuildSystemPrompt(t *testing.T) {
 	}
 
 	// 0 必须保留为不允许优惠，不能静默改成默认值。
-	got = buildSystemPrompt("", "会员卡", 9.9, "月卡", 0, 0, 3, 0, false)
+	got = buildSystemPrompt("", "会员卡", 9.9, "月卡", 0, 0, 3, 0, false, "bargain_only", true)
 	if !strings.Contains(got, "标题：会员卡") || !strings.Contains(got, "价格：9.90 元") {
 		t.Fatalf("默认模板缺商品信息: %q", got)
 	}
@@ -33,12 +33,36 @@ func TestBuildSystemPrompt(t *testing.T) {
 	}
 
 	// 显式折扣上限。
-	got = buildSystemPrompt("", "会员卡", 9.9, "月卡", 20, 50, 4, 2, true)
+	got = buildSystemPrompt("", "会员卡", 9.9, "月卡", 20, 50, 4, 2, true, "bargain_only", true)
 	if !strings.Contains(got, "最多优惠 20%") || !strings.Contains(got, "最多优惠 50 元") {
 		t.Fatalf("显式折扣上限: %q", got)
 	}
 	if !strings.Contains(got, "[[AUTO_PRICE:金额]]") {
 		t.Fatalf("开启自动改价时缺少结构化报价约束: %q", got)
+	}
+}
+
+// TestBuildSystemPromptFullService 验证全场景客服模式的 prompt 策略。
+func TestBuildSystemPromptFullService(t *testing.T) {
+	// 非砍价消息在 full_service 模式下不追加价格安全规则。
+	got := buildSystemPrompt("发货24小时内，支持7天退换", "会员卡", 9.9, "月卡", 10, 50, 3, 0, false, "full_service", false)
+	if !strings.Contains(got, "你是闲鱼店铺的自动客服") {
+		t.Fatalf("full_service 模式缺少客服角色: %q", got)
+	}
+	if !strings.Contains(got, "发货24小时内，支持7天退换") {
+		t.Fatalf("full_service 模式缺少用户客服规则: %q", got)
+	}
+	if strings.Contains(got, "不可覆盖的价格安全规则") {
+		t.Fatalf("full_service 非砍价消息不应追加价格安全规则: %q", got)
+	}
+
+	// 砍价消息在 full_service 模式下仍追加价格安全规则。
+	got = buildSystemPrompt("", "会员卡", 9.9, "月卡", 10, 50, 3, 1, true, "full_service", true)
+	if !strings.Contains(got, "不可覆盖的价格安全规则") {
+		t.Fatalf("full_service 砍价消息应追加价格安全规则: %q", got)
+	}
+	if !strings.Contains(got, "[[AUTO_PRICE:金额]]") {
+		t.Fatalf("full_service 砍价消息开启自动改价时缺少结构化报价约束: %q", got)
 	}
 }
 

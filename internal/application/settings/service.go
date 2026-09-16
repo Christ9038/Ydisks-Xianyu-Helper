@@ -46,8 +46,10 @@ type AIReplySettings struct {
 	MaxDiscountAmount int
 	// MaxBargainRounds 是允许的最大砍价轮次。
 	MaxBargainRounds int
-	// CustomPrompts 是账号自定义提示词。
+	// CustomPrompts 是账号自定义提示词或客服规则。
 	CustomPrompts string
+	// AIMode 是 AI 工作模式：bargain_only（仅砍价）或 full_service（全场景客服）。
+	AIMode string
 }
 
 // AuditRecord 是敏感设置访问审计的非敏感应用模型。
@@ -301,6 +303,13 @@ func (s *Service) UpsertAIReply(ctx context.Context, userID int64, cookieID stri
 	}
 	if settings.MaxBargainRounds < 1 || settings.MaxBargainRounds > 10 {
 		return errors.New("最大砍价轮次必须在 1 到 10 之间")
+	}
+	settings.AIMode = strings.TrimSpace(settings.AIMode)
+	if settings.AIMode == "" {
+		settings.AIMode = "bargain_only"
+	}
+	if settings.AIMode != "bargain_only" && settings.AIMode != "full_service" {
+		return errors.New("AI 模式无效，仅支持 bargain_only 或 full_service")
 	}
 	if settings.AutoAdjustPriceEnabled && !settings.AIEnabled {
 		return errors.New("开启 AI 自动改价前必须先启用 AI 议价")

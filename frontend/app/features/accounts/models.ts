@@ -119,8 +119,10 @@ export interface AIReplySettings {
   max_discount_amount?: number;
   /** 最大砍价轮次。 */
   max_bargain_rounds: number;
-  /** 自定义提示词。 */
+  /** 自定义提示词或客服规则。 */
   custom_prompts: string;
+  /** AI 工作模式：bargain_only 或 full_service。 */
+  ai_mode: string;
 }
 
 /** 由当前 feature adapter 归一后的 NotificationChannelType UI 模型；不直接暴露 HTTP DTO。 */
@@ -269,8 +271,10 @@ export interface AIReplySettingsResponse {
   max_discount_amount: number;
   /** 最大砍价轮次。 */
   max_bargain_rounds: number;
-  /** 自定义提示词。 */
+  /** 自定义提示词或客服规则。 */
   custom_prompts: string;
+  /** AI 工作模式：bargain_only 或 full_service。 */
+  ai_mode: string;
 }
 
 /** 通知绑定列表中的单条记录。 */

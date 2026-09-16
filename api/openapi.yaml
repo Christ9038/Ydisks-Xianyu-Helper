@@ -7495,7 +7495,7 @@ components:
       items: {$ref: '#/components/schemas/ItemReplyResponse'}
     AIReplySettingsResponse:
       type: object
-      required: [ai_enabled, auto_adjust_price_enabled, max_discount_percent, max_discount_amount, max_bargain_rounds, custom_prompts]
+      required: [ai_enabled, auto_adjust_price_enabled, max_discount_percent, max_discount_amount, max_bargain_rounds, custom_prompts, ai_mode]
       properties:
         cookie_id: {type: string}
         ai_enabled: {type: boolean}
@@ -7504,9 +7504,10 @@ components:
         max_discount_amount: {type: integer}
         max_bargain_rounds: {type: integer}
         custom_prompts: {type: string}
+        ai_mode: {type: string, enum: [bargain_only, full_service]}
     AIReplySettingsUpdateRequest:
       type: object
-      required: [ai_enabled, auto_adjust_price_enabled, max_discount_percent, max_discount_amount, max_bargain_rounds, custom_prompts]
+      required: [ai_enabled, auto_adjust_price_enabled, max_discount_percent, max_discount_amount, max_bargain_rounds, custom_prompts, ai_mode]
       properties:
         ai_enabled: {type: boolean}
         auto_adjust_price_enabled: {type: boolean}
@@ -7514,6 +7515,7 @@ components:
         max_discount_amount: {type: integer, minimum: 0}
         max_bargain_rounds: {type: integer, minimum: 1, maximum: 10}
         custom_prompts: {type: string}
+        ai_mode: {type: string, enum: [bargain_only, full_service]}
     AIReplySettingsMapResponse:
       type: object
       additionalProperties:

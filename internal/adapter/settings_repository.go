@@ -229,6 +229,7 @@ func (r *SettingsRepository) UpsertAIReply(ctx context.Context, cookieID string,
 		CookieID: cookieID, AIEnabled: settings.AIEnabled, AutoAdjustPriceEnabled: settings.AutoAdjustPriceEnabled,
 		MaxDiscountPercent: settings.MaxDiscountPercent, MaxDiscountAmount: settings.MaxDiscountAmount,
 		MaxBargainRounds: settings.MaxBargainRounds, CustomPrompts: settings.CustomPrompts,
+		AIMode: settings.AIMode,
 	})
 }
 
@@ -270,6 +271,7 @@ func aiReplyModel(record db.AIReplySettings) settingsapp.AIReplySettings {
 		CookieID: record.CookieID, AIEnabled: record.AIEnabled, AutoAdjustPriceEnabled: record.AutoAdjustPriceEnabled,
 		MaxDiscountPercent: record.MaxDiscountPercent, MaxDiscountAmount: record.MaxDiscountAmount,
 		MaxBargainRounds: record.MaxBargainRounds, CustomPrompts: record.CustomPrompts,
+		AIMode: record.AIMode,
 	}
 }
 
