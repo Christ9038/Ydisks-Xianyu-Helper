@@ -400,8 +400,10 @@ type keywordTypedResponse struct {
 	Keyword string `json:"keyword"`
 	// Reply 是文字回复内容。
 	Reply string `json:"reply"`
-	// ItemID 是限定的商品标识。
+	// ItemID 是限定的商品标识；多选规则取 ItemIDs 首项以保持兼容。
 	ItemID string `json:"item_id"`
+	// ItemIDs 是限定的商品标识集合；空集合表示账号级回复。
+	ItemIDs []string `json:"item_ids"`
 	// Type 是回复类型。
 	Type string `json:"type"`
 	// ImageURL 是图片回复地址。

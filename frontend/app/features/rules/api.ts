@@ -427,20 +427,45 @@ type KeywordRowPayload = {
     /** id 表示标识。 */ id: string;
     /** keyword 表示关键词。 */ keyword: string;
     /** reply 表示回复内容。 */ reply: string;
-    /** item_id 表示商品标识。 */ item_id: string;
+    /** item_id 表示单条规则关联商品的首项，用于兼容旧调用方。 */ item_id: string;
+    /** item_ids 表示单条规则关联的商品标识集合；空集合表示账号级回复。 */ item_ids: string[];
     /** type 表示规则类型。 */ type: 'text' | 'image';
     /** image_url 表示图片地址。 */ image_url: string;
 };
 
+// normalizeItemIDList 归一化单条规则关联的商品标识集合。
+// 服务端以集合字段表达一条规则的多商品关联，缺少集合字段的历史响应回退单值。
+const normalizeItemIDList = (item: any): string[] => {
+    // rawIDs 保存服务端可能返回的商品标识集合。
+    const rawIDs = Array.isArray(item?.item_ids) ? item.item_ids : [];
+    // result 保存去重且去除空白后的商品标识集合。
+    const result: string[] = [];
+    // candidate 表示当前待判定的商品标识候选。
+    for (const /* candidate 是当前待去重规整的服务端商品标识。 */ candidate of rawIDs) {
+        // itemID 是去除首尾空白后的商品标识。
+        const itemID = typeof candidate === 'string' ? candidate.trim() : '';
+        if (itemID && !result.includes(itemID)) result.push(itemID);
+    }
+    // legacyID 是旧响应中的单值商品标识，仅在集合为空时回退使用。
+    const legacyID = typeof item?.item_id === 'string' ? item.item_id.trim() : '';
+    if (result.length === 0 && legacyID) result.push(legacyID);
+    return result;
+};
+
 // normalizeKeywordRow 归一化关键词规则。
-const normalizeKeywordRow = (item: any): KeywordRowPayload => ({
-    id: String(item?.id || ''),
-    keyword: item?.keyword || '',
-    reply: item?.reply || '',
-    item_id: item?.item_id || '',
-    type: item?.type === 'image' ? 'image' : 'text',
-    image_url: item?.image_url || '',
-});
+const normalizeKeywordRow = (item: any): KeywordRowPayload => {
+    // itemIDs 是归一化后的关联商品标识集合。
+    const itemIDs = normalizeItemIDList(item);
+    return {
+        id: String(item?.id || ''),
+        keyword: item?.keyword || '',
+        reply: item?.reply || '',
+        item_id: itemIDs[0] || '',
+        item_ids: itemIDs,
+        type: item?.type === 'image' ? 'image' : 'text',
+        image_url: item?.image_url || '',
+    };
+};
 
 // getKeywordRowsWithType 读取带类型的关键词规则。
 const getKeywordRowsWithType = async (cookieId: string): Promise<KeywordRowPayload[]> => {
@@ -461,20 +486,40 @@ export const getReplyRules = async (cookieId?: string): Promise<ReplyRule[]> => 
         match_type: 'fuzzy' as const,
         enabled: true,
         item_id: item.item_id || '',
+        item_ids: Array.isArray(item.item_ids) ? item.item_ids : [],
         type: item.type === 'image' ? 'image' : 'text',
         image_url: item.image_url || ''
     }));
 }
 
+// resolveReplyRuleItemIDs 解析规则草稿的关联商品集合，优先使用多值集合并回退兼容单值。
+const resolveReplyRuleItemIDs = (rule: Partial<ReplyRule>): string[] => {
+    // result 保存去重且去除空白后的关联商品标识集合。
+    const result: string[] = [];
+    // candidate 表示当前待判定的商品标识候选。
+    for (const /* candidate 是当前待去重规整的草稿商品标识。 */ candidate of rule.item_ids || []) {
+        // itemID 是去除首尾空白后的商品标识。
+        const itemID = typeof candidate === 'string' ? candidate.trim() : '';
+        if (itemID && !result.includes(itemID)) result.push(itemID);
+    }
+    // legacyID 是兼容单值字段中的商品标识，仅在集合为空时回退使用。
+    const legacyID = rule.item_id?.trim();
+    if (result.length === 0 && legacyID) result.push(legacyID);
+    return result;
+};
+
 // updateReplyRule 更新回复规则。
 export const updateReplyRule = async (rule: Partial<ReplyRule>, cookieId: string): Promise<OperationResponse> => {
 	// type 规则类型，用于当前 API 处理流程。
 	const type = rule.type || 'text';
+	// itemIDs 是当前草稿需要关联的商品标识集合。
+	const itemIDs = resolveReplyRuleItemIDs(rule);
 	// payload 请求载荷，用于当前 API 处理流程。
 	const payload = {
 		keyword: rule.keyword || '',
 		reply: type === 'text' ? (rule.reply_content || '') : '',
-		item_id: rule.item_id || '',
+		item_id: itemIDs[0] || '',
+		item_ids: itemIDs,
 		type,
 		image_url: type === 'image' ? (rule.image_url || '') : '',
 	};

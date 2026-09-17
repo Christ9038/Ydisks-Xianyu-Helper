@@ -12,6 +12,8 @@ type keywordRepositoryFake struct {
 	addErr error
 	// addedDraft 保存最近一次创建输入。
 	addedDraft Draft
+	// addedDrafts 保存本次流程中的全部创建输入，用于断言多选只落一条规则。
+	addedDrafts []Draft
 	// listRows 是列表操作返回的规则。
 	listRows []Keyword
 	// listErr 是列表操作返回的错误。
@@ -20,8 +22,12 @@ type keywordRepositoryFake struct {
 	replaceErr error
 	// updateErr 是更新返回的错误。
 	updateErr error
+	// updatedDraft 保存最近一次更新输入。
+	updatedDraft Draft
 	// deleteErr 是删除返回的错误。
 	deleteErr error
+	// deletedIDs 保存按标识删除过的规则标识。
+	deletedIDs []int64
 	// itemRows 是商品回复列表。
 	itemRows []ItemReply
 	// itemErr 是商品回复操作返回的错误。
@@ -36,6 +42,7 @@ func (f *keywordRepositoryFake) List(context.Context, int64, string) ([]Keyword,
 // Add 实现测试仓储的关键词创建端口。
 func (f *keywordRepositoryFake) Add(_ context.Context, _ int64, _ string, draft Draft) (int64, error) {
 	f.addedDraft = draft
+	f.addedDrafts = append(f.addedDrafts, draft)
 	return 9, f.addErr
 }
 
@@ -45,12 +52,14 @@ func (f *keywordRepositoryFake) Replace(context.Context, int64, string, []Draft)
 }
 
 // Update 实现测试仓储的关键词更新端口。
-func (f *keywordRepositoryFake) Update(context.Context, int64, string, int64, Draft) error {
+func (f *keywordRepositoryFake) Update(_ context.Context, _ int64, _ string, _ int64, draft Draft) error {
+	f.updatedDraft = draft
 	return f.updateErr
 }
 
 // DeleteByID 实现测试仓储的关键词 ID 删除端口。
-func (f *keywordRepositoryFake) DeleteByID(context.Context, int64, string, int64) error {
+func (f *keywordRepositoryFake) DeleteByID(_ context.Context, _ int64, _ string, id int64) error {
+	f.deletedIDs = append(f.deletedIDs, id)
 	return f.deleteErr
 }
 
@@ -352,6 +361,160 @@ func TestValidationErrorText(t *testing.T) {
 	customError := (&ValidationError{Message: "自定义错误"}).Error()
 	if customError != "自定义错误" {
 		t.Fatalf("custom validation error=%q", customError)
+	}
+}
+
+// TestSplitItemIDs 验证商品范围字段拆分、去重、去空白并保持首次出现顺序。
+func TestSplitItemIDs(t *testing.T) {
+	// cases 覆盖单值、多值、重复与空白商品范围的拆分边界。
+	cases := []struct {
+		// name 是子测试名称。
+		name string
+		// raw 是持久化的商品范围字段。
+		raw string
+		// want 是期望的拆分结果。
+		want []string
+	}{
+		{name: "empty is account level", raw: "", want: []string{}},
+		{name: "legacy single value", raw: "item-1", want: []string{"item-1"}},
+		{name: "multiple values", raw: "item-1,item-2", want: []string{"item-1", "item-2"}},
+		{name: "trim and dedupe", raw: " item-1 , item-2 ,item-1,", want: []string{"item-1", "item-2"}},
+		{name: "blank only", raw: " , ,", want: []string{}},
+	}
+	for /* scenario 表示当前商品范围拆分场景。 */ _, scenario := range cases {
+		t.Run(scenario.name, func(t *testing.T) {
+			// got 是拆分后的商品标识集合。
+			got := SplitItemIDs(scenario.raw)
+			if len(got) != len(scenario.want) {
+				t.Fatalf("got=%v want=%v", got, scenario.want)
+			}
+			// index、itemID 分别表示结果下标与期望项，用于逐项比对顺序。
+			for index, itemID := range scenario.want {
+				if got[index] != itemID {
+					t.Fatalf("got=%v want=%v", got, scenario.want)
+				}
+			}
+		})
+	}
+}
+
+// TestJoinItemIDs 验证商品标识集合合并为稳定的逗号分隔字段。
+func TestJoinItemIDs(t *testing.T) {
+	// cases 覆盖空集合、单元素、多元素与重复元素的合并边界。
+	cases := []struct {
+		// name 是子测试名称。
+		name string
+		// itemIDs 是待合并的商品标识集合。
+		itemIDs []string
+		// want 是期望的持久化字段。
+		want string
+	}{
+		{name: "empty becomes account level", itemIDs: nil, want: ""},
+		{name: "single value stays raw", itemIDs: []string{"item-1"}, want: "item-1"},
+		{name: "multiple values joined", itemIDs: []string{"item-1", "item-2"}, want: "item-1,item-2"},
+		{name: "dedupe and trim", itemIDs: []string{" item-1 ", "item-1", "", "item-2"}, want: "item-1,item-2"},
+	}
+	for /* scenario 表示当前商品范围合并场景。 */ _, scenario := range cases {
+		t.Run(scenario.name, func(t *testing.T) {
+			if /* got 是合并后的持久化商品范围字段。 */ got := JoinItemIDs(scenario.itemIDs); got != scenario.want {
+				t.Fatalf("got=%q want=%q", got, scenario.want)
+			}
+		})
+	}
+}
+
+// TestServiceJoinsMultipleItemIDsIntoSingleRule 验证多选保存只落一条规则并写入逗号分隔字段。
+func TestServiceJoinsMultipleItemIDsIntoSingleRule(t *testing.T) {
+	// repository 是本测试使用的可控关键词仓储。
+	repository := &keywordRepositoryFake{}
+	// service 是待验证的关键词应用服务。
+	service := NewService(repository)
+	// id、err 保存多选规则的创建结果。
+	id, err := service.Add(context.Background(), 7, "account-1", Draft{Keyword: " 价格 ", Reply: " 50元 ", ItemIDs: []string{"item-1", "item-2"}})
+	if err != nil || id != 9 {
+		t.Fatalf("多选保存失败 id=%d err=%v", id, err)
+	}
+	if repository.addedDraft.ItemID != "item-1,item-2" {
+		t.Fatalf("商品范围未合并为单条规则: %q", repository.addedDraft.ItemID)
+	}
+	if len(repository.addedDrafts) != 1 {
+		t.Fatalf("多选保存只应写入一条规则，实际 %d 条", len(repository.addedDrafts))
+	}
+	// accountLevel、accountLevelErr 保存无商品范围的账号级退化结果。
+	accountLevelID, accountLevelErr := service.Add(context.Background(), 7, "account-1", Draft{Keyword: "k", Reply: "r"})
+	if accountLevelErr != nil || accountLevelID != 9 {
+		t.Fatalf("账号级保存失败 id=%d err=%v", accountLevelID, accountLevelErr)
+	}
+	if repository.addedDraft.ItemID != "" {
+		t.Fatalf("账号级规则不应带商品范围: %q", repository.addedDraft.ItemID)
+	}
+}
+
+// TestServiceAcceptsLegacySingleItemID 验证历史单值 ItemID 输入仍按单条规则保存。
+func TestServiceAcceptsLegacySingleItemID(t *testing.T) {
+	// repository 是本测试使用的可控关键词仓储。
+	repository := &keywordRepositoryFake{}
+	// service 是待验证的关键词应用服务。
+	service := NewService(repository)
+	// err 保存兼容单值输入的创建结果。
+	err := func() error {
+		// addErr 是兼容单值输入的创建错误。
+		_, addErr := service.Add(context.Background(), 7, "account-1", Draft{Keyword: "k", Reply: "r", ItemID: "item-9"})
+		return addErr
+	}()
+	if err != nil {
+		t.Fatalf("兼容单值保存失败: %v", err)
+	}
+	// updateErr 保存兼容单值输入的更新结果。
+	updateErr := service.Update(context.Background(), 7, "account-1", 5, Draft{Keyword: "k", Reply: "r", ItemID: "item-9"})
+	if updateErr != nil {
+		t.Fatalf("兼容单值更新失败: %v", updateErr)
+	}
+	if repository.updatedDraft.ItemID != "item-9" || len(repository.updatedDraft.ItemIDs) != 1 {
+		t.Fatalf("兼容单值未被规范化: %+v", repository.updatedDraft)
+	}
+}
+
+// TestServiceUpdateRewritesItemRange 验证编辑规则只更新同一行的商品范围字段。
+func TestServiceUpdateRewritesItemRange(t *testing.T) {
+	// repository 是本测试使用的可控关键词仓储。
+	repository := &keywordRepositoryFake{}
+	// service 是待验证的关键词应用服务。
+	service := NewService(repository)
+	// err 保存把商品范围改为多选的更新结果。
+	err := service.Update(context.Background(), 7, "account-1", 5, Draft{Keyword: "新词", Reply: "新回复", ItemIDs: []string{"item-2", "item-3"}})
+	if err != nil {
+		t.Fatalf("多选更新失败: %v", err)
+	}
+	if repository.updatedDraft.ItemID != "item-2,item-3" {
+		t.Fatalf("商品范围未写回同一行: %q", repository.updatedDraft.ItemID)
+	}
+	if len(repository.addedDrafts) != 0 || len(repository.deletedIDs) != 0 {
+		t.Fatalf("编辑不应增删规则行 added=%+v deleted=%v", repository.addedDrafts, repository.deletedIDs)
+	}
+}
+
+// TestServiceRejectsInvalidItemScopeInput 验证缺少关键词或回复内容时多选输入同样被拒绝。
+func TestServiceRejectsInvalidItemScopeInput(t *testing.T) {
+	// service 是待验证的关键词应用服务。
+	service := NewService(&keywordRepositoryFake{})
+	// cases 覆盖多选输入下的关键校验边界。
+	cases := []struct {
+		// name 是子测试名称。
+		name string
+		// draft 是当前待校验的规则输入。
+		draft Draft
+	}{
+		{name: "missing keyword", draft: Draft{Reply: "r", ItemIDs: []string{"item-1"}}},
+		{name: "missing text reply", draft: Draft{Keyword: "k", ItemIDs: []string{"item-1"}}},
+		{name: "missing image url", draft: Draft{Keyword: "k", Type: "image", ItemIDs: []string{"item-1"}}},
+	}
+	for /* scenario 表示当前非法多选输入场景。 */ _, scenario := range cases {
+		t.Run(scenario.name, func(t *testing.T) {
+			if /* err 表示非法输入返回的校验错误。 */ err := service.Update(context.Background(), 7, "account-1", 5, scenario.draft); err == nil {
+				t.Fatal("非法输入应被拒绝")
+			}
+		})
 	}
 }
 

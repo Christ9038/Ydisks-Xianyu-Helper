@@ -266,11 +266,11 @@ func (r *ReplyService) keywordReply(ctx context.Context, m ChatMessage) *ReplyRe
 	// msgLower 用于本次流程后续判断的msgLower
 	msgLower := strings.ToLower(m.Text)
 
-	// 1. 商品ID关键词优先。
+	// 1. 商品ID关键词优先；一条规则可关联多个商品，命中任一即可。
 	if m.ItemID != "" {
 		// kw 表示当前遍历过程中的kw
 		for _, kw := range kws {
-			if kw.ItemID == m.ItemID && strings.Contains(msgLower, strings.ToLower(kw.Keyword)) {
+			if containsItemID(kw.ItemID, m.ItemID) && strings.Contains(msgLower, strings.ToLower(kw.Keyword)) {
 				return r.keywordResult(kw, m)
 			}
 		}
@@ -282,6 +282,20 @@ func (r *ReplyService) keywordReply(ctx context.Context, m ChatMessage) *ReplyRe
 		}
 	}
 	return nil
+}
+
+// containsItemID 判断规则的商品范围字段是否覆盖目标商品标识。
+// 字段为逗号分隔的商品集合时命中任一元素即视为覆盖。
+// 分隔符与 keywords.KeywordItemIDSeparator 保持一致；engine 不依赖应用层，
+// 故此处按持久化契约直接使用字面量，两端变更必须同步。
+func containsItemID(rawItemIDs string, target string) bool {
+	// itemID 表示规则商品范围中的单个商品标识。
+	for _, itemID := range strings.Split(rawItemIDs, ",") {
+		if strings.TrimSpace(itemID) == target {
+			return true
+		}
+	}
+	return false
 }
 
 // keywordResult 封装关键词结果业务协调。

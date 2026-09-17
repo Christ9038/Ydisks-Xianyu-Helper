@@ -81,6 +81,36 @@ func TestKeywordReply_ItemIDPriority(t *testing.T) {
 	}
 }
 
+// TestKeywordReply_MultipleItemIDsInOneRule 一条规则关联多个商品时任一命中即生效。
+func TestKeywordReply_MultipleItemIDsInOneRule(t *testing.T) {
+	// s、cleanup 用于本次流程后续判断的s、cleanup
+	s, cleanup := newReplyStore(t)
+	defer cleanup()
+	// ctx 用于本次流程后续判断的ctx
+	ctx := context.Background()
+	s.DB.ExecContext(ctx, `INSERT INTO keywords (cookie_id,keyword,reply,item_id,type) VALUES
+		('cid','价格','多商品共用回复','item1,item2','text'),
+		('cid','价格','通用价格回复','','text')`)
+
+	// r 用于本次流程后续判断的r
+	r := NewReplyService("cid", s, nil, nil, nil, nil)
+	// 命中共用规则中的第一个商品。
+	first := r.resolve(ctx, chatMsg("价格多少", "item1", "chat1"))
+	if first == nil || first.Text != "多商品共用回复" {
+		t.Errorf("item1 应命中多商品规则，got %+v", first)
+	}
+	// 命中共用规则中的第二个商品。
+	second := r.resolve(ctx, chatMsg("价格多少", "item2", "chat2"))
+	if second == nil || second.Text != "多商品共用回复" {
+		t.Errorf("item2 应命中多商品规则，got %+v", second)
+	}
+	// 未关联商品回退到账号级规则。
+	fallback := r.resolve(ctx, chatMsg("价格多少", "item3", "chat3"))
+	if fallback == nil || fallback.Text != "通用价格回复" {
+		t.Errorf("未关联商品应回退账号级，got %+v", fallback)
+	}
+}
+
 // TestKeywordReply_EmptyReplySkip 匹配到空回复 → Skip。
 func TestKeywordReply_EmptyReplySkip(t *testing.T) {
 	// s、cleanup 用于本次流程后续判断的s、cleanup

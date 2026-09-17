@@ -21,13 +21,15 @@ Zap,
 } from 'lucide-react';
 import React,{ useEffect,useMemo,useState } from 'react';
 import { createPortal } from 'react-dom';
+import Toast from '../components/Toast';
 import AllItemsConfirmation from '../components/AllItemsConfirmation';
 import { AutomationIssuePanel } from '../components/AutomationIssuePanel';
+import ItemMultiSelect from '../components/ItemMultiSelect';
 import TemplateVariantEditor from '../components/TemplateVariantEditor';
 import { useRulesData } from '../hooks';
 import { filterAutomationIssues } from '../issueState';
 import { useRuleActions } from '../ruleActions';
-import type { AutomationTriggerType,RulesProps,RulesTab } from '../types';
+import type { AutomationTriggerType,ReplyRule,RulesProps,RulesTab } from '../types';
 import { accentClasses,accountLabel,actionSummary,adjustPriceTarget,buildReviewConfig,cardActionsForTrigger,isDeliveryCardReady,needsAllItemsConfirmation,statusPill,triggerMeta,triggerOrder,withAllItemsConfirmation } from '../utils';
 
 // Rules 是规则 feature 在旧页面目录下保留的兼容入口组件。
@@ -112,7 +114,8 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
     currentMeta, reviewConfig, displayVariants, openAutomationRule, openNewAutomationRule, handleTriggerChange,
     handleAutomationItemChange, updateVariant, updateAdjustPriceTarget, updateAdjustPriceNotifyText, appendDeliveryContent, handleSaveAutomationRule, handleDeleteAutomation,
     handleToggleAutomation, handleResolveRunIssue, handleResolveDeferredIssue, handleAddReplyRule, handleSaveReplyRule,
-    handleDeleteReply, openDefaultReplyModal, handleSaveDefaultReply, handleDeleteDefaultReply, handleClearDefaultReplyRecords,
+    handleDeleteReply, toast, openDefaultReplyModal, handleSaveDefaultReply, handleDeleteDefaultReply,
+    handleClearDefaultReplyRecords,
   } = ruleActions;
 
   useEffect(/* 当前回调同步 React 副作用和资源生命周期。 */ () => {
@@ -176,6 +179,32 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
     const cookieID = editingAutomationRule?.cookie_id || selectedAccountId;
     return items.filter(/* 当前回调处理集合中的单个元素。 */ item => item.cookie_id === cookieID);
   }, [editingAutomationRule?.cookie_id, items, selectedAccountId]);
+
+  // replyModalItems 是回复规则弹窗可关联的本地商品候选。
+  const replyModalItems = useMemo(
+    /* 当前回调按当前账号过滤本地商品。 */ () => items.filter(/* 当前回调处理集合中的单个元素。 */ item => !selectedAccountId || item.cookie_id === selectedAccountId),
+    [items, selectedAccountId],
+  );
+
+  // itemTitleIndex 保存当前账号商品标识到商品标题的映射，用于列表展示已关联商品。
+  const itemTitleIndex = useMemo(/* 当前回调建立当前账号的商品标题索引。 */ () => {
+    // index 是本次构建的商品标识到标题的映射。
+    const index = new Map<string, string>();
+    // item 表示当前待登记的商品。
+    for (const /* item 是当前待登记商品标题的本地商品。 */ item of replyModalItems) {
+      // itemID 是去除首尾空白后的商品标识。
+      const itemID = item.item_id?.trim();
+      if (itemID && !index.has(itemID)) index.set(itemID, item.item_title || itemID);
+    }
+    return index;
+  }, [replyModalItems]);
+
+  // replyRuleItemLabels 返回规则关联商品的可读标签集合，账号级规则返回空集合。
+  const replyRuleItemLabels = (rule: ReplyRule): string[] => {
+    // itemIDs 是规则关联的商品标识集合，优先使用多选集合并回退兼容单值。
+    const itemIDs = rule.item_ids?.length ? rule.item_ids : (rule.item_id ? [rule.item_id] : []);
+    return itemIDs.map(/* 当前回调把商品标识还原为可读标题。 */ (itemID: string) => itemTitleIndex.get(itemID) || itemID);
+  };
 
   // primaryActionLabel 主操作按钮文案。
   const primaryActionLabel = activeTab === 'automation'
@@ -514,12 +543,22 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
             这里只处理买家用户消息；系统通知不会进入关键词或 AI 回复。
           </div>
           <div className="space-y-3">
-            {replyRules.map(/* 当前回调处理集合中的单个元素。 */ rule => (
+            {replyRules.map(/* 当前回调处理集合中的单个元素。 */ rule => {
+              // itemLabels 是当前规则关联商品的可读标签集合。
+              const itemLabels = replyRuleItemLabels(rule);
+              return (
               <div key={rule.id} className="flex flex-col md:flex-row md:items-center justify-between p-5 rounded-2xl border border-gray-100 bg-surface-subtle hover:bg-white hover:shadow-lg transition-all gap-4">
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-3 mb-2">
+                  <div className="flex flex-wrap items-center gap-3 mb-2">
                     <span className="px-3 py-1 bg-black text-white rounded-lg text-xs font-bold">包含匹配</span>
                     <h3 className="font-bold text-gray-900">“{rule.keyword}”</h3>
+                    {itemLabels.length === 0 ? (
+                      <span className="px-3 py-1 bg-gray-100 text-gray-600 rounded-lg text-xs font-bold">账号级</span>
+                    ) : (
+                      itemLabels.map(/* 当前回调渲染单个关联商品标签。 */ label => (
+                        <span key={`${rule.id}-${label}`} className="max-w-[16rem] truncate px-3 py-1 bg-blue-50 text-blue-700 rounded-lg text-xs font-bold" title={label}>{label}</span>
+                      ))
+                    )}
                   </div>
                   <div className="bg-white p-3 rounded-xl border border-gray-100 text-sm text-gray-600 leading-relaxed">
                     {rule.type === 'image' && rule.image_url ? rule.image_url : rule.reply_content}
@@ -541,7 +580,8 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                   </button>
                 </div>
               </div>
-            ))}
+              );
+            })}
             {replyRules.length === 0 && <div className="text-center py-20 text-gray-400">暂无关键词回复规则</div>}
           </div>
         </section>
@@ -1050,16 +1090,12 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-2">关联商品</label>
-                  <select
-                    value={editingReplyRule.item_id || ''}
-                    onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setEditingReplyRule({ ...editingReplyRule, item_id: event.target.value })}
-                    className="w-full ios-input px-4 py-3 rounded-xl"
-                  >
-                    <option value="">账号级回复</option>
-                    {items.filter(/* 当前回调处理集合中的单个元素。 */ item => !selectedAccountId || item.cookie_id === selectedAccountId).map(/* 当前回调处理集合中的单个元素。 */ item => (
-                      <option key={`${item.cookie_id}-${item.item_id}`} value={item.item_id}>{item.item_title || item.item_id}</option>
-                    ))}
-                  </select>
+                  <ItemMultiSelect
+                    options={replyModalItems}
+                    value={editingReplyRule.item_ids?.length ? editingReplyRule.item_ids : (editingReplyRule.item_id ? [editingReplyRule.item_id] : [])}
+                    onChange={/* 当前回调处理用户交互或异步状态变化。 */ itemIDs => setEditingReplyRule({ ...editingReplyRule, item_ids: itemIDs, item_id: itemIDs[0] || '' })}
+                  />
+                  <p className="mt-2 text-xs text-gray-400">可多选；不选表示账号级回复。候选来自本地已同步商品，支持搜索。</p>
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-2">回复类型</label>
@@ -1238,6 +1274,8 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
         </div>,
         document.body
       )}
+
+      <Toast toast={toast} />
     </div>
   );
 };

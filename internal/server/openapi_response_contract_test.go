@@ -45,6 +45,7 @@ func TestOpenAPISuccessContractCoverage(t *testing.T) {
 		{name: "versioned-item-batches", run: TestVersionedItemBatchRoutesPreserveLegacyContracts},
 		{name: "versioned-chat-tasks", run: TestVersionedChatTaskRoutesPreserveLegacyContracts},
 		{name: "versioned-replies", run: TestVersionedReplyRoutesPreserveLegacyContracts},
+		{name: "versioned-reply-typed-item-ids", run: TestVersionedReplyTypedListExposesItemIDs},
 		{name: "versioned-remaining", run: TestVersionedRemainingRoutesPreserveLegacyContracts},
 		{name: "named-success", run: TestNamedSuccessResponseContracts},
 		{name: "remaining-success", run: TestRemainingSuccessResponseContracts},

@@ -25,8 +25,10 @@ type keywordBatchItem struct {
 	Keyword string `json:"keyword"`
 	// Reply 是文字回复正文。
 	Reply string `json:"reply"`
-	// ItemID 是可选商品标识。
+	// ItemID 是可选商品标识；多选场景以 ItemIDs 为准。
 	ItemID string `json:"item_id"`
+	// ItemIDs 是关联商品标识集合；空集合表示账号级回复。
+	ItemIDs []string `json:"item_ids"`
 	// Type 是 text 或 image 回复类型。
 	Type string `json:"type"`
 	// ImageURL 是图片回复地址。
@@ -39,8 +41,10 @@ type keywordBatchRequest struct {
 	Keyword string `json:"keyword"`
 	// Reply 是单项创建的文字回复正文。
 	Reply string `json:"reply"`
-	// ItemID 是单项创建的可选商品标识。
+	// ItemID 是单项创建的可选商品标识；多选场景以 ItemIDs 为准。
 	ItemID string `json:"item_id"`
+	// ItemIDs 是单项创建的关联商品标识集合；空集合表示账号级回复。
+	ItemIDs []string `json:"item_ids"`
 	// Type 是单项创建的回复类型。
 	Type string `json:"type"`
 	// ImageURL 是单项创建的图片回复地址。
@@ -55,8 +59,10 @@ type keywordUpdateRequest struct {
 	Keyword string `json:"keyword"`
 	// Reply 是文字回复正文。
 	Reply string `json:"reply"`
-	// ItemID 是可选商品标识。
+	// ItemID 是可选商品标识；多选场景以 ItemIDs 为准。
 	ItemID string `json:"item_id"`
+	// ItemIDs 是关联商品标识集合；空集合表示账号级回复。
+	ItemIDs []string `json:"item_ids"`
 	// Type 是 text 或 image 回复类型。
 	Type string `json:"type"`
 	// ImageURL 是图片回复地址。
@@ -187,7 +193,7 @@ func (s *Server) listKeywordsWithType(w http.ResponseWriter, r *http.Request) {
 	result := make([]keywordTypedResponse, 0, len(rows))
 	// row 是当前待映射的关键词规则。
 	for _, row := range rows {
-		result = append(result, keywordTypedResponse{ID: row.ID, Keyword: row.Keyword, Reply: row.Reply, ItemID: row.ItemID, Type: row.Type, ImageURL: row.ImageURL})
+		result = append(result, keywordTypedResponse{ID: row.ID, Keyword: row.Keyword, Reply: row.Reply, ItemID: row.ItemID, ItemIDs: keywords.SplitItemIDs(row.ItemID), Type: row.Type, ImageURL: row.ImageURL})
 	}
 	writeJSON(w, http.StatusOK, result)
 }
@@ -237,7 +243,7 @@ func (s *Server) addKeywordWithItemID(w http.ResponseWriter, r *http.Request) {
 		drafts := make([]keywords.Draft, 0, len(*request.Keywords))
 		// item 是当前待转换的批量请求项。
 		for _, item := range *request.Keywords {
-			drafts = append(drafts, keywords.Draft{Keyword: item.Keyword, Reply: item.Reply, ItemID: item.ItemID, Type: item.Type, ImageURL: item.ImageURL})
+			drafts = append(drafts, keywords.Draft{Keyword: item.Keyword, Reply: item.Reply, ItemID: item.ItemID, ItemIDs: item.ItemIDs, Type: item.Type, ImageURL: item.ImageURL})
 		}
 		// err 表示批量替换规则的应用服务错误。
 		if err := s.keywordApplication().Replace(r.Context(), userID, cookieID, drafts); err != nil {
@@ -248,7 +254,7 @@ func (s *Server) addKeywordWithItemID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// id 是新建规则的持久化标识；兼容响应保留该字段。
-	id, err := s.keywordApplication().Add(r.Context(), userID, cookieID, keywords.Draft{Keyword: request.Keyword, Reply: request.Reply, ItemID: request.ItemID, Type: request.Type, ImageURL: request.ImageURL})
+	id, err := s.keywordApplication().Add(r.Context(), userID, cookieID, keywords.Draft{Keyword: request.Keyword, Reply: request.Reply, ItemID: request.ItemID, ItemIDs: request.ItemIDs, Type: request.Type, ImageURL: request.ImageURL})
 	if err != nil {
 		writeKeywordError(w, err, "添加失败")
 		return
@@ -278,8 +284,8 @@ func (s *Server) updateKeywordByID(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "keyword 必填")
 		return
 	}
-	// updateErr 表示应用层更新结果。
-	updateErr := s.keywordApplication().Update(r.Context(), userID, cookieID, id, keywords.Draft{Keyword: request.Keyword, Reply: request.Reply, ItemID: request.ItemID, Type: request.Type, ImageURL: request.ImageURL})
+	// updateErr 表示应用层按商品范围字段更新规则的结果。
+	updateErr := s.keywordApplication().Update(r.Context(), userID, cookieID, id, keywords.Draft{Keyword: request.Keyword, Reply: request.Reply, ItemID: request.ItemID, ItemIDs: request.ItemIDs, Type: request.Type, ImageURL: request.ImageURL})
 	if updateErr != nil {
 		writeKeywordError(w, updateErr, "保存失败")
 		return

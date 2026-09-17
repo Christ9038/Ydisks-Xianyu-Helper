@@ -5909,6 +5909,12 @@ paths:
             schema:
               type: string
       security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KeywordCreateRequest'
       responses:
         '200':
           description: 成功
@@ -6062,6 +6068,12 @@ paths:
             schema:
               type: string
       security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KeywordCreateRequest'
       responses:
         '200':
           description: 成功
@@ -7519,17 +7531,28 @@ components:
       items: {$ref: '#/components/schemas/KeywordItemResponse'}
     KeywordTypedResponse:
       type: object
-      required: [id, keyword, reply, item_id, type, image_url]
+      required: [id, keyword, reply, item_id, item_ids, type, image_url]
       properties:
         id: {type: integer}
         keyword: {type: string}
         reply: {type: string}
-        item_id: {type: string}
+        item_id: {type: string, description: 关联商品标识的持久化字段；多选时为逗号分隔串，空串表示账号级回复}
+        item_ids: {type: array, items: {type: string}, description: 关联商品标识集合；空集合表示账号级回复}
         type: {type: string}
         image_url: {type: string}
     KeywordTypedListResponse:
       type: array
       items: {$ref: '#/components/schemas/KeywordTypedResponse'}
+    KeywordCreateRequest:
+      type: object
+      required: [keyword, reply, item_id, item_ids, type, image_url]
+      properties:
+        keyword: {type: string}
+        reply: {type: string}
+        item_id: {type: string, description: 兼容旧单值调用方；多选时由 item_ids 合并而来}
+        item_ids: {type: array, items: {type: string}, description: 关联商品标识集合；一条规则可关联多个商品，空集合表示账号级回复}
+        type: {type: string}
+        image_url: {type: string}
     DefaultReplyMapResponse:
       type: object
       additionalProperties:
