@@ -80,7 +80,6 @@ func TestVersionedReplyRoutesPreserveLegacyContracts(t *testing.T) {
 	}
 }
 
-
 // TestVersionedReplyTypedListExposesItemIDs 验证带类型列表对每条规则都暴露商品范围集合。
 func TestVersionedReplyTypedListExposesItemIDs(t *testing.T) {
 	// srv、store 与 cleanup 保存带类型列表契约测试使用的服务、数据库聚合和资源清理函数。

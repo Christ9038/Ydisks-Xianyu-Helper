@@ -72,7 +72,8 @@ func SplitItemIDs(raw string) []string {
 		if itemID == "" {
 			continue
 		}
-		if _, /* ok 表示该商品标识是否已被收录。 */ ok := seen[itemID]; ok {
+		// ok 表示该商品标识是否已被收录。
+		if _, ok := seen[itemID]; ok {
 			continue
 		}
 		seen[itemID] = struct{}{}

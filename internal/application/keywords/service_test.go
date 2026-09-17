@@ -363,6 +363,7 @@ func TestValidationErrorText(t *testing.T) {
 		t.Fatalf("custom validation error=%q", customError)
 	}
 }
+
 // TestSplitItemIDs 验证商品范围字段拆分、去重、去空白并保持首次出现顺序。
 func TestSplitItemIDs(t *testing.T) {
 	// cases 覆盖单值、多值、重复与空白商品范围的拆分边界。
