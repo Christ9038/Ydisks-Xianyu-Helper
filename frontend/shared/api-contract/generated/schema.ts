@@ -2195,11 +2195,24 @@ export interface components {
             id: number;
             keyword: string;
             reply: string;
+            /** @description 关联商品标识的持久化字段；多选时为逗号分隔串，空串表示账号级回复 */
             item_id: string;
+            /** @description 关联商品标识集合；空集合表示账号级回复 */
+            item_ids: string[];
             type: string;
             image_url: string;
         };
         KeywordTypedListResponse: components["schemas"]["KeywordTypedResponse"][];
+        KeywordCreateRequest: {
+            keyword: string;
+            reply: string;
+            /** @description 兼容旧单值调用方；多选时由 item_ids 合并而来 */
+            item_id: string;
+            /** @description 关联商品标识集合；一条规则可关联多个商品，空集合表示账号级回复 */
+            item_ids: string[];
+            type: string;
+            image_url: string;
+        };
         DefaultReplyMapResponse: {
             [key: string]: components["schemas"]["DefaultReplyResponse"];
         };
@@ -11730,7 +11743,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KeywordCreateRequest"];
+            };
+        };
         responses: {
             /** @description 成功 */
             200: {
@@ -11865,7 +11882,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KeywordCreateRequest"];
+            };
+        };
         responses: {
             /** @description 成功 */
             200: {

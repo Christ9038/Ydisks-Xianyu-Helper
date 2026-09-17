@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -76,5 +77,43 @@ func TestVersionedReplyRoutesPreserveLegacyContracts(t *testing.T) {
 		if versionedStatus != routeCase.wantStatus || legacyStatus != routeCase.wantStatus {
 			t.Errorf("%s status versioned=%d legacy=%d want=%d", routeCase.name, versionedStatus, legacyStatus, routeCase.wantStatus)
 		}
+	}
+}
+
+
+// TestVersionedReplyTypedListExposesItemIDs 验证带类型列表对每条规则都暴露商品范围集合。
+func TestVersionedReplyTypedListExposesItemIDs(t *testing.T) {
+	// srv、store 与 cleanup 保存带类型列表契约测试使用的服务、数据库聚合和资源清理函数。
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	// handler 是当前测试使用的完整路由树。
+	handler := srv.Router()
+	// sessionCookie 是管理员登录后得到的认证会话。
+	sessionCookie := loginHelper(t, handler)
+	// err 表示测试用账号写入失败；测试夹具可能已预置该账号。
+	if _, err := store.DB.ExecContext(context.Background(),
+		`INSERT OR IGNORE INTO cookies (id,value,user_id) VALUES (?,?,?)`, "acc1", "cookie-value", 1); err != nil {
+		t.Fatalf("写入测试账号失败: %v", err)
+	}
+	// seedErr 表示测试用回复规则写入失败。
+	if _, seedErr := store.DB.ExecContext(context.Background(),
+		`INSERT INTO keywords (cookie_id,keyword,reply,item_id,type) VALUES (?,?,?,?,?)`,
+		"acc1", "关键词", "回复", "item-1", "text"); seedErr != nil {
+		t.Fatalf("写入测试回复规则失败: %v", seedErr)
+	}
+	// recorder 保存带类型列表接口的响应。
+	recorder := httptest.NewRecorder()
+	// request 是带类型列表接口的 GET 请求。
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/reply-rules/acc1/typed", nil)
+	request.AddCookie(sessionCookie)
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	assertOpenAPIRecordedSuccessResponse(t, request, recorder)
+	// body 是带类型列表的 JSON 响应正文。
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"item_ids":["item-1"]`) {
+		t.Fatalf("响应缺少 item_ids 集合: %s", body)
 	}
 }

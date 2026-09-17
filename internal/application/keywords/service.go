@@ -34,6 +34,10 @@ func (e *ValidationError) Error() string {
 	return e.Message
 }
 
+// KeywordItemIDSeparator 是关键词规则关联多个商品时使用的持久化分隔符。
+// 逗号分隔与历史单值格式完全兼容：单值规则的 item_id 天然是单元素集合。
+const KeywordItemIDSeparator = ","
+
 // Keyword 是关键词回复的应用层模型，不携带数据库连接或敏感凭证。
 type Keyword struct {
 	// ID 是关键词规则的持久化标识。
@@ -44,12 +48,43 @@ type Keyword struct {
 	Keyword string
 	// Reply 是文字回复内容。
 	Reply string
-	// ItemID 是可选的商品范围标识。
+	// ItemID 是关联商品标识的持久化形式；多选时为逗号分隔串，空串表示账号级规则。
 	ItemID string
 	// Type 是 text 或 image 回复类型。
 	Type string
 	// ImageURL 是 image 类型回复使用的图片地址。
 	ImageURL string
+}
+
+// SplitItemIDs 把持久化的商品范围字段拆分为去空白的商品标识集合。
+// 空字段返回空集合，代表账号级规则；重复项按首次出现顺序去重。
+func SplitItemIDs(raw string) []string {
+	// parts 是原始字段按分隔符切分后的片段。
+	parts := strings.Split(raw, KeywordItemIDSeparator)
+	// seen 记录已收录的商品标识，用于剔除重复项。
+	seen := make(map[string]struct{}, len(parts))
+	// result 保存去重且去除空白后的商品标识集合。
+	result := make([]string, 0, len(parts))
+	// part 表示当前待规整的商品标识片段。
+	for _, part := range parts {
+		// itemID 是去除首尾空白后的商品标识。
+		itemID := strings.TrimSpace(part)
+		if itemID == "" {
+			continue
+		}
+		if _, /* ok 表示该商品标识是否已被收录。 */ ok := seen[itemID]; ok {
+			continue
+		}
+		seen[itemID] = struct{}{}
+		result = append(result, itemID)
+	}
+	return result
+}
+
+// JoinItemIDs 把商品标识集合规整为持久化的逗号分隔字段。
+// 空集合返回空串以保持账号级规则语义，重复项与空白项会被剔除。
+func JoinItemIDs(itemIDs []string) string {
+	return strings.Join(SplitItemIDs(strings.Join(itemIDs, KeywordItemIDSeparator)), KeywordItemIDSeparator)
 }
 
 // Draft 是创建、更新或批量替换关键词规则的业务输入。
@@ -58,8 +93,10 @@ type Draft struct {
 	Keyword string
 	// Reply 是文字回复内容。
 	Reply string
-	// ItemID 是可选的商品范围标识。
+	// ItemID 是关联商品范围的持久化字段；多选时由 ItemIDs 合并而来。
 	ItemID string
+	// ItemIDs 是关联商品范围标识集合；去重后的空集合表示账号级回复。
+	ItemIDs []string
 	// Type 是 text 或 image 回复类型；空值按 text 处理。
 	Type string
 	// ImageURL 是 image 类型回复使用的图片地址。
@@ -264,13 +301,16 @@ func (s *Service) validateUser(userID int64) error {
 	return nil
 }
 
-// normalizeDraft 统一回复类型和内容字段，并拒绝不完整输入。
+// normalizeDraft 统一回复类型、商品范围字段和内容字段，并拒绝不完整输入。
+// 商品范围同时接受兼容的单值 ItemID 与多值 ItemIDs，去重后合并写回 ItemID，
+// 使一条规则可以关联多个商品，同时保持历史单值数据的原样可读。
 func normalizeDraft(draft Draft) (Draft, error) {
 	draft.Keyword = strings.TrimSpace(draft.Keyword)
 	draft.Type = strings.ToLower(strings.TrimSpace(draft.Type))
-	draft.ItemID = strings.TrimSpace(draft.ItemID)
 	draft.Reply = strings.TrimSpace(draft.Reply)
 	draft.ImageURL = strings.TrimSpace(draft.ImageURL)
+	draft.ItemID = JoinItemIDs(mergeItemIDs(draft.ItemID, draft.ItemIDs))
+	draft.ItemIDs = SplitItemIDs(draft.ItemID)
 	if draft.Keyword == "" {
 		return Draft{}, &ValidationError{Message: "keyword 必填"}
 	}
@@ -292,4 +332,15 @@ func normalizeDraft(draft Draft) (Draft, error) {
 		return Draft{}, &ValidationError{Message: "回复类型必须是 text 或 image"}
 	}
 	return draft, nil
+}
+
+// mergeItemIDs 合并兼容单值和多值商品标识，按输入顺序展开以便统一去重。
+func mergeItemIDs(single string, multiple []string) []string {
+	// merged 保存按“先单值后多值”顺序展开的待去重商品标识。
+	merged := make([]string, 0, len(multiple)+1)
+	if strings.TrimSpace(single) != "" {
+		merged = append(merged, single)
+	}
+	merged = append(merged, multiple...)
+	return merged
 }

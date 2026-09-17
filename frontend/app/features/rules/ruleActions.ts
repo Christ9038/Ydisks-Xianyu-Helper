@@ -1,4 +1,4 @@
-import { useCallback,useEffect,useMemo,useState,type Dispatch,type SetStateAction } from 'react';
+import { useCallback,useEffect,useMemo,useRef,useState,type Dispatch,type SetStateAction } from 'react';
 import {
 clearDefaultReplyRecords,
 deleteDefaultReply,
@@ -17,6 +17,10 @@ updateShippingRule,
 import { finishRuleSubmission,idleRuleSubmitState,startRuleSubmission,type RuleSubmitState } from './interactionState';
 import type { AutomationTriggerType,Card,DefaultReplyForm,DeliveryTemplate,Item,ReplyRule,RulesProps,RulesTab,ShippingRule,ShippingVariant } from './types';
 import { adjustPriceTarget,boolFlag,buildAdjustPriceConfig,buildReviewConfig,cardActionsForTrigger,defaultRuleName,emptyVariant,hasCompleteTemplateBindings,isValidAdjustPrice,parseJSONObject,shouldReplaceGeneratedName,triggerMeta,withAllItemsConfirmation } from './utils';
+import type { ToastValue } from './components/Toast';
+
+// RULE_TOAST_DURATION_MS 是关键词回复操作轻提示的展示时长（毫秒）。
+const RULE_TOAST_DURATION_MS = 3000;
 
 // RuleActionsOptions 描述规则动作协调器依赖的页面数据、刷新函数和外部联动目标。
 export interface RuleActionsOptions {
@@ -130,6 +134,10 @@ export interface RuleActionsState {
   handleSaveReplyRule: () => Promise<void>;
   // handleDeleteReply 删除指定关键词回复规则。
   handleDeleteReply: (id: string) => Promise<void>;
+  // toast 保存关键词回复操作的轻提示内容。
+  toast: ToastValue | null;
+  // showReplyToast 展示关键词回复操作的轻提示。
+  showReplyToast: (type: ToastValue['type'], text: string) => void;
   // openDefaultReplyModal 打开指定账号的默认回复弹窗。
   openDefaultReplyModal: (cookieID?: string) => Promise<void>;
   // handleSaveDefaultReply 保存当前默认回复配置。
@@ -176,6 +184,24 @@ export const useRuleActions = ({
   const [editingReplyRule, setEditingReplyRule] = useState<Partial<ReplyRule> | null>(null);
   // defaultForm 保存当前默认回复草稿。
   const [defaultForm, setDefaultForm] = useState<DefaultReplyForm>({ cookie_id: '', enabled: false, reply_content: '', reply_once: false, reply_image_url: '' });
+  // toast 保存关键词回复操作的轻提示内容。
+  const [toast, setToast] = useState<ToastValue | null>(null);
+  // toastTimer 保存轻提示自动消失的定时器句柄。
+  const toastTimer = useRef<number | null>(null);
+
+  // showReplyToast 展示关键词回复操作的轻提示并重置自动消失计时。
+  const showReplyToast = useCallback(/* showToastAction 写入轻提示状态。 */ (type: ToastValue['type'], text: string) => {
+    setToast({ type, text });
+    if (toastTimer.current !== null) window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(/* 当前回调在提示展示结束后清理状态。 */ () => {
+      toastTimer.current = null;
+      setToast(null);
+    }, RULE_TOAST_DURATION_MS);
+  }, []);
+
+  useEffect(/* 当前副作用在动作协调器卸载时清理未触发的轻提示定时器。 */ () => /* 当前回调清理轻提示定时器。 */ () => {
+    if (toastTimer.current !== null) window.clearTimeout(toastTimer.current);
+  }, []);
 
   // selectedRuleItem 查找当前自动化规则草稿绑定的商品。
   const selectedRuleItem = useMemo(
@@ -443,28 +469,28 @@ export const useRuleActions = ({
 
   // handleAddReplyRule 打开一个空的关键词回复草稿。
   const handleAddReplyRule = useCallback(/* addReplyAction 创建关键词回复草稿。 */ () => {
-    if (!selectedAccountId) return alert('请先选择账号');
-    setEditingReplyRule({ keyword: '', reply_content: '', image_url: '', item_id: '', type: 'text', match_type: 'fuzzy', enabled: true });
+    if (!selectedAccountId) return showReplyToast('error', '请先选择账号');
+    setEditingReplyRule({ keyword: '', reply_content: '', image_url: '', item_id: '', item_ids: [], type: 'text', match_type: 'fuzzy', enabled: true });
     setShowReplyModal(true);
-  }, [selectedAccountId]);
+  }, [selectedAccountId, showReplyToast]);
 
   // handleSaveReplyRule 校验并保存关键词回复规则。
   const handleSaveReplyRule = useCallback(/* saveReplyAction 保存关键词回复。 */ async () => {
     if (!editingReplyRule || !selectedAccountId || replySubmitState.submitting) return;
     // hasReplyContent 表示当前回复是否填写了文字或图片。
     const hasReplyContent = editingReplyRule.type === 'image' ? Boolean(editingReplyRule.image_url?.trim()) : Boolean(editingReplyRule.reply_content?.trim());
-    if (!editingReplyRule.keyword?.trim() || !hasReplyContent) return alert('请填写关键词和回复内容');
+    if (!editingReplyRule.keyword?.trim() || !hasReplyContent) return showReplyToast('error', '请填写关键词和回复内容');
     setReplySubmitState(startRuleSubmission(replySubmitState));
     // succeeded 记录保存是否成功。
     let succeeded = false;
-    try { await updateReplyRule({ ...editingReplyRule, match_type: 'fuzzy', enabled: true }, selectedAccountId); setShowReplyModal(false); await loadReplyRules(); alert('保存成功'); succeeded = true; } catch (/* error 表示关键词回复保存异常。 */ error) { alert('保存失败：' + (error as Error).message); } finally { setReplySubmitState(/* current 保存关键词提交状态。 */ current => finishRuleSubmission(current, succeeded)); }
-  }, [editingReplyRule, loadReplyRules, replySubmitState, selectedAccountId]);
+    try { await updateReplyRule({ ...editingReplyRule, match_type: 'fuzzy', enabled: true }, selectedAccountId); setShowReplyModal(false); await loadReplyRules(); showReplyToast('success', '保存成功'); succeeded = true; } catch (/* error 表示关键词回复保存异常。 */ error) { showReplyToast('error', '保存失败：' + (error as Error).message); } finally { setReplySubmitState(/* current 保存关键词提交状态。 */ current => finishRuleSubmission(current, succeeded)); }
+  }, [editingReplyRule, loadReplyRules, replySubmitState, selectedAccountId, showReplyToast]);
 
   // handleDeleteReply 删除指定关键词回复并刷新列表。
   const handleDeleteReply = useCallback(/* deleteReplyAction 删除关键词回复。 */ async (id: string) => {
     if (!selectedAccountId || !confirm('确定删除该回复规则吗？')) return;
-    try { await deleteReplyRule(id, selectedAccountId); await loadReplyRules(); alert('删除成功'); } catch (/* error 表示关键词回复删除异常。 */ error) { alert('删除失败：' + (error as Error).message); }
-  }, [loadReplyRules, selectedAccountId]);
+    try { await deleteReplyRule(id, selectedAccountId); await loadReplyRules(); showReplyToast('success', '删除成功'); } catch (/* error 表示关键词回复删除异常。 */ error) { showReplyToast('error', '删除失败：' + (error as Error).message); }
+  }, [loadReplyRules, selectedAccountId, showReplyToast]);
 
   // openDefaultReplyModal 加载指定账号的默认回复配置并打开弹窗。
   const openDefaultReplyModal = useCallback(/* openDefaultAction 加载默认回复草稿。 */ async (cookieID = selectedAccountId) => {
@@ -509,7 +535,8 @@ export const useRuleActions = ({
     currentMeta, reviewConfig, displayVariants, buildAutomationDraft, openAutomationRule, openNewAutomationRule,
     handleTriggerChange, handleAutomationItemChange, updateVariant, updateAdjustPriceTarget, updateAdjustPriceNotifyText, appendDeliveryContent, handleSaveAutomationRule,
     handleDeleteAutomation, handleToggleAutomation, handleResolveRunIssue, handleResolveDeferredIssue, handleAddReplyRule,
-    handleSaveReplyRule, handleDeleteReply, openDefaultReplyModal, handleSaveDefaultReply, handleDeleteDefaultReply,
+    handleSaveReplyRule, handleDeleteReply, toast, showReplyToast,
+    openDefaultReplyModal, handleSaveDefaultReply, handleDeleteDefaultReply,
     handleClearDefaultReplyRecords,
   };
 };

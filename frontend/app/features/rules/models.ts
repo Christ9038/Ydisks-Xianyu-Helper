@@ -325,8 +325,10 @@ export interface ReplyRule {
   match_type: 'exact' | 'fuzzy';
   /** 规则是否启用。 */
   enabled: boolean;
-  /** 规则限定的商品标识。 */
+  /** 规则限定的商品标识；多选规则取 item_ids 的首项以保持单值语义。 */
   item_id?: string;
+  /** 规则限定的商品标识集合；空集合表示账号级回复。 */
+  item_ids?: string[];
   /** 回复类型。 */
   type?: 'text' | 'image';
   /** 图片回复地址。 */
