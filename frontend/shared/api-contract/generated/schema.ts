@@ -2277,7 +2277,7 @@ export interface components {
             max_bargain_rounds: number;
             custom_prompts: string;
             /** @enum {string} */
-            ai_mode: "bargain_only" | "full_service";
+            ai_mode?: "bargain_only" | "full_service";
         };
         AIReplySettingsMapResponse: {
             [key: string]: components["schemas"]["AIReplySettingsResponse"];

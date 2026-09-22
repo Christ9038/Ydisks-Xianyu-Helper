@@ -1,5 +1,5 @@
 import { ArrowRight,Bot,Box,CheckCircle2,CircleDashed,Edit,Filter,Link2,LocateFixed,PackagePlus,Plus,RefreshCw,Save,Search,ShoppingBag,Trash2,UploadCloud,User,X } from 'lucide-react';
-import React,{ useCallback,useEffect,useMemo,useRef,useState } from 'react';
+import React,{ Suspense,useCallback,useEffect,useMemo,useRef,useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { AccountDetail,Item,ItemAIOverride,ItemAISettings,PublishLocation,ShippingRule } from '../api';
 import {
@@ -1009,13 +1009,15 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery, publishImagesE
         onClose={/* manualLocationCloseAction 关闭手动地点弹窗并释放高德查询。 */ () => setManualLocationTarget(null)}
         onConfirm={confirmManualLocation}
       />
-      {ItemAISettingsModal && (
-        <ItemAISettingsModal
-          item={itemAISettingsTarget}
-          open={itemAISettingsTarget !== null}
-          onClose={/* itemAISettingsCloseHandler 关闭商品级 AI 配置弹窗。 */ () => setItemAISettingsTarget(null)}
-          onSaved={handleItemAISettingsSaved}
-        />
+      {ItemAISettingsModal && itemAISettingsTarget && (
+        <Suspense fallback={null}>
+          <ItemAISettingsModal
+            item={itemAISettingsTarget}
+            open
+            onClose={/* itemAISettingsCloseHandler 关闭商品级 AI 配置弹窗。 */ () => setItemAISettingsTarget(null)}
+            onSaved={handleItemAISettingsSaved}
+          />
+        </Suspense>
       )}
     </div>
   );

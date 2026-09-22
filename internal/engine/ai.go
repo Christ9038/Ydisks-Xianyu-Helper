@@ -84,8 +84,8 @@ func (a *AIReplierImpl) Reply(ctx context.Context, m ChatMessage) (*ReplyResult,
 	if aiMode == "" {
 		aiMode = "bargain_only"
 	}
-	// isBargainMessage 表示当前消息是否命中确定性的砍价语义。
-	isBargainMessage := bargainMessageRe.MatchString(strings.ToLower(m.Text))
+	// isBargainMessage 表示当前消息是否命中确定性的砍价语义；运费等服务金额不参与商品报价安全扫描。
+	isBargainMessage := isBargainMessageText(m.Text)
 	if aiMode == "bargain_only" && !isBargainMessage {
 		return nil, nil
 	}
@@ -218,8 +218,8 @@ func defaultAIReplySettings(cookieID string) *db.AIReplySettings {
 
 // conversationContext 封装conversation上下文业务协调。
 func (a *AIReplierImpl) conversationContext(ctx context.Context, m ChatMessage) ([]db.AIConversationMessage, int, bool, error) {
-	// isBargain 用于本次流程后续判断的isBargain
-	isBargain := bargainMessageRe.MatchString(strings.ToLower(m.Text))
+	// isBargain 表示当前消息是否属于商品成交价议价，运费金额不计入砍价轮次。
+	isBargain := isBargainMessageText(m.Text)
 	if m.ChatID == "" || m.ItemID == "" {
 		return nil, 0, isBargain, nil
 	}
@@ -395,8 +395,14 @@ func appendItemContext(prompt, itemContext string) string {
 // priceRe 用于本次流程后续判断的priceRe
 var priceRe = regexp.MustCompile(`[^\d.]`)
 
-// bargainMessageRe 用于本次流程后续判断的bargain消息Re
-var bargainMessageRe = regexp.MustCompile(`(?i)(便宜|优惠|少点|最低|砍价|降价|打折|能不能.*(?:元|块)|\d+(?:\.\d+)?\s*(?:元|块).*(?:卖|行|可以))`)
+// strongBargainMessageRe 匹配无需依赖金额上下文即可确认的议价词。
+var strongBargainMessageRe = regexp.MustCompile(`(?i)(便宜|优惠|少点|最低|砍价|降价|打折)`)
+
+// serviceAmountMessageRe 匹配运费、邮费和偏远补差等非商品成交价金额上下文。
+var serviceAmountMessageRe = regexp.MustCompile(`(?i)(运费|邮费|快递费|配送费|偏远地区|补运费|运费补差)`)
+
+// numericBargainMessageRe 匹配没有服务费用上下文时的显式金额议价句式。
+var numericBargainMessageRe = regexp.MustCompile(`(?i)(能不能.*(?:元|块)|\d+(?:\.\d+)?\s*(?:元|块).*(?:卖|行|可以))`)
 
 // offeredPriceRe 用于本次流程后续判断的offeredPriceRe
 var offeredPriceRe = regexp.MustCompile(`(\d+(?:\.\d+)?)\s*(?:元|块)`)
@@ -406,6 +412,22 @@ var executableOfferRe = regexp.MustCompile(`\[\[AUTO_PRICE:(\d+(?:\.\d{1,2})?)\]
 
 // internalOfferMarkerRe 匹配任意格式的内部报价标记，确保模型格式错误时也不会泄露给买家。
 var internalOfferMarkerRe = regexp.MustCompile(`\[\[AUTO_PRICE:[^\]]*\]\]`)
+
+// isBargainMessageText 区分商品成交价议价与运费等普通客服金额；明确议价词始终优先。
+func isBargainMessageText(content string) bool {
+	// normalized 是用于正则分类的去空白小写消息文本。
+	normalized := strings.ToLower(strings.TrimSpace(content))
+	if normalized == "" {
+		return false
+	}
+	if strongBargainMessageRe.MatchString(normalized) {
+		return true
+	}
+	if serviceAmountMessageRe.MatchString(normalized) {
+		return false
+	}
+	return numericBargainMessageRe.MatchString(normalized)
+}
 
 // extractExecutableOffer 从模型输出移除内部报价标记，并返回可校验的十进制金额。
 func extractExecutableOffer(content string) (string, float64, bool) {

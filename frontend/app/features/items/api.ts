@@ -76,23 +76,23 @@ export const getItems = async (cookieId?: string, options?: RequestControlOption
 
 // getItemAISettings 在用户打开配置弹窗时读取单件商品的完整 AI 配置。
 export const getItemAISettings = async (cookieId: string, itemId: string, options?: RequestControlOptions): Promise<ItemAISettings> => {
-    // response 是商品级 AI 配置接口返回的传输对象；生成契约由并行契约任务维护。
-    const response = await runContractRequest(/* signal 控制商品级 AI 配置读取的取消和超时。 */ signal => contractClient.GET('/api/v1/items/{cookie_id}/{item_id}/ai-settings' as never, {
+    // response 是生成契约约束的商品级 AI 配置传输对象。
+    const response = await runContractRequest(/* signal 控制商品级 AI 配置读取的取消和超时。 */ signal => contractClient.GET('/api/v1/items/{cookie_id}/{item_id}/ai-settings', {
       params: { path: { cookie_id: cookieId, item_id: itemId } },
       signal,
-    } as never), options) as unknown as ItemAISettings;
-    return response;
+    }), options);
+    return { ai_override: response.ai_override, item_context: response.item_context };
 }
 
 // updateItemAISettings 保存单件商品的 AI 覆盖状态和专属资料。
 export const updateItemAISettings = async (cookieId: string, itemId: string, settings: ItemAISettings, options?: RequestControlOptions): Promise<ItemAISettings> => {
     // response 是服务端保存后返回的规范化商品级 AI 配置。
-    const response = await runContractRequest(/* signal 控制商品级 AI 配置保存的取消和超时。 */ signal => contractClient.PUT('/api/v1/items/{cookie_id}/{item_id}/ai-settings' as never, {
+    const response = await runContractRequest(/* signal 控制商品级 AI 配置保存的取消和超时。 */ signal => contractClient.PUT('/api/v1/items/{cookie_id}/{item_id}/ai-settings', {
       params: { path: { cookie_id: cookieId, item_id: itemId } },
       body: settings,
       signal,
-    } as never), options) as unknown as ItemAISettings;
-    return response;
+    }), options);
+    return { ai_override: response.ai_override, item_context: response.item_context };
 }
 
 // syncItemsFromAccount 从账号同步商品。

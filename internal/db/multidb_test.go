@@ -69,6 +69,87 @@ func TestMultiDB_TargetMatrix(t *testing.T) {
 	}
 }
 
+// TestMultiDB_AISettingsConstraintsAndCascade 验证账号模式、商品三态、跨方言 UPSERT 与账号删除级联保持一致。
+func TestMultiDB_AISettingsConstraintsAndCascade(t *testing.T) {
+	// target 表示当前执行迁移和约束回归的数据库方言目标。
+	for _, target := range allTestTargets(t) {
+		// target 是当前子测试独占的数据库目标副本，避免循环变量复用。
+		target := target
+		t.Run(target.name, func(t *testing.T) {
+			defer target.cleanup()
+			// ctx 是当前方言内用户、账号和 AI 配置操作共用的测试上下文。
+			ctx := context.Background()
+			// suffix 保证外部数据库并行或重复执行时使用唯一业务标识。
+			suffix := fmt.Sprintf("%d", atomic.AddUint64(&multidbCounter, 1))
+			// username 是当前方言测试用户名称。
+			username := target.name + "_ai_" + suffix
+			// cookieID 是当前方言测试账号标识。
+			cookieID := target.name + "_ai_cookie_" + suffix
+			// created、createErr 保存测试用户创建结果和失败原因。
+			created, createErr := target.store.Users.Create(ctx, username, username+"@e.com", "pw")
+			if createErr != nil || !created {
+				t.Fatalf("create user: created=%v err=%v", created, createErr)
+			}
+			// user 是账号外键引用的当前测试用户。
+			user, userErr := target.store.Users.GetByUsername(ctx, username)
+			if userErr != nil {
+				t.Fatal(userErr)
+			}
+			if // saveErr 是创建测试账号记录的数据库错误。
+			saveErr := target.store.Cookies.Save(ctx, cookieID, "cookie-value", user.ID); saveErr != nil {
+				t.Fatal(saveErr)
+			}
+			// accountSettings 是要跨方言写入并读回的账号级全客服策略。
+			accountSettings := AIReplySettings{AIEnabled: true, MaxDiscountPercent: 10, MaxDiscountAmount: 20, MaxBargainRounds: 3, AIMode: "full_service"}
+			if // upsertErr 是写入账号级 AI 策略的当前方言错误。
+			upsertErr := target.store.AIReply.UpsertSettings(ctx, cookieID, accountSettings); upsertErr != nil {
+				t.Fatalf("upsert account AI settings: %v", upsertErr)
+			}
+			// itemSettings 是要跨方言写入并读回的商品级覆盖和专属资料。
+			itemSettings := ItemAISettingsRow{CookieID: cookieID, ItemID: "item-1", Override: ItemAIOverrideEnabled, Context: "当天发货"}
+			if // upsertErr 是写入商品级 AI 配置的当前方言错误。
+			upsertErr := target.store.ItemAISettings.Upsert(ctx, itemSettings); upsertErr != nil {
+				t.Fatalf("upsert item AI settings: %v", upsertErr)
+			}
+			// storedAccount、accountErr 验证账号模式 UPSERT 后能从当前方言读回。
+			storedAccount, accountErr := target.store.AIReply.Get(ctx, cookieID)
+			if accountErr != nil || storedAccount.AIMode != "full_service" {
+				t.Fatalf("account AI settings=%+v err=%v", storedAccount, accountErr)
+			}
+			// storedItem、itemErr 验证商品三态和资料 UPSERT 后能从当前方言读回。
+			storedItem, itemErr := target.store.ItemAISettings.Get(ctx, cookieID, "item-1")
+			if itemErr != nil || storedItem.Override != ItemAIOverrideEnabled || storedItem.Context != "当天发货" {
+				t.Fatalf("item AI settings=%+v err=%v", storedItem, itemErr)
+			}
+			if _, // invalidModeErr 是数据库约束拒绝非法账号模式时返回的错误。
+				invalidModeErr := target.store.DB.ExecContext(ctx, `UPDATE ai_reply_settings SET ai_mode=? WHERE cookie_id=?`, "invalid", cookieID); invalidModeErr == nil {
+				t.Fatal("数据库约束应拒绝非法账号 AI 模式")
+			}
+			if _, // invalidOverrideErr 是数据库约束拒绝非法商品三态时返回的错误。
+				invalidOverrideErr := target.store.DB.ExecContext(ctx, `UPDATE item_ai_settings SET ai_override=? WHERE cookie_id=? AND item_id=?`, "invalid", cookieID, "item-1"); invalidOverrideErr == nil {
+				t.Fatal("数据库约束应拒绝非法商品 AI 覆盖值")
+			}
+			if _, // deleteErr 是删除账号并触发外键级联时的数据库错误。
+				deleteErr := target.store.DB.ExecContext(ctx, `DELETE FROM cookies WHERE id=?`, cookieID); deleteErr != nil {
+				t.Fatalf("delete cookie: %v", deleteErr)
+			}
+			// remainingAccount、remainingItem 是删除账号后两个 AI 配置表的残留行数。
+			var remainingAccount, remainingItem int
+			if // countErr 是查询账号 AI 配置残留数量的数据库错误。
+			countErr := target.store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM ai_reply_settings WHERE cookie_id=?`, cookieID).Scan(&remainingAccount); countErr != nil {
+				t.Fatal(countErr)
+			}
+			if // countErr 是查询商品 AI 配置残留数量的数据库错误。
+			countErr := target.store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM item_ai_settings WHERE cookie_id=?`, cookieID).Scan(&remainingItem); countErr != nil {
+				t.Fatal(countErr)
+			}
+			if remainingAccount != 0 || remainingItem != 0 {
+				t.Fatalf("账号删除后 AI 配置未级联清理: account=%d item=%d", remainingAccount, remainingItem)
+			}
+		})
+	}
+}
+
 // multiDBRequired 判断当前运行是否要求 MySQL 与 PostgreSQL 都必须可用。
 // 只接受明确的 1/true/yes 值，避免普通开发环境中偶然继承的任意字符串改变门禁语义。
 func multiDBRequired() bool {

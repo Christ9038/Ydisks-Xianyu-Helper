@@ -47,13 +47,29 @@ describe('ItemAISettingsModal', /* itemAISettingsModalSuite 覆盖加载、保�
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  test('按 Unicode 字符限制商品资料而不是按 UTF-16 code unit 截断', async () => {
+  test('按 Unicode 字符限制商品资料而不是按 UTF-16 code unit 截断', /* unicodeLimitCase 验证表单与 Go rune 计数保持一致。 */ async () => {
     render(<ItemAISettingsModal item={firstItem} open onClose={vi.fn()} onSaved={vi.fn()} />);
-    await waitFor(() => expect(screen.getByDisplayValue('材质：全新')).toBeTruthy());
+    await waitFor(/* loadedContextAssertion 等待服务端资料写入 Unicode 测试表单。 */ () => expect(screen.getByDisplayValue('材质：全新')).toBeTruthy());
+    // contextInput 是用于验证表情符号不会被按 UTF-16 单元截断的资料输入框。
     const contextInput = screen.getByLabelText('商品专属资料') as HTMLTextAreaElement;
     fireEvent.change(contextInput, { target: { value: '😀'.repeat(ITEM_CONTEXT_LIMIT + 10) } });
     expect(contextInput.value).toBe('😀'.repeat(ITEM_CONTEXT_LIMIT));
     expect(screen.getByText(`${ITEM_CONTEXT_LIMIT} / ${ITEM_CONTEXT_LIMIT}`)).toBeTruthy();
+  });
+
+  test('配置读取失败时禁止保存并允许重新加载', /* loadFailureGuardCase 防止空草稿覆盖服务端已有资料。 */ async () => {
+    modalAPIMocks.get.mockRejectedValueOnce(new Error('读取失败'));
+    modalAPIMocks.get.mockResolvedValueOnce({ ai_override: 'enabled', item_context: '重试后的资料' });
+    render(<ItemAISettingsModal item={firstItem} open onClose={vi.fn()} onSaved={vi.fn()} />);
+    await waitFor(/* loadErrorAssertion 等待读取失败状态替代可编辑表单。 */ () => expect(screen.getByRole('alert').textContent).toContain('读取失败'));
+    // saveButton 是读取成功前必须保持禁用的保存按钮。
+    const saveButton = screen.getByRole('button', { name: '保存配置' }) as HTMLButtonElement;
+    expect(saveButton.disabled).toBe(true);
+    fireEvent.click(saveButton);
+    expect(modalAPIMocks.update).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '重新加载' }));
+    await waitFor(/* retrySuccessAssertion 等待重试取得服务端原始资料。 */ () => expect(screen.getByDisplayValue('重试后的资料')).toBeTruthy());
+    expect(saveButton.disabled).toBe(false);
   });
 
   test('保存失败后保留用户草稿并允许重试', /* modalSaveFailureCase 验证失败不会清空表单或关闭弹窗。 */ async () => {

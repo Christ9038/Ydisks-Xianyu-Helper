@@ -49,6 +49,10 @@ export const ItemAISettingsModal: React.FC<ItemAISettingsModalProps> = ({ item, 
   const [saving, setSaving] = useState(false);
   // [errorMessage, setErrorMessage] 保存当前加载或保存失败的用户可见说明。
   const [errorMessage, setErrorMessage] = useState('');
+  // [loadFailed, setLoadFailed] 阻止未取得服务端原值时提交空资料覆盖已有配置。
+  const [loadFailed, setLoadFailed] = useState(false);
+  // [loadRevision, setLoadRevision] 由用户点击重试时递增，重新触发当前商品配置读取。
+  const [loadRevision, setLoadRevision] = useState(0);
   // requestGeneration 标识当前弹窗请求代次，旧商品响应不得覆盖新商品草稿。
   const requestGeneration = useRef(0);
   // loadController 保存当前读取请求的取消控制器。
@@ -74,15 +78,18 @@ export const ItemAISettingsModal: React.FC<ItemAISettingsModalProps> = ({ item, 
     loadController.current = controller;
     setSettings({ ai_override: item.ai_override || 'inherit', item_context: '' });
     setErrorMessage('');
+    setLoadFailed(false);
     setLoading(true);
     setSaving(false);
     void getItemAISettings(item.cookie_id, item.item_id, { signal: controller.signal })
       .then(/* settingsResponseHandler 仅接收当前商品仍有效的读取结果。 */ response => {
         if (generation !== requestGeneration.current || controller.signal.aborted) return;
         setSettings(response);
+        setLoadFailed(false);
       })
       .catch(/* settingsLoadErrorHandler 忽略主动取消，并展示仍有效的加载失败。 */ error => {
         if (generation !== requestGeneration.current || controller.signal.aborted) return;
+        setLoadFailed(true);
         setErrorMessage(itemErrorMessage(error, '商品 AI 配置加载失败，请重试。'));
       })
       .finally(/* settingsLoadFinallyHandler 只结束当前代次的加载状态。 */ () => {
@@ -92,7 +99,7 @@ export const ItemAISettingsModal: React.FC<ItemAISettingsModalProps> = ({ item, 
       controller.abort();
       saveController.current?.abort();
     };
-  }, [cancelRequests, item, open]);
+  }, [cancelRequests, item, loadRevision, open]);
 
   // closeModal 关闭弹窗，并阻止所有晚到响应继续写入界面状态。
   const closeModal = () => {
@@ -105,7 +112,7 @@ export const ItemAISettingsModal: React.FC<ItemAISettingsModalProps> = ({ item, 
 
   // saveSettings 校验资料长度并提交当前商品的配置草稿。
   const saveSettings = async () => {
-    if (!item || saving || loading) return;
+    if (!item || saving || loading || loadFailed) return;
     if (itemContextLength(settings.item_context) > ITEM_CONTEXT_LIMIT) {
       setErrorMessage(`商品资料不能超过 ${ITEM_CONTEXT_LIMIT} 个字符。`);
       return;
@@ -156,6 +163,14 @@ export const ItemAISettingsModal: React.FC<ItemAISettingsModalProps> = ({ item, 
               <Loader2 className="h-5 w-5 animate-spin text-brand" />
               正在加载配置
             </div>
+          ) : loadFailed ? (
+            <div className="flex min-h-52 flex-col items-center justify-center gap-4 text-center">
+              <AlertCircle className="h-7 w-7 text-red-500" />
+              <p role="alert" className="max-w-md text-sm font-medium leading-6 text-red-700">{errorMessage}</p>
+              <button type="button" onClick={/* reloadClickHandler 重新读取当前商品配置，成功前仍禁止保存。 */ () => setLoadRevision(/* previousRevision 保证连续重试都产生新请求代次。 */ previousRevision => previousRevision + 1)} className="rounded-xl bg-gray-900 px-5 py-2.5 text-sm font-bold text-white hover:bg-black">
+                重新加载
+              </button>
+            </div>
           ) : (
             <>
               <fieldset className="space-y-3">
@@ -192,6 +207,7 @@ export const ItemAISettingsModal: React.FC<ItemAISettingsModalProps> = ({ item, 
                   value={settings.item_context}
                   rows={10}
                   onChange={/* contextChangeHandler 更新商品专属资料草稿并清理旧保存错误。 */ event => {
+                    // nextContext 按 Unicode 字符边界裁剪资料，避免截断代理对并保持服务端计数一致。
                     const nextContext = Array.from(event.target.value).slice(0, ITEM_CONTEXT_LIMIT).join('');
                     setSettings(/* previousSettings 保留当前商品 AI 覆盖状态。 */ previousSettings => ({ ...previousSettings, item_context: nextContext }));
                     if (errorMessage) setErrorMessage('');
@@ -213,7 +229,7 @@ export const ItemAISettingsModal: React.FC<ItemAISettingsModalProps> = ({ item, 
 
         <div className="modal-footer flex gap-3">
           <button type="button" onClick={closeModal} className="flex-1 rounded-xl bg-gray-100 px-5 py-3 font-bold text-gray-700 transition-colors hover:bg-gray-200">取消</button>
-          <button type="button" onClick={/* saveClickHandler 提交当前商品级 AI 配置。 */ () => void saveSettings()} disabled={loading || saving} className="ios-btn-primary flex flex-1 items-center justify-center gap-2 rounded-xl px-5 py-3 font-bold disabled:cursor-not-allowed disabled:opacity-50">
+          <button type="button" onClick={/* saveClickHandler 提交当前商品级 AI 配置。 */ () => void saveSettings()} disabled={loading || saving || loadFailed} className="ios-btn-primary flex flex-1 items-center justify-center gap-2 rounded-xl px-5 py-3 font-bold disabled:cursor-not-allowed disabled:opacity-50">
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             {saving ? '保存中...' : '保存配置'}
           </button>

@@ -318,6 +318,45 @@ func TestAIReply_FullServiceDoesNotScanOrdinaryAmounts(t *testing.T) {
 	}
 }
 
+// TestAIReply_FullServiceDoesNotTreatShippingQuestionAsBargain 验证带运费金额的买家问句不会开启成交价安全扫描。
+func TestAIReply_FullServiceDoesNotTreatShippingQuestionAsBargain(t *testing.T) {
+	// store、cleanup 是运费问句分类回归测试使用的隔离数据库及释放函数。
+	store, cleanup := newAIStore(t)
+	defer cleanup()
+	// ctx 是模型调用、配置和商品读取共用的测试上下文。
+	ctx := context.Background()
+	// server 返回包含同一运费金额的正常客服答复。
+	server := mockOpenAIServer(t, 0, "可以，偏远地区补 5 元运费即可。")
+	if _, // err 是保存全客服账号配置时不应出现的数据库错误。
+		err := store.DB.ExecContext(ctx, `INSERT INTO ai_reply_settings
+		(cookie_id,ai_enabled,auto_adjust_price_enabled,max_discount_percent,max_discount_amount,max_bargain_rounds,custom_prompts,ai_mode)
+		VALUES ('cid',1,1,10,20,3,'','full_service')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, // err 是保存带原价商品夹具时不应出现的数据库错误。
+		err := store.DB.ExecContext(ctx, `INSERT INTO item_info
+		(cookie_id,item_id,item_title,item_price,item_description) VALUES ('cid','item-shipping','商品','100','描述')`); err != nil {
+		t.Fatal(err)
+	}
+	if // err 是保存测试 API Key 时不应出现的设置错误。
+	err := store.Settings.Set(ctx, "ai_api_key", "sk-test"); err != nil {
+		t.Fatal(err)
+	}
+	if // err 是保存本地模型服务地址时不应出现的设置错误。
+	err := store.Settings.Set(ctx, "ai_api_url", server.URL); err != nil {
+		t.Fatal(err)
+	}
+
+	// result、replyErr 是运费金额问句得到的普通客服结果与调用错误。
+	result, replyErr := NewAIReplier("cid", store, nil).Reply(ctx, chatMsg("偏远地区运费 5 元可以吗", "item-shipping", "chat-shipping"))
+	if replyErr != nil || result == nil {
+		t.Fatalf("运费客服回复失败: result=%+v err=%v", result, replyErr)
+	}
+	if result.Text != "可以，偏远地区补 5 元运费即可。" || result.AutoPriceQuote != nil {
+		t.Fatalf("运费金额不应触发商品报价兜底: %+v", result)
+	}
+}
+
 // TestAIReplyBuildsExecutableQuote 验证自动改价开启时只返回通过边界校验且已从正文移除标记的报价。
 func TestAIReplyBuildsExecutableQuote(t *testing.T) {
 	// store、cleanup 是 AI 报价测试仓储及清理函数。
