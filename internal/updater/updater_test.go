@@ -80,6 +80,7 @@ func TestComposeArgsUsesFixedBaseAndUpdaterOverlay(t *testing.T) {
 		"-f", "/opt/ydisks-xianyu-helper/compose.yml", "-f", "/opt/ydisks-xianyu-helper/compose.updater.yml",
 		"config", "--format", "json",
 	}
+	// got 是 composeArgs 实际生成的固定 Compose 参数。
 	if got := composeArgs(config, "config", "--format", "json"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("compose args=%v want=%v", got, want)
 	}
@@ -341,6 +342,7 @@ func TestApplyRollbackPreservesWritesBeforeQuiesce(t *testing.T) {
 	}
 	// composeOverlayFile 是模拟生产固定 updater 覆盖文件，重建时必须持续加载。
 	composeOverlayFile := filepath.Join(root, "compose.updater.yml")
+	// writeErr 表示模拟 updater Compose 覆盖文件无法写入。
 	if writeErr := os.WriteFile(composeOverlayFile, []byte("services: {}\n"), 0o600); writeErr != nil {
 		t.Fatal(writeErr)
 	}
