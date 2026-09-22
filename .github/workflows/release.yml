@@ -104,6 +104,8 @@ jobs:
             "Ydisks-Xianyu-Helper-Setup.exe"
             "Ydisks-Xianyu-Helper-$APP_VERSION-arm64.pkg"
             "Ydisks-Xianyu-Helper-$APP_VERSION-amd64.pkg"
+            "ydisks-updater-linux-amd64"
+            "ydisks-updater-linux-arm64"
           )
           for release_file in "${expected_release_files[@]}"; do
             source_file="dist/artifacts/$release_file"
@@ -131,7 +133,6 @@ jobs:
           find dist/release -maxdepth 1 -type f -printf '%f\n' | sort
           echo "准备发布的 Docker 摘要："
           find dist/digests -maxdepth 1 -type f -printf '%f\n' | sort
-          (cd dist/release && sha256sum * > SHA256SUMS)
 
       - name: 配置 Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -171,6 +172,38 @@ jobs:
             "${digest_args[@]}"
           docker buildx imagetools inspect "$image_name:$GITHUB_REF_NAME"
           docker buildx imagetools inspect "$image_name:latest"
+
+      - name: 生成 Docker 更新清单和发布校验和
+        shell: bash
+        env:
+          APP_VERSION: ${{ needs.prepare.outputs.app_version }}
+        run: |
+          set -Eeuo pipefail
+          image_name="ghcr.io/${GITHUB_REPOSITORY,,}"
+          manifest_digest="$(docker buildx imagetools inspect "$image_name:$GITHUB_REF_NAME" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+          if [[ ! "$manifest_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "正式 Docker manifest 摘要无效：$manifest_digest" >&2
+            exit 1
+          fi
+          published_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          jq -n \
+            --arg version "$APP_VERSION" \
+            --arg tag "$GITHUB_REF_NAME" \
+            --arg commit "$GITHUB_SHA" \
+            --arg image "$image_name" \
+            --arg manifest_digest "$manifest_digest" \
+            --arg published_at "$published_at" \
+            '{schema: 1, version: $version, tag: $tag, commit: $commit, image: $image, manifest_digest: $manifest_digest, published_at: $published_at, platforms: ["linux/amd64", "linux/arm64"]}' \
+            > dist/release/docker-manifest.json
+          jq -e \
+            --arg version "$APP_VERSION" \
+            --arg tag "$GITHUB_REF_NAME" \
+            --arg commit "$GITHUB_SHA" \
+            --arg image "$image_name" \
+            --arg digest "$manifest_digest" \
+            '.schema == 1 and .version == $version and .tag == $tag and .commit == $commit and .image == $image and .manifest_digest == $digest and .platforms == ["linux/amd64", "linux/arm64"]' \
+            dist/release/docker-manifest.json >/dev/null
+          (cd dist/release && rm -f SHA256SUMS && sha256sum * > SHA256SUMS)
 
       - name: 创建或更新 GitHub Release
         shell: bash

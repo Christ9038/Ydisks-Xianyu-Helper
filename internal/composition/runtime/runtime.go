@@ -8,6 +8,7 @@ import (
 	"xianyu-go/internal/adapter"
 	"xianyu-go/internal/application/lifecycle"
 	orderapp "xianyu-go/internal/application/orders"
+	updateapp "xianyu-go/internal/application/systemupdate"
 	"xianyu-go/internal/auth"
 	"xianyu-go/internal/automation"
 	"xianyu-go/internal/browser"
@@ -16,6 +17,7 @@ import (
 	"xianyu-go/internal/netguard"
 	"xianyu-go/internal/renewal"
 	"xianyu-go/internal/server"
+	appversion "xianyu-go/internal/version"
 )
 
 // RuntimeOptions 是 cmd 已解析后交给组合根的运行时配置。
@@ -28,6 +30,10 @@ type RuntimeOptions struct {
 	WebDir string
 	// Addr 是 HTTP 监听地址。
 	Addr string
+	// UpdateSocketPath 是可选的固定宿主机更新 Socket；为空时仅展示版本信息。
+	UpdateSocketPath string
+	// DeploymentKind 是启动环境判定的部署来源，未知时由宿主机执行器进一步识别。
+	DeploymentKind string
 }
 
 // RuntimeInfrastructure 是 cmd 打开后交给组合根的基础设施资源。
@@ -176,6 +182,13 @@ func BuildRuntime(options RuntimeOptions, infrastructure RuntimeInfrastructure) 
 	sessionRecovery := adapter.NewSessionRecoveryHandler(infrastructure.Logger, func(ctx context.Context, accountID string) bool {
 		return services != nil && services.RecoverExpiredCredential(ctx, accountID)
 	})
+	// systemUpdate 保存当前构建信息，并把固定更新命令委托给可选宿主机执行器。
+	// updateGateway 是由组合根创建的可选宿主机 adapter；未挂载 Socket 时保持只读版本展示。
+	updateGateway := adapter.NewSystemUpdateGateway(options.UpdateSocketPath)
+	// systemUpdate 是面向 HTTP transport 的系统更新应用服务。
+	systemUpdate := updateapp.NewService(updateGateway, updateapp.CurrentVersion{
+		Version: appversion.Version, Commit: appversion.ShortCommit(), BuildTime: appversion.BuildTime, DeploymentKind: options.DeploymentKind,
+	})
 	// services、buildErr 分别是完成装配的应用服务集合及其构造错误。
 	services, buildErr := composition.New(composition.Dependencies{
 		OrderDependencies: orderDependencies, AccountDependencies: accountDependencies, ItemDependencies: itemDependencies,
@@ -184,6 +197,7 @@ func BuildRuntime(options RuntimeOptions, infrastructure RuntimeInfrastructure) 
 		Notifier: runtimeBundle.Notifier, Chat: runtimeBundle.Chat, ChatApplication: runtimeBundle.ChatApplication, Logger: infrastructure.Logger,
 		MTopClient: platformDependencies.MTOPClient, LongLoginClient: platformDependencies.LongLoginClient, QRLogin: platformDependencies.QRLoginService(),
 		UpdateRunningCookie: updateRunningCookie, SessionRecovery: sessionRecovery, LifecycleContext: lifecycleCoordinator.Context,
+		SystemUpdate: systemUpdate,
 	})
 	if buildErr != nil {
 		return Runtime{}, fmt.Errorf("构造应用服务集合失败: %w", buildErr)

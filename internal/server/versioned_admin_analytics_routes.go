@@ -27,5 +27,8 @@ func (s *Server) mountVersionedAdminAnalyticsRoutes(r chi.Router) {
 		r.Get("/api/v1/admin/cookies", s.adminListCookies)
 		r.Get("/api/v1/admin/stats", s.adminStats)
 		r.Get("/api/v1/admin/tasks", s.listAdminTasks)
+		r.Get("/api/v1/admin/system/update", s.systemUpdateStatus)
+		r.Post("/api/v1/admin/system/update/check", s.systemUpdateCheck)
+		r.Post("/api/v1/admin/system/update/apply", s.systemUpdateApply)
 	})
 }

@@ -15,6 +15,7 @@ Zap
 import React from 'react';
 import { DEFAULT_AI_API_URL,LOG_LEVELS } from '../constants';
 import { useSettings } from '../hooks';
+import { SystemUpdatePanel } from '../components/SystemUpdatePanel';
 
 // Settings 展示系统配置、AI 模型和登录凭据编辑页面。
 const Settings: React.FC = () => {
@@ -277,6 +278,8 @@ const Settings: React.FC = () => {
 
         {/* Right Column */}
         <div className="space-y-8">
+          <SystemUpdatePanel />
+
           <section className="space-y-4">
             <h3 className="text-lg font-extrabold text-gray-800 flex items-center gap-2">
               <div className="p-1.5 rounded-lg bg-amber-500 text-white">

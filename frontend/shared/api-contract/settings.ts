@@ -5,6 +5,8 @@ import type { components } from './generated/schema';
 export type SystemSettingsTransport = components['schemas']['SystemSettingsResponse'];
 /** AIModelsTransport 表示生成的模型发现响应。 */
 export type AIModelsTransport = components['schemas']['AIModelsResponse'];
+/** SystemUpdateTransport 表示管理员系统更新页面消费的生成传输响应。 */
+export type SystemUpdateTransport = components['schemas']['SystemUpdateSnapshot'];
 
 /** 敏感系统设置的显式三态变更命令。 */
 export type SensitiveSettingChange = {

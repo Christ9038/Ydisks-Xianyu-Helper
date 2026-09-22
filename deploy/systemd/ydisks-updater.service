@@ -1,0 +1,22 @@
+[Unit]
+Description=Ydisks Xianyu Helper restricted Docker updater
+Requires=docker.service
+After=docker.service
+
+[Service]
+User=root
+Group=docker
+RuntimeDirectory=ydisks-xianyu-helper
+RuntimeDirectoryMode=0750
+
+Type=simple
+ExecStart=/usr/local/libexec/ydisks-updater
+Restart=on-failure
+RestartSec=5s
+KillMode=mixed
+TimeoutStopSec=7min
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

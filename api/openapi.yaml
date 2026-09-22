@@ -1267,6 +1267,120 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/admin/system/update":
+    get:
+      operationId: getApiV1AdminSystemUpdate
+      summary: 查询当前构建和 Docker 自动更新状态
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemUpdateSnapshot'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/admin/system/update/check":
+    post:
+      operationId: postApiV1AdminSystemUpdateCheck
+      summary: 检查最新 Docker 正式版本
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemUpdateSnapshot'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/admin/system/update/apply":
+    post:
+      operationId: postApiV1AdminSystemUpdateApply
+      summary: 更新到执行器重新验证的最新 Docker 正式版本
+      security: [{cookieAuth: []}]
+      responses:
+        '202':
+          description: 更新任务已受理
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemUpdateSnapshot'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   "/api/v1/admin/tasks":
     get:
       operationId: getApiV1AdminTasks
@@ -8767,6 +8881,42 @@ components:
         total_cards: {type: integer}
         total_keywords: {type: integer}
         total_orders: {type: integer}
+    SystemUpdateCurrentVersion:
+      type: object
+      required: [version, commit, build_time, deployment_kind]
+      properties:
+        version: {type: string}
+        commit: {type: string}
+        build_time: {type: string}
+        deployment_kind: {type: string, enum: [stable, stable_unpinned, dev, custom, unknown]}
+    SystemUpdateLatestVersion:
+      type: object
+      required: [version, tag, release_url, published_at, manifest_digest]
+      properties:
+        version: {type: string}
+        tag: {type: string}
+        release_url: {type: string, format: uri}
+        published_at: {type: string}
+        manifest_digest: {type: string}
+    SystemUpdateOperation:
+      type: object
+      required: [status, request_id, started_at, finished_at, message]
+      properties:
+        status: {type: string, enum: [idle, checking, queued, running, succeeded, failed, rolled_back]}
+        request_id: {type: string}
+        started_at: {type: string}
+        finished_at: {type: string}
+        message: {type: string}
+    SystemUpdateSnapshot:
+      type: object
+      required: [current, latest, available, can_update, blocked_reason, operation]
+      properties:
+        current: {$ref: '#/components/schemas/SystemUpdateCurrentVersion'}
+        latest: {$ref: '#/components/schemas/SystemUpdateLatestVersion'}
+        available: {type: boolean}
+        can_update: {type: boolean}
+        blocked_reason: {type: string}
+        operation: {$ref: '#/components/schemas/SystemUpdateOperation'}
     AdminUser:
       type: object
       required: [id, username, email, is_active, is_admin, created_at, cookie_count]

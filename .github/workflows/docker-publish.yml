@@ -251,11 +251,32 @@ jobs:
           mkdir -p dist/digests
           touch "dist/digests/${IMAGE_DIGEST#sha256:}"
 
+      - name: 构建宿主机受限更新器
+        shell: bash
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: 0
+        run: |
+          set -Eeuo pipefail
+          mkdir -p dist/updater
+          go build -trimpath -ldflags='-s -w' \
+            -o "dist/updater/ydisks-updater-linux-${GOARCH}" \
+            ./cmd/ydisks-updater
+
       - name: 上传镜像摘要
         uses: actions/upload-artifact@v7
         with:
           name: ydisks-docker-digest-${{ matrix.arch }}
           path: dist/digests/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: 上传宿主机更新器
+        uses: actions/upload-artifact@v7
+        with:
+          name: ydisks-updater-linux-${{ matrix.arch }}
+          path: dist/updater/ydisks-updater-linux-${{ matrix.arch }}
           if-no-files-found: error
           retention-days: 30
 
