@@ -113,6 +113,19 @@ export interface Item {
   multi_quantity_delivery?: number | boolean;
   /** 是否启用多数量发货兼容字段。 */
   is_multi_qty_ship?: number | boolean;
+  /** 商品级 AI 启停覆盖状态；缺省时按继承账号配置展示。 */
+  ai_override?: ItemAIOverride;
+}
+
+/** 商品级 AI 配置支持的三态覆盖策略。 */
+export type ItemAIOverride = 'inherit' | 'enabled' | 'disabled';
+
+/** 由商品级 AI 配置接口归一后的 UI 模型。 */
+export interface ItemAISettings {
+  /** 商品级 AI 启停覆盖策略。 */
+  ai_override: ItemAIOverride;
+  /** 提供给 AI 客服的商品专属资料。 */
+  item_context: string;
 }
 
 /** 由当前 feature adapter 归一后的 AutomationTriggerType UI 模型；不直接暴露 HTTP DTO。 */
