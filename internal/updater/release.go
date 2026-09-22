@@ -157,19 +157,19 @@ func validateReleaseManifest(releaseTag, platform string, manifest ReleaseManife
 		return fmt.Errorf("不支持的 release manifest schema: %d", manifest.Schema)
 	}
 	if !stableVersionPattern.MatchString(manifest.Version) || manifest.Tag != "v"+manifest.Version || releaseTag != manifest.Tag {
-		return errors.New("Release 标签与稳定版本不一致")
+		return errors.New("release 标签与稳定版本不一致")
 	}
 	if manifest.Image != OfficialImage {
-		return errors.New("Release manifest 镜像仓库不受信任")
+		return errors.New("release manifest 镜像仓库不受信任")
 	}
 	if !digestPattern.MatchString(manifest.ManifestDigest) {
-		return errors.New("Release manifest 镜像摘要无效")
+		return errors.New("release manifest 镜像摘要无效")
 	}
 	if !commitPattern.MatchString(manifest.Commit) {
-		return errors.New("Release manifest 提交号无效")
+		return errors.New("release manifest 提交号无效")
 	}
 	if manifest.PublishedAt.IsZero() {
-		return errors.New("Release manifest 缺少发布时间")
+		return errors.New("release manifest 缺少发布时间")
 	}
 	// supported 表示 manifest 是否声明当前宿主机平台。
 	supported := false

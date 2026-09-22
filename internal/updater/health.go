@@ -96,7 +96,7 @@ func waitForHealth(ctx context.Context, config runtimeConfig, runner commandRunn
 				} else if dockerHealthErr != nil {
 					lastErr = dockerHealthErr
 				} else {
-					lastErr = errors.New("Docker 健康检查尚未通过")
+					lastErr = errors.New("docker 健康检查尚未通过")
 				}
 			}
 		} else {

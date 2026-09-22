@@ -83,8 +83,10 @@ func (daemon *Daemon) Run(ctx context.Context) error {
 	if listenErr != nil {
 		return fmt.Errorf("监听 updater socket 失败: %w", listenErr)
 	}
-	defer listener.Close()
-	defer os.Remove(daemon.config.socketPath)
+	defer func() {
+		_ = listener.Close()
+		_ = os.Remove(daemon.config.socketPath)
+	}()
 	// chmodErr 表示 Socket 权限无法收紧到 systemd 组访问边界。
 	if chmodErr := os.Chmod(daemon.config.socketPath, 0o660); chmodErr != nil {
 		return fmt.Errorf("设置 updater socket 权限失败: %w", chmodErr)

@@ -147,7 +147,7 @@ func inspectDeployment(ctx context.Context, config runtimeConfig, runner command
 	// appConfig 保存固定 app 服务的渲染配置。
 	appConfig, appExists := rendered.Services[config.composeService]
 	if !appExists || strings.TrimSpace(appConfig.Image) == "" {
-		return CurrentDeployment{}, errors.New("Compose 缺少固定 app 镜像")
+		return CurrentDeployment{}, errors.New("compose 缺少固定 app 镜像")
 	}
 	// containerOutput 保存固定 app 服务当前容器 ID。
 	containerOutput, containerErr := runner.Run(ctx, dockerExecutable, composeArgs(config, "ps", "-q", config.composeService)...)
