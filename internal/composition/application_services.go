@@ -29,6 +29,7 @@ import (
 	notificationsapp "xianyu-go/internal/application/notifications"
 	orderapp "xianyu-go/internal/application/orders"
 	settingsapp "xianyu-go/internal/application/settings"
+	updateapp "xianyu-go/internal/application/systemupdate"
 	"xianyu-go/internal/automation"
 	"xianyu-go/internal/chat"
 	"xianyu-go/internal/netguard"
@@ -129,6 +130,8 @@ type Services struct {
 	settings *settingsapp.Service
 	// admin 是管理员用户管理与全局统计应用服务。
 	admin *adminapp.Service
+	// systemUpdate 是管理员查询和触发受限宿主机更新的应用服务。
+	systemUpdate *updateapp.Service
 }
 
 // LifecycleContext 返回已启动协调器拥有的进程生命周期 Context，供组合层 transport adapter 注册后台 worker。
@@ -182,6 +185,8 @@ type Dependencies struct {
 	SessionRecovery adapter.SessionRecoveryHandler
 	// LifecycleContext 返回进程协调器拥有的应用生命周期 Context。
 	LifecycleContext func() context.Context
+	// SystemUpdate 是进程配置构造的可选宿主机更新应用服务；服务本身始终非空。
+	SystemUpdate *updateapp.Service
 }
 
 // settingsRuntimeTransport 将账号运行时控制投影给设置用例，并确保启用或 Cookie 重启永远使用进程生命周期 Context。
@@ -339,6 +344,7 @@ type TransportPorts struct {
 	Keywords               *keywordsapp.Service
 	Settings               *settingsapp.Service
 	Admin                  *adminapp.Service
+	SystemUpdate           *updateapp.Service
 }
 
 // TransportPorts 返回已完成构造的只读服务引用；调用方不得在运行期替换任何字段。
@@ -359,13 +365,13 @@ func (services *Services) TransportPorts() TransportPorts {
 		UncertainNotifications: services.uncertainNotifications, NotificationChannels: services.notificationChannels,
 		Analytics: services.analytics, AutomationIssues: services.automationIssues, AutomationRules: services.automationRules, DeliveryTemplates: services.deliveryTemplates,
 		Cards: services.cards, APICardTester: services.apiCardTester, PublishAutomationRules: services.publishAutomationRules, DefaultReplies: services.defaultReplies,
-		Keywords: services.keywords, Settings: services.settings, Admin: services.admin,
+		Keywords: services.keywords, Settings: services.settings, Admin: services.admin, SystemUpdate: services.systemUpdate,
 	}
 }
 
 // New 由进程组合根装配全部应用服务，并在启动前拒绝半初始化依赖。
 func New(dependencies Dependencies) (*Services, error) {
-	if dependencies.OrderDependencies == nil || dependencies.AccountDependencies == nil || dependencies.ItemDependencies == nil || dependencies.ChatDependencies == nil || dependencies.AutomationDependencies == nil || dependencies.TransportApplications == nil || dependencies.OrderReconciliationRecovery == nil || dependencies.Manager == nil || dependencies.MTopClient == nil || dependencies.LongLoginClient == nil || dependencies.QRLogin == nil || dependencies.UpdateRunningCookie == nil || dependencies.LifecycleContext == nil {
+	if dependencies.OrderDependencies == nil || dependencies.AccountDependencies == nil || dependencies.ItemDependencies == nil || dependencies.ChatDependencies == nil || dependencies.AutomationDependencies == nil || dependencies.TransportApplications == nil || dependencies.OrderReconciliationRecovery == nil || dependencies.Manager == nil || dependencies.MTopClient == nil || dependencies.LongLoginClient == nil || dependencies.QRLogin == nil || dependencies.UpdateRunningCookie == nil || dependencies.LifecycleContext == nil || dependencies.SystemUpdate == nil {
 		return nil, fmt.Errorf("应用服务组合依赖不完整")
 	}
 	// transportValidationErr 表示组合根预构造的 transport-facing 服务集合是否存在半初始化字段。
@@ -530,6 +536,7 @@ func New(dependencies Dependencies) (*Services, error) {
 		keywords:               dependencies.TransportApplications.Keywords,
 		settings:               dependencies.TransportApplications.Settings,
 		admin:                  dependencies.TransportApplications.Admin,
+		systemUpdate:           dependencies.SystemUpdate,
 	}
 	// authentication、authenticationErr 分别是认证应用服务及其构造错误。
 	authentication, authenticationErr := accountapp.NewAuthenticationService(dependencies.AccountDependencies.NewAuthenticationRepository())

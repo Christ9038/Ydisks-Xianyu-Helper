@@ -1,0 +1,9 @@
+# Docker Compose 覆盖：安装到 /opt/ydisks-xianyu-helper/compose.updater.yml，
+# 为已存在的 SQLite 绑定挂载部署启用受限宿主机更新器。
+# 不要把此文件用于 PostgreSQL、命名卷或 custom 镜像部署；更新器会主动阻断这些场景。
+services:
+  app:
+    environment:
+      XIANYU_UPDATE_SOCKET: /run/ydisks-xianyu-helper/updater.sock
+    volumes:
+      - /run/ydisks-xianyu-helper:/run/ydisks-xianyu-helper:ro

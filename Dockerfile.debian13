@@ -22,7 +22,8 @@ RUN CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath \
       -ldflags="-s -w -X xianyu-go/internal/version.Version=$APP_VERSION -X xianyu-go/internal/version.Commit=$VCS_REF -X xianyu-go/internal/version.BuildTime=$BUILD_TIME" \
       -o /out/xianyu-server ./cmd/server \
     && CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath -ldflags="-s -w" -o /out/xianyu-dbseed ./cmd/dbseed \
-    && CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath -ldflags="-s -w" -o /out/xianyu-dbverify ./cmd/dbverify
+    && CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath -ldflags="-s -w" -o /out/xianyu-dbverify ./cmd/dbverify \
+    && CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath -ldflags="-s -w" -o /out/ydisks-updater ./cmd/ydisks-updater
 
 # 本地 Docker 构建没有主机 runtime 缓存时使用此工具下载一次；CI 会优先复制缓存，
 # 不会走这个兜底路径。
@@ -83,6 +84,7 @@ WORKDIR /app
 COPY --from=backend /out/xianyu-server /app/xianyu-server
 COPY --from=backend /out/xianyu-dbseed /app/xianyu-dbseed
 COPY --from=backend /out/xianyu-dbverify /app/xianyu-dbverify
+COPY --from=backend /out/ydisks-updater /app/ydisks-updater
 COPY --from=playwright-runtime /ms-playwright-go /ms-playwright-go
 COPY --from=playwright-runtime /ms-playwright /ms-playwright
 # 浏览器文件本身不包含 Linux 动态链接库。使用与 runtime 同捆的 Playwright

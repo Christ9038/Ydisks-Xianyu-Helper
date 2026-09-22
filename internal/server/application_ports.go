@@ -18,6 +18,7 @@ import (
 	notificationsapp "xianyu-go/internal/application/notifications"
 	orderapp "xianyu-go/internal/application/orders"
 	settingsapp "xianyu-go/internal/application/settings"
+	updateapp "xianyu-go/internal/application/systemupdate"
 )
 
 // AccountLoginResult 是账号登录持久化后可供 HTTP 响应使用的非敏感结果。
@@ -371,6 +372,16 @@ type AdminPort interface {
 	Stats(context.Context) (adminapp.Stats, error)
 }
 
+// SystemUpdatePort 定义管理员版本查询、检查和固定正式版更新命令。
+type SystemUpdatePort interface {
+	// Status 读取更新器缓存状态；执行器缺失时仍返回只读阻断快照。
+	Status(context.Context) (updateapp.Snapshot, error)
+	// Check 主动刷新最新正式版本信息。
+	Check(context.Context) (updateapp.Snapshot, error)
+	// ApplyLatestStable 请求更新到宿主机自行验证的最新正式版。
+	ApplyLatestStable(context.Context) (updateapp.Snapshot, error)
+}
+
 // ApplicationPorts 是构造期注入 HTTP transport 的不可变应用 Port 集合。
 // 它不包含 adapter、数据库、平台 client、账号 Manager 或 worker 生命周期拥有权。
 type ApplicationPorts struct {
@@ -452,6 +463,8 @@ type ApplicationPorts struct {
 	settings SettingsPort
 	// admin 是管理员用户与统计用例。
 	admin AdminPort
+	// systemUpdate 是管理员查询和触发 Docker 正式版更新的用例。
+	systemUpdate SystemUpdatePort
 }
 
 // ApplicationPortsInput 是组合根向 HTTP transport 交付的完整应用 Port 快照。
@@ -496,6 +509,7 @@ type ApplicationPortsInput struct {
 	Keywords                    KeywordsPort
 	Settings                    SettingsPort
 	Admin                       AdminPort
+	SystemUpdate                SystemUpdatePort
 }
 
 // NewApplicationPorts 将组合根已经验证的用例依赖冻结为 Server 私有快照。
@@ -514,7 +528,7 @@ func NewApplicationPorts(input ApplicationPortsInput) *ApplicationPorts {
 		uncertainNotifications: input.UncertainNotifications, notificationChannels: input.NotificationChannels,
 		analytics: input.Analytics, automationIssues: input.AutomationIssues, automationRules: input.AutomationRules,
 		cards: input.Cards, deliveryTemplates: input.DeliveryTemplates, apiRequestTester: input.APIRequestTester, publishAutomationRules: input.PublishAutomationRules, defaultReplies: input.DefaultReplies,
-		keywords: input.Keywords, settings: input.Settings, admin: input.Admin,
+		keywords: input.Keywords, settings: input.Settings, admin: input.Admin, systemUpdate: input.SystemUpdate,
 	}
 }
 
@@ -543,6 +557,7 @@ func (ports *ApplicationPorts) validate() error {
 		{"notification_channels", ports.notificationChannels}, {"analytics", ports.analytics}, {"automation_issues", ports.automationIssues},
 		{"automation_rules", ports.automationRules}, {"cards", ports.cards}, {"publish_automation_rules", ports.publishAutomationRules},
 		{"default_replies", ports.defaultReplies}, {"keywords", ports.keywords}, {"settings", ports.settings}, {"admin", ports.admin},
+		{"system_update", ports.systemUpdate},
 	}
 	// requiredPort 是当前必须在 Server 构造前绑定的应用 Port 名称。
 	for _, requiredPort := range required {
@@ -684,6 +699,11 @@ func (server *Server) loginAuditApplication() LoginAuditPort {
 // settingsApplication 返回系统设置用例。
 func (server *Server) settingsApplication() SettingsPort {
 	return server.applicationServiceSet().settings
+}
+
+// systemUpdateApplication 返回管理员系统更新用例。
+func (server *Server) systemUpdateApplication() SystemUpdatePort {
+	return server.applicationServiceSet().systemUpdate
 }
 
 // applicationServiceSet 返回构造期注入的不可变 Port 快照；零值 Server 不会隐式装配业务服务。

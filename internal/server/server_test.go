@@ -15,6 +15,7 @@ import (
 	"xianyu-go/internal/adapter"
 	lifecycleapp "xianyu-go/internal/application/lifecycle"
 	orderapp "xianyu-go/internal/application/orders"
+	updateapp "xianyu-go/internal/application/systemupdate"
 	"xianyu-go/internal/auth"
 	"xianyu-go/internal/automation"
 	"xianyu-go/internal/chat"
@@ -255,6 +256,9 @@ func newTestServerFromComposition(authentication *auth.Service, manager *account
 		UpdateRunningCookie:         updateRunningCookie,
 		SessionRecovery:             sessionRecovery,
 		LifecycleContext:            lifecycleCoordinator.Context,
+		SystemUpdate: updateapp.NewService(systemUpdateGatewayTestDouble{}, updateapp.CurrentVersion{
+			Version: "1.0.0", Commit: "test", BuildTime: "2026-09-22T00:00:00Z", DeploymentKind: "stable",
+		}),
 	})
 	if applicationsErr != nil {
 		return nil, applicationsErr
@@ -372,8 +376,41 @@ func testServerDependencies(authentication *auth.Service, databaseHealth Databas
 		AutomationIssues: ports.AutomationIssues, AutomationRules: ports.AutomationRules, Cards: ports.Cards,
 		DeliveryTemplates:      ports.DeliveryTemplates,
 		PublishAutomationRules: ports.PublishAutomationRules, DefaultReplies: ports.DefaultReplies, Keywords: ports.Keywords,
-		Settings: ports.Settings, Admin: ports.Admin,
+		Settings: ports.Settings, Admin: ports.Admin, SystemUpdate: ports.SystemUpdate,
 	})}
+}
+
+// systemUpdateGatewayTestDouble 为 Server 契约测试提供无宿主机副作用的固定更新状态。
+type systemUpdateGatewayTestDouble struct{}
+
+// Status 返回当前没有可用更新的稳定状态。
+func (systemUpdateGatewayTestDouble) Status(context.Context, updateapp.CurrentVersion) (updateapp.Snapshot, error) {
+	return testSystemUpdateSnapshot("idle"), nil
+}
+
+// Check 返回已发现新正式版本的状态。
+func (systemUpdateGatewayTestDouble) Check(context.Context, updateapp.CurrentVersion) (updateapp.Snapshot, error) {
+	return testSystemUpdateSnapshot("succeeded"), nil
+}
+
+// ApplyLatestStable 返回已受理的异步更新任务，不执行任何宿主机命令。
+func (systemUpdateGatewayTestDouble) ApplyLatestStable(context.Context, updateapp.CurrentVersion) (updateapp.Snapshot, error) {
+	// snapshot 是即将补充测试任务标识的排队状态。
+	snapshot := testSystemUpdateSnapshot("queued")
+	snapshot.Operation.RequestID = "update-test"
+	return snapshot, nil
+}
+
+// testSystemUpdateSnapshot 构造满足 OpenAPI 契约的系统更新测试响应。
+func testSystemUpdateSnapshot(operationStatus string) updateapp.Snapshot {
+	return updateapp.Snapshot{
+		Latest: updateapp.LatestVersion{
+			Version: "1.0.1", Tag: "v1.0.1", ReleaseURL: "https://github.com/Christ9038/Ydisks-Xianyu-Helper/releases/tag/v1.0.1",
+			PublishedAt: "2026-09-22T00:00:00Z", ManifestDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		},
+		Available: true, CanUpdate: true,
+		Operation: updateapp.Operation{Status: operationStatus, StartedAt: "", FinishedAt: "", Message: "测试更新状态"},
+	}
 }
 
 // newTestOrderReconciliationRecovery 以与进程组合根一致的路径构造订单补偿扫描应用服务。

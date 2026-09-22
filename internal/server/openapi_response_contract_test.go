@@ -55,6 +55,7 @@ func TestOpenAPISuccessContractCoverage(t *testing.T) {
 		{name: "analytics-admin-public-success", run: TestAnalyticsAdminAndPublicSuccessResponseContracts},
 		{name: "local-resource-mutations", run: TestOpenAPILocalResourceMutationResponses},
 		{name: "remaining-versioned-success", run: TestOpenAPIRemainingVersionedSuccessResponses},
+		{name: "system-update", run: TestSystemUpdateHandlersEnforceAdminAndSuccessContracts},
 	}
 	// scenario 是当前执行的领域真实响应场景。
 	for _, scenario := range scenarios {

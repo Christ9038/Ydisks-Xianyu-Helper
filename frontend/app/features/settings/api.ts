@@ -1,11 +1,14 @@
 import type { OperationResponse,SystemSettings } from './models';
 import { contractClient, runContractRequest } from '../../../shared/api-contract/client';
-import { normalizeSystemSettingsUpdate,SENSITIVE_SYSTEM_SETTING_KEYS } from '../../../shared/api-contract/settings';
+import { normalizeSystemSettingsUpdate,SENSITIVE_SYSTEM_SETTING_KEYS,type SystemUpdateTransport } from '../../../shared/api-contract/settings';
 import { type RequestControlOptions } from '../../../shared/http/client';
 import type { SystemSettingsUpdate } from '../../../shared/api-contract/settings';
 export type * from './models';
 export { normalizeSystemSettingsUpdate } from '../../../shared/api-contract/settings';
 export type { SensitiveSettingChange,SystemSettingsUpdate } from '../../../shared/api-contract/settings';
+
+/** SystemUpdateSnapshot 表示管理员设置页消费的 Docker 正式版更新状态。 */
+export type SystemUpdateSnapshot = SystemUpdateTransport;
 
 /** 设置页面使用的会话状态传输契约，避免跨 feature 依赖。 */
 export interface SettingsSessionStatusResponse {
@@ -100,3 +103,15 @@ export const testAIConnection = async (baseURL: string, apiKey: string, model: s
 /** 在保存登录凭据前读取当前会话状态。 */
 export const verifySession = async (options?: RequestControlOptions): Promise<SettingsSessionStatusResponse> =>
   runContractRequest(/* signal 是本次设置页会话校验请求的超时与取消控制信号。 */ signal => contractClient.GET('/api/v1/session', { signal }), options);
+
+/** 读取当前构建、最新正式版和宿主机更新能力。 */
+export const getSystemUpdateStatus = async (options?: RequestControlOptions): Promise<SystemUpdateSnapshot> =>
+  runContractRequest(/* signal 是本次更新状态查询的超时与取消控制信号。 */ signal => contractClient.GET('/api/v1/admin/system/update', { signal }), options);
+
+/** 请求宿主机执行器重新检查最新正式版本。 */
+export const checkSystemUpdate = async (options?: RequestControlOptions): Promise<SystemUpdateSnapshot> =>
+  runContractRequest(/* signal 是本次正式版检查的超时与取消控制信号。 */ signal => contractClient.POST('/api/v1/admin/system/update/check', { signal }), options);
+
+/** 请求更新到执行器重新验证的最新正式版；调用方不能指定镜像、版本或宿主机路径。 */
+export const applyLatestStableUpdate = async (options?: RequestControlOptions): Promise<SystemUpdateSnapshot> =>
+  runContractRequest(/* signal 是本次更新任务受理请求的超时与取消控制信号。 */ signal => contractClient.POST('/api/v1/admin/system/update/apply', { signal }), { timeoutMs: 60_000, ...options });
