@@ -102,7 +102,7 @@ func TestSettingsHandlersCoverAIAndUserBranches(t *testing.T) {
 	// port 保存当前注入的设置应用 Port。
 	port := &settingsHandlerDeepCoveragePort{
 		sensitiveKeys: map[string]bool{"ai_api_key": true},
-		aiConfig:      settingsapp.AIReplySettings{CookieID: "cid", AIEnabled: true, AutoAdjustPriceEnabled: true, MaxDiscountPercent: 10, MaxDiscountAmount: 20, MaxBargainRounds: 3, CustomPrompts: "prompt"},
+		aiConfig:      settingsapp.AIReplySettings{CookieID: "cid", AIEnabled: true, AutoAdjustPriceEnabled: true, MaxDiscountPercent: 10, MaxDiscountAmount: 20, MaxBargainRounds: 3, CustomPrompts: "prompt", AIMode: "bargain_only"},
 		aiRows:        []settingsapp.AIReplySettings{{CookieID: "cid", AIEnabled: true}},
 		userValue:     "value",
 	}

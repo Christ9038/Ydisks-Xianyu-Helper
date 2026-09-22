@@ -15,7 +15,7 @@ import (
 // TestBuildSystemPrompt 自定义 prompt 替换变量，且始终追加价格与轮次安全约束。
 func TestBuildSystemPrompt(t *testing.T) {
 	// got 用于本次流程后续判断的got
-	got := buildSystemPrompt("你是卖{item_title}的客服，价格{item_price}", "iPhone", 100, "手机", 0, 0, 3, 1, false)
+	got := buildSystemPrompt("你是卖{item_title}的客服，价格{item_price}", "iPhone", 100, "手机", "", 0, 0, 3, 1, false, "bargain_only", true)
 	if !strings.Contains(got, "你是卖iPhone的客服，价格100.00") {
 		t.Fatalf("自定义 prompt 替换: got %q", got)
 	}
@@ -24,7 +24,7 @@ func TestBuildSystemPrompt(t *testing.T) {
 	}
 
 	// 0 必须保留为不允许优惠，不能静默改成默认值。
-	got = buildSystemPrompt("", "会员卡", 9.9, "月卡", 0, 0, 3, 0, false)
+	got = buildSystemPrompt("", "会员卡", 9.9, "月卡", "", 0, 0, 3, 0, false, "bargain_only", true)
 	if !strings.Contains(got, "标题：会员卡") || !strings.Contains(got, "价格：9.90 元") {
 		t.Fatalf("默认模板缺商品信息: %q", got)
 	}
@@ -33,12 +33,29 @@ func TestBuildSystemPrompt(t *testing.T) {
 	}
 
 	// 显式折扣上限。
-	got = buildSystemPrompt("", "会员卡", 9.9, "月卡", 20, 50, 4, 2, true)
+	got = buildSystemPrompt("", "会员卡", 9.9, "月卡", "", 20, 50, 4, 2, true, "bargain_only", true)
 	if !strings.Contains(got, "最多优惠 20%") || !strings.Contains(got, "最多优惠 50 元") {
 		t.Fatalf("显式折扣上限: %q", got)
 	}
 	if !strings.Contains(got, "[[AUTO_PRICE:金额]]") {
 		t.Fatalf("开启自动改价时缺少结构化报价约束: %q", got)
+	}
+}
+
+// TestBuildFullServicePrompt 验证全场景普通客服不附加报价规则，商品资料按低信任数据区注入。
+func TestBuildFullServicePrompt(t *testing.T) {
+	// got 保存普通客服消息使用的全场景提示词。
+	got := buildSystemPrompt("支持当天发货", "相机", 3999, "九成新", "含原装电池，不含存储卡", 10, 100, 3, 0, true, "full_service", false)
+	if !strings.Contains(got, "店铺规则：\n支持当天发货") || !strings.Contains(got, "<item_context>\n含原装电池，不含存储卡") {
+		t.Fatalf("全场景提示词缺少店铺规则或商品资料: %q", got)
+	}
+	if strings.Contains(got, "不可覆盖的价格安全规则") || strings.Contains(got, "AUTO_PRICE") {
+		t.Fatalf("普通客服消息不应触发报价规则: %q", got)
+	}
+	// bargainPrompt 保存全场景模式命中砍价语义后的提示词。
+	bargainPrompt := buildSystemPrompt("支持当天发货", "相机", 3999, "九成新", "", 10, 100, 3, 1, true, "full_service", true)
+	if !strings.Contains(bargainPrompt, "不可覆盖的价格安全规则") || !strings.Contains(bargainPrompt, "AUTO_PRICE") {
+		t.Fatalf("全场景砍价消息必须保留价格安全规则: %q", bargainPrompt)
 	}
 }
 
@@ -101,6 +118,7 @@ func newAIStore(t *testing.T) (*db.Store, func()) {
 	// s 用于本次流程后续判断的s
 	s := db.NewStore(d, db.DialectSQLite)
 	// ctx 用于本次流程后续判断的ctx
+	// ctx 是商品级覆盖测试共用的请求与数据库上下文。
 	ctx := context.Background()
 	s.Users.Create(ctx, "admin", "a@e.com", "pw")
 	// admin 用于本次流程后续判断的admin
@@ -258,6 +276,87 @@ func TestAIReply_SuccessReturnsContent(t *testing.T) {
 	}
 }
 
+// TestAIReply_FullServiceDoesNotScanOrdinaryAmounts 验证全客服普通回复中的运费等金额不会被当作议价报价。
+func TestAIReply_FullServiceDoesNotScanOrdinaryAmounts(t *testing.T) {
+	// store、cleanup 是全客服金额扫描回归测试使用的隔离数据库。
+	store, cleanup := newAIStore(t)
+	defer cleanup()
+	// ctx 是模型调用和本地商品读取共用的测试上下文。
+	ctx := context.Background()
+	// server 返回包含普通运费金额的全客服响应。
+	server := mockOpenAIServer(t, 0, "可以的，顺丰包邮，偏远地区补 5 元运费。")
+	if // err 是保存全客服账号设置时不应出现的数据库错误。
+	_, err := store.DB.ExecContext(ctx, `INSERT INTO ai_reply_settings
+		(cookie_id,ai_enabled,auto_adjust_price_enabled,max_discount_percent,max_discount_amount,max_bargain_rounds,custom_prompts,ai_mode)
+		VALUES ('cid',1,1,10,20,3,'','full_service')`); err != nil {
+		t.Fatal(err)
+	}
+	if // err 是保存带原价测试商品时不应出现的数据库错误。
+	_, err := store.DB.ExecContext(ctx, `INSERT INTO item_info
+		(cookie_id,item_id,item_title,item_price,item_description) VALUES ('cid','item-full','商品','100','描述')`); err != nil {
+		t.Fatal(err)
+	}
+	if // err 是保存测试 API Key 时不应出现的错误。
+	err := store.Settings.Set(ctx, "ai_api_key", "sk-test"); err != nil {
+		t.Fatal(err)
+	}
+	if // err 是保存本地模型服务地址时不应出现的错误。
+	err := store.Settings.Set(ctx, "ai_api_url", server.URL); err != nil {
+		t.Fatal(err)
+	}
+
+	// result 和 err 是普通全客服消息返回的文本、改价提案与调用错误。
+	result, err := NewAIReplier("cid", store, nil).Reply(ctx, chatMsg("什么时候发货", "item-full", "chat-full"))
+	if err != nil || result == nil {
+		t.Fatalf("全客服普通回复失败: result=%+v err=%v", result, err)
+	}
+	if result.Text != "可以的，顺丰包邮，偏远地区补 5 元运费。" {
+		t.Fatalf("普通金额不应触发价格兜底: %q", result.Text)
+	}
+	if result.AutoPriceQuote != nil {
+		t.Fatalf("普通客服回复不应创建改价提案: %+v", result.AutoPriceQuote)
+	}
+}
+
+// TestAIReply_FullServiceDoesNotTreatShippingQuestionAsBargain 验证带运费金额的买家问句不会开启成交价安全扫描。
+func TestAIReply_FullServiceDoesNotTreatShippingQuestionAsBargain(t *testing.T) {
+	// store、cleanup 是运费问句分类回归测试使用的隔离数据库及释放函数。
+	store, cleanup := newAIStore(t)
+	defer cleanup()
+	// ctx 是模型调用、配置和商品读取共用的测试上下文。
+	ctx := context.Background()
+	// server 返回包含同一运费金额的正常客服答复。
+	server := mockOpenAIServer(t, 0, "可以，偏远地区补 5 元运费即可。")
+	if _, // err 是保存全客服账号配置时不应出现的数据库错误。
+		err := store.DB.ExecContext(ctx, `INSERT INTO ai_reply_settings
+		(cookie_id,ai_enabled,auto_adjust_price_enabled,max_discount_percent,max_discount_amount,max_bargain_rounds,custom_prompts,ai_mode)
+		VALUES ('cid',1,1,10,20,3,'','full_service')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, // err 是保存带原价商品夹具时不应出现的数据库错误。
+		err := store.DB.ExecContext(ctx, `INSERT INTO item_info
+		(cookie_id,item_id,item_title,item_price,item_description) VALUES ('cid','item-shipping','商品','100','描述')`); err != nil {
+		t.Fatal(err)
+	}
+	if // err 是保存测试 API Key 时不应出现的设置错误。
+	err := store.Settings.Set(ctx, "ai_api_key", "sk-test"); err != nil {
+		t.Fatal(err)
+	}
+	if // err 是保存本地模型服务地址时不应出现的设置错误。
+	err := store.Settings.Set(ctx, "ai_api_url", server.URL); err != nil {
+		t.Fatal(err)
+	}
+
+	// result、replyErr 是运费金额问句得到的普通客服结果与调用错误。
+	result, replyErr := NewAIReplier("cid", store, nil).Reply(ctx, chatMsg("偏远地区运费 5 元可以吗", "item-shipping", "chat-shipping"))
+	if replyErr != nil || result == nil {
+		t.Fatalf("运费客服回复失败: result=%+v err=%v", result, replyErr)
+	}
+	if result.Text != "可以，偏远地区补 5 元运费即可。" || result.AutoPriceQuote != nil {
+		t.Fatalf("运费金额不应触发商品报价兜底: %+v", result)
+	}
+}
+
 // TestAIReplyBuildsExecutableQuote 验证自动改价开启时只返回通过边界校验且已从正文移除标记的报价。
 func TestAIReplyBuildsExecutableQuote(t *testing.T) {
 	// store、cleanup 是 AI 报价测试仓储及清理函数。
@@ -274,7 +373,8 @@ func TestAIReplyBuildsExecutableQuote(t *testing.T) {
 		t.Fatal(err)
 	}
 	// err 是保存带原价商品时不应出现的数据库错误。
-	if _, err := store.DB.ExecContext(ctx, `INSERT INTO item_info
+	if // err 是保存测试商品时的数据库错误。
+	_, err := store.DB.ExecContext(ctx, `INSERT INTO item_info
 		(cookie_id,item_id,item_title,item_price,item_description) VALUES ('cid','item-quote','商品','100','描述')`); err != nil {
 		t.Fatal(err)
 	}
@@ -311,6 +411,54 @@ func TestAIReply_NonBargainMessageFallsThrough(t *testing.T) {
 	res, err := NewAIReplier("cid", s, nil).Reply(ctx, chatMsg("在吗，什么时候发货", "item1", "chat1"))
 	if err != nil || res != nil {
 		t.Fatalf("非砍价消息应交给默认回复: res=%+v err=%v", res, err)
+	}
+}
+
+// TestAIReplyItemOverride 验证商品级禁用优先于账号开关，强制启用可越过账号关闭状态。
+func TestAIReplyItemOverride(t *testing.T) {
+	// store、cleanup 是商品级覆盖测试使用的隔离数据库。
+	store, cleanup := newAIStore(t)
+	defer cleanup()
+	// ctx 是商品级覆盖测试共用的请求与数据库上下文。
+	ctx := context.Background()
+	// server 返回普通客服消息的固定模型响应。
+	server := mockOpenAIServer(t, 0, "您好，付款后 24 小时内发货。")
+	if // err 是保存测试商品时的数据库错误。
+	_, err := store.DB.ExecContext(ctx, `INSERT INTO item_info
+		(cookie_id,item_id,item_title,item_price,item_description) VALUES ('cid','item-override','商品','100','描述')`); err != nil {
+		t.Fatal(err)
+	}
+	if // err 是保存关闭状态账号 AI 配置时的数据库错误。
+	_, err := store.DB.ExecContext(ctx, `INSERT INTO ai_reply_settings
+		(cookie_id,ai_enabled,max_discount_percent,max_discount_amount,max_bargain_rounds,custom_prompts,ai_mode)
+		VALUES ('cid',0,10,20,3,'当天发货','full_service')`); err != nil {
+		t.Fatal(err)
+	}
+	if // err 是保存测试 API Key 时的错误。
+	err := store.Settings.Set(ctx, "ai_api_key", "sk-test"); err != nil {
+		t.Fatal(err)
+	}
+	if // err 是保存测试模型地址时的错误。
+	err := store.Settings.Set(ctx, "ai_api_url", server.URL); err != nil {
+		t.Fatal(err)
+	}
+	if // err 是保存商品强制启用配置时的错误。
+	err := store.ItemAISettings.Upsert(ctx, db.ItemAISettingsRow{CookieID: "cid", ItemID: "item-override", Override: db.ItemAIOverrideEnabled, Context: "付款后 24 小时内发货"}); err != nil {
+		t.Fatal(err)
+	}
+	// enabledResult 是账号关闭但商品强制启用后的全场景客服回复。
+	enabledResult, enabledErr := NewAIReplier("cid", store, nil).Reply(ctx, chatMsg("什么时候发货", "item-override", "chat-override"))
+	if enabledErr != nil || enabledResult == nil || enabledResult.Text == "" {
+		t.Fatalf("商品强制启用应越过账号关闭状态: result=%+v err=%v", enabledResult, enabledErr)
+	}
+	if // err 是切换商品强制停用配置时的错误。
+	err := store.ItemAISettings.Upsert(ctx, db.ItemAISettingsRow{CookieID: "cid", ItemID: "item-override", Override: db.ItemAIOverrideDisabled}); err != nil {
+		t.Fatal(err)
+	}
+	// disabledResult 是商品强制禁用后的降级结果。
+	disabledResult, disabledErr := NewAIReplier("cid", store, nil).Reply(ctx, chatMsg("能便宜点吗", "item-override", "chat-disabled"))
+	if disabledErr != nil || disabledResult != nil {
+		t.Fatalf("商品强制禁用应跳过 AI: result=%+v err=%v", disabledResult, disabledErr)
 	}
 }
 

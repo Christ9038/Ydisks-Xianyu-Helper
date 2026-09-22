@@ -42,6 +42,7 @@ func TestAIReplySettingsAndConversationBranches(t *testing.T) {
 		MaxDiscountAmount:      88,
 		MaxBargainRounds:       3,
 		CustomPrompts:          "prompt",
+		AIMode:                 "bargain_only",
 	}
 	// err 表示 AI 配置写入错误。
 	if err := store.AIReply.UpsertSettings(ctx, cookieID, settings); err != nil {

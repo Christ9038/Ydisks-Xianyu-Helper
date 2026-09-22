@@ -1,7 +1,7 @@
-import { ArrowRight,Box,CheckCircle2,CircleDashed,Edit,Filter,Link2,LocateFixed,PackagePlus,Plus,RefreshCw,Save,Search,ShoppingBag,Trash2,UploadCloud,User,X } from 'lucide-react';
-import React,{ useCallback,useEffect,useMemo,useRef,useState } from 'react';
+import { ArrowRight,Bot,Box,CheckCircle2,CircleDashed,Edit,Filter,Link2,LocateFixed,PackagePlus,Plus,RefreshCw,Save,Search,ShoppingBag,Trash2,UploadCloud,User,X } from 'lucide-react';
+import React,{ Suspense,useCallback,useEffect,useMemo,useRef,useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { AccountDetail,Item,PublishLocation,ShippingRule } from '../api';
+import type { AccountDetail,Item,ItemAIOverride,ItemAISettings,PublishLocation,ShippingRule } from '../api';
 import {
 getAccountDetails,
 getItemPublishBatches,
@@ -24,8 +24,22 @@ const formatItemPrice = (price?: string) => {
   return /^[¥￥]/.test(value) ? value : `¥${value}`;
 };
 
+// itemAIStatusText 将商品级 AI 三态转换为卡片中的简短状态文本。
+const itemAIStatusText: Record<ItemAIOverride, string> = {
+  inherit: '继承账号',
+  enabled: '已启用',
+  disabled: '已停用',
+};
+
+// itemAIStatusClass 将商品级 AI 三态转换为卡片入口的颜色样式。
+const itemAIStatusClass: Record<ItemAIOverride, string> = {
+  inherit: 'bg-gray-100 text-gray-600 hover:bg-gray-200',
+  enabled: 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100',
+  disabled: 'bg-red-50 text-red-700 hover:bg-red-100',
+};
+
 // ItemList 渲染商品列表组件。
-const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery, publishImagesEditor: ImagesEditor, publishSpecsEditor: SpecsEditor }) => {
+const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery, publishImagesEditor: ImagesEditor, publishSpecsEditor: SpecsEditor, itemAISettingsModal: ItemAISettingsModal }) => {
   // [items, 解构得到当前 Hook 返回的状态和操作函数。
   const [items, setItems] = useState<Item[]>([]);
   // [shippingRules, 解构得到当前 Hook 返回的状态和操作函数。
@@ -36,6 +50,8 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery, publishImagesE
   const [selectedAccount, setSelectedAccount] = useState<string>('');
   // [accountFilter, 解构得到当前 Hook 返回的状态和操作函数。
   const [accountFilter, setAccountFilter] = useState<string>('');
+  // [itemAISettingsTarget, setItemAISettingsTarget] 保存当前打开商品级 AI 配置的商品。
+  const [itemAISettingsTarget, setItemAISettingsTarget] = useState<Item | null>(null);
   // itemsRequestGeneration 标识商品列表最新一次读取，旧响应不得覆盖较新的同步或刷新结果。
   const itemsRequestGeneration = useRef(0);
   // shippingRulesRequestGeneration 标识发货规则最新一次读取，旧响应不得覆盖较新的规则配置。
@@ -223,6 +239,16 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery, publishImagesE
     return account?.remark || account?.nickname || '未命名账号';
   };
 
+  // handleItemAISettingsSaved 将已保存的覆盖状态同步回列表，避免额外刷新或逐商品请求。
+  const handleItemAISettingsSaved = useCallback(/* itemAISettingsSavedCallback 更新当前商品卡片的 AI 状态。 */ (settings: ItemAISettings) => {
+    if (!itemAISettingsTarget) return;
+    setItems(/* currentItems 是保存前的商品列表快照。 */ currentItems => currentItems.map(/* itemMapper 只更新当前配置商品的列表摘要状态。 */ item => (
+      item.cookie_id === itemAISettingsTarget.cookie_id && item.item_id === itemAISettingsTarget.item_id
+        ? { ...item, ai_override: settings.ai_override }
+        : item
+    )));
+  }, [itemAISettingsTarget]);
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex flex-col xl:flex-row xl:justify-between xl:items-center gap-4">
@@ -317,6 +343,8 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery, publishImagesE
             const linkedRules = rulesForItem(item);
             // hasRule 是否存在规则。
             const hasRule = linkedRules.length > 0;
+            // aiOverride 是列表 DTO 提供的商品级 AI 摘要状态，缺省时按继承账号处理。
+            const aiOverride = item.ai_override || 'inherit';
             return (
               <div key={`${item.cookie_id}-${item.item_id}`} className="ios-card p-3 rounded-2xl hover:shadow-lg transition-all group relative flex flex-col">
                   <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
@@ -360,6 +388,16 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery, publishImagesE
                       </span>
                   </div>
                   <div className="space-y-2 mt-auto">
+                      <button
+                        type="button"
+                        onClick={/* itemAISettingsOpenHandler 仅在用户点击时打开弹窗并触发详情读取。 */ () => setItemAISettingsTarget(item)}
+                        className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-[11px] font-extrabold transition-colors ${itemAIStatusClass[aiOverride]}`}
+                        aria-label={`配置商品 AI 客服：${item.item_title || item.item_id}`}
+                        title="商品 AI 客服配置"
+                      >
+                        <span className="flex min-w-0 items-center gap-1.5"><Bot className="h-3.5 w-3.5 shrink-0" /><span className="truncate">AI 客服</span></span>
+                        <span className="shrink-0">{itemAIStatusText[aiOverride]}</span>
+                      </button>
                       <button
                         onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => onConfigureDelivery(item)}
                         className={`w-full flex items-center justify-between gap-1 px-2.5 py-2 rounded-lg text-[11px] font-extrabold transition-all ${hasRule ? 'bg-gray-900 text-white hover:bg-black' : 'bg-brand text-white hover:bg-brand-highlight shadow-md shadow-blue-100'}`}
@@ -971,6 +1009,16 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery, publishImagesE
         onClose={/* manualLocationCloseAction 关闭手动地点弹窗并释放高德查询。 */ () => setManualLocationTarget(null)}
         onConfirm={confirmManualLocation}
       />
+      {ItemAISettingsModal && itemAISettingsTarget && (
+        <Suspense fallback={null}>
+          <ItemAISettingsModal
+            item={itemAISettingsTarget}
+            open
+            onClose={/* itemAISettingsCloseHandler 关闭商品级 AI 配置弹窗。 */ () => setItemAISettingsTarget(null)}
+            onSaved={handleItemAISettingsSaved}
+          />
+        </Suspense>
+      )}
     </div>
   );
 };

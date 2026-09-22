@@ -19,7 +19,7 @@ func TestAIBargainQuoteAutomaticallyAdjustsCreatedOrder(t *testing.T) {
 	// ctx 是 AI 报价和订单事件共用的测试上下文。
 	ctx := context.Background()
 	// err 是保存 AI 议价与真实改价开关时不应出现的错误。
-	if err := store.AIReply.UpsertSettings(ctx, "cid", db.AIReplySettings{AIEnabled: true, AutoAdjustPriceEnabled: true, MaxDiscountPercent: 10, MaxDiscountAmount: 20, MaxBargainRounds: 3}); err != nil {
+	if err := store.AIReply.UpsertSettings(ctx, "cid", db.AIReplySettings{AIEnabled: true, AutoAdjustPriceEnabled: true, MaxDiscountPercent: 10, MaxDiscountAmount: 20, MaxBargainRounds: 3, AIMode: "bargain_only"}); err != nil {
 		t.Fatal(err)
 	}
 	// quote 是已经成功发送给指定买家和会话的 9.90 元报价。
@@ -63,7 +63,7 @@ func TestAIBargainQuoteRetriesTransientBusy(t *testing.T) {
 	// ctx 是 AI 报价和订单事件共用的测试上下文。
 	ctx := context.Background()
 	// err 是保存 AI 议价与真实改价开关时不应出现的错误。
-	if err := store.AIReply.UpsertSettings(ctx, "cid", db.AIReplySettings{AIEnabled: true, AutoAdjustPriceEnabled: true, MaxDiscountPercent: 10, MaxDiscountAmount: 20, MaxBargainRounds: 3}); err != nil {
+	if err := store.AIReply.UpsertSettings(ctx, "cid", db.AIReplySettings{AIEnabled: true, AutoAdjustPriceEnabled: true, MaxDiscountPercent: 10, MaxDiscountAmount: 20, MaxBargainRounds: 3, AIMode: "bargain_only"}); err != nil {
 		t.Fatal(err)
 	}
 	// quote 是已发送、尚待买家拍下后消费的 AI 单件报价。
@@ -112,7 +112,7 @@ func TestAINegotiationSuppressesLegacyFixedPriceRule(t *testing.T) {
 	if _, err = store.Automation.Create(ctx, db.AutomationRuleInput{UserID: owner.ID, CookieID: "cid", Name: "遗留改价", TriggerType: TriggerOrderCreated, Enabled: true, Actions: []db.AutomationActionInput{{ActionType: ActionAdjustPrice, ConfigJSON: `{"target_price":"8.80"}`, Enabled: true}}}); err != nil {
 		t.Fatal(err)
 	}
-	if err = store.AIReply.UpsertSettings(ctx, "cid", db.AIReplySettings{AIEnabled: true, AutoAdjustPriceEnabled: false, MaxDiscountPercent: 10, MaxDiscountAmount: 20, MaxBargainRounds: 3}); err != nil {
+	if err = store.AIReply.UpsertSettings(ctx, "cid", db.AIReplySettings{AIEnabled: true, AutoAdjustPriceEnabled: false, MaxDiscountPercent: 10, MaxDiscountAmount: 20, MaxBargainRounds: 3, AIMode: "bargain_only"}); err != nil {
 		t.Fatal(err)
 	}
 	// fake 统计是否有任何固定规则改价请求触达平台。

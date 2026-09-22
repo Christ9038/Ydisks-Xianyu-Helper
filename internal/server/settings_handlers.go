@@ -42,8 +42,10 @@ type aiReplySettingsUpdateRequest struct {
 	MaxDiscountAmount int `json:"max_discount_amount"`
 	// MaxBargainRounds 是自动砍价允许的最大轮次。
 	MaxBargainRounds int `json:"max_bargain_rounds"`
-	// CustomPrompts 是账号专用的补充提示词。
+	// CustomPrompts 是账号专用的补充提示词或客服规则。
 	CustomPrompts string `json:"custom_prompts"`
+	// AIMode 是 AI 工作模式：bargain_only 或 full_service。
+	AIMode string `json:"ai_mode"`
 }
 
 // aiModelListRequest 是读取指定 AI 服务模型目录的 HTTP 请求 DTO。
@@ -344,7 +346,7 @@ func (s *Server) listAIReply(w http.ResponseWriter, r *http.Request) {
 	for _, row := range rows {
 		result[row.CookieID] = aiReplySettingsResponse{
 			CookieID: row.CookieID, AIEnabled: row.AIEnabled, AutoAdjustPriceEnabled: row.AutoAdjustPriceEnabled, MaxDiscountPercent: row.MaxDiscountPercent,
-			MaxDiscountAmount: row.MaxDiscountAmount, MaxBargainRounds: row.MaxBargainRounds, CustomPrompts: row.CustomPrompts,
+			MaxDiscountAmount: row.MaxDiscountAmount, MaxBargainRounds: row.MaxBargainRounds, CustomPrompts: row.CustomPrompts, AIMode: row.AIMode,
 			// 账号标识和五项配置字段保持旧 JSON 名称。
 			// 布尔值继续由数据库整数转换得到。
 			// 自定义提示词不做额外格式化。
@@ -369,7 +371,7 @@ func (s *Server) getAIReply(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, settingsapp.ErrConfigNotFound) {
 			// 未保存配置使用与旧接口一致的默认值。
-			writeJSON(w, http.StatusOK, aiReplySettingsResponse{AIEnabled: false, AutoAdjustPriceEnabled: false, MaxDiscountPercent: 10, MaxDiscountAmount: 100, MaxBargainRounds: 3, CustomPrompts: ""})
+			writeJSON(w, http.StatusOK, aiReplySettingsResponse{AIEnabled: false, AutoAdjustPriceEnabled: false, MaxDiscountPercent: 10, MaxDiscountAmount: 100, MaxBargainRounds: 3, CustomPrompts: "", AIMode: "bargain_only"})
 			return
 		}
 		if writeSettingsAccountError(w, err) {
@@ -385,7 +387,7 @@ func (s *Server) getAIReply(w http.ResponseWriter, r *http.Request) {
 	// CustomPrompts 仍返回原始提示词文本。
 	// 该响应仅静态化 JSON 结构，不改变存储或校验逻辑。
 	// 旧客户端可以继续直接读取这些字段。
-	writeJSON(w, http.StatusOK, aiReplySettingsResponse{CookieID: cfg.CookieID, AIEnabled: cfg.AIEnabled, AutoAdjustPriceEnabled: cfg.AutoAdjustPriceEnabled, MaxDiscountPercent: cfg.MaxDiscountPercent, MaxDiscountAmount: cfg.MaxDiscountAmount, MaxBargainRounds: cfg.MaxBargainRounds, CustomPrompts: cfg.CustomPrompts})
+	writeJSON(w, http.StatusOK, aiReplySettingsResponse{CookieID: cfg.CookieID, AIEnabled: cfg.AIEnabled, AutoAdjustPriceEnabled: cfg.AutoAdjustPriceEnabled, MaxDiscountPercent: cfg.MaxDiscountPercent, MaxDiscountAmount: cfg.MaxDiscountAmount, MaxBargainRounds: cfg.MaxBargainRounds, CustomPrompts: cfg.CustomPrompts, AIMode: cfg.AIMode})
 }
 
 // setAIReply 封装setAI回复业务协调。
@@ -433,7 +435,7 @@ func (s *Server) setAIReply(w http.ResponseWriter, r *http.Request) {
 	err := s.settingsApplication().UpsertAIReply(r.Context(), sess.UserID, cid, settingsapp.AIReplySettings{
 		CookieID: cid, AIEnabled: req.AIEnabled, AutoAdjustPriceEnabled: req.AutoAdjustPriceEnabled, MaxDiscountPercent: req.MaxDiscountPercent,
 		MaxDiscountAmount: req.MaxDiscountAmount, MaxBargainRounds: req.MaxBargainRounds,
-		CustomPrompts: req.CustomPrompts,
+		CustomPrompts: req.CustomPrompts, AIMode: req.AIMode,
 	})
 	if err != nil {
 		if errors.Is(err, settingsapp.ErrPricingModeConflict) {

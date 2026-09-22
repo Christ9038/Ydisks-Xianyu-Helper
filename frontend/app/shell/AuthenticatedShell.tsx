@@ -51,6 +51,8 @@ const ItemList = lazy(/* ItemList 页面按路由激活时加载。 */ () => imp
 const PublishSpecsEditor = lazy(/* 规格编辑器随商品页面路由加载。 */ () => import('../features/items/components/PublishSpecsEditor').then(/* module 提供规格编辑器的具名导出。 */ module => ({ default: module.PublishSpecsEditor })));
 // PublishImagesEditor 在商品页面中按需加载，避免图片编辑交互增大商品主分片。
 const PublishImagesEditor = lazy(/* 图片编辑器随商品页面路由加载。 */ () => import('../features/items/components/PublishImagesEditor').then(/* module 提供图片编辑器的具名导出。 */ module => ({ default: module.PublishImagesEditor })));
+// ItemAISettingsModal 在商品页面中按需加载，保持商品主分片在预算内。
+const ItemAISettingsModal = lazy(/* 商品 AI 弹窗随商品页面路由加载。 */ () => import('../features/items/components/ItemAISettingsModal').then(/* module 提供商品 AI 弹窗的具名导出。 */ module => ({ default: module.ItemAISettingsModal })));
 // Settings 是按需加载的系统设置页面，仅在管理员访问时加载。
 const Settings = lazy(/* Settings 页面按路由激活时加载。 */ () => import('../features/settings/pages/Settings'));
 // Rules 是按需加载的自动化规则页面，避免首屏载入规则编辑器代码。
@@ -108,7 +110,7 @@ export const AppContent: React.FC<AppContentProps> = ({
       case 'chat': return <Chat />;
       case 'orders': return <OrderList />;
       case 'cards': return <CardList />;
-      case 'items': return <ItemList onConfigureDelivery={handleConfigureDelivery} publishSpecsEditor={PublishSpecsEditor} publishImagesEditor={PublishImagesEditor} />;
+      case 'items': return <ItemList onConfigureDelivery={handleConfigureDelivery} publishSpecsEditor={PublishSpecsEditor} publishImagesEditor={PublishImagesEditor} itemAISettingsModal={ItemAISettingsModal} />;
       case 'rules': return <Rules
         initialDeliveryTarget={deliveryRuleTarget}
         onDeliveryTargetHandled={onDeliveryTargetHandled}

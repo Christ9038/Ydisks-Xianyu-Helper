@@ -92,7 +92,7 @@ func TestSettingsRepositoryDeterministicPaths(t *testing.T) {
 		t.Fatalf("missing owner=%d err=%v", missingOwner, missingOwnerErr)
 	}
 	// aiSettings、aiSettingsErr 保存用户范围内的 AI 配置摘要。
-	if err := repository.UpsertAIReply(ctx, "cid", settingsapp.AIReplySettings{AIEnabled: true, MaxBargainRounds: 2}); err != nil {
+	if err := repository.UpsertAIReply(ctx, "cid", settingsapp.AIReplySettings{AIEnabled: true, MaxBargainRounds: 2, AIMode: "bargain_only"}); err != nil {
 		t.Fatal(err)
 	}
 	// aiSettings、aiSettingsErr 保存用户范围内的 AI 配置摘要及读取错误。

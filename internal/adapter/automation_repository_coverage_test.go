@@ -141,7 +141,7 @@ func TestAutomationRepositoryPricingModeAndSensitiveSummary(t *testing.T) {
 		t.Fatalf("default AI enabled=%v err=%v", aiBefore, aiBeforeErr)
 	}
 	// settingsErr 保存开启 AI 议价设置的错误。
-	settingsErr := store.AIReply.UpsertSettings(ctx, "cid", db.AIReplySettings{AIEnabled: true, MaxBargainRounds: 2})
+	settingsErr := store.AIReply.UpsertSettings(ctx, "cid", db.AIReplySettings{AIEnabled: true, MaxBargainRounds: 2, AIMode: "bargain_only"})
 	if settingsErr != nil {
 		t.Fatal(settingsErr)
 	}

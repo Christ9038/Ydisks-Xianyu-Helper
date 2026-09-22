@@ -123,6 +123,8 @@ export interface AIReplySettings {
   max_bargain_rounds: number;
   /** 自定义提示词。 */
   custom_prompts: string;
+  /** AI 工作模式。 */
+  ai_mode: 'bargain_only' | 'full_service';
 }
 
 /** 由当前 feature adapter 归一后的 NotificationChannelType UI 模型；不直接暴露 HTTP DTO。 */
@@ -276,6 +278,8 @@ export interface AIReplySettingsResponse {
   max_bargain_rounds: number;
   /** 自定义提示词。 */
   custom_prompts: string;
+  /** AI 工作模式。 */
+  ai_mode: 'bargain_only' | 'full_service';
 }
 
 /** 通知绑定列表中的单条记录。 */

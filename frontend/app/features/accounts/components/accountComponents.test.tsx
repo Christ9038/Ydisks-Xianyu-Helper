@@ -30,6 +30,7 @@ const aiSettingsFixture: AIReplySettings = {
   max_discount_amount: 100,
   max_bargain_rounds: 3,
   custom_prompts: '',
+  ai_mode: 'bargain_only',
 };
 
 // noopAccountAction 是账号卡片测试使用的动作占位函数。

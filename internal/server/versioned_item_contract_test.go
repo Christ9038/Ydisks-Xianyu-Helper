@@ -42,6 +42,51 @@ func TestVersionedItemRoutesPreserveLegacyContracts(t *testing.T) {
 	if len(listValue) != 2 || listValue[0].CookieID != "acc1" {
 		t.Fatalf("versioned item list=%+v", listValue)
 	}
+	if listValue[0].AIOverride != "inherit" || listValue[1].AIOverride != "inherit" {
+		t.Fatalf("商品列表默认 AI 状态异常: %+v", listValue)
+	}
+
+	// aiGetReq 是读取未配置商品 AI 设置的请求。
+	aiGetReq := httptest.NewRequest(http.MethodGet, "/api/v1/items/acc1/item-v1/ai-settings", nil)
+	aiGetReq.AddCookie(sessionCookie)
+	// aiGetRecorder 是捕获默认商品 AI 设置的记录器。
+	aiGetRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(aiGetRecorder, aiGetReq)
+	assertOpenAPISuccessResponse(t, aiGetReq, aiGetRecorder)
+	// aiDefault 是未配置商品返回的默认继承设置。
+	var aiDefault itemAISettingsResponse
+	if // decodeErr 是默认商品 AI 配置响应解码错误。
+	decodeErr := json.Unmarshal(aiGetRecorder.Body.Bytes(), &aiDefault); decodeErr != nil {
+		t.Fatal(decodeErr)
+	}
+	if aiDefault.AIOverride != "inherit" || aiDefault.ItemContext != "" {
+		t.Fatalf("默认商品 AI 配置异常: %+v", aiDefault)
+	}
+
+	// aiPutReq 是保存商品 AI 配置的请求。
+	aiPutReq := httptest.NewRequest(http.MethodPut, "/api/v1/items/acc1/item-v1/ai-settings", strings.NewReader(`{"ai_override":"enabled","item_context":"24 小时内发货"}`))
+	aiPutReq.AddCookie(sessionCookie)
+	// aiPutRecorder 是捕获商品 AI 保存响应的记录器。
+	aiPutRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(aiPutRecorder, aiPutReq)
+	assertOpenAPISuccessResponse(t, aiPutReq, aiPutRecorder)
+	// aiSaved 是服务端返回的规范化商品 AI 配置。
+	var aiSaved itemAISettingsResponse
+	if // decodeErr 是已保存商品 AI 配置响应解码错误。
+	decodeErr := json.Unmarshal(aiPutRecorder.Body.Bytes(), &aiSaved); decodeErr != nil {
+		t.Fatal(decodeErr)
+	}
+	if aiSaved.AIOverride != "enabled" || aiSaved.ItemContext != "24 小时内发货" {
+		t.Fatalf("保存商品 AI 配置异常: %+v", aiSaved)
+	}
+
+	// aiGetSavedReq 是再次读取已保存商品 AI 配置的请求。
+	aiGetSavedReq := httptest.NewRequest(http.MethodGet, "/api/v1/items/acc1/item-v1/ai-settings", nil)
+	aiGetSavedReq.AddCookie(sessionCookie)
+	// aiGetSavedRecorder 是捕获已保存商品 AI 配置的记录器。
+	aiGetSavedRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(aiGetSavedRecorder, aiGetSavedReq)
+	assertOpenAPISuccessResponse(t, aiGetSavedReq, aiGetSavedRecorder)
 
 	// detailReq 是读取版本化商品详情的请求。
 	detailReq := httptest.NewRequest(http.MethodGet, "/api/v1/items/acc1/item-v1", nil)

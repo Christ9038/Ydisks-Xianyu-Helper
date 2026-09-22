@@ -24,7 +24,7 @@ func TestAIPricingModeCoversGuardQuoteAndOverflowBranches(t *testing.T) {
 		t.Fatalf("非订单创建事件结果 active=%v err=%v", inactive, inactiveErr)
 	}
 	// disabledErr 保存未启用 AI 模式时的处理错误。
-	if disabledErr := store.AIReply.UpsertSettings(ctx, "cid", db.AIReplySettings{AIEnabled: false, AutoAdjustPriceEnabled: true}); disabledErr != nil {
+	if disabledErr := store.AIReply.UpsertSettings(ctx, "cid", db.AIReplySettings{AIEnabled: false, AutoAdjustPriceEnabled: true, AIMode: "bargain_only"}); disabledErr != nil {
 		t.Fatal(disabledErr)
 	}
 	// disabled、disabledResultErr 保存关闭 AI 模式的结果。
@@ -33,7 +33,7 @@ func TestAIPricingModeCoversGuardQuoteAndOverflowBranches(t *testing.T) {
 		t.Fatalf("关闭 AI 模式结果 active=%v err=%v", disabled, disabledResultErr)
 	}
 	// takeoverErr 保存仅由 AI 接管但未打开真实改价时的设置写入错误。
-	if takeoverErr := store.AIReply.UpsertSettings(ctx, "cid", db.AIReplySettings{AIEnabled: true, AutoAdjustPriceEnabled: false}); takeoverErr != nil {
+	if takeoverErr := store.AIReply.UpsertSettings(ctx, "cid", db.AIReplySettings{AIEnabled: true, AutoAdjustPriceEnabled: false, AIMode: "bargain_only"}); takeoverErr != nil {
 		t.Fatal(takeoverErr)
 	}
 	// takeover、takeoverResultErr 保存 AI 接管结果。
@@ -46,7 +46,7 @@ func TestAIPricingModeCoversGuardQuoteAndOverflowBranches(t *testing.T) {
 		t.Fatalf("事实不完整结果 active=%v err=%v", missing, missingErr)
 	}
 	// enableErr 保存开启真实 AI 改价时的设置写入错误。
-	if enableErr := store.AIReply.UpsertSettings(ctx, "cid", db.AIReplySettings{AIEnabled: true, AutoAdjustPriceEnabled: true}); enableErr != nil {
+	if enableErr := store.AIReply.UpsertSettings(ctx, "cid", db.AIReplySettings{AIEnabled: true, AutoAdjustPriceEnabled: true, AIMode: "bargain_only"}); enableErr != nil {
 		t.Fatal(enableErr)
 	}
 	// noQuote、noQuoteErr 保存无可用报价时的结果。

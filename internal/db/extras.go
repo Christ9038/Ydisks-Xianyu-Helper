@@ -755,6 +755,7 @@ type ItemInfoRow struct {
 	ItemDetail            string
 	IsMultiSpec           bool
 	MultiQuantityDelivery bool
+	AIOverride            string
 }
 
 // ItemSyncResult 是一次远端商品全集同步的结果。

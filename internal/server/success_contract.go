@@ -424,6 +424,8 @@ type itemListResponse struct {
 	MultiQuantityDelivery bool `json:"multi_quantity_delivery"`
 	// IsMultiQtyShip 是按数量发货的兼容字段。
 	IsMultiQtyShip bool `json:"is_multi_qty_ship"`
+	// AIOverride 是商品级 AI 启停覆盖状态。
+	AIOverride string `json:"ai_override"`
 }
 
 // itemDetailResponse 是单个本地商品详情接口的具名响应 DTO。
