@@ -304,9 +304,13 @@ func (engine *updateEngine) createBackup(ctx context.Context, requestID string) 
 	if writeErr := os.WriteFile(filepath.Join(directory, "deployment.env"), environmentContent, 0o600); writeErr != nil {
 		return backupSet{}, fmt.Errorf("备份环境配置失败: %w", writeErr)
 	}
-	// copyErr 表示 Compose 配置恢复点未能复制完成。
+	// copyErr 表示基础 Compose 配置恢复点未能复制完成。
 	if copyErr := copyFile(engine.config.composeFile, filepath.Join(directory, "compose.yml"), 0o600); copyErr != nil {
-		return backupSet{}, fmt.Errorf("备份 Compose 配置失败: %w", copyErr)
+		return backupSet{}, fmt.Errorf("备份基础 Compose 配置失败: %w", copyErr)
+	}
+	// overlayCopyErr 表示 updater Compose 覆盖文件未能写入恢复点。
+	if overlayCopyErr := copyFile(engine.config.composeOverlayFile, filepath.Join(directory, "compose.updater.yml"), 0o600); overlayCopyErr != nil {
+		return backupSet{}, fmt.Errorf("备份 updater Compose 覆盖配置失败: %w", overlayCopyErr)
 	}
 	return backupSet{
 		directory:          directory,

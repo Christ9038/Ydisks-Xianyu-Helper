@@ -26,6 +26,8 @@ type runtimeConfig struct {
 	projectDir string
 	// composeFile 是固定 Compose 配置文件。
 	composeFile string
+	// composeOverlayFile 是固定 updater Compose 覆盖文件，包含 Socket 环境变量和只读挂载。
+	composeOverlayFile string
 	// envFile 是固定部署环境文件，更新只允许修改 XIANYU_IMAGE。
 	envFile string
 	// databaseFile 是 SQLite 生产数据库固定路径。
@@ -53,19 +55,20 @@ type runtimeConfig struct {
 // productionConfig 返回不可由外部输入覆盖的正式部署配置。
 func productionConfig() runtimeConfig {
 	return runtimeConfig{
-		projectDir:     "/opt/ydisks-xianyu-helper",
-		composeFile:    "/opt/ydisks-xianyu-helper/compose.yml",
-		envFile:        "/opt/ydisks-xianyu-helper/.env",
-		databaseFile:   "/opt/ydisks-xianyu-helper/data/xianyu_data.db",
-		backupRoot:     "/opt/ydisks-xianyu-helper/backups/updater",
-		lockFile:       "/run/ydisks-xianyu-helper/update.lock",
-		socketPath:     DefaultSocketPath,
-		healthURL:      "http://127.0.0.1:59188/health",
-		composeService: "app",
-		composeProject: "ydisks-xianyu-helper",
-		updateTimeout:  10 * time.Minute,
-		healthTimeout:  3 * time.Minute,
-		healthInterval: 2 * time.Second,
+		projectDir:         "/opt/ydisks-xianyu-helper",
+		composeFile:        "/opt/ydisks-xianyu-helper/compose.yml",
+		composeOverlayFile: "/opt/ydisks-xianyu-helper/compose.updater.yml",
+		envFile:            "/opt/ydisks-xianyu-helper/.env",
+		databaseFile:       "/opt/ydisks-xianyu-helper/data/xianyu_data.db",
+		backupRoot:         "/opt/ydisks-xianyu-helper/backups/updater",
+		lockFile:           "/run/ydisks-xianyu-helper/update.lock",
+		socketPath:         DefaultSocketPath,
+		healthURL:          "http://127.0.0.1:59188/health",
+		composeService:     "app",
+		composeProject:     "ydisks-xianyu-helper",
+		updateTimeout:      10 * time.Minute,
+		healthTimeout:      3 * time.Minute,
+		healthInterval:     2 * time.Second,
 	}
 }
 
@@ -90,10 +93,10 @@ func (osCommandRunner) Run(ctx context.Context, executable string, args ...strin
 	return output, nil
 }
 
-// composeArgs 为固定 Compose 文件、项目目录和项目名生成公共参数前缀。
+// composeArgs 为固定基础 Compose、updater 覆盖文件、项目目录和项目名生成公共参数前缀。
 func composeArgs(config runtimeConfig, operationArgs ...string) []string {
-	// args 保存不会被外部请求修改的 Compose 项目边界和具体操作。
-	args := []string{"compose", "--project-name", config.composeProject, "--project-directory", config.projectDir, "-f", config.composeFile}
+	// args 保存不会被外部请求修改的 Compose 项目边界、两个固定配置文件和具体操作。
+	args := []string{"compose", "--project-name", config.composeProject, "--project-directory", config.projectDir, "-f", config.composeFile, "-f", config.composeOverlayFile}
 	return append(args, operationArgs...)
 }
 

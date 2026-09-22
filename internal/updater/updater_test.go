@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -61,6 +62,40 @@ func stableDeployment() CurrentDeployment {
 		ImageReference: OfficialImage + ":v1.0.0", ImageID: "sha256:" + strings.Repeat("c", 64), RepositoryDigests: []string{OfficialImage + "@sha256:" + strings.Repeat("d", 64)}, ContainerHealth: "healthy",
 		Build: BuildInfo{Status: "ok", Database: "ok", Version: "1.0.0", Commit: strings.Repeat("c", 12), BuildTime: "2026-09-21T00:00:00Z"},
 		Kind:  DeploymentStable, DatabaseKind: "sqlite", DataMountSupported: true,
+	}
+}
+
+// TestComposeArgsUsesFixedBaseAndUpdaterOverlay 验证所有 Compose 操作固定加载基础文件和 updater 覆盖文件。
+func TestComposeArgsUsesFixedBaseAndUpdaterOverlay(t *testing.T) {
+	// config 保存不会被 HTTP 或环境参数覆盖的测试路径。
+	config := runtimeConfig{
+		projectDir:         "/opt/ydisks-xianyu-helper",
+		composeFile:        "/opt/ydisks-xianyu-helper/compose.yml",
+		composeOverlayFile: "/opt/ydisks-xianyu-helper/compose.updater.yml",
+		composeProject:     "ydisks-xianyu-helper",
+	}
+	// want 是所有 updater Compose 操作必须使用的固定参数顺序。
+	want := []string{
+		"compose", "--project-name", "ydisks-xianyu-helper", "--project-directory", "/opt/ydisks-xianyu-helper",
+		"-f", "/opt/ydisks-xianyu-helper/compose.yml", "-f", "/opt/ydisks-xianyu-helper/compose.updater.yml",
+		"config", "--format", "json",
+	}
+	if got := composeArgs(config, "config", "--format", "json"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("compose args=%v want=%v", got, want)
+	}
+}
+
+// TestProductionConfigComposePathsIgnoreEnvironment 验证环境变量不能覆盖生产 Compose 文件路径。
+func TestProductionConfigComposePathsIgnoreEnvironment(t *testing.T) {
+	t.Setenv("XIANYU_COMPOSE_FILE", "/tmp/attacker-compose.yml")
+	t.Setenv("XIANYU_COMPOSE_OVERLAY_FILE", "/tmp/attacker-overlay.yml")
+	// config 必须只返回编译时固定的生产路径。
+	config := productionConfig()
+	if config.composeFile != "/opt/ydisks-xianyu-helper/compose.yml" {
+		t.Fatalf("compose file=%q", config.composeFile)
+	}
+	if config.composeOverlayFile != "/opt/ydisks-xianyu-helper/compose.updater.yml" {
+		t.Fatalf("compose overlay file=%q", config.composeOverlayFile)
 	}
 }
 
@@ -196,7 +231,9 @@ func TestDaemonRejectsDynamicParameters(t *testing.T) {
 	}{
 		{method: http.MethodGet, path: "/status?image=custom", status: http.StatusBadRequest},
 		{method: http.MethodGet, path: "/check?version=1.2.3", status: http.StatusBadRequest},
+		{method: http.MethodGet, path: "/check?compose_file=/tmp/override.yml", status: http.StatusBadRequest},
 		{method: http.MethodPost, path: "/apply_latest_stable", body: `{"image":"custom"}`, status: http.StatusBadRequest},
+		{method: http.MethodPost, path: "/apply_latest_stable", body: `{"compose_overlay_file":"/tmp/override.yml"}`, status: http.StatusBadRequest},
 		{method: http.MethodPost, path: "/apply_latest_stable", body: `x`, chunked: true, status: http.StatusBadRequest},
 		{method: http.MethodPost, path: "/shell", status: http.StatusNotFound},
 	}
@@ -302,6 +339,11 @@ func TestApplyRollbackPreservesWritesBeforeQuiesce(t *testing.T) {
 	if writeErr := os.WriteFile(composeFile, []byte("services: {}\n"), 0o600); writeErr != nil {
 		t.Fatal(writeErr)
 	}
+	// composeOverlayFile 是模拟生产固定 updater 覆盖文件，重建时必须持续加载。
+	composeOverlayFile := filepath.Join(root, "compose.updater.yml")
+	if writeErr := os.WriteFile(composeOverlayFile, []byte("services: {}\n"), 0o600); writeErr != nil {
+		t.Fatal(writeErr)
+	}
 	// currentBuild 是更新前和回滚后必须一致的构建身份。
 	currentBuild := BuildInfo{Status: "ok", Database: "ok", Version: "1.0.0", Commit: strings.Repeat("c", 12), BuildTime: "before"}
 	// phaseMu 保护健康服务器读取的模拟容器阶段。
@@ -324,7 +366,7 @@ func TestApplyRollbackPreservesWritesBeforeQuiesce(t *testing.T) {
 	defer healthServer.Close()
 	// config 使用临时路径和短健康超时执行完整更新与回滚事务。
 	config := runtimeConfig{
-		projectDir: root, composeFile: composeFile, envFile: environmentFile, databaseFile: databaseFile,
+		projectDir: root, composeFile: composeFile, composeOverlayFile: composeOverlayFile, envFile: environmentFile, databaseFile: databaseFile,
 		backupRoot: filepath.Join(root, "backups"), lockFile: filepath.Join(root, "update.lock"), socketPath: filepath.Join(root, "updater.sock"),
 		healthURL: healthServer.URL, composeService: "app", composeProject: "test-project",
 		updateTimeout: 2 * time.Second, healthTimeout: 20 * time.Millisecond, healthInterval: time.Millisecond,

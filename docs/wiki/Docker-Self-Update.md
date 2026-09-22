@@ -19,6 +19,7 @@ PostgreSQL、MySQL、Docker 命名卷、开发版和自定义镜像仍可查看�
 
 ```bash
 sudo install -o root -g root -m 0755 ydisks-updater-linux-arm64 /usr/local/libexec/ydisks-updater
+sudo install -o root -g root -m 0644 deploy/docker/compose.updater.yml /opt/ydisks-xianyu-helper/compose.updater.yml
 sudo install -m 0644 deploy/systemd/ydisks-updater.service /etc/systemd/system/ydisks-updater.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now ydisks-updater.service
@@ -27,10 +28,15 @@ sudo systemctl enable --now ydisks-updater.service
 在已存在的 SQLite Compose 部署上启用应用 Socket 覆盖：
 
 ```bash
-docker compose -f compose.yml -f deploy/docker/compose.updater.yml up -d app
+sudo docker compose \
+  -f /opt/ydisks-xianyu-helper/compose.yml \
+  -f /opt/ydisks-xianyu-helper/compose.updater.yml \
+  --project-name ydisks-xianyu-helper \
+  --project-directory /opt/ydisks-xianyu-helper \
+  up -d app
 ```
 
-systemd 会以 `root:docker` 自动创建 `/run/ydisks-xianyu-helper`，更新器在其中监听 `updater.sock`。应用容器通过覆盖文件以只读方式挂载该目录，并从 `XIANYU_UPDATE_SOCKET` 读取固定容器内路径。
+`compose.updater.yml` 必须安装到 `/opt/ydisks-xianyu-helper/compose.updater.yml`。更新器后续所有 `docker compose` 操作都会固定同时加载 `/opt/ydisks-xianyu-helper/compose.yml` 和这个 updater 覆盖文件；不要只使用基础文件重建 app，否则 Socket 挂载和 `XIANYU_UPDATE_SOCKET` 会丢失。systemd 会以 `root:docker` 自动创建 `/run/ydisks-xianyu-helper`，更新器在其中监听 `updater.sock`。应用容器通过覆盖文件以只读方式挂载该目录，并从 `XIANYU_UPDATE_SOCKET` 读取固定容器内路径。
 
 ## 更新流程
 
