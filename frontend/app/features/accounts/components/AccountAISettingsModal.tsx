@@ -38,6 +38,8 @@ export const AccountAISettingsModal: React.FC<AccountAISettingsModalProps> = ({ 
   const handleBargainRoundsChange = (event: React.ChangeEvent<HTMLInputElement>) => updateSettings({ max_bargain_rounds: parseInt(event.target.value, 10) || 1 });
   // handlePromptChange 更新自定义 AI 提示词。
   const handlePromptChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => updateSettings({ custom_prompts: event.target.value });
+  // handleModeChange 更新账号 AI 工作模式。
+  const handleModeChange = (mode: AIReplySettings['ai_mode']) => updateSettings({ ai_mode: mode });
 
   return createPortal(
     <div className="modal-overlay-centered">
@@ -52,10 +54,19 @@ export const AccountAISettingsModal: React.FC<AccountAISettingsModalProps> = ({ 
 
         <div className="modal-body space-y-6">
           <div className="flex items-center justify-between p-4 bg-purple-50 rounded-xl">
-            <div><div className="font-bold text-gray-900 flex items-center gap-2"><Bot className="w-4 h-4 text-purple-500" />启用AI自动回复</div><div className="text-xs text-gray-500">AI将自动处理买家的砍价消息</div></div>
+            <div><div className="font-bold text-gray-900 flex items-center gap-2"><Bot className="w-4 h-4 text-purple-500" />启用 AI 自动回复</div><div className="text-xs text-gray-500">按下方模式处理买家消息</div></div>
             <button type="button" onClick={handleEnabledChange} className={`w-14 h-8 rounded-full transition-colors duration-300 relative ${settings.ai_enabled ? 'bg-brand' : 'bg-gray-300'}`} aria-label="切换 AI 自动回复">
               <span className={`absolute left-1 top-1 w-6 h-6 bg-white rounded-full shadow-md transition-transform duration-300 ${settings.ai_enabled ? 'translate-x-6' : 'translate-x-0'}`} />
             </button>
+          </div>
+
+          <div className="space-y-3">
+            <label className="block text-sm font-bold text-gray-700">工作模式</label>
+            <div className="grid grid-cols-2 rounded-lg bg-gray-100 p-1" role="group" aria-label="AI 工作模式">
+              <button type="button" onClick={/* 当前回调切换到仅砍价模式。 */ () => handleModeChange('bargain_only')} className={`min-h-10 rounded-md px-3 py-2 text-sm font-bold transition-colors ${settings.ai_mode === 'bargain_only' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}>仅砍价</button>
+              <button type="button" onClick={/* 当前回调切换到全场景客服模式。 */ () => handleModeChange('full_service')} className={`min-h-10 rounded-md px-3 py-2 text-sm font-bold transition-colors ${settings.ai_mode === 'full_service' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}>全场景客服</button>
+            </div>
+            <p className="text-xs leading-5 text-gray-500">{settings.ai_mode === 'full_service' ? '未命中关键词时，AI 会处理商品咨询、发货、售后和砍价消息。' : '仅在识别到砍价意图时调用 AI，其他消息继续使用默认回复。'}</p>
           </div>
 
           <div className="flex items-center justify-between p-4 bg-amber-50 border border-amber-200 rounded-xl">
@@ -67,17 +78,17 @@ export const AccountAISettingsModal: React.FC<AccountAISettingsModalProps> = ({ 
 
           <div className="border-t border-gray-200 pt-6">
             <h3 className="text-lg font-bold text-gray-900 mb-4">砍价策略</h3>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div><label className="block text-sm font-bold text-gray-700 mb-2">最大折扣比例 (%)</label><input type="number" value={settings.max_discount_percent} onChange={handleDiscountPercentChange} className="w-full ios-input px-4 py-3 rounded-xl" min="0" max="100" /><p className="text-xs text-gray-500 mt-1">例如：10 表示最多降价 10%；设为 0 表示不允许降价</p></div>
               <div><label className="block text-sm font-bold text-gray-700 mb-2">最大折扣金额 (元)</label><input type="number" value={settings.max_discount_amount} onChange={handleDiscountAmountChange} className="w-full ios-input px-4 py-3 rounded-xl" min="0" /><p className="text-xs text-gray-500 mt-1">例如：100 表示最多降价 100 元；设为 0 表示不允许降价</p></div>
               <div><label className="block text-sm font-bold text-gray-700 mb-2">最大砍价轮次</label><input type="number" value={settings.max_bargain_rounds} onChange={handleBargainRoundsChange} className="w-full ios-input px-4 py-3 rounded-xl" min="1" max="10" /><p className="text-xs text-gray-500 mt-1">买家最多可以砍价的次数</p></div>
             </div>
           </div>
 
-          <div><label className="block text-sm font-bold text-gray-700 mb-2">自定义提示词（可选）</label><textarea value={settings.custom_prompts} onChange={handlePromptChange} placeholder="输入自定义的AI回复规则或风格指引...&#10;&#10;例如：回复时保持礼貌专业、使用简洁的语言、强调产品质量等" className="w-full ios-input px-4 py-3 rounded-xl h-40 resize-none" /></div>
+          <div><label className="block text-sm font-bold text-gray-700 mb-2">{settings.ai_mode === 'full_service' ? '店铺客服规则（可选）' : '自定义提示词（可选）'}</label><textarea value={settings.custom_prompts} onChange={handlePromptChange} placeholder={settings.ai_mode === 'full_service' ? '例如：现货商品 24 小时内发货；不确定的问题请引导买家联系人工客服。' : '例如：回复时保持礼貌专业，使用简洁的语言。'} className="w-full ios-input px-4 py-3 rounded-xl h-40 resize-none" /></div>
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
             <h4 className="font-bold text-blue-900 mb-2 flex items-center gap-2"><Settings className="w-4 h-4" />AI如何工作</h4>
-            <ul className="text-xs text-blue-800 space-y-1"><li>• 自动识别买家的砍价请求</li><li>• 根据设定的策略智能回复</li><li>• 在合理范围内同意降价或礼貌拒绝</li><li>• 只有开启自动改价后，已发送给买家的有效报价才会用于真实订单改价</li></ul>
+            <ul className="text-xs text-blue-800 space-y-1"><li>• 关键词回复仍然优先于 AI</li><li>• 全场景模式会结合商品信息和店铺规则回答</li><li>• 砍价消息始终受折扣和轮次限制</li><li>• 只有开启自动改价后，已发送给买家的有效报价才会用于真实订单改价</li></ul>
           </div>
         </div>
 

@@ -10,7 +10,6 @@ getShippingRules,
 } from '../api';
 import { batchStatusClass,batchStatusText } from '../batchState';
 import { BatchPhaseIndicator } from '../components/BatchPhaseIndicator';
-import { ItemAISettingsModal } from '../components/ItemAISettingsModal';
 import { ManualLocationPicker } from '../components/ManualLocationPicker';
 import { consumeSelectedFile } from '../fileInput';
 import { useItemPublishBatch } from '../hooks';
@@ -40,7 +39,7 @@ const itemAIStatusClass: Record<ItemAIOverride, string> = {
 };
 
 // ItemList 渲染商品列表组件。
-const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery, publishImagesEditor: ImagesEditor, publishSpecsEditor: SpecsEditor }) => {
+const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery, publishImagesEditor: ImagesEditor, publishSpecsEditor: SpecsEditor, itemAISettingsModal: ItemAISettingsModal }) => {
   // [items, 解构得到当前 Hook 返回的状态和操作函数。
   const [items, setItems] = useState<Item[]>([]);
   // [shippingRules, 解构得到当前 Hook 返回的状态和操作函数。
@@ -1010,12 +1009,14 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery, publishImagesE
         onClose={/* manualLocationCloseAction 关闭手动地点弹窗并释放高德查询。 */ () => setManualLocationTarget(null)}
         onConfirm={confirmManualLocation}
       />
-      <ItemAISettingsModal
-        item={itemAISettingsTarget}
-        open={itemAISettingsTarget !== null}
-        onClose={/* itemAISettingsCloseHandler 关闭商品级 AI 配置弹窗。 */ () => setItemAISettingsTarget(null)}
-        onSaved={handleItemAISettingsSaved}
-      />
+      {ItemAISettingsModal && (
+        <ItemAISettingsModal
+          item={itemAISettingsTarget}
+          open={itemAISettingsTarget !== null}
+          onClose={/* itemAISettingsCloseHandler 关闭商品级 AI 配置弹窗。 */ () => setItemAISettingsTarget(null)}
+          onSaved={handleItemAISettingsSaved}
+        />
+      )}
     </div>
   );
 };

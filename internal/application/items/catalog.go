@@ -30,6 +30,8 @@ type CatalogItem struct {
 	IsMultiSpec bool
 	// MultiQuantityDelivery 表示商品是否启用多数量交付。
 	MultiQuantityDelivery bool
+	// AIOverride 是商品级 AI 启停覆盖状态。
+	AIOverride string
 }
 
 // CatalogRepository 定义商品列表和详情读取所需的最小持久化能力。

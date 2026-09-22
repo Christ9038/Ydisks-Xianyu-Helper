@@ -11,10 +11,11 @@ import (
 func (i *Items) AllForCookie(ctx context.Context, cookieID string) ([]ItemInfoRow, error) {
 	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := i.DB.QueryContext(ctx,
-		`SELECT id, cookie_id, item_id, COALESCE(item_title,''), COALESCE(item_description,''),
-		        COALESCE(item_category,''), COALESCE(item_price,''), COALESCE(item_detail,''),
-		        is_multi_spec, COALESCE(multi_quantity_delivery,0)
-		 FROM item_info WHERE cookie_id=? AND deleted_at IS NULL ORDER BY id DESC`, cookieID)
+		`SELECT i.id, i.cookie_id, i.item_id, COALESCE(i.item_title,''), COALESCE(i.item_description,''),
+		        COALESCE(i.item_category,''), COALESCE(i.item_price,''), COALESCE(i.item_detail,''),
+		        i.is_multi_spec, COALESCE(i.multi_quantity_delivery,0), COALESCE(s.ai_override,'inherit')
+		 FROM item_info i LEFT JOIN item_ai_settings s ON s.cookie_id=i.cookie_id AND s.item_id=i.item_id
+		 WHERE i.cookie_id=? AND i.deleted_at IS NULL ORDER BY i.id DESC`, cookieID)
 	if err != nil {
 		return nil, err
 	}
@@ -30,12 +31,13 @@ func (i *Items) GetByCookieItem(ctx context.Context, cookieID, itemID string) (I
 	var isMulti, multiQty int
 	// err 表示商品详情查询或扫描错误。
 	err := i.DB.QueryRowContext(ctx,
-		`SELECT id, cookie_id, item_id, COALESCE(item_title,''), COALESCE(item_description,''),
-		        COALESCE(item_category,''), COALESCE(item_price,''), COALESCE(item_detail,''),
-		        is_multi_spec, COALESCE(multi_quantity_delivery,0)
-		 FROM item_info WHERE cookie_id=? AND item_id=? AND deleted_at IS NULL`, cookieID, itemID).Scan(
+		`SELECT i.id, i.cookie_id, i.item_id, COALESCE(i.item_title,''), COALESCE(i.item_description,''),
+		        COALESCE(i.item_category,''), COALESCE(i.item_price,''), COALESCE(i.item_detail,''),
+		        i.is_multi_spec, COALESCE(i.multi_quantity_delivery,0), COALESCE(s.ai_override,'inherit')
+		 FROM item_info i LEFT JOIN item_ai_settings s ON s.cookie_id=i.cookie_id AND s.item_id=i.item_id
+		 WHERE i.cookie_id=? AND i.item_id=? AND i.deleted_at IS NULL`, cookieID, itemID).Scan(
 		&row.ID, &row.CookieID, &row.ItemID, &row.ItemTitle, &row.ItemDescription,
-		&row.ItemCategory, &row.ItemPrice, &row.ItemDetail, &isMulti, &multiQty)
+		&row.ItemCategory, &row.ItemPrice, &row.ItemDetail, &isMulti, &multiQty, &row.AIOverride)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ItemInfoRow{}, ErrNotFound
@@ -68,8 +70,9 @@ func (i *Items) ListForUser(ctx context.Context, userID int64, cookieID string) 
 	rows, err := i.DB.QueryContext(ctx,
 		`SELECT i.id, i.cookie_id, i.item_id, COALESCE(i.item_title,''), COALESCE(i.item_description,''),
 		        COALESCE(i.item_category,''), COALESCE(i.item_price,''), COALESCE(i.item_detail,''),
-		        i.is_multi_spec, COALESCE(i.multi_quantity_delivery,0)
+		        i.is_multi_spec, COALESCE(i.multi_quantity_delivery,0), COALESCE(s.ai_override,'inherit')
 		 FROM item_info i JOIN cookies c ON c.id=i.cookie_id
+		 LEFT JOIN item_ai_settings s ON s.cookie_id=i.cookie_id AND s.item_id=i.item_id
 		 WHERE c.user_id=? AND (?='' OR i.cookie_id=?) AND i.deleted_at IS NULL
 		 ORDER BY i.id DESC`, userID, cookieID, cookieID)
 	if err != nil {
@@ -90,7 +93,7 @@ func scanItemInfoRows(rows *sql.Rows) ([]ItemInfoRow, error) {
 		var isMulti, multiQty int
 		if // err 用于本次流程后续判断的err
 		err := rows.Scan(&r.ID, &r.CookieID, &r.ItemID, &r.ItemTitle, &r.ItemDescription,
-			&r.ItemCategory, &r.ItemPrice, &r.ItemDetail, &isMulti, &multiQty); err != nil {
+			&r.ItemCategory, &r.ItemPrice, &r.ItemDetail, &isMulti, &multiQty, &r.AIOverride); err != nil {
 			return nil, err
 		}
 		r.IsMultiSpec = isMulti != 0

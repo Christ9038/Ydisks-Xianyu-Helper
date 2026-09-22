@@ -7,6 +7,9 @@ import type { Item,ItemAIOverride,ItemAISettings } from '../api';
 // ITEM_CONTEXT_LIMIT 是商品专属资料允许提交的最大字符数，与服务端校验保持一致。
 export const ITEM_CONTEXT_LIMIT = 12_000;
 
+// itemContextLength 按 Unicode code point 计数，与服务端的 utf8.RuneCountInString 保持一致。
+const itemContextLength = (value: string): number => Array.from(value).length;
+
 // ItemAIOverrideOption 描述三态控件中的单个可选策略。
 interface ItemAIOverrideOption {
   // value 是提交给服务端的商品级覆盖值。
@@ -103,7 +106,7 @@ export const ItemAISettingsModal: React.FC<ItemAISettingsModalProps> = ({ item, 
   // saveSettings 校验资料长度并提交当前商品的配置草稿。
   const saveSettings = async () => {
     if (!item || saving || loading) return;
-    if (settings.item_context.length > ITEM_CONTEXT_LIMIT) {
+    if (itemContextLength(settings.item_context) > ITEM_CONTEXT_LIMIT) {
       setErrorMessage(`商品资料不能超过 ${ITEM_CONTEXT_LIMIT} 个字符。`);
       return;
     }
@@ -182,15 +185,15 @@ export const ItemAISettingsModal: React.FC<ItemAISettingsModalProps> = ({ item, 
               <div className="space-y-2">
                 <div className="flex items-end justify-between gap-3">
                   <label htmlFor="item-ai-context" className="text-sm font-extrabold text-gray-900">商品专属资料</label>
-                  <span className={`text-xs font-bold ${settings.item_context.length >= ITEM_CONTEXT_LIMIT ? 'text-red-600' : 'text-gray-400'}`}>{settings.item_context.length} / {ITEM_CONTEXT_LIMIT}</span>
+                  <span className={`text-xs font-bold ${itemContextLength(settings.item_context) >= ITEM_CONTEXT_LIMIT ? 'text-red-600' : 'text-gray-400'}`}>{itemContextLength(settings.item_context)} / {ITEM_CONTEXT_LIMIT}</span>
                 </div>
                 <textarea
                   id="item-ai-context"
                   value={settings.item_context}
-                  maxLength={ITEM_CONTEXT_LIMIT}
                   rows={10}
                   onChange={/* contextChangeHandler 更新商品专属资料草稿并清理旧保存错误。 */ event => {
-                    setSettings(/* previousSettings 保留当前商品 AI 覆盖状态。 */ previousSettings => ({ ...previousSettings, item_context: event.target.value }));
+                    const nextContext = Array.from(event.target.value).slice(0, ITEM_CONTEXT_LIMIT).join('');
+                    setSettings(/* previousSettings 保留当前商品 AI 覆盖状态。 */ previousSettings => ({ ...previousSettings, item_context: nextContext }));
                     if (errorMessage) setErrorMessage('');
                   }}
                   placeholder={'例如：\n- 材质：全新未拆封，黑色款\n- 发货：付款后 24 小时内寄出\n- 使用方式：收到后按包装内说明操作'}

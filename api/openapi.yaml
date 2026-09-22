@@ -3596,6 +3596,48 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/items/{cookie_id}/{item_id}/ai-settings":
+    get:
+      operationId: getApiV1ItemsBycookie_idByitem_idAiSettings
+      summary: 读取商品级 AI 客服配置
+      parameters:
+        - {name: cookie_id, in: path, required: true, schema: {type: string}}
+        - {name: item_id, in: path, required: true, schema: {type: string}}
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ItemAISettingsResponse'}
+        '400': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '401': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '403': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '404': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '500': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+    put:
+      operationId: putApiV1ItemsBycookie_idByitem_idAiSettings
+      summary: 保存商品级 AI 客服配置
+      parameters:
+        - {name: cookie_id, in: path, required: true, schema: {type: string}}
+        - {name: item_id, in: path, required: true, schema: {type: string}}
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ItemAISettingsUpdateRequest'}
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ItemAISettingsResponse'}
+        '400': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '401': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '403': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '404': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '500': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
   "/api/v1/items/{cookie_id}/{item_id}/multi-quantity-delivery":
     put:
       operationId: putApiV1ItemsBycookie_idByitem_idMultiQuantityDelivery
@@ -7572,7 +7614,7 @@ components:
       items: {$ref: '#/components/schemas/ItemReplyResponse'}
     AIReplySettingsResponse:
       type: object
-      required: [ai_enabled, auto_adjust_price_enabled, max_discount_percent, max_discount_amount, max_bargain_rounds, custom_prompts]
+      required: [ai_enabled, auto_adjust_price_enabled, max_discount_percent, max_discount_amount, max_bargain_rounds, custom_prompts, ai_mode]
       properties:
         cookie_id: {type: string}
         ai_enabled: {type: boolean}
@@ -7581,9 +7623,10 @@ components:
         max_discount_amount: {type: integer}
         max_bargain_rounds: {type: integer}
         custom_prompts: {type: string}
+        ai_mode: {type: string, enum: [bargain_only, full_service]}
     AIReplySettingsUpdateRequest:
       type: object
-      required: [ai_enabled, auto_adjust_price_enabled, max_discount_percent, max_discount_amount, max_bargain_rounds, custom_prompts]
+      required: [ai_enabled, auto_adjust_price_enabled, max_discount_percent, max_discount_amount, max_bargain_rounds, custom_prompts, ai_mode]
       properties:
         ai_enabled: {type: boolean}
         auto_adjust_price_enabled: {type: boolean}
@@ -7591,6 +7634,7 @@ components:
         max_discount_amount: {type: integer, minimum: 0}
         max_bargain_rounds: {type: integer, minimum: 1, maximum: 10}
         custom_prompts: {type: string}
+        ai_mode: {type: string, enum: [bargain_only, full_service]}
     AIReplySettingsMapResponse:
       type: object
       additionalProperties:
@@ -7929,9 +7973,26 @@ components:
         response_fields: {type: array, items: {type: string}}
         extracted_value: {type: string}
         response_preview: {type: string}
+    ItemAIOverride:
+      type: string
+      enum: [inherit, enabled, disabled]
+    ItemAISettingsUpdateRequest:
+      type: object
+      required: [ai_override, item_context]
+      properties:
+        ai_override: {$ref: '#/components/schemas/ItemAIOverride'}
+        item_context: {type: string, maxLength: 12000}
+    ItemAISettingsResponse:
+      type: object
+      required: [cookie_id, item_id, ai_override, item_context]
+      properties:
+        cookie_id: {type: string}
+        item_id: {type: string}
+        ai_override: {$ref: '#/components/schemas/ItemAIOverride'}
+        item_context: {type: string, maxLength: 12000}
     ItemListResponse:
       type: object
-      required: [id, cookie_id, item_id, item_title, item_description, item_category, item_price, item_detail, item_image, is_multi_spec, multi_quantity_delivery, is_multi_qty_ship]
+      required: [id, cookie_id, item_id, item_title, item_description, item_category, item_price, item_detail, item_image, is_multi_spec, multi_quantity_delivery, is_multi_qty_ship, ai_override]
       properties:
         id: {type: integer}
         cookie_id: {type: string}
@@ -7945,6 +8006,7 @@ components:
         is_multi_spec: {type: boolean}
         multi_quantity_delivery: {type: boolean}
         is_multi_qty_ship: {type: boolean}
+        ai_override: {$ref: '#/components/schemas/ItemAIOverride'}
     ItemListArrayResponse:
       type: array
       items: {$ref: '#/components/schemas/ItemListResponse'}

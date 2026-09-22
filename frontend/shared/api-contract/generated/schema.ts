@@ -962,6 +962,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/items/{cookie_id}/{item_id}/ai-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 读取商品级 AI 客服配置 */
+        get: operations["getApiV1ItemsBycookie_idByitem_idAiSettings"];
+        /** 保存商品级 AI 客服配置 */
+        put: operations["putApiV1ItemsBycookie_idByitem_idAiSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/items/{cookie_id}/{item_id}/multi-quantity-delivery": {
         parameters: {
             query?: never;
@@ -2248,6 +2266,8 @@ export interface components {
             max_discount_amount: number;
             max_bargain_rounds: number;
             custom_prompts: string;
+            /** @enum {string} */
+            ai_mode: "bargain_only" | "full_service";
         };
         AIReplySettingsUpdateRequest: {
             ai_enabled: boolean;
@@ -2256,6 +2276,8 @@ export interface components {
             max_discount_amount: number;
             max_bargain_rounds: number;
             custom_prompts: string;
+            /** @enum {string} */
+            ai_mode: "bargain_only" | "full_service";
         };
         AIReplySettingsMapResponse: {
             [key: string]: components["schemas"]["AIReplySettingsResponse"];
@@ -2543,6 +2565,18 @@ export interface components {
             extracted_value?: string;
             response_preview?: string;
         };
+        /** @enum {string} */
+        ItemAIOverride: "inherit" | "enabled" | "disabled";
+        ItemAISettingsUpdateRequest: {
+            ai_override: components["schemas"]["ItemAIOverride"];
+            item_context: string;
+        };
+        ItemAISettingsResponse: {
+            cookie_id: string;
+            item_id: string;
+            ai_override: components["schemas"]["ItemAIOverride"];
+            item_context: string;
+        };
         ItemListResponse: {
             id: number;
             cookie_id: string;
@@ -2556,6 +2590,7 @@ export interface components {
             is_multi_spec: boolean;
             multi_quantity_delivery: boolean;
             is_multi_qty_ship: boolean;
+            ai_override: components["schemas"]["ItemAIOverride"];
         };
         ItemListArrayResponse: components["schemas"]["ItemListResponse"][];
         ItemDetailResponse: {
@@ -8500,6 +8535,146 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getApiV1ItemsBycookie_idByitem_idAiSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cookie_id: string;
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 成功 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemAISettingsResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    putApiV1ItemsBycookie_idByitem_idAiSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cookie_id: string;
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ItemAISettingsUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description 成功 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemAISettingsResponse"];
                 };
             };
             /** @description 统一错误响应 */

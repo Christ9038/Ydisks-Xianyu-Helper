@@ -52,6 +52,7 @@ vi.mock('../components/BatchPhaseIndicator', /* batchIndicatorMockFactory 隐藏
 vi.mock('../components/ManualLocationPicker', /* locationPickerMockFactory 隐藏本用例无关的地点弹窗。 */ () => ({ ManualLocationPicker: /* ManualLocationPickerMock 不渲染地点弹窗。 */ () => null }));
 
 import ItemList from './ItemList';
+import { ItemAISettingsModal } from '../components/ItemAISettingsModal';
 
 // itemFixture 是列表 DTO 直接提供 AI 摘要状态的商品样本。
 const itemFixture: Item = { id: 'item-1', cookie_id: 'account-1', item_id: 'item-1', item_title: '测试商品', item_price: '99', ai_override: 'enabled' };
@@ -70,7 +71,7 @@ describe('ItemList 商品级 AI 入口', /* itemListAISuite 验证列表摘要�
   afterEach(/* itemListCleanup 清理页面 DOM。 */ () => cleanup());
 
   test('列表不逐商品读取，点击 Bot 入口后才加载并更新卡片状态', /* lazyItemAISettingsCase 验证按需请求边界。 */ async () => {
-    render(<ItemList onConfigureDelivery={vi.fn()} />);
+    render(<ItemList onConfigureDelivery={vi.fn()} itemAISettingsModal={ItemAISettingsModal} />);
     await waitFor(/* listLoadedAssertion 等待列表 DTO 状态展示。 */ () => expect(screen.getByText('已启用')).toBeTruthy());
     expect(itemListMocks.getItemAISettings).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '配置商品 AI 客服：测试商品' }));

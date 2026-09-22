@@ -38,13 +38,22 @@ describe('ItemAISettingsModal', /* itemAISettingsModalSuite 覆盖加载、保�
     await waitFor(/* loadedContextAssertion 等待服务端资料写入表单。 */ () => expect(screen.getByDisplayValue('材质：全新')).toBeTruthy());
     // contextInput 是商品专属资料输入框。
     const contextInput = screen.getByLabelText('商品专属资料') as HTMLTextAreaElement;
-    expect(contextInput.maxLength).toBe(ITEM_CONTEXT_LIMIT);
+    expect(contextInput.maxLength).toBe(-1);
     expect(contextInput.placeholder).not.toContain('价格底线');
     fireEvent.click(screen.getByRole('radio', { name: /强制启用/ }));
     fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
     await waitFor(/* saveRequestAssertion 等待商品级 AI 配置提交完成。 */ () => expect(modalAPIMocks.update).toHaveBeenCalledWith('account-1', 'item-1', { ai_override: 'enabled', item_context: '材质：全新' }, expect.objectContaining({ signal: expect.any(AbortSignal) })));
     expect(onSaved).toHaveBeenCalledWith({ ai_override: 'enabled', item_context: '材质：全新' });
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  test('按 Unicode 字符限制商品资料而不是按 UTF-16 code unit 截断', async () => {
+    render(<ItemAISettingsModal item={firstItem} open onClose={vi.fn()} onSaved={vi.fn()} />);
+    await waitFor(() => expect(screen.getByDisplayValue('材质：全新')).toBeTruthy());
+    const contextInput = screen.getByLabelText('商品专属资料') as HTMLTextAreaElement;
+    fireEvent.change(contextInput, { target: { value: '😀'.repeat(ITEM_CONTEXT_LIMIT + 10) } });
+    expect(contextInput.value).toBe('😀'.repeat(ITEM_CONTEXT_LIMIT));
+    expect(screen.getByText(`${ITEM_CONTEXT_LIMIT} / ${ITEM_CONTEXT_LIMIT}`)).toBeTruthy();
   });
 
   test('保存失败后保留用户草稿并允许重试', /* modalSaveFailureCase 验证失败不会清空表单或关闭弹窗。 */ async () => {
