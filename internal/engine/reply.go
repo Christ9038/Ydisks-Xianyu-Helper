@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 	"time"
 
@@ -279,30 +280,100 @@ func (r *ReplyService) resolve(ctx context.Context, m ChatMessage) *ReplyResult 
 // 移植自 get_keyword_reply：商品ID关键词优先 → 通用关键词。
 // keywordReply 封装关键词回复业务协调。
 func (r *ReplyService) keywordReply(ctx context.Context, m ChatMessage) *ReplyResult {
-	// kws、err 用于本次流程后续判断的kws、err
+	// kws、err 保存当前账号的关键词规则及数据库读取错误。
 	kws, err := r.store.Keywords.AllWithType(ctx, r.cookieID)
 	if err != nil || len(kws) == 0 {
 		return nil
 	}
-	// msgLower 用于本次流程后续判断的msgLower
-	msgLower := strings.ToLower(m.Text)
 
 	// 1. 商品ID关键词优先；一条规则可关联多个商品，命中任一即可。
 	if m.ItemID != "" {
-		// kw 表示当前遍历过程中的kw
+		// kw 表示当前遍历过程中的关键词规则。
 		for _, kw := range kws {
-			if containsItemID(kw.ItemID, m.ItemID) && strings.Contains(msgLower, strings.ToLower(kw.Keyword)) {
+			if containsItemID(kw.ItemID, m.ItemID) && r.keywordMatches(kw, m.Text) {
 				return r.keywordResult(kw, m)
 			}
 		}
 	}
 	// 2. 通用关键词（无 item_id）。
+	// kw 表示当前遍历过程中的账号级关键词规则。
 	for _, kw := range kws {
-		if kw.ItemID == "" && strings.Contains(msgLower, strings.ToLower(kw.Keyword)) {
+		if kw.ItemID == "" && r.keywordMatches(kw, m.Text) {
 			return r.keywordResult(kw, m)
 		}
 	}
 	return nil
+}
+
+// keywordMatches 判断一条规则的多个表达式是否命中消息文本。
+// contains 模式保持历史大小写不敏感的字面包含语义；regexp 模式使用 Go/RE2，
+// 单个遗留非法表达式只记录并跳过，不影响同一规则的其他表达式或后续降级。
+func (r *ReplyService) keywordMatches(kw db.Keyword, text string) bool {
+	// expressions 保存兼容数据库行转换出的匹配表达式集合。
+	expressions := kw.Expressions
+	if len(expressions) == 0 && strings.TrimSpace(kw.Keyword) != "" {
+		expressions = []string{kw.Keyword}
+	}
+	// matched、invalidIndexes、unknownMode 保存纯匹配结果和需要对外记录的稳定诊断。
+	matched, invalidIndexes, unknownMode := matchKeywordExpressions(expressions, kw.MatchType, text)
+	// logger 保存带账号上下文的诊断日志端口；正常构造路径总会提供该端口。
+	logger := r.logger
+	if logger == nil {
+		logger = slog.Default().With("account", r.cookieID, "subsys", "reply")
+	}
+	// expressionIndex 表示发生编译失败的表达式零基位置。
+	for _, expressionIndex := range invalidIndexes {
+		// errorType 只记录稳定的诊断类别，避免把表达式正文和底层编译文本写入日志。
+		errorType := "regexp_compile"
+		logger.Warn("关键词正则编译失败，已跳过", "expression_index", expressionIndex, "error_type", errorType)
+	}
+	if unknownMode {
+		// errorType 只标识未知匹配模式，不记录调用方传入的原始模式文本。
+		errorType := "unknown_match_type"
+		logger.Warn("关键词匹配模式未知，已跳过", "error_type", errorType)
+	}
+	return matched
+}
+
+// matchKeywordExpressions 对表达式集合执行无副作用的 OR 匹配。
+// expressions 是规则表达式，matchType 是规范或历史匹配模式，text 是待匹配消息；返回命中结果、非法正则的零基位置和未知模式标记。
+func matchKeywordExpressions(expressions []string, matchType, text string) (bool, []int, bool) {
+	// normalizedMatchType 保存兼容历史模式后的匹配模式。
+	normalizedMatchType := strings.ToLower(strings.TrimSpace(matchType))
+	if normalizedMatchType == "" || normalizedMatchType == "fuzzy" || normalizedMatchType == "exact" {
+		normalizedMatchType = "contains"
+	}
+	if normalizedMatchType != "contains" && normalizedMatchType != "regexp" {
+		return false, nil, true
+	}
+	// invalidIndexes 保存编译失败但不阻断同规则其他表达式的零基位置。
+	invalidIndexes := make([]int, 0)
+	// expressionIndex、rawExpression 表示当前遍历的表达式位置和原始文本。
+	for expressionIndex, rawExpression := range expressions {
+		// expression 是去除边界空白后的匹配表达式。
+		expression := strings.TrimSpace(rawExpression)
+		if expression == "" {
+			continue
+		}
+		if normalizedMatchType == "regexp" {
+			// pattern 是保持默认大小写不敏感且允许 RE2 内联标志覆盖的包装表达式。
+			pattern := "(?i:" + expression + ")"
+			// compiled、compileErr 保存当前正则的编译结果。
+			compiled, compileErr := regexp.Compile(pattern)
+			if compileErr != nil {
+				invalidIndexes = append(invalidIndexes, expressionIndex)
+				continue
+			}
+			if compiled.MatchString(text) {
+				return true, invalidIndexes, false
+			}
+			continue
+		}
+		if strings.Contains(strings.ToLower(text), strings.ToLower(expression)) {
+			return true, invalidIndexes, false
+		}
+	}
+	return false, invalidIndexes, false
 }
 
 // containsItemID 判断规则的商品范围字段是否覆盖目标商品标识。

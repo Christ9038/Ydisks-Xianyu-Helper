@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -114,5 +115,63 @@ func TestVersionedReplyTypedListExposesItemIDs(t *testing.T) {
 	body := recorder.Body.String()
 	if !strings.Contains(body, `"item_ids":["item-1"]`) {
 		t.Fatalf("响应缺少 item_ids 集合: %s", body)
+	}
+}
+
+// TestVersionedReplyKeywordExpressionsContract 验证版本化接口保存并回显多表达式正则规则，且拒绝非法正则。
+func TestVersionedReplyKeywordExpressionsContract(t *testing.T) {
+	// srv、cleanup 保存版本化关键词契约测试使用的服务与资源清理函数。
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	// handler 是当前测试使用的完整路由树。
+	handler := srv.Router()
+	// sessionCookie 是管理员登录后得到的认证会话。
+	sessionCookie := loginHelper(t, handler)
+	// body 是包含两个 OR 表达式和正则模式的版本化创建请求。
+	body := `{"keyword":"^hello","expressions":[" ^hello ","price[0-9]+"],"match_type":"regexp","reply":"已命中","item_id":"","item_ids":[],"type":"text","image_url":""}`
+	// request 是创建多表达式规则的版本化 POST 请求。
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/reply-rules/acc1/items", strings.NewReader(body))
+	request.AddCookie(sessionCookie)
+	// recorder 捕获创建接口的响应。
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("创建多表达式规则 status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	assertOpenAPIRecordedSuccessResponse(t, request, recorder)
+
+	// listRequest 是读取带类型规则的版本化 GET 请求。
+	listRequest := httptest.NewRequest(http.MethodGet, "/api/v1/reply-rules/acc1/typed", nil)
+	listRequest.AddCookie(sessionCookie)
+	// listRecorder 捕获规则列表响应。
+	listRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(listRecorder, listRequest)
+	if listRecorder.Code != http.StatusOK {
+		t.Fatalf("读取多表达式规则 status=%d body=%s", listRecorder.Code, listRecorder.Body.String())
+	}
+	assertOpenAPIRecordedSuccessResponse(t, listRequest, listRecorder)
+	// rows 保存版本化列表响应中的关键词规则对象。
+	var rows []map[string]any
+	// decodeErr 表示解析版本化关键词列表响应 JSON 时产生的错误。
+	if decodeErr := json.Unmarshal(listRecorder.Body.Bytes(), &rows); decodeErr != nil {
+		t.Fatalf("解析规则列表失败: %v", decodeErr)
+	}
+	if len(rows) != 1 || rows[0]["match_type"] != "regexp" || rows[0]["keyword"] != "^hello" {
+		t.Fatalf("多表达式规则兼容字段异常: %+v", rows)
+	}
+	// expressions、expressionsOK 保存响应中的表达式数组及类型断言结果。
+	expressions, expressionsOK := rows[0]["expressions"].([]any)
+	if !expressionsOK || len(expressions) != 2 || expressions[0] != "^hello" || expressions[1] != "price[0-9]+" {
+		t.Fatalf("多表达式规则回显异常: %+v", rows[0]["expressions"])
+	}
+
+	// invalidRequest 是包含非法 RE2 表达式的版本化创建请求。
+	invalidRequest := httptest.NewRequest(http.MethodPost, "/api/v1/reply-rules/acc1/items", strings.NewReader(`{"keyword":"(","expressions":["("],"match_type":"regexp","reply":"不会保存","item_id":"","item_ids":[],"type":"text","image_url":""}`))
+	invalidRequest.AddCookie(sessionCookie)
+	// invalidRecorder 捕获非法正则的错误响应。
+	invalidRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(invalidRecorder, invalidRequest)
+	if invalidRecorder.Code != http.StatusBadRequest {
+		t.Fatalf("非法正则应返回 400，实际 status=%d body=%s", invalidRecorder.Code, invalidRecorder.Body.String())
 	}
 }

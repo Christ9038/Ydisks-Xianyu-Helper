@@ -39,13 +39,18 @@ func (r *KeywordRepository) List(ctx context.Context, userID int64, cookieID str
 	return result, nil
 }
 
-// Add 创建一条指定用户账号的关键词规则。
+// Add 创建一条指定用户账号的关键词规则，并兼容只提供旧 Keyword 字段的调用方。
 func (r *KeywordRepository) Add(ctx context.Context, userID int64, cookieID string, draft keywordsapp.Draft) (int64, error) {
 	// err 表示账号归属校验失败。
 	if err := r.authorize(ctx, userID, cookieID); err != nil {
 		return 0, err
 	}
-	return r.store.Keywords.Add(ctx, cookieID, draft.Keyword, draft.Reply, draft.ItemID, draft.Type, draft.ImageURL)
+	// expressions 保存新多表达式字段；旧调用方未提供时回退为单元素集合。
+	expressions := draft.Expressions
+	if len(expressions) == 0 {
+		expressions = []string{draft.Keyword}
+	}
+	return r.store.Keywords.AddWithExpressions(ctx, cookieID, expressions, draft.Reply, draft.ItemID, draft.Type, draft.MatchType, draft.ImageURL)
 }
 
 // Replace 原子覆盖指定用户账号的全部关键词规则。
@@ -59,12 +64,14 @@ func (r *KeywordRepository) Replace(ctx context.Context, userID int64, cookieID 
 	// draft 表示当前待转换的应用层关键词草稿。
 	for _, draft := range drafts {
 		rows = append(rows, db.KeywordRow{
-			CookieID: cookieID,
-			Keyword:  draft.Keyword,
-			Reply:    draft.Reply,
-			ItemID:   draft.ItemID,
-			Type:     draft.Type,
-			ImageURL: draft.ImageURL,
+			CookieID:    cookieID,
+			Keyword:     draft.Keyword,
+			Expressions: draft.Expressions,
+			MatchType:   draft.MatchType,
+			Reply:       draft.Reply,
+			ItemID:      draft.ItemID,
+			Type:        draft.Type,
+			ImageURL:    draft.ImageURL,
 		})
 	}
 	return r.store.Keywords.ReplaceForCookie(ctx, cookieID, rows)
@@ -78,8 +85,8 @@ func (r *KeywordRepository) Update(ctx context.Context, userID int64, cookieID s
 	}
 	// err 表示数据库更新错误或目标规则不存在。
 	err := r.store.Keywords.UpdateByID(ctx, db.KeywordRow{
-		ID: id, CookieID: cookieID, Keyword: draft.Keyword, Reply: draft.Reply,
-		ItemID: draft.ItemID, Type: draft.Type, ImageURL: draft.ImageURL,
+		ID: id, CookieID: cookieID, Keyword: draft.Keyword, Expressions: draft.Expressions, MatchType: draft.MatchType,
+		Reply: draft.Reply, ItemID: draft.ItemID, Type: draft.Type, ImageURL: draft.ImageURL,
 	})
 	if errors.Is(err, db.ErrNotFound) {
 		return keywordsapp.ErrNotFound
@@ -223,7 +230,7 @@ func (r *KeywordRepository) validateUser(userID int64) error {
 
 // keywordModel 将数据库关键词行转换为应用模型。
 func keywordModel(row db.KeywordRow) keywordsapp.Keyword {
-	return keywordsapp.Keyword{ID: row.ID, CookieID: row.CookieID, Keyword: row.Keyword, Reply: row.Reply, ItemID: row.ItemID, Type: row.Type, ImageURL: row.ImageURL}
+	return keywordsapp.Keyword{ID: row.ID, CookieID: row.CookieID, Keyword: row.Keyword, Expressions: row.Expressions, MatchType: row.MatchType, Reply: row.Reply, ItemID: row.ItemID, Type: row.Type, ImageURL: row.ImageURL}
 }
 
 // itemReplyModel 将数据库商品回复行转换为应用模型。

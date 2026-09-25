@@ -5,6 +5,8 @@ package keywords
 import (
 	"context"
 	"errors"
+	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -38,14 +40,24 @@ func (e *ValidationError) Error() string {
 // 逗号分隔与历史单值格式完全兼容：单值规则的 item_id 天然是单元素集合。
 const KeywordItemIDSeparator = ","
 
+// KeywordMatchTypeContains 表示对每个表达式执行大小写不敏感的普通包含匹配。
+const KeywordMatchTypeContains = "contains"
+
+// KeywordMatchTypeRegexp 表示对每个表达式执行大小写不敏感的 Go/RE2 正则匹配。
+const KeywordMatchTypeRegexp = "regexp"
+
 // Keyword 是关键词回复的应用层模型，不携带数据库连接或敏感凭证。
 type Keyword struct {
 	// ID 是关键词规则的持久化标识。
 	ID int64
 	// CookieID 是规则所属账号标识。
 	CookieID string
-	// Keyword 是触发匹配文本。
+	// Keyword 是第一条表达式，用于兼容历史单关键词接口。
 	Keyword string
+	// Expressions 是同一条规则共享回复的匹配表达式集合，按 OR 语义执行。
+	Expressions []string
+	// MatchType 是 contains 或 regexp，空值只在兼容旧数据时回退为 contains。
+	MatchType string
 	// Reply 是文字回复内容。
 	Reply string
 	// ItemID 是关联商品标识的持久化形式；多选时为逗号分隔串，空串表示账号级规则。
@@ -90,8 +102,12 @@ func JoinItemIDs(itemIDs []string) string {
 
 // Draft 是创建、更新或批量替换关键词规则的业务输入。
 type Draft struct {
-	// Keyword 是触发匹配文本。
+	// Keyword 是第一条表达式的兼容单值字段。
 	Keyword string
+	// Expressions 是同一条规则的匹配表达式集合，保存后共享同一条回复。
+	Expressions []string
+	// MatchType 是 contains 或 regexp，历史调用方缺省时使用 contains。
+	MatchType string
 	// Reply 是文字回复内容。
 	Reply string
 	// ItemID 是关联商品范围的持久化字段；多选时由 ItemIDs 合并而来。
@@ -302,19 +318,28 @@ func (s *Service) validateUser(userID int64) error {
 	return nil
 }
 
-// normalizeDraft 统一回复类型、商品范围字段和内容字段，并拒绝不完整输入。
+// normalizeDraft 统一表达式、匹配模式、回复类型、商品范围和内容字段，并拒绝不完整输入。
 // 商品范围同时接受兼容的单值 ItemID 与多值 ItemIDs，去重后合并写回 ItemID，
 // 使一条规则可以关联多个商品，同时保持历史单值数据的原样可读。
 func normalizeDraft(draft Draft) (Draft, error) {
-	draft.Keyword = strings.TrimSpace(draft.Keyword)
+	// normalizedExpressions 保存去空白、去重后的规则表达式集合。
+	normalizedExpressions, err := normalizeExpressions(draft.Keyword, draft.Expressions)
+	if err != nil {
+		return Draft{}, err
+	}
+	// normalizedMatchType 保存校验并兼容旧别名后的匹配模式。
+	normalizedMatchType, err := normalizeMatchType(draft.MatchType, normalizedExpressions)
+	if err != nil {
+		return Draft{}, err
+	}
+	draft.Expressions = normalizedExpressions
+	draft.Keyword = normalizedExpressions[0]
+	draft.MatchType = normalizedMatchType
 	draft.Type = strings.ToLower(strings.TrimSpace(draft.Type))
 	draft.Reply = strings.TrimSpace(draft.Reply)
 	draft.ImageURL = strings.TrimSpace(draft.ImageURL)
 	draft.ItemID = JoinItemIDs(mergeItemIDs(draft.ItemID, draft.ItemIDs))
 	draft.ItemIDs = SplitItemIDs(draft.ItemID)
-	if draft.Keyword == "" {
-		return Draft{}, &ValidationError{Message: "keyword 必填"}
-	}
 	if draft.Type == "" {
 		draft.Type = "text"
 	}
@@ -333,6 +358,68 @@ func normalizeDraft(draft Draft) (Draft, error) {
 		return Draft{}, &ValidationError{Message: "回复类型必须是 text 或 image"}
 	}
 	return draft, nil
+}
+
+// normalizeExpressions 规范化兼容单值字段和多表达式字段，并拒绝空表达式；keyword 是历史单值输入，expressions 是优先采用的新集合。
+func normalizeExpressions(keyword string, expressions []string) ([]string, error) {
+	// source 是优先使用的新多表达式输入；只有字段缺省为 nil 时才回退历史 keyword 字段。
+	source := expressions
+	if source == nil {
+		if strings.TrimSpace(keyword) == "" {
+			return nil, &ValidationError{Message: "至少填写一个表达式"}
+		}
+		source = []string{keyword}
+	}
+	if len(source) == 0 {
+		return nil, &ValidationError{Message: "至少填写一个表达式"}
+	}
+	// normalized 保存去空白、去重后的表达式集合。
+	normalized := make([]string, 0, len(source))
+	// seen 记录已经加入集合的表达式，避免同一规则重复编译或匹配。
+	seen := make(map[string]struct{}, len(source))
+	// expressionIndex、rawExpression 表示当前待校验的表达式位置和原始值。
+	for expressionIndex, rawExpression := range source {
+		// expression 是去除首尾空白后的匹配文本。
+		expression := strings.TrimSpace(rawExpression)
+		if expression == "" {
+			return nil, &ValidationError{Message: fmt.Sprintf("第 %d 个表达式不能为空", expressionIndex+1)}
+		}
+		// exists 表示当前表达式是否已经按首次出现顺序收录。
+		_, exists := seen[expression]
+		if exists {
+			continue
+		}
+		seen[expression] = struct{}{}
+		normalized = append(normalized, expression)
+	}
+	if len(normalized) == 0 {
+		return nil, &ValidationError{Message: "至少填写一个表达式"}
+	}
+	return normalized, nil
+}
+
+// normalizeMatchType 根据 raw 校验匹配模式，并在 regexp 模式下预编译 expressions；返回可持久化的规范模式或可展示的表达式位置错误。
+func normalizeMatchType(raw string, expressions []string) (string, error) {
+	// matchType 是去空白并转为小写后的匹配模式。
+	matchType := strings.ToLower(strings.TrimSpace(raw))
+	switch matchType {
+	case "", "fuzzy", "exact", KeywordMatchTypeContains:
+		return KeywordMatchTypeContains, nil
+	case KeywordMatchTypeRegexp, "regex":
+		// expressionIndex、expression 表示当前待预编译的正则位置和内容。
+		for expressionIndex, expression := range expressions {
+			// pattern 是保持大小写不敏感语义的 Go/RE2 包装表达式。
+			pattern := "(?i:" + expression + ")"
+			// compileErr 表示当前正则预编译是否失败；底层错误正文不会返回给调用方。
+			_, compileErr := regexp.Compile(pattern)
+			if compileErr != nil {
+				return "", &ValidationError{Message: fmt.Sprintf("第 %d 个正则表达式无效", expressionIndex+1)}
+			}
+		}
+		return KeywordMatchTypeRegexp, nil
+	default:
+		return "", &ValidationError{Message: "匹配模式必须是 contains 或 regexp"}
+	}
 }
 
 // mergeItemIDs 合并兼容单值和多值商品标识，按输入顺序展开以便统一去重。

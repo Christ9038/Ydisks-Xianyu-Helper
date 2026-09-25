@@ -51,7 +51,7 @@ const itemFixture = { id: 'item-1', cookie_id: 'account-1', title: '测试商品
 // defaultReplyFixture 是账号默认回复配置。
 const defaultReplyFixture = { cookie_id: 'account-1', enabled: true, reply_content: '欢迎', reply_once: false, reply_image_url: '' } as DefaultReply;
 // replyFixture 是关键词回复规则。
-const replyFixture = { id: 'reply-1', keyword: '你好', reply_content: '您好', match_type: 'fuzzy', enabled: true, item_id: '', type: 'text', image_url: '' } as ReplyRule;
+const replyFixture = { id: 'reply-1', keyword: '你好', expressions: ['你好'], reply_content: '您好', match_type: 'contains', enabled: true, item_id: '', item_ids: [], type: 'text', image_url: '' } as ReplyRule;
 // shippingFixture 是自动化规则分页中的一条规则。
 const shippingFixture = { id: 1, cookie_id: 'account-1', name: '付款发货', trigger_type: 'order_paid', enabled: true, actions: [], variants: [], config_json: '{}' } as never as ShippingRule;
 
@@ -219,4 +219,35 @@ describe('useRulesData', /* 当前回调处理规则页参考数据、分页和�
     expect(hook.result.current.automationRules).toEqual([shippingFixture]);
     hook.unmount();
   });
+});
+
+test('关键词 adapter 保留多表达式并把历史匹配模式归一为 contains', /* 当前回调验证关键词响应归一和请求载荷兼容。 */ async () => {
+  // actualApi 绕过本文件的 Hook mock，取得真实规则 API adapter 实现。
+  const actualApi = await vi.importActual<typeof import('./api')>('./api');
+  // fetchMock 是真实规则 API adapter 使用的 HTTP 请求替身。
+  const fetchMock = vi.fn();
+  vi.stubGlobal('fetch', fetchMock);
+  fetchMock.mockResolvedValueOnce(new Response(JSON.stringify([
+    { id: 1, keyword: '旧关键字', expressions: [' 你好 ', '你好', '再见 '], match_type: 'regexp', reply: '回复一', type: 'text' },
+    { id: 2, keyword: '历史 fuzzy', match_type: 'fuzzy', reply: '回复二', type: 'text' },
+    { id: 3, keyword: '历史 exact', match_type: 'exact', reply: '回复三', type: 'text' },
+  ]), { status: 200, headers: { 'content-type': 'application/json' } }));
+  // rules 保存 adapter 归一后的关键词规则集合。
+  const rules = await actualApi.getReplyRules('account-1');
+  expect(rules[0]).toMatchObject({ keyword: '你好', expressions: ['你好', '再见'], match_type: 'regexp' });
+  expect(rules[1]).toMatchObject({ keyword: '历史 fuzzy', expressions: ['历史 fuzzy'], match_type: 'contains' });
+  expect(rules[2]).toMatchObject({ keyword: '历史 exact', expressions: ['历史 exact'], match_type: 'contains' });
+
+  fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ success: true }), { status: 200, headers: { 'content-type': 'application/json' } }));
+  await actualApi.updateReplyRule({ keyword: '首项', expressions: [' 首项 ', '第二项', '首项'], match_type: 'regexp', reply_content: '回复' }, 'account-1');
+  // requestInput 保存 adapter 发出的请求对象或 URL。
+  const requestInput = fetchMock.mock.calls[1][0] as RequestInfo | URL;
+  // requestInit 保存 adapter 发出的请求初始化参数。
+  const requestInit = fetchMock.mock.calls[1][1] as RequestInit | undefined;
+  // request 保存便于读取请求体的标准 Request 视图。
+  const request = requestInput instanceof Request ? requestInput : new Request(requestInput, requestInit);
+  // payload 保存请求体中的兼容单值、多表达式和匹配模式字段。
+  const payload = JSON.parse(await request.text()) as Record<string, unknown>;
+  expect(payload).toMatchObject({ keyword: '首项', expressions: ['首项', '第二项'], match_type: 'regexp', item_id: '', item_ids: [], type: 'text', image_url: '' });
+  vi.unstubAllGlobals();
 });

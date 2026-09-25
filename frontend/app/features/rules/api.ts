@@ -15,6 +15,7 @@ KeywordTypedResponse,
 MutationIDResponse,OperationResponse,
 PaginatedResponse,
 ReplyRule,
+ReplyMatchType,
 ShippingRule
 } from './models';
 import { type RequestControlOptions } from '../../../shared/http/client';
@@ -422,16 +423,46 @@ export const resolveAutomationRun = async (id: number, resolution: 'continue' | 
 export const resolveDeferredAutomationTask = async (id: number, resolution: 'retry' | 'dismiss'): Promise<OperationResponse> =>
   runContractRequest(/* signal 控制待处理自动化任务请求的取消和超时。 */ signal => contractClient.POST('/api/v1/automation-pending-tasks/{task_id}/resolve', { params: { path: { task_id: String(id) } }, body: { resolution } as never, signal }));
 
-// Rules - 关键词回复规则 (使用关键词API)
 type KeywordRowPayload = {
-    /** id 表示标识。 */ id: string;
-    /** keyword 表示关键词。 */ keyword: string;
-    /** reply 表示回复内容。 */ reply: string;
-    /** item_id 表示单条规则关联商品的首项，用于兼容旧调用方。 */ item_id: string;
-    /** item_ids 表示单条规则关联的商品标识集合；空集合表示账号级回复。 */ item_ids: string[];
-    /** type 表示规则类型。 */ type: 'text' | 'image';
-    /** image_url 表示图片地址。 */ image_url: string;
+    /** 规则稳定标识。 */
+    id: string;
+    /** 兼容旧接口的首个表达式。 */
+    keyword: string;
+    /** 按 OR 语义匹配的表达式集合。 */
+    expressions: string[];
+    /** 归一后的匹配模式。 */
+    match_type: ReplyMatchType;
+    /** 回复内容。 */
+    reply: string;
+    /** 单条规则关联商品的首项，用于兼容旧调用方。 */
+    item_id: string;
+    /** 单条规则关联的商品标识集合；空集合表示账号级回复。 */
+    item_ids: string[];
+    /** 规则回复类型。 */
+    type: 'text' | 'image';
+    /** 图片回复地址。 */
+    image_url: string;
 };
+
+// normalizeKeywordExpressions 归一化服务端关键词表达式，并为历史单关键词响应提供回退值。
+const normalizeKeywordExpressions = (item: any): string[] => {
+    // rawExpressions 保存新接口集合或由旧 keyword 构成的兼容集合。
+    const rawExpressions = Array.isArray(item?.expressions) ? item.expressions : [item?.keyword];
+    // expressions 保存去除空白、去重后的可编辑表达式。
+    const expressions: string[] = [];
+    for (const /* rawExpression 是当前待归一化的服务端表达式。 */ rawExpression of rawExpressions) {
+        // expression 保存去除首尾空白后的表达式文本。
+        const expression = typeof rawExpression === 'string' ? rawExpression.trim() : '';
+        if (expression && !expressions.includes(expression)) expressions.push(expression);
+    }
+    if (expressions.length > 0) return expressions;
+    // legacyKeyword 保存历史响应中仍可编辑的单关键词。
+    const legacyKeyword = typeof item?.keyword === 'string' ? item.keyword.trim() : '';
+    return legacyKeyword ? [legacyKeyword] : [''];
+};
+
+// normalizeReplyMatchType 将历史 fuzzy/exact/空值统一映射为当前 UI 的 contains。
+const normalizeReplyMatchType = (value: unknown): ReplyMatchType => value === 'regexp' ? 'regexp' : 'contains';
 
 // normalizeItemIDList 归一化单条规则关联的商品标识集合。
 // 服务端以集合字段表达一条规则的多商品关联，缺少集合字段的历史响应回退单值。
@@ -452,45 +483,69 @@ const normalizeItemIDList = (item: any): string[] => {
     return result;
 };
 
-// normalizeKeywordRow 归一化关键词规则。
+// normalizeKeywordRow 归一化关键词规则，保留多表达式、匹配模式和商品兼容字段。
 const normalizeKeywordRow = (item: any): KeywordRowPayload => {
+    // expressions 是服务端表达式集合，历史响应缺失时由 keyword 回退。
+    const expressions = normalizeKeywordExpressions(item);
     // itemIDs 是归一化后的关联商品标识集合。
     const itemIDs = normalizeItemIDList(item);
     return {
         id: String(item?.id || ''),
-        keyword: item?.keyword || '',
-        reply: item?.reply || '',
+        keyword: expressions[0] || '',
+        expressions,
+        match_type: normalizeReplyMatchType(item?.match_type),
+        reply: typeof item?.reply === 'string' ? item.reply : '',
         item_id: itemIDs[0] || '',
         item_ids: itemIDs,
         type: item?.type === 'image' ? 'image' : 'text',
-        image_url: item?.image_url || '',
+        image_url: typeof item?.image_url === 'string' ? item.image_url : '',
     };
 };
 
 // getKeywordRowsWithType 读取带类型的关键词规则。
 const getKeywordRowsWithType = async (cookieId: string): Promise<KeywordRowPayload[]> => {
-    // existing 已有规则，用于当前 API 处理流程。
+    // existing 保存服务端返回的关键词规则响应。
     const existing = await runContractRequest(/* signal 控制关键词规则读取的取消和超时。 */ signal => contractClient.GET('/api/v1/reply-rules/{cid}/typed', { params: { path: { cid: cookieId } }, signal })) as unknown;
-    return collectionFrom<KeywordTypedResponse>(existing, ['data', 'items', 'rules']).map(normalizeKeywordRow);
+    return collectionFrom<KeywordTypedResponse>(existing, ['data', 'items', 'rules']).map(/* item 是服务端返回的单条关键词规则。 */ item => normalizeKeywordRow(item));
 };
 
-// getReplyRules 读取回复规则。
+// getReplyRules 读取回复规则并输出当前 UI 所需的兼容模型。
 export const getReplyRules = async (cookieId?: string): Promise<ReplyRule[]> => {
     if (!cookieId) return [];
-    // keywords keywords，用于当前 API 处理流程。
+    // keywords 保存当前账号的多表达式关键词规则。
     const keywords = await getKeywordRowsWithType(cookieId);
-	return keywords.map(/* 当前回调用于处理集合元素或接口响应。 */ (item: any) => ({
-		id: item.id,
-        keyword: item.keyword || '',
+    return keywords.map(/* item 是已归一化的关键词规则行。 */ item => ({
+        id: item.id,
+        keyword: item.keyword || item.expressions[0] || '',
+        expressions: item.expressions.length ? item.expressions : [item.keyword || ''],
+        match_type: item.match_type,
         reply_content: item.reply || '',
-        match_type: 'fuzzy' as const,
         enabled: true,
         item_id: item.item_id || '',
         item_ids: Array.isArray(item.item_ids) ? item.item_ids : [],
         type: item.type === 'image' ? 'image' : 'text',
-        image_url: item.image_url || ''
+        image_url: item.image_url || '',
     }));
-}
+};
+
+// resolveReplyRuleExpressions 解析规则草稿中的表达式集合并回退兼容单关键词。
+const resolveReplyRuleExpressions = (rule: Partial<ReplyRule>): string[] => {
+    // rawExpressions 保存新字段或旧 keyword 构成的表达式输入。
+    const rawExpressions = Array.isArray(rule.expressions) ? rule.expressions : [rule.keyword || ''];
+    // result 保存去除空白和重复项后的请求表达式。
+    const result: string[] = [];
+    for (const /* candidate 是当前待提交的表达式草稿。 */ candidate of rawExpressions) {
+        // expression 是当前表达式的规范化文本。
+        const expression = typeof candidate === 'string' ? candidate.trim() : '';
+        if (expression && !result.includes(expression)) result.push(expression);
+    }
+    if (result.length === 0) {
+        // legacyKeyword 保存空表达式集合时的兼容单关键词。
+        const legacyKeyword = typeof rule.keyword === 'string' ? rule.keyword.trim() : '';
+        if (legacyKeyword) result.push(legacyKeyword);
+    }
+    return result.length ? result : [''];
+};
 
 // resolveReplyRuleItemIDs 解析规则草稿的关联商品集合，优先使用多值集合并回退兼容单值。
 const resolveReplyRuleItemIDs = (rule: Partial<ReplyRule>): string[] => {
@@ -508,25 +563,29 @@ const resolveReplyRuleItemIDs = (rule: Partial<ReplyRule>): string[] => {
     return result;
 };
 
-// updateReplyRule 更新回复规则。
+// updateReplyRule 更新回复规则，并同时提交多表达式和匹配模式。
 export const updateReplyRule = async (rule: Partial<ReplyRule>, cookieId: string): Promise<OperationResponse> => {
-	// type 规则类型，用于当前 API 处理流程。
-	const type = rule.type || 'text';
-	// itemIDs 是当前草稿需要关联的商品标识集合。
-	const itemIDs = resolveReplyRuleItemIDs(rule);
-	// payload 请求载荷，用于当前 API 处理流程。
-	const payload = {
-		keyword: rule.keyword || '',
-		reply: type === 'text' ? (rule.reply_content || '') : '',
-		item_id: itemIDs[0] || '',
-		item_ids: itemIDs,
-		type,
-		image_url: type === 'image' ? (rule.image_url || '') : '',
-	};
-	return rule.id
-		? runContractRequest(/* signal 控制关键词规则更新请求的取消和超时。 */ signal => contractClient.PUT('/api/v1/reply-rules/{cid}/typed/{id}', { params: { path: { cid: cookieId, id: String(rule.id) } }, body: payload as never, signal }))
-		: runContractRequest(/* signal 控制关键词规则创建请求的取消和超时。 */ signal => contractClient.POST('/api/v1/reply-rules/{cid}/items', { params: { path: { cid: cookieId } }, body: payload as never, signal }));
-}
+    // type 保存当前规则的文字或图片回复类型。
+    const type = rule.type || 'text';
+    // expressions 保存兼容旧 keyword 后的规范化表达式集合。
+    const expressions = resolveReplyRuleExpressions(rule);
+    // itemIDs 是当前草稿需要关联的商品标识集合。
+    const itemIDs = resolveReplyRuleItemIDs(rule);
+    // payload 是同时兼容旧字段和新多表达式字段的请求载荷。
+    const payload = {
+        keyword: expressions[0] || '',
+        expressions,
+        match_type: normalizeReplyMatchType(rule.match_type),
+        reply: type === 'text' ? (rule.reply_content || '') : '',
+        item_id: itemIDs[0] || '',
+        item_ids: itemIDs,
+        type,
+        image_url: type === 'image' ? (rule.image_url || '') : '',
+    };
+    return rule.id
+        ? runContractRequest(/* signal 控制关键词规则更新请求的取消和超时。 */ signal => contractClient.PUT('/api/v1/reply-rules/{cid}/typed/{id}', { params: { path: { cid: cookieId, id: String(rule.id) } }, body: payload as never, signal }))
+        : runContractRequest(/* signal 控制关键词规则创建请求的取消和超时。 */ signal => contractClient.POST('/api/v1/reply-rules/{cid}/items', { params: { path: { cid: cookieId } }, body: payload as never, signal }));
+};
 
 // deleteReplyRule 删除回复规则。
 export const deleteReplyRule = async (id: string, cookieId: string): Promise<OperationResponse> => {
