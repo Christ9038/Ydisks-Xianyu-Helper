@@ -316,8 +316,8 @@ func (n *Notifier) sendEmailWithUser(cfg map[string]any, message string, channel
 	}
 	// addr 用于本次流程后续判断的addr
 	addr := server + ":" + port
-	// auth 用于本次流程后续判断的auth
-	auth := smtp.PlainAuth("", user, pass, server)
+	// auth 在单次 SMTP 会话内协商认证机制，保留 TLS 与服务器身份校验。
+	auth := newSMTPAuth(user, pass, server)
 	// msg 用于本次流程后续判断的msg
 	msg := strings.Join([]string{
 		"From: " + fromHeader,

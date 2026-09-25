@@ -25,6 +25,8 @@ AI handles buyer bargaining messages. A maximum discount percentage or amount of
 
 A test notification verifies only channel configuration. Automated task notifications additionally require the account binding and the corresponding automation event filter. Automation results send when a task reaches completed, failed, or manual-review status.
 
+SMTP authentication prefers `PLAIN` and selects `LOGIN` when the server offers only `LOGIN`. For SendCloud, use `API_USER` as the SMTP username and its `API_KEY` as the password; set the sender email address separately. Use STARTTLS on port `587`, with implicit SSL/TLS disabled.
+
 Webhook URLs and bot tokens are equivalent to passwords. Do not paste them into screenshots, Issues, or chat. Update and retest a channel immediately after rotating a token.
 
 ## Daily checks
