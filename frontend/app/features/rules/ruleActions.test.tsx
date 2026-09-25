@@ -167,9 +167,10 @@ describe('useRuleActions', /* 当前回调验证规则页面动作协调器的�
     // hook 是规则动作 Hook 的真实 React 状态实例。
     const hook = renderHook(() => useRuleActionsHarness());
     act(/* 当前回调打开关键词新增弹窗。 */ () => hook.result.current.handleAddReplyRule());
+    expect(hook.result.current.editingReplyRule).toEqual(expect.objectContaining({ expressions: [''], match_type: 'contains' }));
     act(/* 当前回调填写关键词回复草稿。 */ () => hook.result.current.setEditingReplyRule(/* currentDraft 更新关键词回复草稿。 */ current => ({ ...current, keyword: '你好', reply_content: '您好' })));
     await act(/* 当前回调保存关键词回复规则。 */ async () => hook.result.current.handleSaveReplyRule());
-    expect(updateReplyMock).toHaveBeenCalledWith(expect.objectContaining({ keyword: '你好', match_type: 'fuzzy', enabled: true }), 'account-1');
+    expect(updateReplyMock).toHaveBeenCalledWith(expect.objectContaining({ keyword: '你好', expressions: ['你好'], match_type: 'contains', enabled: true }), 'account-1');
 
     await act(/* 当前回调打开默认回复弹窗并加载服务端数据。 */ async () => hook.result.current.openDefaultReplyModal());
     expect(hook.result.current.defaultForm).toEqual(expect.objectContaining({ reply_content: '欢迎', enabled: true }));
@@ -177,6 +178,31 @@ describe('useRuleActions', /* 当前回调验证规则页面动作协调器的�
     expect(updateDefaultMock).toHaveBeenCalledWith('account-1', expect.objectContaining({ reply_content: '欢迎', enabled: true }));
     hook.unmount();
   });
+  test('多个表达式保存前去空白并去重，且保留首项兼容字段', /* 当前回调验证多表达式的 OR 规则保存载荷。 */ async () => {
+    // hook 是规则动作 Hook 的真实 React 状态实例。
+    const hook = renderHook(() => useRuleActionsHarness());
+    act(/* 当前回调打开关键词新增弹窗。 */ () => hook.result.current.handleAddReplyRule());
+    act(/* 当前回调写入包含空白和重复项的表达式草稿。 */ () => hook.result.current.setEditingReplyRule(/* draft 是当前关键词回复表单。 */ draft => ({ ...draft, expressions: [' 你好 ', '发货', '你好', '  '], reply_content: '您好' })));
+    await act(/* 当前回调保存多表达式关键词规则。 */ async () => hook.result.current.handleSaveReplyRule());
+    expect(updateReplyMock).toHaveBeenCalledWith(expect.objectContaining({
+      keyword: '你好',
+      expressions: ['你好', '发货'],
+      match_type: 'contains',
+    }), 'account-1');
+    hook.unmount();
+  });
+
+  test('正则表达式语法无效时只提示错误且不发请求', /* 当前回调验证客户端正则预检不会触达保存接口。 */ async () => {
+    // hook 是规则动作 Hook 的真实 React 状态实例。
+    const hook = renderHook(() => useRuleActionsHarness());
+    act(/* 当前回调打开关键词新增弹窗。 */ () => hook.result.current.handleAddReplyRule());
+    act(/* 当前回调写入无法由 JavaScript RegExp 解析的表达式。 */ () => hook.result.current.setEditingReplyRule(/* draft 是当前关键词回复表单。 */ draft => ({ ...draft, expressions: ['['], match_type: 'regexp', reply_content: '您好' })));
+    await act(/* 当前回调尝试保存无效正则规则。 */ async () => hook.result.current.handleSaveReplyRule());
+    expect(updateReplyMock).not.toHaveBeenCalled();
+    expect(hook.result.current.toast).toEqual({ type: 'error', text: '正则表达式格式错误，请检查关键词' });
+    hook.unmount();
+  });
+
 
   test('规则编辑、异常恢复和删除动作均通过统一协调器', /* 当前回调覆盖规则动作 Hook 的剩余公开方法。 */ async () => {
     // hook 是规则动作 Hook 的真实 React 状态实例。

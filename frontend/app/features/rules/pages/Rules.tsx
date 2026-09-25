@@ -13,7 +13,6 @@ Plus,
 RefreshCw,
 Save,
 Search,
-Send,
 SlidersHorizontal,
 Trash2,
 X,
@@ -24,8 +23,8 @@ import { createPortal } from 'react-dom';
 import Toast from '../components/Toast';
 import AllItemsConfirmation from '../components/AllItemsConfirmation';
 import { AutomationIssuePanel } from '../components/AutomationIssuePanel';
-import ItemMultiSelect from '../components/ItemMultiSelect';
 import TemplateVariantEditor from '../components/TemplateVariantEditor';
+import ReplyRuleEditor from '../components/ReplyRuleEditor';
 import { useRulesData } from '../hooks';
 import { filterAutomationIssues } from '../issueState';
 import { useRuleActions } from '../ruleActions';
@@ -212,6 +211,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
     : activeTab === 'reply'
       ? '新增关键词'
       : '编辑默认回复';
+
 
   return (
     <div className="min-w-0 space-y-8 animate-fade-in">
@@ -543,19 +543,30 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
             这里只处理买家用户消息；系统通知不会进入关键词或 AI 回复。
           </div>
           <div className="space-y-3">
-            {replyRules.map(/* 当前回调处理集合中的单个元素。 */ rule => {
+            {replyRules.map(/* rule 是当前列表中待展示的关键词回复规则。 */ rule => {
               // itemLabels 是当前规则关联商品的可读标签集合。
               const itemLabels = replyRuleItemLabels(rule);
+              // expressions 是当前规则按 OR 语义展示的表达式集合，兼容旧 keyword 单值。
+              const expressions = rule.expressions?.length ? rule.expressions : (rule.keyword ? [rule.keyword] : []);
+              // firstExpression 是列表中突出展示的首个表达式。
+              const firstExpression = expressions[0] || '';
+              // additionalExpressionCount 是除首项外仍隐藏在规则中的表达式数量。
+              const additionalExpressionCount = Math.max(0, expressions.length - 1);
+              // matchLabel 是列表中说明当前规则匹配模式的中文标签。
+              const matchLabel = rule.match_type === 'regexp' ? '正则表达式' : '包含匹配';
               return (
               <div key={rule.id} className="flex flex-col md:flex-row md:items-center justify-between p-5 rounded-2xl border border-gray-100 bg-surface-subtle hover:bg-white hover:shadow-lg transition-all gap-4">
                 <div className="flex-1 min-w-0">
                   <div className="flex flex-wrap items-center gap-3 mb-2">
-                    <span className="px-3 py-1 bg-black text-white rounded-lg text-xs font-bold">包含匹配</span>
-                    <h3 className="font-bold text-gray-900">“{rule.keyword}”</h3>
+                    <span className={`px-3 py-1 rounded-lg text-xs font-bold ${rule.match_type === 'regexp' ? 'bg-purple-100 text-purple-700' : 'bg-black text-white'}`}>{matchLabel}</span>
+                    <h3 className="font-bold text-gray-900">“{firstExpression}”</h3>
+                    {additionalExpressionCount > 0 && (
+                      <span className="px-3 py-1 bg-amber-50 text-amber-700 rounded-lg text-xs font-bold">+{additionalExpressionCount} 个表达式</span>
+                    )}
                     {itemLabels.length === 0 ? (
                       <span className="px-3 py-1 bg-gray-100 text-gray-600 rounded-lg text-xs font-bold">账号级</span>
                     ) : (
-                      itemLabels.map(/* 当前回调渲染单个关联商品标签。 */ label => (
+                      itemLabels.map(/* label 是当前规则关联商品的可读标题。 */ label => (
                         <span key={`${rule.id}-${label}`} className="max-w-[16rem] truncate px-3 py-1 bg-blue-50 text-blue-700 rounded-lg text-xs font-bold" title={label}>{label}</span>
                       ))
                     )}
@@ -566,8 +577,12 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                 </div>
                 <div className="flex items-center gap-3 border-t md:border-t-0 md:border-l border-gray-200 pt-4 md:pt-0 md:pl-6">
                   <button
-                    onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => {
-                      setEditingReplyRule({ ...rule });
+                    onClick={/* 当前回调处理用户编辑并回填历史表达式和匹配模式。 */ () => {
+                      // editExpressions 是编辑器需要展示的表达式行，兼容旧 keyword 响应。
+                      const editExpressions = rule.expressions?.length ? rule.expressions : [rule.keyword || ''];
+                      // editMatchType 是编辑器支持的匹配模式，历史 fuzzy/exact 均按 contains 展示。
+                      const editMatchType = rule.match_type === 'regexp' ? 'regexp' : 'contains';
+                      setEditingReplyRule({ ...rule, expressions: editExpressions, keyword: editExpressions[0] || '', match_type: editMatchType });
                       setShowReplyModal(true);
                     }}
                     className="p-2 text-gray-400 hover:text-black hover:bg-gray-100 rounded-xl transition-colors"
@@ -1069,107 +1084,14 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
         document.body
       )}
 
-      {showReplyModal && editingReplyRule && createPortal(
-        <div className="modal-overlay">
-          <div className="modal-container">
-            <div className="modal-header">
-              <div className="flex items-center justify-between w-full">
-                <h3 className="text-2xl font-extrabold text-gray-900">
-                  {editingReplyRule.id ? '编辑回复规则' : '新增回复规则'}
-                </h3>
-                <button
-                  onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setShowReplyModal(false)}
-                  className="p-2 bg-gray-100 rounded-full hover:bg-gray-200 transition-colors"
-                >
-                  <X className="w-5 h-5 text-gray-600" />
-                </button>
-              </div>
-            </div>
-
-            <div className="modal-body space-y-5">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">关联商品</label>
-                  <ItemMultiSelect
-                    options={replyModalItems}
-                    value={editingReplyRule.item_ids?.length ? editingReplyRule.item_ids : (editingReplyRule.item_id ? [editingReplyRule.item_id] : [])}
-                    onChange={/* 当前回调处理用户交互或异步状态变化。 */ itemIDs => setEditingReplyRule({ ...editingReplyRule, item_ids: itemIDs, item_id: itemIDs[0] || '' })}
-                  />
-                  <p className="mt-2 text-xs text-gray-400">可多选；不选表示账号级回复。候选来自本地已同步商品，支持搜索。</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">回复类型</label>
-                  <select
-                    value={editingReplyRule.type || 'text'}
-                    onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => {
-                      // type 类型。
-                      const type = event.target.value as 'text' | 'image';
-                      setEditingReplyRule({
-                        ...editingReplyRule,
-                        type,
-                        reply_content: type === 'text' ? editingReplyRule.reply_content : '',
-                        image_url: type === 'image' ? editingReplyRule.image_url : '',
-                      });
-                    }}
-                    className="w-full ios-input px-4 py-3 rounded-xl"
-                  >
-                    <option value="text">文字</option>
-                    <option value="image">图片</option>
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">关键词</label>
-                <input
-                  type="text"
-                  value={editingReplyRule.keyword || ''}
-                  onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setEditingReplyRule({ ...editingReplyRule, keyword: event.target.value })}
-                  placeholder="买家发送的关键词"
-                  className="w-full ios-input px-4 py-3 rounded-xl"
-                />
-              </div>
-
-              {editingReplyRule.type === 'image' ? (
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">图片 URL</label>
-                  <input
-                    value={editingReplyRule.image_url || ''}
-                    onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setEditingReplyRule({ ...editingReplyRule, image_url: event.target.value })}
-                    placeholder="https://..."
-                    className="w-full ios-input px-4 py-3 rounded-xl"
-                  />
-                </div>
-              ) : (
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">回复内容</label>
-                  <textarea
-                    value={editingReplyRule.reply_content || ''}
-                    onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setEditingReplyRule({ ...editingReplyRule, reply_content: event.target.value })}
-                    placeholder="自动回复的内容"
-                    className="w-full ios-input px-4 py-3 rounded-xl h-32 resize-none"
-                  />
-                </div>
-              )}
-
-              <div className="flex gap-3 pt-4">
-                <button
-                  onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setShowReplyModal(false)}
-                  className="flex-1 px-6 py-3 rounded-xl font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
-                >
-                  取消
-                </button>
-                <button
-                  onClick={handleSaveReplyRule}
-                  className="flex-1 ios-btn-primary px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2"
-                >
-                  <Send className="w-4 h-4" />
-                  保存规则
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body
+      {showReplyModal && editingReplyRule && (
+        <ReplyRuleEditor
+          rule={editingReplyRule}
+          setRule={setEditingReplyRule}
+          items={replyModalItems}
+          onClose={/* 当前回调关闭关键词回复编辑器。 */ () => setShowReplyModal(false)}
+          onSave={/* 当前回调提交关键词回复规则。 */ handleSaveReplyRule}
+        />
       )}
 
       {showDefaultModal && createPortal(

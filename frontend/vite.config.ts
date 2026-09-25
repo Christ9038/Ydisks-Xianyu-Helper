@@ -96,6 +96,10 @@ export default defineConfig({
           ) {
             return 'rules-safety-controls';
           }
+          // 关键词回复编辑器只在打开回复规则弹窗时使用，独立分片避免多表达式表单挤占规则主页面预算。
+          if (modulePath.includes('/app/features/rules/components/ReplyRuleEditor.')) {
+            return 'rules-reply-editor';
+          }
           // 关键词回复的商品多选与轻提示仅在回复规则交互中使用，独立分片避免挤占规则主页面预算。
           if (
             modulePath.includes('/app/features/rules/components/ItemMultiSelect.') ||

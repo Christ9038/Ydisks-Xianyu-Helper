@@ -3,17 +3,114 @@ package db
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 )
 
-// Keyword 对应 keywords 表。
+// Keyword 对应 keywords 表，并把兼容的首表达式和完整表达式集合一起提供给运行时。
 type Keyword struct {
-	Keyword  string
-	Reply    string
-	ItemID   string
-	Type     string // text/image
+	// Keyword 是第一条表达式，用于兼容历史单关键词字段。
+	Keyword string
+	// Expressions 是同一条规则的完整匹配表达式集合。
+	Expressions []string
+	// MatchType 是 contains 或 regexp；历史行缺失时由读取逻辑回退为 contains。
+	MatchType string
+	// Reply 是文字回复内容。
+	Reply string
+	// ItemID 是逗号分隔的商品范围字段。
+	ItemID string
+	// Type 是 text 或 image 回复类型。
+	Type string
+	// ImageURL 是图片回复地址。
 	ImageURL string
+}
+
+// decodeKeywordExpressions 从 JSON 文本读取表达式集合；非法或空数据回退兼容首表达式。
+func decodeKeywordExpressions(raw, fallback string) []string {
+	// decoded 保存 JSON 中反序列化出的原始表达式集合。
+	var decoded []string
+	if strings.TrimSpace(raw) != "" && json.Unmarshal([]byte(raw), &decoded) == nil {
+		// result 保存去空白、去重后的可匹配表达式集合。
+		result := make([]string, 0, len(decoded))
+		// seen 记录已经加入结果的表达式。
+		seen := make(map[string]struct{}, len(decoded))
+		// expression 表示当前从数据库读取的表达式。
+		for _, expression := range decoded {
+			expression = strings.TrimSpace(expression)
+			if expression == "" {
+				continue
+			}
+			// exists 表示当前表达式是否已经收录，重复表达式不会改变原有顺序。
+			if _, exists := seen[expression]; exists {
+				continue
+			}
+			seen[expression] = struct{}{}
+			result = append(result, expression)
+		}
+		if len(result) > 0 {
+			return result
+		}
+	}
+	// normalizedFallback 保存历史单关键词字段的兼容表达式。
+	normalizedFallback := strings.TrimSpace(fallback)
+	if normalizedFallback == "" {
+		return nil
+	}
+	return []string{normalizedFallback}
+}
+
+// encodeKeywordExpressions 将表达式集合编码为数据库文本，并为旧调用方提供首表达式回退。
+func encodeKeywordExpressions(expressions []string, fallback string) string {
+	// normalized 保存可安全写入的表达式集合。
+	normalized := make([]string, 0, len(expressions))
+	// seen 记录已经加入编码集合的表达式。
+	seen := make(map[string]struct{}, len(expressions))
+	// expression 表示当前待编码的表达式。
+	for _, expression := range expressions {
+		expression = strings.TrimSpace(expression)
+		if expression == "" {
+			continue
+		}
+		// exists 表示当前表达式是否已经收录，重复表达式不会写入 JSON 数组。
+		if _, exists := seen[expression]; exists {
+			continue
+		}
+		seen[expression] = struct{}{}
+		normalized = append(normalized, expression)
+	}
+	if len(normalized) == 0 {
+		normalized = decodeKeywordExpressions("", fallback)
+	}
+	// encoded 保存 JSON 编码结果；字符串数组不会产生不可编码值。
+	encoded, err := json.Marshal(normalized)
+	if err != nil {
+		return "[]"
+	}
+	return string(encoded)
+}
+
+// keywordPersistenceFields 统一兼容首表达式、表达式 JSON 和匹配模式的写入字段。
+func keywordPersistenceFields(keyword string, expressions []string, matchType string) (string, string, string) {
+	// normalizedExpressions 保存传入表达式的可写副本。
+	normalizedExpressions := decodeKeywordExpressions(encodeKeywordExpressions(expressions, keyword), keyword)
+	if len(normalizedExpressions) > 0 {
+		keyword = normalizedExpressions[0]
+	}
+	// normalizedMatchType 保存缺省匹配模式的兼容值。
+	normalizedMatchType := normalizeKeywordMatchType(matchType)
+	return keyword, encodeKeywordExpressions(normalizedExpressions, keyword), normalizedMatchType
+}
+
+// normalizeKeywordMatchType 将数据库中的匹配模式规整为大小写统一的值；空值兼容为 contains。
+func normalizeKeywordMatchType(raw string) string {
+	// normalized 保存去除空白并统一大小写后的匹配模式。
+	normalized := strings.ToLower(strings.TrimSpace(raw))
+	if normalized == "" {
+		return "contains"
+	}
+	return normalized
 }
 
 // DefaultReply 对应 default_replies 表。
@@ -65,25 +162,34 @@ type Keywords struct {
 	Dialect Dialect
 }
 
-// AllWithType 取某账号所有关键字（含类型/图片）。
+// AllWithType 取某账号所有关键词（含类型、图片、表达式和匹配模式）。
 func (k *Keywords) AllWithType(ctx context.Context, cookieID string) ([]Keyword, error) {
-	// rows、err 用于本次流程后续判断的rows、err
+	// 查询继续按旧 keyword 列长度降序、主键升序，后续表达式不会改变跨规则优先级。
+	// rows、err 保存数据库查询结果。
 	rows, err := k.DB.QueryContext(ctx,
-		`SELECT keyword, reply, COALESCE(item_id,''), COALESCE(type,'text'), COALESCE(image_url,'')
+		`SELECT keyword, reply, COALESCE(item_id,''), COALESCE(type,'text'), COALESCE(image_url,''),
+				COALESCE(keyword_expressions,''), COALESCE(match_type,'contains')
 			 FROM keywords WHERE cookie_id=? ORDER BY LENGTH(keyword) DESC,id ASC`, cookieID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	// out 用于本次流程后续判断的out
+	// out 保存当前账号的关键词规则。
 	var out []Keyword
 	for rows.Next() {
-		// kw 用于本次流程后续判断的kw
+		// kw 表示当前读取的关键词规则。
 		var kw Keyword
-		if // err 用于本次流程后续判断的err
-		err := rows.Scan(&kw.Keyword, &kw.Reply, &kw.ItemID, &kw.Type, &kw.ImageURL); err != nil {
+		// rawExpressions 保存数据库中的表达式 JSON 文本。
+		var rawExpressions string
+		if // err 表示当前行扫描错误。
+		err := rows.Scan(&kw.Keyword, &kw.Reply, &kw.ItemID, &kw.Type, &kw.ImageURL, &rawExpressions, &kw.MatchType); err != nil {
 			return nil, err
 		}
+		kw.Expressions = decodeKeywordExpressions(rawExpressions, kw.Keyword)
+		if len(kw.Expressions) > 0 {
+			kw.Keyword = kw.Expressions[0]
+		}
+		kw.MatchType = normalizeKeywordMatchType(kw.MatchType)
 		out = append(out, kw)
 	}
 	return out, rows.Err()

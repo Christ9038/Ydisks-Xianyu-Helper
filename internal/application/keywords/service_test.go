@@ -10,6 +10,8 @@ import (
 type keywordRepositoryFake struct {
 	// addErr 是创建操作返回的错误。
 	addErr error
+	// addCalls 统计创建仓储被调用的次数。
+	addCalls int
 	// addedDraft 保存最近一次创建输入。
 	addedDraft Draft
 	// addedDrafts 保存本次流程中的全部创建输入，用于断言多选只落一条规则。
@@ -20,8 +22,14 @@ type keywordRepositoryFake struct {
 	listErr error
 	// replaceErr 是批量替换返回的错误。
 	replaceErr error
+	// replaceCalls 统计批量替换仓储被调用的次数。
+	replaceCalls int
+	// replacedDrafts 保存最近一次批量替换输入。
+	replacedDrafts []Draft
 	// updateErr 是更新返回的错误。
 	updateErr error
+	// updateCalls 统计更新仓储被调用的次数。
+	updateCalls int
 	// updatedDraft 保存最近一次更新输入。
 	updatedDraft Draft
 	// deleteErr 是删除返回的错误。
@@ -41,18 +49,22 @@ func (f *keywordRepositoryFake) List(context.Context, int64, string) ([]Keyword,
 
 // Add 实现测试仓储的关键词创建端口。
 func (f *keywordRepositoryFake) Add(_ context.Context, _ int64, _ string, draft Draft) (int64, error) {
+	f.addCalls++
 	f.addedDraft = draft
 	f.addedDrafts = append(f.addedDrafts, draft)
 	return 9, f.addErr
 }
 
 // Replace 实现测试仓储的关键词批量替换端口。
-func (f *keywordRepositoryFake) Replace(context.Context, int64, string, []Draft) error {
+func (f *keywordRepositoryFake) Replace(_ context.Context, _ int64, _ string, drafts []Draft) error {
+	f.replaceCalls++
+	f.replacedDrafts = append([]Draft(nil), drafts...)
 	return f.replaceErr
 }
 
 // Update 实现测试仓储的关键词更新端口。
 func (f *keywordRepositoryFake) Update(_ context.Context, _ int64, _ string, _ int64, draft Draft) error {
+	f.updateCalls++
 	f.updatedDraft = draft
 	return f.updateErr
 }
@@ -519,3 +531,97 @@ func TestServiceRejectsInvalidItemScopeInput(t *testing.T) {
 }
 
 var _ Repository = (*keywordRepositoryFake)(nil)
+
+// TestServiceNormalizesKeywordExpressions 验证新表达式字段优先、去空白去重及匹配模式别名归一。
+func TestServiceNormalizesKeywordExpressions(t *testing.T) {
+	// repository 记录应用服务最终交给持久化端口的规则草稿。
+	repository := &keywordRepositoryFake{}
+	// service 是待验证的关键词应用服务。
+	service := NewService(repository)
+	// _, err 保存包含重复表达式的创建结果。
+	_, err := service.Add(context.Background(), 7, "account-1", Draft{
+		Keyword:     "历史表达式",
+		Expressions: []string{" 新表达式 ", "新表达式", "English", " English "},
+		MatchType:   "regex",
+		Reply:       "回复",
+	})
+	if err != nil {
+		t.Fatalf("多表达式创建失败: %v", err)
+	}
+	// got 保存仓储收到的规范化表达式集合。
+	got := repository.addedDraft
+	if got.Keyword != "新表达式" || got.MatchType != KeywordMatchTypeRegexp {
+		t.Fatalf("新字段未优先或别名未归一: %+v", got)
+	}
+	if len(got.Expressions) != 2 || got.Expressions[0] != "新表达式" || got.Expressions[1] != "English" {
+		t.Fatalf("表达式未按首次出现顺序去重: %+v", got.Expressions)
+	}
+}
+
+// TestServiceNormalizesLegacyMatchTypes 验证缺省、fuzzy、exact 和 contains 都落为普通包含模式。
+func TestServiceNormalizesLegacyMatchTypes(t *testing.T) {
+	// cases 覆盖应用输入端支持的历史匹配模式及其规范值。
+	cases := []struct {
+		// name 是子测试名称。
+		name string
+		// raw 是调用方提交的原始匹配模式。
+		raw string
+		// want 是仓储应接收的规范匹配模式。
+		want string
+	}{
+		{name: "default", raw: "", want: KeywordMatchTypeContains},
+		{name: "fuzzy", raw: "fuzzy", want: KeywordMatchTypeContains},
+		{name: "exact", raw: "exact", want: KeywordMatchTypeContains},
+		{name: "contains", raw: "contains", want: KeywordMatchTypeContains},
+	}
+	// testCase 表示当前待归一的历史匹配模式。
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// repository 记录当前子测试的持久化输入。
+			repository := &keywordRepositoryFake{}
+			// service 是当前子测试使用的关键词应用服务。
+			service := NewService(repository)
+			// _, err 保存当前模式的创建结果。
+			_, err := service.Add(context.Background(), 7, "account-1", Draft{Keyword: "k", MatchType: testCase.raw, Reply: "r"})
+			if err != nil || repository.addedDraft.MatchType != testCase.want {
+				t.Fatalf("raw=%q draft=%+v err=%v", testCase.raw, repository.addedDraft, err)
+			}
+		})
+	}
+}
+
+// TestServiceRejectsInvalidExpressionsBeforeRepositoryWrites 验证 Add、Update 和 Replace 的表达式校验失败不会触发仓储写入。
+func TestServiceRejectsInvalidExpressionsBeforeRepositoryWrites(t *testing.T) {
+	// addRepository 记录非法正则创建是否错误触发了新增写入。
+	addRepository := &keywordRepositoryFake{}
+	// addService 是执行非法正则创建校验的服务。
+	addService := NewService(addRepository)
+	// _, addErr 保存非法正则创建结果。
+	_, addErr := addService.Add(context.Background(), 7, "account-1", Draft{Expressions: []string{"可用", "["}, MatchType: "regexp", Reply: "r"})
+	if addErr == nil || addErr.Error() != "第 2 个正则表达式无效" || addRepository.addCalls != 0 {
+		t.Fatalf("非法正则创建边界错误 addErr=%v calls=%d", addErr, addRepository.addCalls)
+	}
+
+	// updateRepository 记录非法更新是否错误触发了仓储写入。
+	updateRepository := &keywordRepositoryFake{}
+	// updateService 是执行非法表达式更新校验的服务。
+	updateService := NewService(updateRepository)
+	// updateErr 保存非法更新结果。
+	updateErr := updateService.Update(context.Background(), 7, "account-1", 1, Draft{Expressions: []string{" "}, Keyword: "历史", Reply: "r"})
+	if updateErr == nil || updateErr.Error() != "第 1 个表达式不能为空" || updateRepository.updateCalls != 0 {
+		t.Fatalf("空表达式更新边界错误 updateErr=%v calls=%d", updateErr, updateRepository.updateCalls)
+	}
+
+	// replaceRepository 记录批量校验是否在全部通过前调用了替换端口。
+	replaceRepository := &keywordRepositoryFake{}
+	// replaceService 是执行批量表达式校验的服务。
+	replaceService := NewService(replaceRepository)
+	// replaceErr 保存第二条规则非法时的批量替换结果。
+	replaceErr := replaceService.Replace(context.Background(), 7, "account-1", []Draft{
+		{Keyword: "第一条", Reply: "回复"},
+		{Expressions: []string{"第二条", "("}, MatchType: "regexp", Reply: "回复"},
+	})
+	if replaceErr == nil || replaceErr.Error() != "第 2 个正则表达式无效" || replaceRepository.replaceCalls != 0 {
+		t.Fatalf("批量非法正则边界错误 replaceErr=%v calls=%d", replaceErr, replaceRepository.replaceCalls)
+	}
+}

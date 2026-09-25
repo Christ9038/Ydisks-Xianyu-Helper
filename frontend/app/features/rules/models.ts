@@ -313,16 +313,21 @@ export interface ShippingVariant {
   custom_variables?: Record<string, string>;
 }
 
+/** 关键词匹配模式；历史 fuzzy/exact 响应在适配边界统一归一为 contains。 */
+export type ReplyMatchType = 'contains' | 'regexp';
+
 /** 由当前 feature adapter 归一后的 ReplyRule UI 模型；不直接暴露 HTTP DTO。 */
 export interface ReplyRule {
   /** 回复规则标识。 */
   id: string;
-  /** 触发关键词。 */
+  /** 兼容旧接口的首个表达式；始终与 expressions 的首项保持一致。 */
   keyword: string;
+  /** 按 OR 语义依次匹配的关键词或正则表达式。 */
+  expressions: string[];
+  /** 关键词匹配方式，contains 表示包含匹配，regexp 表示正则表达式。 */
+  match_type: ReplyMatchType;
   /** 回复正文。 */
   reply_content: string;
-  /** 关键词匹配方式。 */
-  match_type: 'exact' | 'fuzzy';
   /** 规则是否启用。 */
   enabled: boolean;
   /** 规则限定的商品标识；多选规则取 item_ids 的首项以保持单值语义。 */

@@ -7515,6 +7515,8 @@ components:
       required: [keyword, reply]
       properties:
         keyword: {type: string}
+        expressions: {type: array, items: {type: string}, description: 同一条规则的多个匹配表达式；缺省时使用 keyword}
+        match_type: {type: string, enum: [contains, regexp], description: 匹配模式；历史规则按 contains 处理}
         reply: {type: string}
     KeywordBasicListResponse:
       type: array
@@ -7524,6 +7526,8 @@ components:
       required: [keyword, reply, item_id]
       properties:
         keyword: {type: string}
+        expressions: {type: array, items: {type: string}, description: 同一条规则的多个匹配表达式}
+        match_type: {type: string, enum: [contains, regexp], description: 匹配模式}
         reply: {type: string}
         item_id: {type: string}
     KeywordItemListResponse:
@@ -7531,10 +7535,12 @@ components:
       items: {$ref: '#/components/schemas/KeywordItemResponse'}
     KeywordTypedResponse:
       type: object
-      required: [id, keyword, reply, item_id, item_ids, type, image_url]
+      required: [id, keyword, expressions, match_type, reply, item_id, item_ids, type, image_url]
       properties:
         id: {type: integer}
-        keyword: {type: string}
+        keyword: {type: string, description: 第一条表达式的兼容单值字段}
+        expressions: {type: array, items: {type: string}, description: 同一条规则的多个匹配表达式；任意一个命中即使用同一条回复}
+        match_type: {type: string, enum: [contains, regexp], description: contains 为大小写不敏感普通包含，regexp 为大小写不敏感 Go/RE2 正则}
         reply: {type: string}
         item_id: {type: string, description: 关联商品标识的持久化字段；多选时为逗号分隔串，空串表示账号级回复}
         item_ids: {type: array, items: {type: string}, description: 关联商品标识集合；空集合表示账号级回复}
@@ -7547,7 +7553,9 @@ components:
       type: object
       required: [keyword, reply, item_id, item_ids, type, image_url]
       properties:
-        keyword: {type: string}
+        keyword: {type: string, description: 兼容旧单值调用方；新调用方可同时传 expressions}
+        expressions: {type: array, items: {type: string}, description: 同一条规则的多个匹配表达式；任意一个命中即使用同一条回复}
+        match_type: {type: string, enum: [contains, regexp], default: contains, description: 匹配模式；regexp 使用大小写不敏感 Go/RE2}
         reply: {type: string}
         item_id: {type: string, description: 兼容旧单值调用方；多选时由 item_ids 合并而来}
         item_ids: {type: array, items: {type: string}, description: 关联商品标识集合；一条规则可关联多个商品，空集合表示账号级回复}
