@@ -596,10 +596,14 @@ func extFields(ext string) (updateKey, contentType string) {
 	return strAny(m["updateKey"]), strAny(m["contentType"])
 }
 
-// parseUpdateKey 封装parseUpdateKey业务协调。
+// parseUpdateKey 从 updateKey 提取会话号和订单号；确认收货四段键没有会话号，第二段是状态码。
+// 无法证明为有效订单号的确认收货键返回空身份，避免把状态码写入订单或用于自动评价。
 func parseUpdateKey(updateKey string) (chatID, orderID string) {
-	// parts 用于本次流程后续判断的parts
+	// parts 保留平台业务键的字段顺序，用明确的事件标记区分两种协议布局。
 	parts := strings.Split(updateKey, ":")
+	if len(parts) == 4 && parts[2] == "BUYER_CONFIRM_RATE_SELLER" && parts[3] == "74" {
+		return "", directOrderID(parts[0])
+	}
 	if len(parts) >= 2 {
 		return parts[0], parts[1]
 	}
