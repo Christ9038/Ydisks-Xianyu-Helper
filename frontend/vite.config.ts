@@ -114,6 +114,13 @@ export default defineConfig({
           ) {
             return 'rules-reply-controls';
           }
+          // 商品与账号默认回复的展示和编辑控件共用独立分片，不把请求层和共享客户端拉入功能分片。
+          if (
+            modulePath.includes('/app/features/rules/components/DefaultReplyEditor.') ||
+            modulePath.includes('/app/features/rules/components/DefaultRepliesPanel.')
+          ) {
+            return 'rules-default-replies';
+          }
           // 手动地点选择只在发布表单中使用，独立静态分片可控制商品页主分片预算并保留 feature 边界。
           if (
             modulePath.includes('/app/features/items/manualLocation.') ||

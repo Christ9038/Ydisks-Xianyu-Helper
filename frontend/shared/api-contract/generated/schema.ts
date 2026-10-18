@@ -2166,11 +2166,21 @@ export interface components {
             };
         };
         AutomationRulesResponse: components["schemas"]["AutomationRuleListResponse"] | components["schemas"]["AutomationRulePageResponse"];
+        /** @description 账号默认回复配置；图片字段缺省保留已有来源，显式空串清除，URL 与本地路径不能同时非空。 */
+        DefaultReplyMutationRequest: {
+            enabled?: boolean;
+            reply_content?: string;
+            reply_image_url?: string;
+            /** @description 账号专用图片目录内的相对文件路径，使用正斜杠分隔；禁止绝对路径和目录穿越 */
+            reply_image_path?: string;
+            reply_once?: boolean;
+        };
         DefaultReplyResponse: {
             cookie_id?: string;
             enabled: boolean;
             reply_content: string;
             reply_image_url?: string;
+            reply_image_path?: string;
             reply_once: boolean;
         };
         AccountTaskSettingsResponse: {
@@ -2300,10 +2310,23 @@ export interface components {
             [key: string]: components["schemas"]["DefaultReplyResponse"];
         };
         DefaultReplyListResponse: components["schemas"]["DefaultReplyResponse"][] | null;
+        /** @description 商品默认图文配置；图片字段缺省保留，显式空串清除；reply_once 缺省保留，新建默认关闭；正文与两种图片都为空时使用账号默认回复。 */
+        ItemReplyMutationRequest: {
+            reply_content?: string;
+            /** @description 同一账号同一商品同一会话只回复一次，独立于账号兜底；编辑内容不重置记录 */
+            reply_once?: boolean;
+            reply_image_url?: string;
+            /** @description 账号专用图片目录内的相对文件路径；与非空 reply_image_url 互斥 */
+            reply_image_path?: string;
+        };
         ItemReplyResponse: {
             item_id?: string;
             cookie_id?: string;
             reply_content: string;
+            /** @description 同一账号同一商品同一会话只回复一次，独立于账号兜底；编辑内容不重置记录 */
+            reply_once?: boolean;
+            reply_image_url?: string;
+            reply_image_path?: string;
         };
         ItemReplyListResponse: components["schemas"]["ItemReplyResponse"][];
         AIReplySettingsResponse: {
@@ -8157,7 +8180,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DefaultReplyMutationRequest"];
+            };
+        };
         responses: {
             /** @description 成功 */
             200: {
@@ -12528,7 +12555,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ItemReplyMutationRequest"];
+            };
+        };
         responses: {
             /** @description 成功 */
             200: {

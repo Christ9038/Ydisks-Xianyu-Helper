@@ -177,6 +177,26 @@ func (r *KeywordRepository) SetItemReply(ctx context.Context, userID int64, cook
 	return r.store.ItemReps.Set(ctx, cookieID, itemID, content)
 }
 
+// UpdateItemReply 在 cookieID 的数据库事务中把 itemID 最新配置交给纯计算 build，保证缺省图片与商品去重字段不会丢失。
+func (r *KeywordRepository) UpdateItemReply(ctx context.Context, userID int64, cookieID, itemID string, build func(keywordsapp.ItemReply) (keywordsapp.ItemReply, error)) error {
+	if err := r.authorize(ctx, userID, cookieID); err != nil { // err 是非敏感账号归属校验错误。
+		return err
+	}
+	// err 是事务写入或应用回调拒绝错误；账号并发删除映射为稳定不存在错误。
+	err := r.store.ItemReps.UpdateWithCurrent(ctx, cookieID, itemID, func(current db.ItemReply) (db.ItemReply, error) {
+		// reply、buildErr 保存应用层完成兼容合并后的完整图文配置。
+		reply, buildErr := build(itemReplyModel(current))
+		if buildErr != nil {
+			return db.ItemReply{}, buildErr
+		}
+		return db.ItemReply{ReplyOnce: reply.ReplyOnce, ReplyContent: reply.ReplyContent, ReplyImageURL: reply.ReplyImageURL, ReplyImagePath: reply.ReplyImagePath}, nil
+	})
+	if errors.Is(err, db.ErrNotFound) {
+		return keywordsapp.ErrNotFound
+	}
+	return err
+}
+
 // DeleteItemReply 删除指定用户账号和商品的商品回复。
 func (r *KeywordRepository) DeleteItemReply(ctx context.Context, userID int64, cookieID, itemID string) error {
 	// err 表示账号归属校验失败。
@@ -235,7 +255,7 @@ func keywordModel(row db.KeywordRow) keywordsapp.Keyword {
 
 // itemReplyModel 将数据库商品回复行转换为应用模型。
 func itemReplyModel(row db.ItemReply) keywordsapp.ItemReply {
-	return keywordsapp.ItemReply{ItemID: row.ItemID, CookieID: row.CookieID, ReplyContent: row.ReplyContent}
+	return keywordsapp.ItemReply{ItemID: row.ItemID, CookieID: row.CookieID, ReplyContent: row.ReplyContent, ReplyImageURL: row.ReplyImageURL, ReplyImagePath: row.ReplyImagePath, ReplyOnce: row.ReplyOnce}
 }
 
 var _ keywordsapp.Repository = (*KeywordRepository)(nil)

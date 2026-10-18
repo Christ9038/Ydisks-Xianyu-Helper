@@ -62,7 +62,7 @@ func (r *DefaultReplyRepository) Get(ctx context.Context, cookieID string) (defa
 	}
 	return defaultreplyapp.Reply{
 		Enabled: record.Enabled, ReplyContent: record.ReplyContent,
-		ReplyImageURL: record.ReplyImageURL, ReplyOnce: record.ReplyOnce,
+		ReplyImageURL: record.ReplyImageURL, ReplyImagePath: record.ReplyImagePath, ReplyOnce: record.ReplyOnce,
 	}, nil
 }
 
@@ -74,8 +74,28 @@ func (r *DefaultReplyRepository) Upsert(ctx context.Context, cookieID string, re
 	}
 	return r.store.DefaultReps.Upsert(ctx, cookieID, db.DefaultReply{
 		Enabled: reply.Enabled, ReplyContent: reply.ReplyContent,
-		ReplyImageURL: reply.ReplyImageURL, ReplyOnce: reply.ReplyOnce,
+		ReplyImageURL: reply.ReplyImageURL, ReplyImagePath: reply.ReplyImagePath, ReplyOnce: reply.ReplyOnce,
 	})
+}
+
+// Update 在 cookieID 的事务内读取最新配置并调用 build 合并，保证旧客户端缺省字段不覆盖并发更新。
+func (r *DefaultReplyRepository) Update(ctx context.Context, cookieID string, build func(defaultreplyapp.Reply) (defaultreplyapp.Reply, error)) error {
+	if err := r.validate(); err != nil { // err 是依赖未装配错误。
+		return err
+	}
+	// err 是事务或纯应用校验错误，应用错误原样传播。
+	err := r.store.DefaultReps.UpdateWithCurrent(ctx, cookieID, func(current db.DefaultReply) (db.DefaultReply, error) {
+		// reply、buildErr 保存应用合并后的配置及拒绝原因。
+		reply, buildErr := build(defaultreplyapp.Reply{Enabled: current.Enabled, ReplyContent: current.ReplyContent, ReplyImageURL: current.ReplyImageURL, ReplyImagePath: current.ReplyImagePath, ReplyOnce: current.ReplyOnce})
+		if buildErr != nil {
+			return db.DefaultReply{}, buildErr
+		}
+		return db.DefaultReply{Enabled: reply.Enabled, ReplyContent: reply.ReplyContent, ReplyImageURL: reply.ReplyImageURL, ReplyImagePath: reply.ReplyImagePath, ReplyOnce: reply.ReplyOnce}, nil
+	})
+	if errors.Is(err, db.ErrNotFound) {
+		return defaultreplyapp.ErrAccountNotFound
+	}
+	return err
 }
 
 // ListForUser 查询用户默认回复摘要并转换为应用模型。
@@ -97,7 +117,7 @@ func (r *DefaultReplyRepository) ListForUser(ctx context.Context, userID int64) 
 			CookieID: record.CookieID,
 			Reply: defaultreplyapp.Reply{
 				Enabled: record.Enabled, ReplyContent: record.ReplyContent,
-				ReplyImageURL: record.ReplyImageURL, ReplyOnce: record.ReplyOnce,
+				ReplyImageURL: record.ReplyImageURL, ReplyImagePath: record.ReplyImagePath, ReplyOnce: record.ReplyOnce,
 			},
 		})
 	}

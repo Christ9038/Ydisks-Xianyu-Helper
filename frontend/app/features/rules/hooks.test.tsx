@@ -204,6 +204,26 @@ describe('useRulesData', /* 当前回调处理规则页参考数据、分页和�
     consoleLog.mockRestore();
   });
 
+  test('旧参考数据中的账号默认回复不能覆盖保存后的新列表', /* 当前回调验证共享代次隔离参考读取与独立刷新。 */ async () => {
+    // resolveOld 由测试在新配置加载完后结算旧参考数据。
+    let resolveOld!: (value: Record<string, DefaultReply>) => void;
+    // oldResponse 保留参考数据阶段的旧默认配置请求。
+    const oldResponse = new Promise<Record<string, DefaultReply>>(/* resolve 保存可控的响应结算器。 */ resolve => { resolveOld = resolve; });
+    defaultsMock.mockReturnValueOnce(oldResponse);
+    // hook 拥有真实规则页服务端状态。
+    const hook = renderHook(/* 当前回调创建默认回复页数据容器。 */ () => useRulesData({ activeTab: 'default', selectedAccountId: 'account-1', automationTriggerFilter: '', automationStatusFilter: 'all', debouncedAutomationSearch: '', automationPage: 1, automationPageSize: 10, setSelectedAccountId: vi.fn() }));
+    // pendingReference 是较早发出的参考数据刷新。
+    let pendingReference!: Promise<void>;
+    act(/* 当前回调发起旧参考数据读取但暂不结算默认配置。 */ () => { pendingReference = hook.result.current.loadReferenceData(); });
+    // updated 是保存后接口返回的新本地图文配置。
+    const updated = { ...defaultReplyFixture, reply_content: '已更新', reply_image_path: 'new.jpg' };
+    defaultsMock.mockResolvedValueOnce({ 'account-1': updated });
+    await act(/* 当前回调完成保存后的独立配置刷新。 */ async () => hook.result.current.loadDefaultReplies());
+    await act(/* 当前回调使旧快照最后到达。 */ async () => { resolveOld({ 'account-1': defaultReplyFixture }); await pendingReference; });
+    expect(hook.result.current.defaultReplies).toEqual({ 'account-1': updated });
+    hook.unmount();
+  });
+
   test('带分页回调的规则 Hook 入口保持数据契约', /* 当前回调验证分页兼容入口委托到统一规则 Hook。 */ async () => {
     // setSelectedAccountId 是分页兼容入口所需的账号状态替身。
     const setSelectedAccountId = vi.fn();

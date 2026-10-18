@@ -3281,6 +3281,12 @@ paths:
     put:
       operationId: putApiV1DefaultRepliesBycid
       summary: putApiV1DefaultRepliesBycid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DefaultReplyMutationRequest'
       parameters:
           - name: cid
             in: path
@@ -6376,6 +6382,12 @@ paths:
     put:
       operationId: putApiV1ReplyRulesItemsBycookie_idByitem_id
       summary: putApiV1ReplyRulesItemsBycookie_idByitem_id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ItemReplyMutationRequest'
       parameters:
           - name: cookie_id
             in: path
@@ -7535,6 +7547,15 @@ components:
       oneOf:
         - $ref: '#/components/schemas/AutomationRuleListResponse'
         - $ref: '#/components/schemas/AutomationRulePageResponse'
+    DefaultReplyMutationRequest:
+      type: object
+      description: 账号默认回复配置；图片字段缺省保留已有来源，显式空串清除，URL 与本地路径不能同时非空。
+      properties:
+        enabled: {type: boolean}
+        reply_content: {type: string}
+        reply_image_url: {type: string}
+        reply_image_path: {type: string, maxLength: 1024, description: 账号专用图片目录内的相对文件路径，使用正斜杠分隔；禁止绝对路径和目录穿越}
+        reply_once: {type: boolean}
     DefaultReplyResponse:
       type: object
       required: [enabled, reply_content, reply_once]
@@ -7543,6 +7564,7 @@ components:
         enabled: {type: boolean}
         reply_content: {type: string}
         reply_image_url: {type: string}
+        reply_image_path: {type: string}
         reply_once: {type: boolean}
     AccountTaskSettingsResponse:
       type: object
@@ -7683,6 +7705,14 @@ components:
     DefaultReplyListResponse:
       type: [array, 'null']
       items: {$ref: '#/components/schemas/DefaultReplyResponse'}
+    ItemReplyMutationRequest:
+      type: object
+      description: 商品默认图文配置；图片字段缺省保留，显式空串清除；reply_once 缺省保留，新建默认关闭；正文与两种图片都为空时使用账号默认回复。
+      properties:
+        reply_content: {type: string}
+        reply_once: {type: boolean, description: 同一账号同一商品同一会话只回复一次，独立于账号兜底；编辑内容不重置记录}
+        reply_image_url: {type: string}
+        reply_image_path: {type: string, maxLength: 1024, description: 账号专用图片目录内的相对文件路径；与非空 reply_image_url 互斥}
     ItemReplyResponse:
       type: object
       required: [reply_content]
@@ -7690,6 +7720,9 @@ components:
         item_id: {type: string}
         cookie_id: {type: string}
         reply_content: {type: string}
+        reply_once: {type: boolean, description: 同一账号同一商品同一会话只回复一次，独立于账号兜底；编辑内容不重置记录}
+        reply_image_url: {type: string}
+        reply_image_path: {type: string}
     ItemReplyListResponse:
       type: array
       items: {$ref: '#/components/schemas/ItemReplyResponse'}

@@ -960,9 +960,9 @@ test('默认回复 API 补齐空字段默认值', /* 当前回调验证默认回
     .mockResolvedValueOnce(jsonResponse({ enabled: false }))
     .mockResolvedValueOnce(jsonResponse({ success: true }));
   stubContractFetch(fetchMock);
-  await expect(getDefaultReply('account-1')).resolves.toEqual({ cookie_id: 'account-1', enabled: false, reply_content: '', reply_once: false, reply_image_url: '' });
+  await expect(getDefaultReply('account-1')).resolves.toEqual({ cookie_id: 'account-1', enabled: false, reply_content: '', reply_once: false, reply_image_url: '', reply_image_path: '' });
   await updateDefaultReply('account-1', {});
-  expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ enabled: false, reply_content: '', reply_once: false, reply_image_url: '' });
+  expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ enabled: false, reply_content: '', reply_once: false, reply_image_url: '', reply_image_path: '' });
 });
 
 test('updateReplyRule preserves keyword image metadata when saving text edits', async () => {

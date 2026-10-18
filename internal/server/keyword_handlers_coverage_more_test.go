@@ -81,6 +81,11 @@ func (port *keywordHandlerCoveragePort) SetItemReply(context.Context, int64, str
 	return port.operationErr
 }
 
+// SetItemReplyDraft 返回测试预置的图文配置写入错误，避免嵌入空 Port 隐式分派。
+func (port *keywordHandlerCoveragePort) SetItemReplyDraft(context.Context, int64, string, string, keywordsapp.ItemReplyDraft) error {
+	return port.operationErr
+}
+
 // DeleteItemReply 返回测试预置的商品回复删除错误。
 func (port *keywordHandlerCoveragePort) DeleteItemReply(context.Context, int64, string, string) error {
 	return port.operationErr

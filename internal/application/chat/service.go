@@ -252,6 +252,8 @@ type Service struct {
 	uploader ImageUploader
 	// imageDownloader 负责把自动回复等 URL 图片转换为消息页面可复用的内存图片输入。
 	imageDownloader ImageURLDownloader
+	// localImageLoader 只读取默认回复的账号专用素材，不向 URL 或人工聊天入口开放本地路径。
+	localImageLoader LocalImageLoader
 	// identityResolver 保存平台身份查询端口，凭证只在适配器内部短暂存在。
 	identityResolver IdentityResolver
 	// subscription 保存实时事件订阅端口；平台和领域实现不会泄露到 HTTP 层。

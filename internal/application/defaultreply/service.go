@@ -5,6 +5,8 @@ package defaultreply
 import (
 	"context"
 	"errors"
+
+	"xianyu-go/internal/replyimage"
 )
 
 // ErrInvalidUser 表示调用方没有提供有效的本地用户身份。
@@ -30,6 +32,8 @@ type Reply struct {
 	ReplyContent string
 	// ReplyImageURL 是默认回复使用的图片地址。
 	ReplyImageURL string
+	// ReplyImagePath 是账号专用图片目录内的相对文件引用。
+	ReplyImagePath string
 	// ReplyOnce 表示同一聊天是否只发送一次默认回复。
 	ReplyOnce bool
 }
@@ -56,6 +60,8 @@ type Repository interface {
 	Get(ctx context.Context, cookieID string) (Reply, error)
 	// Upsert 保存或覆盖账号的默认回复配置。
 	Upsert(ctx context.Context, cookieID string, reply Reply) error
+	// Update 在账号事务内由 build 合并并校验当前配置，失败不写入，回调不得执行外部 I/O。
+	Update(ctx context.Context, cookieID string, build func(Reply) (Reply, error)) error
 	// ListForUser 查询指定用户全部账号的默认回复配置。
 	ListForUser(ctx context.Context, userID int64) ([]Summary, error)
 	// Delete 删除账号的默认回复配置。
@@ -91,6 +97,10 @@ func (s *Service) Upsert(ctx context.Context, userID int64, cookieID string, rep
 	// err 表示输入、所有权或持久化写入失败的原因。
 	if err := s.ensureOwned(ctx, userID, cookieID); err != nil {
 		return err
+	}
+	// validationErr 是图片来源互斥或本地引用格式错误，不读取实际文件。
+	if validationErr := replyimage.ValidateSource(reply.ReplyImageURL, reply.ReplyImagePath); validationErr != nil {
+		return errors.Join(ErrInvalidReply, validationErr)
 	}
 	return s.repository.Upsert(ctx, cookieID, reply)
 }

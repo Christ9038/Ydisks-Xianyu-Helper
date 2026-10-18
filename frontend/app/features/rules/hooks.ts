@@ -1,4 +1,4 @@
-import { useCallback,useRef,useState } from 'react';
+import { useCallback,useEffect,useRef,useState } from 'react';
 import type {
 AccountDetail,
 AutomationTriggerType,
@@ -56,6 +56,10 @@ export const useRulesData = (options: RulesDataOptions): RulesDataResult => {
   const automationRulesRequest = useRef(0);
   // replyRulesRequest 保存关键词规则请求的最新代次。
   const replyRulesRequest = useRef(0);
+  // defaultRepliesRequest 统一隔离参考数据读取和保存后刷新的账号默认回复，防止旧快照覆盖新配置。
+  const defaultRepliesRequest = useRef(0);
+
+  useEffect(/* 当前副作用仅在卸载时撤销默认回复列表的在途读取。 */ () => /* 当前 cleanup 禁止卸载后的默认配置写入状态。 */ () => { defaultRepliesRequest.current += 1; }, []);
 
   // automationTotal 保存服务端返回的自动化规则总数。
   const [automationTotal, setAutomationTotal] = useState(0);
@@ -70,6 +74,8 @@ export const useRulesData = (options: RulesDataOptions): RulesDataResult => {
     async () => {
     // requestID 标记本次参考数据请求，防止重复刷新时旧结果覆盖新结果。
     const requestID = ++referenceDataRequest.current;
+    // defaultRequestID 是此次参考数据中账号默认回复的独立代次，保存后刷新可使它失效。
+    const defaultRequestID = ++defaultRepliesRequest.current;
     // 参考数据请求并行执行，非账号请求失败时使用备用值继续。
     const [accountList, cardList, itemList, defaultReplyMap, deliveryTemplateList] = await Promise.all([
       getAccountDetails(),
@@ -82,7 +88,7 @@ export const useRulesData = (options: RulesDataOptions): RulesDataResult => {
     setAccounts(accountList);
     setCards(cardList);
     setItems(itemList);
-    setDefaultReplies(defaultReplyMap);
+    if (defaultRequestID === defaultRepliesRequest.current) setDefaultReplies(defaultReplyMap);
     setDeliveryTemplates(deliveryTemplateList);
     options.setSelectedAccountId(
       // 账号选择器保留用户已有选择，否则回填首个账号。
@@ -160,11 +166,15 @@ export const useRulesData = (options: RulesDataOptions): RulesDataResult => {
     [options.selectedAccountId],
   );
 
-  // loadDefaultReplies 刷新默认回复配置，供保存后和切换页签时复用。
+  // loadDefaultReplies 刷新账号配置，只允许最新独立刷新或参考数据请求写入状态。
   const loadDefaultReplies = useCallback(
-    // 默认回复加载器刷新全部账号的默认配置。
+    // 当前加载器与参考数据共享代次，确保保存后的新内容不被旧页面刷新覆盖。
     async () => {
-    setDefaultReplies(await getDefaultReplies());
+      // requestID 标识当前账号配置读取。
+      const requestID = ++defaultRepliesRequest.current;
+      // replies 是本次已通过鉴权的账号配置集合。
+      const replies = await getDefaultReplies();
+      if (requestID === defaultRepliesRequest.current) setDefaultReplies(replies);
     },
     [],
   );

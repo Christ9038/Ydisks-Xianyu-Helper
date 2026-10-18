@@ -34,6 +34,11 @@ func (port *defaultReplyHandlerCoveragePort) Upsert(context.Context, int64, stri
 	return port.operationErr
 }
 
+// Update 返回测试预置的兼容配置更新错误，避免嵌入空 Port 隐式分派。
+func (port *defaultReplyHandlerCoveragePort) Update(context.Context, int64, string, defaultreplyapp.Draft) error {
+	return port.operationErr
+}
+
 // List 返回测试预置的默认回复列表或错误。
 func (port *defaultReplyHandlerCoveragePort) List(context.Context, int64) ([]defaultreplyapp.Summary, error) {
 	return port.rows, port.listErr

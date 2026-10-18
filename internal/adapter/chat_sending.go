@@ -35,7 +35,7 @@ func NewChatSendingApplication(domainService *domainchat.Service, store *db.Stor
 		return chatapp.WithPlatformReadReporter(chatapp.WithChatItemCatalog(service, NewChatItemCatalog(store, clientProvider, manager)), readReporter)
 	}
 	// service 是装配历史、发送、订阅、刷新和身份能力的聊天应用服务。
-	service := chatapp.NewWithSendingSubscriptionAndRefreshAndDownloader(
+	service := chatapp.NewWithReplyImageSources(
 		NewChatRepository(store),
 		NewChatOutgoingRepository(domainService),
 		NewChatSenderProvider(manager),
@@ -43,6 +43,7 @@ func NewChatSendingApplication(domainService *domainchat.Service, store *db.Stor
 		NewChatSubscriptionProvider(domainService),
 		NewChatRefreshProvider(domainService, manager),
 		downloadAutomationImage,
+		newLocalReplyImageLoader(defaultReplyImageRoot()),
 		NewChatIdentityResolver(store, clientProvider, manager),
 	)
 	return chatapp.WithPlatformReadReporter(chatapp.WithChatItemCatalog(service, NewChatItemCatalog(store, clientProvider, manager)), readReporter)
@@ -217,7 +218,7 @@ func (d chatReplyDelivery) SendReply(ctx context.Context, message engine.ReplyMe
 	// sent、sendErr 保存聊天应用统一发送结果及错误。
 	sent, sendErr := d.service.SendReply(ctx, chatapp.ReplyInput{
 		Session: chatapp.Session{AccountID: message.AccountID, ChatID: message.ChatID, PeerUserID: message.ToUserID},
-		Text:    message.Text, ImageURL: message.ImageURL,
+		Text:    message.Text, ImageURL: message.ImageURL, ImagePath: message.ImagePath,
 	})
 	// result 保存引擎只关心的分段确认和未知结果标记，不泄露应用层消息模型。
 	result := engine.ReplySendResult{}

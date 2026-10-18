@@ -1,24 +1,21 @@
 import { useCallback,useEffect,useMemo,useRef,useState,type Dispatch,type SetStateAction } from 'react';
 import {
-clearDefaultReplyRecords,
-deleteDefaultReply,
 deleteReplyRule,
 deleteShippingRule,
 getCards,
-getDefaultReply,
 getItems,
 getShippingRules,
 resolveAutomationRun,
 resolveDeferredAutomationTask,
-updateDefaultReply,
 updateReplyRule,
 updateShippingRule,
 } from './api';
 import { precheckRegexpExpression } from './regexpPrecheck';
 import { finishRuleSubmission,idleRuleSubmitState,startRuleSubmission,type RuleSubmitState } from './interactionState';
-import type { AutomationTriggerType,Card,DefaultReplyForm,DeliveryTemplate,Item,ReplyRule,RulesProps,RulesTab,ShippingRule,ShippingVariant } from './types';
+import type { AutomationTriggerType,Card,DeliveryTemplate,Item,ReplyRule,RulesProps,RulesTab,ShippingRule,ShippingVariant } from './types';
 import { adjustPriceTarget,boolFlag,buildAdjustPriceConfig,buildReviewConfig,cardActionsForTrigger,defaultRuleName,emptyVariant,hasCompleteTemplateBindings,isValidAdjustPrice,parseJSONObject,shouldReplaceGeneratedName,triggerMeta,withAllItemsConfirmation } from './utils';
 import type { ToastValue } from './components/Toast';
+import { useDefaultReplyActions,type DefaultReplyActionsState } from './defaultReplyActions';
 
 // RULE_TOAST_DURATION_MS 是关键词回复操作轻提示的展示时长（毫秒）。
 const RULE_TOAST_DURATION_MS = 3000;
@@ -58,7 +55,7 @@ export interface RuleActionsOptions {
 }
 
 // RuleActionsState 暴露规则页弹窗状态、编辑草稿和业务动作。
-export interface RuleActionsState {
+export interface RuleActionsState extends DefaultReplyActionsState {
   // showAutomationModal 表示自动化规则弹窗是否打开。
   showAutomationModal: boolean;
   // setShowAutomationModal 更新自动化规则弹窗展示状态。
@@ -67,16 +64,10 @@ export interface RuleActionsState {
   showReplyModal: boolean;
   // setShowReplyModal 更新关键词回复弹窗展示状态。
   setShowReplyModal: Dispatch<SetStateAction<boolean>>;
-  // showDefaultModal 表示默认回复弹窗是否打开。
-  showDefaultModal: boolean;
-  // setShowDefaultModal 更新默认回复弹窗展示状态。
-  setShowDefaultModal: Dispatch<SetStateAction<boolean>>;
   // automationSubmitState 保存自动化规则提交状态。
   automationSubmitState: RuleSubmitState;
   // replySubmitState 保存关键词回复提交状态。
   replySubmitState: RuleSubmitState;
-  // defaultReplySubmitState 保存默认回复提交状态。
-  defaultReplySubmitState: RuleSubmitState;
   // editingAutomationRule 保存当前自动化规则草稿。
   editingAutomationRule: Partial<ShippingRule> | null;
   // setEditingAutomationRule 更新自动化规则草稿。
@@ -85,10 +76,6 @@ export interface RuleActionsState {
   editingReplyRule: Partial<ReplyRule> | null;
   // setEditingReplyRule 更新关键词回复草稿。
   setEditingReplyRule: Dispatch<SetStateAction<Partial<ReplyRule> | null>>;
-  // defaultForm 保存当前默认回复草稿。
-  defaultForm: DefaultReplyForm;
-  // setDefaultForm 更新默认回复草稿。
-  setDefaultForm: Dispatch<SetStateAction<DefaultReplyForm>>;
   // selectedRuleItem 保存当前规则草稿绑定的商品。
   selectedRuleItem: Item | undefined;
   // isMultiSpecRule 表示当前商品是否需要多规格字段。
@@ -139,14 +126,6 @@ export interface RuleActionsState {
   toast: ToastValue | null;
   // showReplyToast 展示关键词回复操作的轻提示。
   showReplyToast: (type: ToastValue['type'], text: string) => void;
-  // openDefaultReplyModal 打开指定账号的默认回复弹窗。
-  openDefaultReplyModal: (cookieID?: string) => Promise<void>;
-  // handleSaveDefaultReply 保存当前默认回复配置。
-  handleSaveDefaultReply: () => Promise<void>;
-  // handleDeleteDefaultReply 删除指定账号的默认回复配置。
-  handleDeleteDefaultReply: (cookieID: string) => Promise<void>;
-  // handleClearDefaultReplyRecords 清空指定账号的默认回复记录。
-  handleClearDefaultReplyRecords: (cookieID: string) => Promise<void>;
 }
 
 // useRuleActions 集中管理规则页三类规则的编辑、保存、删除和异常恢复动作。
@@ -171,20 +150,14 @@ export const useRuleActions = ({
   const [showAutomationModal, setShowAutomationModal] = useState(false);
   // showReplyModal 表示关键词回复弹窗是否打开。
   const [showReplyModal, setShowReplyModal] = useState(false);
-  // showDefaultModal 表示默认回复弹窗是否打开。
-  const [showDefaultModal, setShowDefaultModal] = useState(false);
   // automationSubmitState 保存自动化规则提交状态。
   const [automationSubmitState, setAutomationSubmitState] = useState<RuleSubmitState>(idleRuleSubmitState);
   // replySubmitState 保存关键词回复提交状态。
   const [replySubmitState, setReplySubmitState] = useState<RuleSubmitState>(idleRuleSubmitState);
-  // defaultReplySubmitState 保存默认回复提交状态。
-  const [defaultReplySubmitState, setDefaultReplySubmitState] = useState<RuleSubmitState>(idleRuleSubmitState);
   // editingAutomationRule 保存当前自动化规则草稿。
   const [editingAutomationRule, setEditingAutomationRule] = useState<Partial<ShippingRule> | null>(null);
   // editingReplyRule 保存当前关键词回复草稿。
   const [editingReplyRule, setEditingReplyRule] = useState<Partial<ReplyRule> | null>(null);
-  // defaultForm 保存当前默认回复草稿。
-  const [defaultForm, setDefaultForm] = useState<DefaultReplyForm>({ cookie_id: '', enabled: false, reply_content: '', reply_once: false, reply_image_url: '' });
   // toast 保存关键词回复操作的轻提示内容。
   const [toast, setToast] = useState<ToastValue | null>(null);
   // toastTimer 保存轻提示自动消失的定时器句柄。
@@ -203,6 +176,9 @@ export const useRuleActions = ({
   useEffect(/* 当前副作用在动作协调器卸载时清理未触发的轻提示定时器。 */ () => /* 当前回调清理轻提示定时器。 */ () => {
     if (toastTimer.current !== null) window.clearTimeout(toastTimer.current);
   }, []);
+
+  // defaultReplyActions 独立拥有账号／商品默认回复状态，沿用本协调器的轻提示与列表刷新边界。
+  const defaultReplyActions = useDefaultReplyActions({ selectedAccountId, loadDefaultReplies, notify: showReplyToast });
 
   // selectedRuleItem 查找当前自动化规则草稿绑定的商品。
   const selectedRuleItem = useMemo(
@@ -521,51 +497,14 @@ export const useRuleActions = ({
     try { await deleteReplyRule(id, selectedAccountId); await loadReplyRules(); showReplyToast('success', '删除成功'); } catch (/* error 表示关键词回复删除异常。 */ error) { showReplyToast('error', '删除失败：' + (error as Error).message); }
   }, [loadReplyRules, selectedAccountId, showReplyToast]);
 
-  // openDefaultReplyModal 加载指定账号的默认回复配置并打开弹窗。
-  const openDefaultReplyModal = useCallback(/* openDefaultAction 加载默认回复草稿。 */ async (cookieID = selectedAccountId) => {
-    if (!cookieID) return alert('请先选择账号');
-    try {
-      // data 保存服务端返回的默认回复配置。
-      const data = await getDefaultReply(cookieID);
-      setDefaultForm({ cookie_id: cookieID, enabled: data.enabled, reply_content: data.reply_content, reply_once: data.reply_once, reply_image_url: data.reply_image_url || '' });
-    } catch {
-      setDefaultForm({ cookie_id: cookieID, enabled: false, reply_content: '', reply_once: false, reply_image_url: '' });
-    }
-    setShowDefaultModal(true);
-  }, [selectedAccountId]);
-
-  // handleSaveDefaultReply 校验并保存账号默认回复。
-  const handleSaveDefaultReply = useCallback(/* saveDefaultAction 保存默认回复。 */ async () => {
-    if (defaultReplySubmitState.submitting) return;
-    if (!defaultForm.cookie_id) return alert('请先选择账号');
-    if (defaultForm.enabled && !defaultForm.reply_content.trim() && !defaultForm.reply_image_url.trim()) return alert('启用默认回复时，请填写回复内容或图片 URL');
-    setDefaultReplySubmitState(startRuleSubmission(defaultReplySubmitState));
-    // succeeded 记录保存是否成功。
-    let succeeded = false;
-    try { await updateDefaultReply(defaultForm.cookie_id, { enabled: defaultForm.enabled, reply_content: defaultForm.reply_content, reply_once: defaultForm.reply_once, reply_image_url: defaultForm.reply_image_url }); setShowDefaultModal(false); await loadDefaultReplies(); alert('保存成功'); succeeded = true; } catch (/* error 表示默认回复保存异常。 */ error) { alert('保存失败：' + (error as Error).message); } finally { setDefaultReplySubmitState(/* current 保存默认回复提交状态。 */ current => finishRuleSubmission(current, succeeded)); }
-  }, [defaultForm, defaultReplySubmitState, loadDefaultReplies]);
-
-  // handleDeleteDefaultReply 删除账号默认回复配置。
-  const handleDeleteDefaultReply = useCallback(/* deleteDefaultAction 删除默认回复。 */ async (cookieID: string) => {
-    if (!confirm('确定删除该账号默认回复吗？')) return;
-    try { await deleteDefaultReply(cookieID); await loadDefaultReplies(); alert('删除成功'); } catch (/* error 表示默认回复删除异常。 */ error) { alert('删除失败：' + (error as Error).message); }
-  }, [loadDefaultReplies]);
-
-  // handleClearDefaultReplyRecords 清空账号默认回复的会话记录。
-  const handleClearDefaultReplyRecords = useCallback(/* clearDefaultRecordsAction 清空默认回复记录。 */ async (cookieID: string) => {
-    if (!confirm('确定清空该账号的默认回复记录吗？清空后可重新对所有会话使用“只回复一次”。')) return;
-    try { await clearDefaultReplyRecords(cookieID); alert('清空成功'); } catch (/* error 表示默认回复记录清理异常。 */ error) { alert('清空失败：' + (error as Error).message); }
-  }, []);
-
   return {
-    showAutomationModal, setShowAutomationModal, showReplyModal, setShowReplyModal, showDefaultModal, setShowDefaultModal,
-    automationSubmitState, replySubmitState, defaultReplySubmitState, editingAutomationRule, setEditingAutomationRule,
-    editingReplyRule, setEditingReplyRule, defaultForm, setDefaultForm, selectedRuleItem, isMultiSpecRule, currentTrigger,
+    ...defaultReplyActions,
+    showAutomationModal, setShowAutomationModal, showReplyModal, setShowReplyModal,
+    automationSubmitState, replySubmitState, editingAutomationRule, setEditingAutomationRule,
+    editingReplyRule, setEditingReplyRule, selectedRuleItem, isMultiSpecRule, currentTrigger,
     currentMeta, reviewConfig, displayVariants, buildAutomationDraft, openAutomationRule, openNewAutomationRule,
     handleTriggerChange, handleAutomationItemChange, updateVariant, updateAdjustPriceTarget, updateAdjustPriceNotifyText, appendDeliveryContent, handleSaveAutomationRule,
     handleDeleteAutomation, handleToggleAutomation, handleResolveRunIssue, handleResolveDeferredIssue, handleAddReplyRule,
     handleSaveReplyRule, handleDeleteReply, toast, showReplyToast,
-    openDefaultReplyModal, handleSaveDefaultReply, handleDeleteDefaultReply,
-    handleClearDefaultReplyRecords,
   };
 };

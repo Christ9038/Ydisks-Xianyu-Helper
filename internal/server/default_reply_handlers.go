@@ -85,9 +85,9 @@ func (s *Server) setDefaultReply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// err 表示默认回复应用服务写入失败的原因。
-	err := s.defaultReplyApplication().Upsert(r.Context(), userID, cid, defaultreplyapp.Reply{
+	err := s.defaultReplyApplication().Update(r.Context(), userID, cid, defaultreplyapp.Draft{
 		Enabled: req.Enabled, ReplyContent: req.ReplyContent,
-		ReplyImageURL: req.ReplyImageURL, ReplyOnce: req.ReplyOnce,
+		ReplyImageURL: req.ReplyImageURL, ReplyImagePath: req.ReplyImagePath, ReplyOnce: req.ReplyOnce,
 	})
 	if err != nil {
 		writeDefaultReplyMutationError(w, err, "保存失败")
@@ -102,8 +102,10 @@ type defaultReplyMutationRequest struct {
 	Enabled bool `json:"enabled"`
 	// ReplyContent 是默认回复文字内容。
 	ReplyContent string `json:"reply_content"`
-	// ReplyImageURL 是默认回复图片地址。
-	ReplyImageURL string `json:"reply_image_url"`
+	// ReplyImageURL 缺省保留网络图片，显式空串清除。
+	ReplyImageURL *string `json:"reply_image_url"`
+	// ReplyImagePath 缺省保留本地图，显式空串清除；内容是账号专用目录内相对路径。
+	ReplyImagePath *string `json:"reply_image_path"`
 	// ReplyOnce 表示同一聊天是否只发送一次默认回复。
 	ReplyOnce bool `json:"reply_once"`
 }
@@ -128,7 +130,7 @@ func (s *Server) listDefaultReplies(w http.ResponseWriter, r *http.Request) {
 	for _, row := range rows {
 		out = append(out, defaultReplyResponse{
 			CookieID: row.CookieID, Enabled: row.Reply.Enabled, ReplyContent: row.Reply.ReplyContent,
-			ReplyOnce: row.Reply.ReplyOnce, ReplyImageURL: row.Reply.ReplyImageURL,
+			ReplyOnce: row.Reply.ReplyOnce, ReplyImageURL: row.Reply.ReplyImageURL, ReplyImagePath: row.Reply.ReplyImagePath,
 			// 列表 DTO 保留账号标识，前端可直接建立按账号索引。
 		})
 	}
@@ -154,11 +156,12 @@ func (s *Server) listDefaultRepliesMap(w http.ResponseWriter, r *http.Request) {
 	// row 表示当前遍历过程中的应用层默认回复摘要。
 	for _, row := range rows {
 		out[row.CookieID] = defaultReplyResponse{
-			CookieID:      row.CookieID,
-			Enabled:       row.Reply.Enabled,
-			ReplyContent:  row.Reply.ReplyContent,
-			ReplyOnce:     row.Reply.ReplyOnce,
-			ReplyImageURL: row.Reply.ReplyImageURL,
+			CookieID:       row.CookieID,
+			Enabled:        row.Reply.Enabled,
+			ReplyContent:   row.Reply.ReplyContent,
+			ReplyOnce:      row.Reply.ReplyOnce,
+			ReplyImageURL:  row.Reply.ReplyImageURL,
+			ReplyImagePath: row.Reply.ReplyImagePath,
 			// map 键与 cookie_id 同时保留，兼容旧前端索引方式。
 		}
 	}
@@ -214,6 +217,8 @@ func defaultReplyUserID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 // writeDefaultReplyMutationError 将默认回复应用错误映射为既有 HTTP 错误语义。
 func writeDefaultReplyMutationError(w http.ResponseWriter, err error, fallback string) {
 	switch {
+	case errors.Is(err, defaultreplyapp.ErrInvalidReply):
+		writeErr(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, defaultreplyapp.ErrAccountNotFound):
 		writeErr(w, http.StatusNotFound, "账号不存在")
 	case errors.Is(err, defaultreplyapp.ErrForbidden):
