@@ -15,6 +15,9 @@ var ErrDeliveryTemplateReferenced = errors.New("发货模板仍被自动化规�
 // ErrDeliveryTemplateVariableConflict 表示被规则引用的模板发生了变量键不兼容变更。
 var ErrDeliveryTemplateVariableConflict = errors.New("发货模板变量已被自动化规则引用，不能不兼容修改")
 
+// ErrDeliveryTemplateMessageConflict 表示旧文本写入会丢弃已有图片，事务必须保持原模板不变。
+var ErrDeliveryTemplateMessageConflict = errors.New("模板含图片消息，旧格式不能覆盖")
+
 // DeliveryTemplate 是发货模板的数据库读取模型和自动化执行摘要。
 type DeliveryTemplate struct {
 	// ID 是模板主键。
@@ -49,6 +52,12 @@ type DeliveryTemplateMessage struct {
 	SortOrder int
 	// Content 是消息内容。
 	Content string
+	// Type 是 text 或 image；旧迁移记录默认 text。
+	Type string
+	// ImageURL 是不参与插值的远程图片来源。
+	ImageURL string
+	// ImagePath 是实际执行账号素材目录内的固定相对路径。
+	ImagePath string
 }
 
 // DeliveryTemplateInput 是模板创建或更新的数据库写入模型。
@@ -61,6 +70,8 @@ type DeliveryTemplateInput struct {
 	Enabled bool
 	// Messages 是按顺序写入的消息正文。
 	Messages []string
+	// MessageItems 非 nil 时优先使用结构化消息；nil 保留旧调用方语义并启用防丢图保护。
+	MessageItems []deliverytemplate.Message
 }
 
 // DeliveryTemplateBinding 把模板变量键绑定到卡密组和每件发送数量。
@@ -155,34 +166,14 @@ func (d *DeliveryTemplateStore) GetForUser(ctx context.Context, userID, template
 
 // loadMessages 加载模板消息，并从消息内容解析变量键。
 func (d *DeliveryTemplateStore) loadMessages(ctx context.Context, template *DeliveryTemplate) error {
-	// rows、err 保存模板消息查询结果及错误。
-	rows, err := d.DB.QueryContext(ctx, `SELECT id,template_id,sort_order,content FROM delivery_template_messages WHERE template_id=? ORDER BY sort_order ASC,id ASC`, template.ID)
+	// messages、err 保存完整的有序消息及读取错误。
+	messages, err := readDeliveryTemplateMessages(ctx, d.DB, template.ID)
 	if err != nil {
 		return err
 	}
-	// contents 保存供解析器使用的有序消息正文。
-	contents := make([]string, 0)
-	template.Messages = make([]DeliveryTemplateMessage, 0)
-	for rows.Next() {
-		// message 保存当前扫描到的消息。
-		var message DeliveryTemplateMessage
-		// err 保存当前消息行扫描错误。
-		if err := rows.Scan(&message.ID, &message.TemplateID, &message.SortOrder, &message.Content); err != nil {
-			return err
-		}
-		template.Messages = append(template.Messages, message)
-		contents = append(contents, message.Content)
-	}
-	// err 保存模板消息遍历错误。
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	// closeErr 保存模板消息游标关闭错误。
-	if closeErr := rows.Close(); closeErr != nil {
-		return closeErr
-	}
+	template.Messages = messages
 	// parsed 保存模板变量解析结果；历史脏数据在展示时仍保留原消息。
-	parsed, parseErr := deliverytemplate.Parse(contents)
+	parsed, parseErr := deliverytemplate.ParseMessages(deliveryTemplateMessageItems(messages))
 	if parseErr == nil {
 		template.Keys = parsed.Keys
 		template.CustomKeys = parsed.CustomKeys
@@ -198,7 +189,7 @@ func (d *DeliveryTemplateStore) Create(ctx context.Context, input DeliveryTempla
 	}
 	// parsed 保存消息规范化和变量提取结果。
 	// parsed、err 保存消息解析结果及错误。
-	parsed, err := deliverytemplate.Parse(input.Messages)
+	parsed, err := parseDeliveryTemplateInput(input)
 	if err != nil {
 		return 0, err
 	}
@@ -217,7 +208,7 @@ func (d *DeliveryTemplateStore) Create(ctx context.Context, input DeliveryTempla
 		return 0, err
 	}
 	// err 保存模板消息批量写入错误。
-	if err := insertDeliveryTemplateMessages(ctx, tx, templateID, parsed.Messages); err != nil {
+	if err := insertDeliveryTemplateMessages(ctx, tx, templateID, parsed.MessageItems); err != nil {
 		return 0, err
 	}
 	// err 保存模板创建事务提交错误。
@@ -235,7 +226,7 @@ func (d *DeliveryTemplateStore) Update(ctx context.Context, userID, templateID i
 	}
 	// parsed 保存消息规范化结果。
 	// parsed、err 保存消息解析结果及错误。
-	parsed, err := deliverytemplate.Parse(input.Messages)
+	parsed, err := parseDeliveryTemplateInput(input)
 	if err != nil {
 		return err
 	}
@@ -264,30 +255,19 @@ func (d *DeliveryTemplateStore) Update(ctx context.Context, userID, templateID i
 	if !owned {
 		return ErrNotFound
 	}
-	// oldContents 保存事务内读取的旧模板消息，用于比较规则引用的变量契约。
-	// oldRows 保存旧模板消息的事务查询游标。
-	oldRows, err := tx.QueryContext(ctx, `SELECT content FROM delivery_template_messages WHERE template_id=? ORDER BY sort_order ASC,id ASC`, templateID)
+	// oldMessages、err 保存事务内旧模板完整消息及读取错误，用于变量与旧客户端契约保护。
+	oldMessages, err := readDeliveryTemplateMessages(ctx, tx, templateID)
 	if err != nil {
 		return err
 	}
-	// oldContents 保存旧模板消息正文，供变量契约比较。
-	oldContents := make([]string, 0)
-	for oldRows.Next() {
-		// content 保存旧模板的一条消息正文。
-		var content string
-		// err 保存旧模板消息扫描错误。
-		if err := oldRows.Scan(&content); err != nil {
-			oldRows.Close()
-			return err
+	if input.MessageItems == nil {
+		// message 是当前旧模板消息；旧客户端无法无损表达图片时拒绝覆盖。
+		for _, message := range oldMessages {
+			if message.Type == "image" {
+				return ErrDeliveryTemplateMessageConflict
+			}
 		}
-		oldContents = append(oldContents, content)
 	}
-	// err 保存旧模板消息遍历错误。
-	if err := oldRows.Err(); err != nil {
-		oldRows.Close()
-		return err
-	}
-	oldRows.Close()
 	// referenced、referenceErr 表示当前模板是否仍被未删除规则引用及查询错误。
 	referenced, referenceErr := deliveryTemplateHasLiveRuleReferences(ctx, tx, templateID)
 	if referenceErr != nil {
@@ -295,7 +275,7 @@ func (d *DeliveryTemplateStore) Update(ctx context.Context, userID, templateID i
 	}
 	if referenced {
 		// oldParsed 保存旧消息的变量键集合；历史脏数据按不兼容处理，禁止继续破坏规则契约。
-		oldParsed, oldParseErr := deliverytemplate.Parse(oldContents)
+		oldParsed, oldParseErr := deliverytemplate.ParseMessages(deliveryTemplateMessageItems(oldMessages))
 		if oldParseErr != nil || !sameStringSet(oldParsed.Keys, parsed.Keys) || !sameStringSet(oldParsed.CustomKeys, parsed.CustomKeys) {
 			return ErrDeliveryTemplateVariableConflict
 		}
@@ -315,7 +295,7 @@ func (d *DeliveryTemplateStore) Update(ctx context.Context, userID, templateID i
 		return err
 	}
 	// err 保存新模板消息写入错误。
-	if err := insertDeliveryTemplateMessages(ctx, tx, templateID, parsed.Messages); err != nil {
+	if err := insertDeliveryTemplateMessages(ctx, tx, templateID, parsed.MessageItems); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -341,10 +321,10 @@ func sameStringSet(left, right []string) bool {
 }
 
 // insertDeliveryTemplateMessages 按顺序插入模板消息。
-func insertDeliveryTemplateMessages(ctx context.Context, tx *sql.Tx, templateID int64, messages []string) error {
-	for /* index 表示消息顺序；content 表示消息正文。 */ index, content := range messages {
+func insertDeliveryTemplateMessages(ctx context.Context, tx *sql.Tx, templateID int64, messages []deliverytemplate.Message) error {
+	for /* index 表示消息顺序；message 是包含固定图片来源的完整消息。 */ index, message := range messages {
 		// err 保存单条模板消息写入错误。
-		if _, err := tx.ExecContext(ctx, `INSERT INTO delivery_template_messages (template_id,sort_order,content) VALUES (?,?,?)`, templateID, index+1, content); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO delivery_template_messages (template_id,sort_order,content,type,image_url,image_path) VALUES (?,?,?,?,?,?)`, templateID, index+1, message.Content, message.Type, message.ImageURL, message.ImagePath); err != nil {
 			return err
 		}
 	}

@@ -102,6 +102,46 @@ describe('CardList 页面组合行为', /* 当前回调验证卡密筛选、批�
     vi.restoreAllMocks();
   });
 
+  test('图片卡密新增本地来源并在编辑切换 URL 时清空旧路径', /* 当前回调验证图片来源切换、服务端路径说明和安全展示。 */ async () => {
+    cardListMocks.cards = [{ ...textCardFixture, type: 'image', image_url: '', image_path: 'goods/guide.png' }];
+    render(<CardList />);
+    expect(screen.getByText('本地图片：goods/guide.png')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '添加新卡密' }));
+    fireEvent.change(screen.getByPlaceholderText('例如：VIP会员卡密'), { target: { value: '教程图片' } });
+    fireEvent.click(screen.getByRole('button', { name: '图片' }));
+    fireEvent.change(screen.getByLabelText('图片 URL'), { target: { value: 'https://example.com/old.png' } });
+    fireEvent.change(screen.getByLabelText('图片来源'), { target: { value: 'local' } });
+    fireEvent.change(screen.getByLabelText('本地图片相对路径'), { target: { value: ' goods/guide.png ' } });
+    expect(screen.getByText(/XIANYU_UPLOAD_DIR\/reply-images/)).toBeTruthy();
+    expect(screen.getByText(/跨账号复用/)).toBeTruthy();
+    expect(screen.queryByRole('img')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '添加卡密' }));
+    await waitFor(/* 当前断言等待本地图片卡密提交。 */ () => expect(cardListMocks.createCard).toHaveBeenCalledWith(expect.objectContaining({ type: 'image', image_url: '', image_path: 'goods/guide.png' })));
+    fireEvent.click(screen.getByTitle('编辑'));
+    expect(screen.getByLabelText('本地图片相对路径').getAttribute('value')).toBe('goods/guide.png');
+    fireEvent.change(screen.getByLabelText('图片来源'), { target: { value: 'url' } });
+    expect(screen.getByLabelText('图片 URL').getAttribute('value')).toBe('');
+    fireEvent.change(screen.getByLabelText('图片 URL'), { target: { value: 'https://example.com/new.png' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存更改' }));
+    await waitFor(/* 当前断言等待 URL 来源覆盖并显式清空路径。 */ () => expect(cardListMocks.updateCard).toHaveBeenCalledWith(2, expect.objectContaining({ image_url: 'https://example.com/new.png', image_path: '' })));
+  });
+
+  test('无效图片路径不可保存且取消后新增草稿不残留', /* 当前回调验证校验失败不发请求、取消清理来源状态。 */ async () => {
+    render(<CardList />);
+    fireEvent.click(screen.getByRole('button', { name: '添加新卡密' }));
+    fireEvent.change(screen.getByPlaceholderText('例如：VIP会员卡密'), { target: { value: '教程图片' } });
+    fireEvent.click(screen.getByRole('button', { name: '图片' }));
+    fireEvent.change(screen.getByLabelText('图片来源'), { target: { value: 'local' } });
+    fireEvent.change(screen.getByLabelText('本地图片相对路径'), { target: { value: '../secret.png' } });
+    fireEvent.click(screen.getByRole('button', { name: '添加卡密' }));
+    expect(cardListMocks.createCard).not.toHaveBeenCalled();
+    expect(window.alert).toHaveBeenCalledWith(expect.stringContaining('相对路径'));
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    fireEvent.click(screen.getByRole('button', { name: '添加新卡密' }));
+    fireEvent.click(screen.getByRole('button', { name: '图片' }));
+    expect(screen.getByLabelText('图片 URL').getAttribute('value')).toBe('');
+  });
+
   test('筛选卡密并打开批量导入入口', /* 当前回调验证卡密列表筛选和批量操作转发。 */ () => {
     render(<CardList />);
     expect(screen.getByText('显示 2 / 2 组')).toBeTruthy();

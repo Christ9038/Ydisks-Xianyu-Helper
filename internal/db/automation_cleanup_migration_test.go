@@ -74,8 +74,8 @@ func TestMultiDB_DeletedAutomationRulesUpgrade(t *testing.T) {
 			} {
 				// t 管理单个业务场景的独立规则和卡密，不并行操作迁移配置。
 				t.Run(scenario.name, func(t *testing.T) {
-					// cardID、err 创建虚构卡密组，内容不会触发任何外部调用。
-					cardID, err := store.Cards.Create(ctx, &CardFull{Name: scenario.name, Type: "text", TextContent: "fixture", Enabled: true, UserID: userID})
+					// cardID、err 使用历史列构造旧库夹具；最新 Cards.Create 包含后续迁移字段，不能用于旧 schema。
+					cardID, err := insertReturningID(ctx, store.DB, target.dialect, `INSERT INTO cards (name,type,text_content,enabled,user_id) VALUES (?,'text','fixture',1,?)`, scenario.name, userID)
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -185,8 +185,8 @@ func TestMultiDB_DeletedAutomationRulesSharedCard(t *testing.T) {
 			}
 			// userID、cookieID 是共享卡密和订单的合法归属。
 			userID, cookieID := seedAccount(t, store)
-			// cardID、err 保存共享卡密创建结果，测试数据不包含真实密钥。
-			cardID, err := store.Cards.Create(ctx, &CardFull{Name: "shared", Type: "text", Enabled: true, UserID: userID})
+			// cardID、err 使用 00042 已存在列构造共享卡密，避免未来仓储字段污染旧库夹具。
+			cardID, err := insertReturningID(ctx, store.DB, target.dialect, `INSERT INTO cards (name,type,enabled,user_id) VALUES ('shared','text',1,?)`, userID)
 			if err != nil {
 				t.Fatal(err)
 			}

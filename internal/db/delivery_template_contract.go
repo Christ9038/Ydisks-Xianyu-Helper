@@ -229,35 +229,13 @@ func validateAutomationTemplateContractsTx(ctx context.Context, tx *sql.Tx, dial
 				return ErrDeliveryTemplateUnavailable
 			}
 		}
-		// rows 保存锁定模板的最新消息，供事务内变量解析使用。
-		rows, err := tx.QueryContext(ctx, `SELECT content FROM delivery_template_messages WHERE template_id=? ORDER BY sort_order ASC,id ASC`, action.DeliveryTemplateID)
+		// messages、err 保存锁定事务中的完整模板消息及读取错误。
+		messages, err := readDeliveryTemplateMessages(ctx, tx, action.DeliveryTemplateID)
 		if err != nil {
 			return err
 		}
-		// messages 保存事务快照中的模板消息正文。
-		messages := make([]string, 0)
-		for rows.Next() {
-			// content 保存当前模板消息正文。
-			var content string
-			// scanErr 保存模板消息正文扫描错误。
-			if scanErr := rows.Scan(&content); scanErr != nil {
-				rows.Close()
-				return scanErr
-			}
-			messages = append(messages, content)
-		}
-		// rowsErr 保存模板消息遍历错误。
-		rowsErr := rows.Err()
-		// closeErr 保存模板消息游标关闭错误。
-		closeErr := rows.Close()
-		if rowsErr != nil {
-			return rowsErr
-		}
-		if closeErr != nil {
-			return closeErr
-		}
-		// parsed 保存事务内解析出的模板变量集合。
-		parsed, parseErr := deliverytemplate.Parse(messages)
+		// parsed 保存事务内解析出的模板变量集合，图片不参与提取。
+		parsed, parseErr := deliverytemplate.ParseMessages(deliveryTemplateMessageItems(messages))
 		if parseErr != nil {
 			return ErrDeliveryTemplateUnavailable
 		}

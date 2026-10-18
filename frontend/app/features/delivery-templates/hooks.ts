@@ -16,6 +16,8 @@ export type DeliveryTemplatesHookResult = {
   loadTemplates: () => Promise<void>;
   /** saveTemplate 创建或更新模板并刷新列表。 */
   saveTemplate: (id: number | null, draft: DeliveryTemplateDraft) => Promise<void>;
+  /** cancelSave 取消当前编辑器保存并隔离其迟到结果，不影响删除请求。 */
+  cancelSave: () => void;
   /** removeTemplate 删除模板并刷新列表。 */
   removeTemplate: (id: number) => Promise<void>;
 };
@@ -35,21 +37,26 @@ export const useDeliveryTemplates = (): DeliveryTemplatesHookResult => {
   const [error, setError] = useState('');
   // listControllerRef 保存当前列表请求控制器，开始新列表请求时先取消旧请求。
   const listControllerRef = useRef<AbortController | null>(null);
+  // listOwnerRef 标记由哪次变更触发列表刷新；取消保存不取消独立首屏加载。
+  const listOwnerRef = useRef<AbortController | null>(null);
   // actionControllerRef 保存当前变更请求控制器，卸载时统一取消。
   const actionControllerRef = useRef<AbortController | null>(null);
+  // saveControllerRef 仅标记当前编辑器保存，关闭编辑器不取消独立删除。
+  const saveControllerRef = useRef<AbortController | null>(null);
   // generationRef 标记最新请求代次，旧响应不能覆盖当前页面状态。
   const generationRef = useRef(0);
   // mountedRef 防止卸载后的异步 finally 修改 React 状态。
   const mountedRef = useRef(true);
 
   // loadTemplates 取消旧列表请求并只允许最新代次写入页面状态。
-  const loadTemplates = useCallback(/* loadTemplatesCallback 只允许最新列表请求写入页面状态。 */ async (): Promise<void> => {
+  const loadTemplates = useCallback(/* owner 仅在变更成功后的刷新中传入；首屏请求保持独立生命周期。 */ async (owner?: AbortController): Promise<void> => {
     // generation 保存本次列表请求的最新代次。
     const generation = ++generationRef.current;
     listControllerRef.current?.abort();
     // controller 控制本次列表请求的取消生命周期。
     const controller = new AbortController();
     listControllerRef.current = controller;
+    listOwnerRef.current = owner || null;
     if (mountedRef.current) {
       setLoading(true);
       setError('');
@@ -66,23 +73,38 @@ export const useDeliveryTemplates = (): DeliveryTemplatesHookResult => {
     }
   }, []);
 
+  // cancelSave 放弃编辑器请求并阻止迟到结果覆盖后续请求的状态。
+  const cancelSave = useCallback(/* 当前回调只取消属于编辑器的保存生命周期。 */ (): void => {
+    // controller 可能正处在写入或写入后的列表刷新阶段。
+    const controller = saveControllerRef.current;
+    if (!controller) return;
+    controller.abort();
+    saveControllerRef.current = null;
+    if (actionControllerRef.current === controller) actionControllerRef.current = null;
+    if (listOwnerRef.current === controller) {
+      ++generationRef.current;
+      listControllerRef.current?.abort();
+      listOwnerRef.current = null;
+      if (mountedRef.current) setLoading(false);
+    }
+    if (mountedRef.current) { setSaving(false); setError(''); }
+  }, []);
+
   // saveTemplate 串行化模板保存并在成功后刷新一次列表。
-  const saveTemplate = useCallback(/* saveTemplateCallback 串行化模板保存并在成功后刷新一次列表。 */ async (id: number | null, draft: DeliveryTemplateDraft): Promise<void> => {
-    if (saving) return;
+  const saveTemplate = useCallback(/* saveTemplateCallback 绑定每次保存的控制器身份，取消后不写错误或 saving 状态。 */ async (id: number | null, draft: DeliveryTemplateDraft): Promise<void> => {
+    if (actionControllerRef.current) return;
     setSaving(true);
     setError('');
-    listControllerRef.current?.abort();
-    actionControllerRef.current?.abort();
-    // controller 控制本次创建或更新请求的取消生命周期。
+    // controller 控制本次创建或更新请求的取消生命周期，写入成功前保留独立列表请求。
     const controller = new AbortController();
     actionControllerRef.current = controller;
-    ++generationRef.current;
+    saveControllerRef.current = controller;
     try {
       try {
         if (id === null) await createDeliveryTemplate(draft, { signal: controller.signal });
         else await updateDeliveryTemplate(id, draft, { signal: controller.signal });
-      } catch (/* error 是本次模板保存请求失败原因。 */ error) {
-        if (!isAbortError(error) && mountedRef.current) {
+      } catch (/* error 是当前有效保存请求的失败原因。 */ error) {
+        if (!controller.signal.aborted && !isAbortError(error) && mountedRef.current) {
           setError((error as Error).message);
           throw error;
         }
@@ -90,27 +112,28 @@ export const useDeliveryTemplates = (): DeliveryTemplatesHookResult => {
       }
       if (!controller.signal.aborted && mountedRef.current) {
         try {
-          await loadTemplates();
+          await loadTemplates(controller);
         } catch (/* error 是保存成功后列表刷新失败原因。 */ error) {
-          if (!isAbortError(error) && mountedRef.current) setError(`模板已保存，但列表刷新失败：${(error as Error).message}`);
+          if (!controller.signal.aborted && !isAbortError(error) && mountedRef.current) setError(`模板已保存，但列表刷新失败：${(error as Error).message}`);
         }
       }
     } finally {
-      if (mountedRef.current) setSaving(false);
+      if (saveControllerRef.current === controller) {
+        saveControllerRef.current = null;
+        if (actionControllerRef.current === controller) actionControllerRef.current = null;
+        if (mountedRef.current) setSaving(false);
+      }
     }
-  }, [loadTemplates, saving]);
+  }, [loadTemplates]);
 
   // removeTemplate 串行化删除并在成功后刷新一次列表。
   const removeTemplate = useCallback(/* removeTemplateCallback 串行化删除并在成功后刷新一次列表。 */ async (id: number): Promise<void> => {
-    if (saving) return;
+    if (actionControllerRef.current) return;
     setSaving(true);
     setError('');
-    listControllerRef.current?.abort();
-    actionControllerRef.current?.abort();
-    // controller 控制本次删除请求的取消生命周期。
+    // controller 控制本次删除生命周期；删除失败不使独立列表请求失效。
     const controller = new AbortController();
     actionControllerRef.current = controller;
-    ++generationRef.current;
     try {
       try {
         await deleteDeliveryTemplate(id, { signal: controller.signal });
@@ -123,15 +146,18 @@ export const useDeliveryTemplates = (): DeliveryTemplatesHookResult => {
       }
       if (!controller.signal.aborted && mountedRef.current) {
         try {
-          await loadTemplates();
+          await loadTemplates(controller);
         } catch (/* error 是删除成功后列表刷新失败原因。 */ error) {
           if (!isAbortError(error) && mountedRef.current) setError(`模板已删除，但列表刷新失败：${(error as Error).message}`);
         }
       }
     } finally {
-      if (mountedRef.current) setSaving(false);
+      if (actionControllerRef.current === controller) {
+        actionControllerRef.current = null;
+        if (mountedRef.current) setSaving(false);
+      }
     }
-  }, [loadTemplates, saving]);
+  }, [loadTemplates]);
 
   useEffect(/* 当前副作用管理组件挂载状态，并在卸载时取消请求和推进代次。 */ () => {
     // mountedRef 在 effect 重新建立时恢复为可写状态，兼容 React StrictMode 的开发期模拟重挂载。
@@ -144,5 +170,5 @@ export const useDeliveryTemplates = (): DeliveryTemplatesHookResult => {
     };
   }, []);
 
-  return { templates, loading, saving, error, loadTemplates, saveTemplate, removeTemplate };
+  return { templates, loading, saving, error, loadTemplates, saveTemplate, cancelSave, removeTemplate };
 };

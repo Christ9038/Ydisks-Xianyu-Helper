@@ -61,7 +61,7 @@ func (r *DeliveryTemplateRepository) Create(ctx context.Context, userID int64, d
 	if err := r.validate(); err != nil {
 		return 0, err
 	}
-	return r.store.DeliveryTemplates.Create(ctx, db.DeliveryTemplateInput{UserID: userID, Name: draft.Name, Enabled: draft.Enabled, Messages: draft.Messages})
+	return r.store.DeliveryTemplates.Create(ctx, db.DeliveryTemplateInput{UserID: userID, Name: draft.Name, Enabled: draft.Enabled, Messages: draft.Messages, MessageItems: draft.MessageItems})
 }
 
 // Update 将应用草稿转换为数据库输入并更新模板。
@@ -71,9 +71,12 @@ func (r *DeliveryTemplateRepository) Update(ctx context.Context, userID, templat
 		return err
 	}
 	// err 保存模板更新结果。
-	err := r.store.DeliveryTemplates.Update(ctx, userID, templateID, db.DeliveryTemplateInput{UserID: userID, Name: draft.Name, Enabled: draft.Enabled, Messages: draft.Messages})
+	err := r.store.DeliveryTemplates.Update(ctx, userID, templateID, db.DeliveryTemplateInput{UserID: userID, Name: draft.Name, Enabled: draft.Enabled, Messages: draft.Messages, MessageItems: draft.MessageItems})
 	if errors.Is(err, db.ErrNotFound) {
 		return deliveryapp.ErrNotFound
+	}
+	if errors.Is(err, db.ErrDeliveryTemplateMessageConflict) {
+		return deliveryapp.ErrMessageConflict
 	}
 	if errors.Is(err, db.ErrDeliveryTemplateVariableConflict) {
 		return deliveryapp.ErrVariableConflict
@@ -111,7 +114,7 @@ func deliveryTemplateApplicationModel(item db.DeliveryTemplate) deliveryapp.Temp
 	// messages 保存脱离数据库模型的模板消息列表。
 	messages := make([]deliveryapp.Message, 0, len(item.Messages))
 	for /* message 表示当前模板消息。 */ _, message := range item.Messages {
-		messages = append(messages, deliveryapp.Message{ID: message.ID, SortOrder: message.SortOrder, Content: message.Content})
+		messages = append(messages, deliveryapp.Message{ID: message.ID, SortOrder: message.SortOrder, Content: message.Content, Type: message.Type, ImageURL: message.ImageURL, ImagePath: message.ImagePath})
 	}
 	return deliveryapp.Template{ID: item.ID, Name: item.Name, Enabled: item.Enabled, Messages: messages, Keys: append([]string(nil), item.Keys...), CustomKeys: append([]string(nil), item.CustomKeys...), CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt}
 }

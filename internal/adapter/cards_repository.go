@@ -158,7 +158,7 @@ func cardApplicationModel(record db.CardFull) cardsapp.Card {
 	}
 	return cardsapp.Card{
 		ID: record.ID, Name: record.Name, Type: record.Type, APIConfig: record.APIConfig, APIConfigSummary: summary,
-		TextContent: record.TextContent, DataContent: record.DataContent, ImageURL: record.ImageURL,
+		TextContent: record.TextContent, DataContent: record.DataContent, ImageURL: record.ImageURL, ImagePath: record.ImagePath,
 		Description: record.Description, Enabled: record.Enabled, DelaySeconds: record.DelaySeconds,
 		IsMultiSpec: record.IsMultiSpec, SpecName: record.SpecName, SpecValue: record.SpecValue, UserID: record.UserID,
 	}
@@ -168,7 +168,7 @@ func cardApplicationModel(record db.CardFull) cardsapp.Card {
 func cardDatabaseModel(card cardsapp.Card) db.CardFull {
 	return db.CardFull{
 		ID: card.ID, Name: card.Name, Type: card.Type, APIConfig: card.APIConfig,
-		TextContent: card.TextContent, DataContent: card.DataContent, ImageURL: card.ImageURL,
+		TextContent: card.TextContent, DataContent: card.DataContent, ImageURL: card.ImageURL, ImagePath: card.ImagePath,
 		Description: card.Description, Enabled: card.Enabled, DelaySeconds: card.DelaySeconds,
 		IsMultiSpec: card.IsMultiSpec, SpecName: card.SpecName, SpecValue: card.SpecValue, UserID: card.UserID,
 	}

@@ -42,7 +42,7 @@ func deliveryReplayPlan(run *db.AutomationRun) (db.AutomationAction, error) {
 			plannedUnits += deliverySendCount(original, action)
 			refillAction = action
 		} else {
-			plannedUnits += len(action.TemplateMessages)
+			plannedUnits += len(templateMessageItems(action))
 			templateActions[actionIndex] = action
 		}
 	}
@@ -53,8 +53,13 @@ func deliveryReplayPlan(run *db.AutomationRun) (db.AutomationAction, error) {
 	for _, skipped := range run.DeliveryProof.SkippedTemplateMessages { // skipped 表示一个已经确认渲染为空的模板消息位置。
 		// action、ok 分别表示跳过位置对应的原始模板动作和查找是否成功。
 		action, ok := templateActions[skipped.ActionIndex]
-		if !ok || skipped.MessageIndex < 0 || skipped.MessageIndex >= len(action.TemplateMessages) {
+		// messages 使用原始有序图文计划，图片没有“渲染为空”的合法跳过语义。
+		messages := templateMessageItems(action)
+		if !ok || skipped.MessageIndex < 0 || skipped.MessageIndex >= len(messages) {
 			return db.AutomationAction{}, fmt.Errorf("订单模板跳过凭证位置无效，请先人工核对")
+		}
+		if messages[skipped.MessageIndex].Type == "image" {
+			return db.AutomationAction{}, fmt.Errorf("订单图片模板不能跳过发送，请先人工核对")
 		}
 		// key 是动作下标与消息下标组成的唯一位置键。
 		key := fmt.Sprintf("%d:%d", skipped.ActionIndex, skipped.MessageIndex)

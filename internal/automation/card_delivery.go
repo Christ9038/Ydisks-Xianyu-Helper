@@ -51,6 +51,16 @@ func (e *automationActionExecutor) sendCardWithProof(ctx context.Context, task T
 			return actionExecutionResult{sent: sent, proof: proof}, executionErr
 		}
 
+		if card.Type == "image" && card.ImagePath != "" {
+			// imageResult、imageErr 保存本地图片上传后的平台快照和发送结果，失败不回退 URL。
+			imageResult, imageErr := e.deliverImage(ctx, task, card.ImageURL, card.ImagePath, card.ID)
+			proof = mergeShipmentDeliveryProof(proof, imageResult.proof)
+			sent += imageResult.sent
+			if imageErr != nil {
+				return actionExecutionResult{sent: sent, proof: proof, reviewProof: imageResult.reviewProof}, imageErr
+			}
+			continue
+		}
 		// content、imageURL、readErr 分别是当前卡密组可发送的文本、图片地址和读取配置失败原因。
 		content, imageURL, readErr := e.cardContent(ctx, card)
 		if readErr != nil {
