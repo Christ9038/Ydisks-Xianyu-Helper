@@ -21,8 +21,10 @@ var fullVariablePattern = regexp.MustCompile(`^\{\{(?:delivery\.)?(?:cards\.[A-Z
 
 // Parsed 保存校验后的消息副本、卡密变量键和自定义变量键。
 type Parsed struct {
-	// Messages 是模板保存时应保留的有序消息内容。
+	// Messages 只保留文本消息，供历史纯文本调用方兼容使用。
 	Messages []string
+	// MessageItems 是完整的有序消息，图片不参与文本变量提取。
+	MessageItems []Message
 	// Keys 是模板需要外部绑定卡密组的变量键。
 	Keys []string
 	// CustomKeys 是模板需要规则提供的自定义变量键，按消息首次出现顺序排列。
@@ -46,6 +48,11 @@ func CardKeys(message string) []string {
 
 // Parse 校验消息非空并提取所有受支持的模板变量。
 func Parse(messages []string) (Parsed, error) {
+	return ParseMessages(TextMessages(messages))
+}
+
+// parseTextMessages 校验历史文本列表并提取变量；图片由 ParseMessages 独立处理。
+func parseTextMessages(messages []string) (Parsed, error) {
 	if len(messages) == 0 {
 		return Parsed{}, fmt.Errorf("发货模板至少需要一条消息")
 	}

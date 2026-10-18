@@ -8,6 +8,7 @@ import (
 
 	automationapp "xianyu-go/internal/application/automation"
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/deliverytemplate"
 )
 
 // AutomationRepository 将 Store 的自动化异常查询与 resolve 能力适配为应用 Port。
@@ -290,7 +291,8 @@ func automationRulesModel(rules []db.AutomationRule) []automationapp.Rule {
 				CardName: action.CardName, DeliveryCount: action.DeliveryCount, MessageTemplate: action.MessageTemplate,
 				DelaySeconds: action.DelaySeconds, ConfigJSON: action.ConfigJSON, Enabled: action.Enabled, SortOrder: action.SortOrder,
 				DeliveryTemplateID: action.DeliveryTemplateID, DeliveryTemplateName: action.DeliveryTemplateName,
-				TemplateMessages: append([]string(nil), action.TemplateMessages...), TemplateKeys: append([]string(nil), action.TemplateKeys...), TemplateBindings: bindings,
+				TemplateMessageItems: append([]deliverytemplate.Message(nil), action.TemplateMessageItems...),
+				TemplateMessages:     append([]string(nil), action.TemplateMessages...), TemplateKeys: append([]string(nil), action.TemplateKeys...), TemplateBindings: bindings,
 				CustomVariables: customVariablesFromConfig(action.ConfigJSON)})
 		}
 		result = append(result, automationapp.Rule{ID: rule.ID, CookieID: rule.CookieID, ItemID: rule.ItemID, ItemTitle: rule.ItemTitle,

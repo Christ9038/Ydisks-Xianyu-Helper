@@ -1,4 +1,5 @@
 import { useCallback,useEffect,useMemo,useRef,useState,type Dispatch,type SetStateAction } from 'react';
+import { imageSourceFields, validateImageSource } from '../../../shared/imageSource';
 import type { Card,CardMutation } from './api';
 import { createCard,deleteCard,getCardAPIEditor,updateCard } from './api';
 import { apiConfigFromEditForm, apiConfigFromAddForm } from './editConfig';
@@ -10,6 +11,9 @@ export const emptyAddForm = (): AddCardForm => ({
   name: '',
   type: 'data',
   content: '',
+  image_source: 'url',
+  image_url: '',
+  image_path: '',
   description: '',
   enabled: true,
   delay_seconds: 0,
@@ -156,6 +160,8 @@ export const useCardActions = ({ cards, loadCards }: CardActionsOptions): CardAc
       text_content: card.text_content || '',
       data_content: card.data_content || '',
       image_url: card.image_url || '',
+      image_path: card.image_path || '',
+      image_source: card.image_path ? 'local' : 'url',
       delay_seconds: card.delay_seconds || 0,
       description: card.description || '',
       enabled: card.enabled,
@@ -189,6 +195,11 @@ export const useCardActions = ({ cards, loadCards }: CardActionsOptions): CardAc
       alert('请选择卡密类型');
       return;
     }
+    if (editForm.type === 'image') {
+      // imageError 与模板及自动回复共享相同的来源校验语义。
+      const imageError = validateImageSource(editForm);
+      if (imageError) { alert(imageError); return; }
+    }
     try {
       // updateData 保存映射到卡密更新接口的字段。
       const updateData: CardMutation = {
@@ -209,7 +220,7 @@ export const useCardActions = ({ cards, loadCards }: CardActionsOptions): CardAc
           updateData.expected_data_content = selectedCard.data_content ?? '';
         }
       } else if (editForm.type === 'image') {
-        updateData.image_url = editForm.image_url?.trim() || '';
+        Object.assign(updateData, imageSourceFields(editForm));
       }
       // request 记录保存发起时的编辑会话，防止迟到保存关闭后来打开的弹窗。
       const request = editorRequest.current;
@@ -240,7 +251,11 @@ export const useCardActions = ({ cards, loadCards }: CardActionsOptions): CardAc
       alert('请输入卡密名称');
       return;
     }
-    if (!addForm.content.trim()) {
+    if (addForm.type === 'image') {
+      // imageError 保留选中但尚未填写的本地来源校验。
+      const imageError = validateImageSource(addForm);
+      if (imageError) { alert(imageError); return; }
+    } else if (!addForm.content.trim()) {
       alert(addForm.type === 'api' ? '请输入 API 地址' : '请输入卡密内容');
       return;
     }
@@ -255,7 +270,7 @@ export const useCardActions = ({ cards, loadCards }: CardActionsOptions): CardAc
       };
       if (addForm.type === 'text') payload.text_content = addForm.content.trim();
       if (addForm.type === 'data') payload.data_content = addForm.content.trim();
-      if (addForm.type === 'image') payload.image_url = addForm.content.trim();
+      if (addForm.type === 'image') Object.assign(payload, imageSourceFields(addForm));
       if (addForm.type === 'api') {
         payload.api_config = apiConfigFromAddForm(addForm);
       }

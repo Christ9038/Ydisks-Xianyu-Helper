@@ -382,8 +382,8 @@ func (c *Center) replayDeliveryProof(ctx context.Context, task Task, run *db.Aut
 		switch message.Kind {
 		case "text":
 			sendErr = c.actions.sendText(ctx, task, message.Content)
-		case "image":
-			sendErr = c.actions.sendImage(ctx, task, message.Content, 0)
+		case "image", "uploaded_image":
+			sendErr = c.actions.sendDeliveryImage(ctx, task, message, 0)
 		default:
 			return messageIndex, fmt.Errorf("订单发货快照第 %d 条消息类型无效", messageIndex+1)
 		}

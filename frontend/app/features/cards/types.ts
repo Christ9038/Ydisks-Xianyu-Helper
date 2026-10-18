@@ -1,8 +1,9 @@
+import type { ImageSourceDraft } from '../../../shared/imageSource';
 import type { Dispatch,SetStateAction } from 'react';
 import type { Card,CardAppendResponse,CardBatchResponse } from './api';
 
 // AddCardForm 描述新增卡密组弹窗中的可编辑字段。
-export interface AddCardForm {
+export interface AddCardForm extends ImageSourceDraft {
   // name 是卡密组名称。
   name: string;
   // type 是卡密交付类型。
@@ -34,7 +35,7 @@ export interface AddCardForm {
 }
 
 // EditCardForm 描述编辑卡密组时的表单字段和 API 扩展字段。
-export type EditCardForm = Partial<Card> & {
+export type EditCardForm = Partial<Card> & ImageSourceDraft & {
   // api_url 是编辑中的 API 地址。
   api_url?: string;
   // api_method 是编辑中的 API 请求方法。

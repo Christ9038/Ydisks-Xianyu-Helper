@@ -125,6 +125,8 @@ export interface Card {
   // 图片类型
   /** 图片卡券地址。 */
   image_url?: string;
+  /** 实际发货账号目录中的本地图片引用，不参与文本变量绑定。 */
+  image_path?: string;
   // 通用配置
   /** 卡券发送延迟秒数。 */
   delay_seconds?: number;
@@ -176,8 +178,14 @@ export interface DeliveryTemplateMessage {
   id: number;
   /** 消息在模板中的发送顺序。 */
   sort_order: number;
-  /** 消息正文，可包含模板变量。 */
+  /** 缺省表示历史文本；图片不参与变量解析。 */
+  type?: 'text' | 'image';
+  /** 消息正文，仅文本可包含模板变量。 */
   content: string;
+  /** 图片消息的远程 URL。 */
+  image_url?: string;
+  /** 图片消息在实际发货账号目录中的相对路径。 */
+  image_path?: string;
 }
 
 /** 当前用户可用于自动化规则的发货模板。 */

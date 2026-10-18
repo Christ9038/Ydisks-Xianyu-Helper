@@ -1,5 +1,11 @@
+import type { ImageSourceDraft } from '../../../shared/imageSource';
+
 /** 发货模板编辑器使用的单条消息草稿。 */
-export interface DeliveryTemplateMessageDraft {
+export interface DeliveryTemplateMessageDraft extends ImageSourceDraft {
+  /** 编辑器内的稳定消息身份；排序及切换类型时保留，API adapter 不提交该字段。 */
+  editor_key?: number;
+  /** 缺省为历史文本消息；图片不解析变量。 */
+  type?: 'text' | 'image';
   /** 消息正文，可使用 cards.key 和 custom.key 变量。 */
   content: string;
 }
@@ -23,7 +29,7 @@ export interface DeliveryTemplate {
   /** 模板是否启用。 */
   enabled: boolean;
   /** 模板消息。 */
-  messages: Array<{
+  messages: Array<DeliveryTemplateMessageDraft & {
     /** 消息主键。 */
     id: number;
     /** 消息顺序。 */

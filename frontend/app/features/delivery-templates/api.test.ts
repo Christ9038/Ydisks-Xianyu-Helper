@@ -14,7 +14,9 @@ import { createDeliveryTemplate, deleteDeliveryTemplate, listDeliveryTemplates, 
 import type { DeliveryTemplateDraft } from './types';
 
 // draft 是创建与更新测试共用的最小模板草稿。
-const draft = { name: '模板', messages: [], custom_keys: [] } as unknown as DeliveryTemplateDraft;
+const draft = { name: '模板', enabled: true, messages: [] } as unknown as DeliveryTemplateDraft;
+// payload 是适配器按当前契约归一后的请求体：名称去空白、显式提交启用状态，且不再发送客户端推导的变量键。
+const payload = { name: '模板', enabled: true, messages: [] };
 
 describe('发货模板 API 适配器', /* 模板 API 测试覆盖列表归一化与增删改请求映射。 */ () => {
   beforeEach(/* 当前回调重置所有契约客户端替身。 */ () => {
@@ -42,9 +44,9 @@ describe('发货模板 API 适配器', /* 模板 API 测试覆盖列表归一化
 
   test('创建、更新、删除分别调用对应契约操作', /* 当前回调验证路径参数转为字符串并携带请求体。 */ async () => {
     await createDeliveryTemplate(draft);
-    expect(postMock).toHaveBeenCalledWith('/api/v1/delivery-templates', expect.objectContaining({ body: draft }));
+    expect(postMock).toHaveBeenCalledWith('/api/v1/delivery-templates', expect.objectContaining({ body: payload }));
     await updateDeliveryTemplate(7, draft);
-    expect(putMock).toHaveBeenCalledWith('/api/v1/delivery-templates/{template_id}', expect.objectContaining({ params: { path: { template_id: '7' } }, body: draft }));
+    expect(putMock).toHaveBeenCalledWith('/api/v1/delivery-templates/{template_id}', expect.objectContaining({ params: { path: { template_id: '7' } }, body: payload }));
     await deleteDeliveryTemplate(7);
     expect(deleteMock).toHaveBeenCalledWith('/api/v1/delivery-templates/{template_id}', expect.objectContaining({ params: { path: { template_id: '7' } } }));
   });

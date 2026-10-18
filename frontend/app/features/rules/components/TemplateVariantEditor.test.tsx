@@ -53,7 +53,8 @@ test('模板变量绑定展示启用的 text、data 和就绪 API 卡券', /* �
     { id: 1, name: '文本卡', type: 'text', enabled: true },
     { id: 2, name: '批量卡', type: 'data', enabled: true },
     { id: 3, name: '就绪 API 卡', type: 'api', enabled: true, api_config: { url: 'https://example.test', method: 'GET', timeout_seconds: 10, retry_enabled: true, headers_configured: true, params_configured: true, ready: true } },
-    { id: 4, name: '图片卡', type: 'image', enabled: true },
+    { id: 4, name: '图片卡', type: 'image', enabled: true, image_url: 'https://example.com/a.png' },
+    { id: 8, name: '本地图片卡', type: 'image', enabled: true, image_path: 'goods/a.png' },
     { id: 5, name: '停用文本卡', type: 'text', enabled: false },
     { id: 6, name: '停用批量卡', type: 'data', enabled: false },
     { id: 7, name: '未就绪 API 卡', type: 'api', enabled: true, api_config: { url: 'https://example.test', method: 'GET', timeout_seconds: 10, retry_enabled: true, headers_configured: false, params_configured: false, ready: false } },
@@ -66,9 +67,22 @@ test('模板变量绑定展示启用的 text、data 和就绪 API 卡券', /* �
   expect(screen.getByRole('option', { name: '批量卡' })).toBeTruthy();
   expect(screen.getByRole('option', { name: '就绪 API 卡' })).toBeTruthy();
   expect(screen.queryByRole('option', { name: '图片卡' })).toBeNull();
+  expect(screen.queryByRole('option', { name: '本地图片卡' })).toBeNull();
   expect(screen.queryByRole('option', { name: '停用文本卡' })).toBeNull();
   expect(screen.queryByRole('option', { name: '停用批量卡' })).toBeNull();
   expect(screen.queryByRole('option', { name: '未就绪 API 卡' })).toBeNull();
+});
+
+test('纯图片模板只依据服务端变量摘要绑定，不扫描图片路径', /* 当前回调验证纯图片模板可直接引用且无需虚构文本卡密变量。 */ () => {
+  // updateVariant 是规则引用模板变更的回调替身。
+  const updateVariant = vi.fn();
+  // template 图片路径故意使用变量外观，但服务端变量摘要为空。
+  const template: DeliveryTemplate = { ...templateFixture, keys: [], custom_keys: [], messages: [{ id: 2, sort_order: 0, type: 'image', content: '', image_url: '', image_path: 'guides/{{cards.literal}}.png' }] };
+  render(<TemplateVariantEditor index={0} variant={{ ...variantFixture, template_bindings: [] }} cards={[]} deliveryTemplates={[template]} updateVariant={updateVariant} />);
+  expect(screen.queryByText('{{cards.literal}}')).toBeNull();
+  expect(screen.queryByRole('spinbutton')).toBeNull();
+  fireEvent.change(screen.getByRole('combobox'), { target: { value: '9' } });
+  expect(updateVariant).toHaveBeenCalledWith(0, { delivery_template_id: 9, template_bindings: [], custom_variables: {} });
 });
 
 test('已有 text/data 绑定仍可显示并修改数量', /* 当前回调验证合法历史绑定在过滤后仍保留可编辑能力。 */ () => {

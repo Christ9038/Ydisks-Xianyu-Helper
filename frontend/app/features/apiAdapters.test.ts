@@ -25,6 +25,7 @@ updateAccountSettings,
 updateAccountStatus,
 updateAccountTaskSettings,
 } from './accounts/api';
+import { createDeliveryTemplate,listDeliveryTemplates,updateDeliveryTemplate } from './delivery-templates/api';
 import { appendCardData,batchCreateCards,createCard,deleteCard,getCardDetails,getCards,getCardAPIEditor,testCardAPI,updateCard } from './cards/api';
 import { getChatMessagePage,getChatMessages,getChatSessionPage,getChatSessions,markChatRead,sendChatImage,sendChatMessage } from './chat/api';
 import { getDashboardStats,getOrderAnalytics,getValidOrders } from './dashboard/api';
@@ -66,6 +67,48 @@ const stubContractFetch = (fetchMock: typeof fetch): void => {
 		});
 	} /* 测试 fetch 回调将 Request clone 归一给历史 fetchMock 断言，生产请求不会走该回调。 */);
 };
+
+test('卡密 adapter 读取本地图片并在新建和更新中保留显式清空字段', /* 当前回调穿过真实契约客户端检查两来源字段。 */ async () => {
+  // fetchMock 依次返回列表、详情和两次变更响应。
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(jsonResponse({ cards: [{ id: 7, name: '教程图', type: 'image', enabled: true, image_url: '', image_path: 'goods/a.png' }] }))
+    .mockResolvedValueOnce(jsonResponse({ id: 7, name: '教程图', type: 'image', enabled: true, image_url: '', image_path: 'goods/a.png' }))
+    .mockImplementation(/* 当前替身为每次变更创建独立响应体。 */ async () => jsonResponse({ success: true, id: 7 }));
+  stubContractFetch(fetchMock);
+  await expect(getCards()).resolves.toMatchObject([{ image_url: '', image_path: 'goods/a.png' }]);
+  await expect(getCardDetails(7)).resolves.toMatchObject({ image_path: 'goods/a.png' });
+  await createCard({ name: '教程图', type: 'image', image_url: '', image_path: 'goods/a.png' });
+  await updateCard(7, { type: 'image', image_url: 'https://example.com/new.png', image_path: '' });
+  expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toMatchObject({ type: 'image', image_url: '', image_path: 'goods/a.png' });
+  expect(JSON.parse(fetchMock.mock.calls[3][1].body)).toMatchObject({ type: 'image', image_url: 'https://example.com/new.png', image_path: '' });
+});
+
+test('模板 adapter 兼容旧文本且图片引用不参与变量前缀转换', /* 当前回调验证读取和保存都保持图文顺序与明确来源。 */ async () => {
+  // fetchMock 包含旧文本和具有变量外观的图片引用。
+  const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({ data: [{
+    id: 3, name: '图文', enabled: true, keys: ['main'], messages: [
+      { id: 1, sort_order: 0, content: '{{delivery.cards.main}}' },
+      { id: 2, sort_order: 1, type: 'image', content: '', image_url: '', image_path: 'guides/{{delivery.cards.literal}}.png' },
+    ],
+  }] })).mockImplementation(/* 当前替身为每次保存提供未消费的响应。 */ async () => jsonResponse({ success: true }));
+  stubContractFetch(fetchMock);
+  // templates 是 feature adapter 输出的可编辑模型。
+  const templates = await listDeliveryTemplates();
+  expect(templates[0].messages).toEqual([
+    { id: 1, sort_order: 0, type: 'text', content: '{{cards.main}}', image_url: '', image_path: '' },
+    { id: 2, sort_order: 1, type: 'image', content: '', image_url: '', image_path: 'guides/{{delivery.cards.literal}}.png' },
+  ]);
+  await createDeliveryTemplate({ name: '  图文  ', enabled: true, messages: [
+    { type: 'image', content: '不得作为文本变量发送', image_source: 'local', image_url: 'https://example.com/stale.png', image_path: 'guides/{{delivery.cards.literal}}.png' },
+    { content: '{{cards.main}}', image_url: 'https://example.com/stale.png', image_path: 'old.png' },
+  ] });
+  expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ name: '图文', enabled: true, messages: [
+    { type: 'image', content: '', image_url: '', image_path: 'guides/{{delivery.cards.literal}}.png' },
+    { type: 'text', content: '{{cards.main}}', image_url: '', image_path: '' },
+  ] });
+  await updateDeliveryTemplate(3, { name: '纯图片', enabled: true, messages: [{ type: 'image', content: '', image_source: 'url', image_url: 'https://example.com/{{delivery.literal}}.png', image_path: 'old.png' }] });
+  expect(JSON.parse(fetchMock.mock.calls[2][1].body).messages).toEqual([{ type: 'image', content: '', image_url: 'https://example.com/{{delivery.literal}}.png', image_path: '' }]);
+});
 
 test('updateSystemSettings uses one atomic bulk request', async () => {
 	const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true })); /* fetchMock 表示fetchMock。 */

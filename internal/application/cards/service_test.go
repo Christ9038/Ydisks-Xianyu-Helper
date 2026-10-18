@@ -162,9 +162,9 @@ func TestServiceCreateValidation(t *testing.T) {
 		{name: "invalid-delay", draft: Draft{Name: "x", Type: "text", TextContent: "x", DelaySeconds: 3601}, want: "延时发货必须在 0 到 3600 秒之间"},
 		{name: "empty-text", draft: Draft{Name: "x", Type: "text", TextContent: "  "}, want: "文本卡密内容不能为空"},
 		{name: "empty-data", draft: Draft{Name: "x", Type: "data", DataContent: "\n"}, want: "数据卡密内容不能为空"},
-		{name: "empty-image", draft: Draft{Name: "x", Type: "image", ImageURL: ""}, want: "图片卡密 URL 不能为空"},
-		{name: "non-http-image", draft: Draft{Name: "x", Type: "image", ImageURL: "file:///tmp/card.png"}, want: "图片卡密 URL 必须是 HTTP(S) 地址"},
-		{name: "credential-image", draft: Draft{Name: "x", Type: "image", ImageURL: "https://user:pass@example.com/card.png"}, want: "图片卡密 URL 必须是 HTTP(S) 地址"},
+		{name: "empty-image", draft: Draft{Name: "x", Type: "image", ImageURL: ""}, want: "图片 URL 和本地图片路径必须且只能配置一个"},
+		{name: "non-http-image", draft: Draft{Name: "x", Type: "image", ImageURL: "file:///tmp/card.png"}, want: "图片 URL 必须是不含用户凭据的 HTTP(S) 地址"},
+		{name: "credential-image", draft: Draft{Name: "x", Type: "image", ImageURL: "https://user:pass@example.com/card.png"}, want: "图片 URL 必须是不含用户凭据的 HTTP(S) 地址"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			// err 是当前非法输入返回的业务校验结果。

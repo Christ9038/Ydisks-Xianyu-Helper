@@ -1,5 +1,7 @@
 package db
 
+import "xianyu-go/internal/deliverytemplate"
+
 // AutomationAction 是规则下的一步动作。
 type AutomationAction struct {
 	ID              int64
@@ -19,6 +21,8 @@ type AutomationAction struct {
 	DeliveryTemplateName string
 	// TemplateMessages 是模板动作执行时使用的有序消息内容。
 	TemplateMessages []string
+	// TemplateMessageItems 是包含图片的完整有序消息；旧快照省略时仍读取 TemplateMessages。
+	TemplateMessageItems []deliverytemplate.Message `json:"template_message_items,omitempty"`
 	// TemplateKeys 是模板动作需要绑定的变量键。
 	TemplateKeys []string
 	// TemplateBindings 是变量键到卡密组的绑定列表。

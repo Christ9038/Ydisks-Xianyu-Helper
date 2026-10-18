@@ -38,40 +38,18 @@ func (a *AutomationRules) loadTemplateAction(ctx context.Context, action *Automa
 	if closeErr := rows.Close(); closeErr != nil {
 		return closeErr
 	}
-	// messageRows 保存模板消息查询结果。
-	// messageRows、err 保存模板消息查询结果及错误。
-	messageRows, err := a.DB.QueryContext(ctx, `SELECT content FROM delivery_template_messages WHERE template_id=? ORDER BY sort_order ASC,id ASC`, action.DeliveryTemplateID)
+	// messages、err 保存完整模板消息；图片不能退化为空正文。
+	messages, err := readDeliveryTemplateMessages(ctx, a.DB, action.DeliveryTemplateID)
 	if err != nil {
 		return err
 	}
-	// messages 保存模板消息正文。
-	messages := make([]string, 0)
-	for messageRows.Next() {
-		// content 保存当前消息正文。
-		var content string
-		// err 保存模板消息行扫描错误。
-		if err := messageRows.Scan(&content); err != nil {
-			messageRows.Close()
-			return err
-		}
-		messages = append(messages, content)
-	}
-	// err 保存模板消息遍历错误。
-	if err := messageRows.Err(); err != nil {
-		messageRows.Close()
-		return err
-	}
-	// closeErr 保存模板消息游标关闭错误。
-	if closeErr := messageRows.Close(); closeErr != nil {
-		return closeErr
-	}
-	// parsed 保存消息解析结果，避免自动化执行时重复解析。
-	// parsed、err 保存模板消息解析结果及错误。
-	parsed, err := deliverytemplate.Parse(messages)
+	// parsed、err 保存结构化消息与文本变量的解析结果及错误。
+	parsed, err := deliverytemplate.ParseMessages(deliveryTemplateMessageItems(messages))
 	if err != nil {
 		return err
 	}
 	action.TemplateMessages = parsed.Messages
+	action.TemplateMessageItems = parsed.MessageItems
 	action.TemplateKeys = parsed.Keys
 	// config 保存动作配置中的扩展字段原文。
 	var config map[string]json.RawMessage

@@ -7344,9 +7344,12 @@ components:
       description: 统一响应的稳定字段；业务成功字段由各阶段 operation schema 收紧。
     DeliveryTemplateMessageRequest:
       type: object
-      required: [content]
+      description: 独立文本或图片消息。缺省 type 为 text 并兼容旧 content 对象；图片 content 为空且恰好提供一个固定来源，不支持模板插值。更新含图片的模板必须明确提供消息 type 或图片来源字段，旧格式更新返回 409 防止静默丢图。
       properties:
+        type: {type: string, enum: [text, image], description: 可省略；服务端按 text 处理以兼容旧客户端。}
         content: {type: string}
+        image_url: {type: string, description: 固定 HTTP(S) 图片地址，与 image_path 互斥。}
+        image_path: {type: string, maxLength: 1024, description: 实际执行账号的 XIANYU_UPLOAD_DIR/reply-images/<账号>/ 内相对路径，无浏览器上传；不能含绝对路径或目录穿越。}
     DeliveryTemplateRequest:
       type: object
       required: [name, messages]
@@ -7359,11 +7362,14 @@ components:
           items: {$ref: '#/components/schemas/DeliveryTemplateMessageRequest'}
     DeliveryTemplateMessage:
       type: object
-      required: [id, sort_order, content]
+      required: [id, sort_order, content, type, image_url, image_path]
       properties:
         id: {type: integer}
         sort_order: {type: integer}
         content: {type: string}
+        type: {type: string, enum: [text, image]}
+        image_url: {type: string}
+        image_path: {type: string}
     DeliveryTemplate:
       type: object
       required: [id, name, enabled, messages, keys, custom_keys, created_at, updated_at]
@@ -7938,7 +7944,8 @@ components:
         expected_data_content:
           type: string
           description: 编辑 data 卡库存时打开弹窗所见的库存快照；提交后服务端仅在当前库存仍与之相同时覆盖，否则返回 409。
-        image_url: {type: string}
+        image_url: {type: string, description: image 类型的固定 HTTP(S) 来源；更新省略保留，显式空串清空，切换来源必须清空旧来源。}
+        image_path: {type: string, maxLength: 1024, description: 实际执行账号 reply-images 目录内的相对路径；与 image_url 恰好一个来源，省略保留、空串清空，无浏览器上传。}
         description: {type: string}
         enabled: {type: boolean}
         delay_seconds: {type: integer}
@@ -7985,7 +7992,7 @@ components:
         id: {type: integer}
     CardResponse:
       type: object
-      required: [id, name, type, text_content, data_content, image_url, description, enabled, delay_seconds, is_multi_spec, spec_name, spec_value]
+      required: [id, name, type, text_content, data_content, image_url, image_path, description, enabled, delay_seconds, is_multi_spec, spec_name, spec_value]
       properties:
         id: {type: integer}
         name: {type: string}
@@ -7996,7 +8003,8 @@ components:
           nullable: true
         text_content: {type: string}
         data_content: {type: string}
-        image_url: {type: string}
+        image_url: {type: string, description: image 类型的固定 HTTP(S) 来源；更新省略保留，显式空串清空，切换来源必须清空旧来源。}
+        image_path: {type: string, maxLength: 1024, description: 实际执行账号 reply-images 目录内的相对路径；与 image_url 恰好一个来源，省略保留、空串清空，无浏览器上传。}
         description: {type: string}
         enabled: {type: boolean}
         delay_seconds: {type: integer}

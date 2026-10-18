@@ -10,10 +10,17 @@ import (
 
 	deliveryapp "xianyu-go/internal/application/deliverytemplate"
 	"xianyu-go/internal/auth"
+	"xianyu-go/internal/deliverytemplate"
 )
 
 // deliveryTemplateMessageRequest 是模板消息写入请求 DTO。
 type deliveryTemplateMessageRequest struct {
+	// Type 缺省为 text；指针用于识别旧客户端是否具备完整消息表达能力。
+	Type *string `json:"type"`
+	// ImageURL 是固定图片地址，显式空串也表示客户端支持新消息结构。
+	ImageURL *string `json:"image_url"`
+	// ImagePath 是实际执行账号目录内的固定相对路径。
+	ImagePath *string `json:"image_path"`
 	// Content 是一条独立发送消息正文。
 	Content string `json:"content"`
 }
@@ -36,6 +43,12 @@ type deliveryTemplateMessageResponse struct {
 	SortOrder int `json:"sort_order"`
 	// Content 是消息正文。
 	Content string `json:"content"`
+	// Type 是明确的 text 或 image，旧请求缺省在领域层规范化。
+	Type string `json:"type"`
+	// ImageURL 是固定远程图片地址。
+	ImageURL string `json:"image_url"`
+	// ImagePath 是执行账号目录内的固定相对图片路径。
+	ImagePath string `json:"image_path"`
 }
 
 // deliveryTemplateResponse 是模板查询响应 DTO。
@@ -159,6 +172,10 @@ func (s *Server) updateDeliveryTemplate(w http.ResponseWriter, r *http.Request) 
 			writeErr(w, http.StatusNotFound, "发货模板不存在")
 			return
 		}
+		if errors.Is(err, deliveryapp.ErrMessageConflict) {
+			writeErr(w, http.StatusConflict, err.Error())
+			return
+		}
 		if errors.Is(err, deliveryapp.ErrVariableConflict) {
 			writeErr(w, http.StatusConflict, "发货模板变量已被自动化规则引用，不能不兼容修改")
 			return
@@ -220,17 +237,39 @@ func decodeDeliveryTemplateDraft(r *http.Request) (deliveryapp.Draft, error) {
 	if err := decodeJSON(r, &request); err != nil {
 		return deliveryapp.Draft{}, errors.New("请求格式错误")
 	}
-	// messages 保存去除消息字段包装后的正文列表。
+	// messages 保存旧文本字段；items 保存完整消息，只有识别到新字段才启用结构化覆盖。
 	messages := make([]string, 0, len(request.Messages))
+	// items 保存按照原始顺序转换的文本或图片。
+	items := make([]deliverytemplate.Message, 0, len(request.Messages))
+	// structured 表示请求明确携带新格式字段，防止旧客户端删除自己无法识别的图片。
+	structured := false
 	for /* message 表示请求中的一条模板消息。 */ _, message := range request.Messages {
 		messages = append(messages, message.Content)
+		// item 保留缺省文本语义并接收显式的图片来源。
+		item := deliverytemplate.Message{Content: message.Content}
+		if message.Type != nil {
+			item.Type = *message.Type
+			structured = true
+		}
+		if message.ImageURL != nil {
+			item.ImageURL = *message.ImageURL
+			structured = true
+		}
+		if message.ImagePath != nil {
+			item.ImagePath = *message.ImagePath
+			structured = true
+		}
+		items = append(items, item)
+	}
+	if !structured {
+		items = nil
 	}
 	// enabled 保存缺省启用状态。
 	enabled := true
 	if request.Enabled != nil {
 		enabled = *request.Enabled
 	}
-	return deliveryapp.Draft{Name: strings.TrimSpace(request.Name), Enabled: enabled, Messages: messages}, nil
+	return deliveryapp.Draft{Name: strings.TrimSpace(request.Name), Enabled: enabled, Messages: messages, MessageItems: items}, nil
 }
 
 // deliveryTemplateResponses 将应用模板列表转换为响应 DTO 列表。
@@ -248,7 +287,7 @@ func deliveryTemplateResponseModel(item deliveryapp.Template) deliveryTemplateRe
 	// messages 保存消息响应 DTO 列表。
 	messages := make([]deliveryTemplateMessageResponse, 0, len(item.Messages))
 	for /* message 表示当前模板消息。 */ _, message := range item.Messages {
-		messages = append(messages, deliveryTemplateMessageResponse{ID: message.ID, SortOrder: message.SortOrder, Content: message.Content})
+		messages = append(messages, deliveryTemplateMessageResponse{ID: message.ID, SortOrder: message.SortOrder, Content: message.Content, Type: message.Type, ImageURL: message.ImageURL, ImagePath: message.ImagePath})
 	}
 	return deliveryTemplateResponse{ID: item.ID, Name: item.Name, Enabled: item.Enabled, Messages: messages, Keys: append([]string{}, item.Keys...), CustomKeys: append([]string{}, item.CustomKeys...), CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt}
 }

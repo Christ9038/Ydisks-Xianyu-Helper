@@ -92,6 +92,12 @@ export default defineConfig({
           ) {
             return 'chat-session-actions';
           }
+          // 卡密动作协调器与图片来源控件独立分片，保持卡密页面既有预算，不把业务逻辑并入主页面。
+          if (modulePath.includes('/app/features/cards/cardActions.')) return 'cards-runtime';
+          // 图文模板消息编辑器和静态变量说明共用独立分片，避免扩大模板主页面。
+          if (modulePath.includes('/app/features/delivery-templates/components/TemplateMessageEditor.') || modulePath.includes('/app/features/delivery-templates/components/TemplateVariableGuide.')) return 'delivery-template-editor';
+          // 图片引用控件和来源校验跨 feature 共用，不依赖 rules feature。
+          if (modulePath.includes('/shared/components/ImageSourceEditor.') || modulePath.includes('/shared/imageSource.')) return 'image-source-controls';
           // 模板请求 Hook 只服务模板管理页，独立分片可保持编辑器页面在既有下载预算内。
           if (modulePath.includes('/app/features/delivery-templates/hooks.')) {
             return 'delivery-template-runtime';

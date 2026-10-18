@@ -518,6 +518,100 @@ body {
   z-index: 10;
 }
 
+/* 发货模板编辑器：普通块滚动正文，头尾固定；fieldset 只负责整组禁用，不能承担滚动。 */
+.delivery-template-editor {
+  max-width: 72rem;
+  max-height: 88vh;
+}
+
+.delivery-template-editor__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.5rem 1.75rem 1.25rem;
+}
+
+.delivery-template-editor__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 1.5rem 1.75rem;
+  border: 0;
+  margin: 0;
+}
+
+.delivery-template-editor__fields {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  margin: 0;
+}
+
+.delivery-template-editor__main {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(18rem, 0.8fr);
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.delivery-template-editor__content {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-width: 0;
+}
+
+.delivery-template-editor__guide {
+  position: sticky;
+  top: 0;
+  min-width: 0;
+}
+
+.delivery-template-editor__footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 1.25rem 1.75rem 1.5rem;
+}
+
+.delivery-template-editor__add {
+  margin-right: auto;
+}
+
+/* 窄屏让添加入口独占一行，取消和保存不被三按钮挤出视口。 */
+@media (max-width: 480px) {
+  .delivery-template-editor__add {
+    width: 100%;
+  }
+}
+
+@media (max-width: 900px) {
+  .delivery-template-editor__main {
+    grid-template-columns: 1fr;
+  }
+
+  .delivery-template-editor__guide {
+    position: static;
+  }
+}
+
+@media (max-width: 768px) {
+  .delivery-template-editor {
+    max-height: 92vh;
+  }
+
+  .delivery-template-editor__header,
+  .delivery-template-editor__body,
+  .delivery-template-editor__footer {
+    padding-left: 1.25rem;
+    padding-right: 1.25rem;
+  }
+}
+
 /* 大模态框 */
 .modal-container-lg {
   max-width: 64rem; /* max-w-4xl */

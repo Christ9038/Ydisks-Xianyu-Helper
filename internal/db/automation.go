@@ -30,12 +30,16 @@ type AutomationRules struct {
 }
 
 // AutomationDeliveryMessage 保存订单发货快照中的一条原始消息。内容只存在于加密的运行凭证中，
-// 不得写入日志、通知或 HTTP 响应；Kind 目前只能是 text 或 image。
+// 不得写入日志、通知或 HTTP 响应；Kind 为 text、image（来源 URL）或 uploaded_image（平台快照）。
 type AutomationDeliveryMessage struct {
-	// Kind 描述买家消息的传输类型，决定重发时调用文本还是图片通道。
+	// Kind 描述买家消息的传输类型，决定重发时调用文本、来源下载还是平台图片直发通道。
 	Kind string `json:"kind"`
 	// Content 保存已经为该订单确定的文本正文或图片地址，重发必须原样复用而不能重新领取卡密。
 	Content string `json:"content"`
+	// Width 与 Height 保存已上传图片的像素尺寸；旧文本及来源 URL 快照不需要这两个字段。
+	Width int `json:"width,omitempty"`
+	// Height 与 Width 一起供平台图片原样补发使用，不从本地文件重新探测。
+	Height int `json:"height,omitempty"`
 }
 
 // AutomationRunActionAdvance 描述动作成功后的原子检查点更新。

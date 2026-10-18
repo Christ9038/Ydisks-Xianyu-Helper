@@ -451,13 +451,15 @@ type CardFull struct {
 	TextContent      string                `json:"text_content"`
 	DataContent      string                `json:"data_content"`
 	ImageURL         string                `json:"image_url"`
-	Description      string                `json:"description"`
-	Enabled          bool                  `json:"enabled"`
-	DelaySeconds     int                   `json:"delay_seconds"`
-	IsMultiSpec      bool                  `json:"is_multi_spec"`
-	SpecName         string                `json:"spec_name"`
-	SpecValue        string                `json:"spec_value"`
-	UserID           int64                 `json:"user_id"`
+	// ImagePath 是实际执行账号图片目录内的相对路径，与远程 URL 互斥。
+	ImagePath    string `json:"image_path"`
+	Description  string `json:"description"`
+	Enabled      bool   `json:"enabled"`
+	DelaySeconds int    `json:"delay_seconds"`
+	IsMultiSpec  bool   `json:"is_multi_spec"`
+	SpecName     string `json:"spec_name"`
+	SpecValue    string `json:"spec_value"`
+	UserID       int64  `json:"user_id"`
 }
 
 // ExistsOwned 判断卡密组是否属于指定用户。
@@ -479,10 +481,10 @@ func (c *Cards) Get(ctx context.Context, cardID int64) (*CardFull, error) {
 	var apiCfg, textContent, dataContent, imageURL, specName, specValue, desc sql.NullString
 	// err 用于本次流程后续判断的err
 	err := c.DB.QueryRowContext(ctx,
-		`SELECT id, name, type, api_config, text_content, data_content, image_url, description,
+		`SELECT id, name, type, api_config, text_content, data_content, image_url, image_path, description,
 		        enabled, delay_seconds, is_multi_spec, spec_name, spec_value, user_id
 		 FROM cards WHERE id=?`, cardID).Scan(
-		&cf.ID, &cf.Name, &cf.Type, &apiCfg, &textContent, &dataContent, &imageURL, &desc,
+		&cf.ID, &cf.Name, &cf.Type, &apiCfg, &textContent, &dataContent, &imageURL, &cf.ImagePath, &desc,
 		&enabled, &cf.DelaySeconds, &isMultiSpec, &specName, &specValue, &cf.UserID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -508,7 +510,7 @@ func (c *Cards) Get(ctx context.Context, cardID int64) (*CardFull, error) {
 func (c *Cards) AllForUser(ctx context.Context, userID int64) ([]CardFull, error) {
 	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := c.DB.QueryContext(ctx,
-		`SELECT id, name, type, api_config, text_content, data_content, image_url, description,
+		`SELECT id, name, type, api_config, text_content, data_content, image_url, image_path, description,
 		        enabled, delay_seconds, is_multi_spec, spec_name, spec_value, user_id
 		 FROM cards WHERE user_id=? ORDER BY id DESC`, userID)
 	if err != nil {
@@ -525,7 +527,7 @@ func (c *Cards) AllForUser(ctx context.Context, userID int64) ([]CardFull, error
 		// apiCfg、textContent、dataContent、imageURL、specName、specValue、desc 用于本次流程后续判断的apiCfg、textContent、dataContent、imageURL、specName、specValue、desc
 		var apiCfg, textContent, dataContent, imageURL, specName, specValue, desc sql.NullString
 		if // err 用于本次流程后续判断的err
-		err := rows.Scan(&cf.ID, &cf.Name, &cf.Type, &apiCfg, &textContent, &dataContent, &imageURL, &desc,
+		err := rows.Scan(&cf.ID, &cf.Name, &cf.Type, &apiCfg, &textContent, &dataContent, &imageURL, &cf.ImagePath, &desc,
 			&enabled, &cf.DelaySeconds, &isMultiSpec, &specName, &specValue, &cf.UserID); err != nil {
 			return nil, err
 		}
@@ -553,11 +555,11 @@ func (c *Cards) Create(ctx context.Context, cf *CardFull) (int64, error) {
 		return 0, err
 	}
 	return insertReturningID(ctx, c.DB, c.Dialect,
-		`INSERT INTO cards (name, type, api_config, text_content, data_content, image_url, description,
+		`INSERT INTO cards (name, type, api_config, text_content, data_content, image_url, image_path, description,
 		    enabled, delay_seconds, is_multi_spec, spec_name, spec_value, user_id)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		cf.Name, cf.Type, nullable(apiConfig), nullable(cf.TextContent), nullable(cf.DataContent),
-		nullable(cf.ImageURL), nullable(cf.Description), boolToInt(cf.Enabled), cf.DelaySeconds,
+		nullable(cf.ImageURL), cf.ImagePath, nullable(cf.Description), boolToInt(cf.Enabled), cf.DelaySeconds,
 		boolToInt(cf.IsMultiSpec), nullable(cf.SpecName), nullable(cf.SpecValue), cf.UserID)
 }
 
@@ -587,12 +589,12 @@ func (c *Cards) updateCard(ctx context.Context, cf *CardFull, guard string, guar
 	}
 	// args 保存 SET 字段、主键和可选守卫条件的参数，顺序与 SQL 占位符一致。
 	args := []any{cf.Name, cf.Type, nullable(apiConfig), nullable(cf.TextContent), nullable(cf.DataContent),
-		nullable(cf.ImageURL), nullable(cf.Description), boolToInt(cf.Enabled), cf.DelaySeconds,
+		nullable(cf.ImageURL), cf.ImagePath, nullable(cf.Description), boolToInt(cf.Enabled), cf.DelaySeconds,
 		boolToInt(cf.IsMultiSpec), nullable(cf.SpecName), nullable(cf.SpecValue), cf.ID}
 	args = append(args, guardArgs...)
 	// result 保存更新语句的执行结果，用于判断守卫条件是否命中。
 	result, err := c.DB.ExecContext(ctx,
-		`UPDATE cards SET name=?, type=?, api_config=?, text_content=?, data_content=?, image_url=?,
+		`UPDATE cards SET name=?, type=?, api_config=?, text_content=?, data_content=?, image_url=?, image_path=?,
 		    description=?, enabled=?, delay_seconds=?, is_multi_spec=?, spec_name=?, spec_value=?, updated_at=CURRENT_TIMESTAMP
 		 WHERE id=?`+guard, args...)
 	if err != nil {

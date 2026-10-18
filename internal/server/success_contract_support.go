@@ -67,6 +67,8 @@ type cardResponse struct {
 	DataContent string `json:"data_content"`
 	// ImageURL 是图片卡券地址。
 	ImageURL string `json:"image_url"`
+	// ImagePath 是实际执行账号素材目录内的相对图片路径。
+	ImagePath string `json:"image_path"`
 	// Description 是卡券组描述。
 	Description string `json:"description"`
 	// Enabled 表示卡券组是否启用。

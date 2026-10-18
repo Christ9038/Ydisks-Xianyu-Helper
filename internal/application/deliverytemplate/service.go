@@ -22,6 +22,9 @@ var ErrReferenced = errors.New("发货模板仍被自动化规则引用")
 // ErrVariableConflict 表示模板变量键已被自动化规则引用，不能不兼容修改。
 var ErrVariableConflict = errors.New("发货模板变量契约冲突")
 
+// ErrMessageConflict 表示旧格式替换无法证明调用方知晓已有图片，必须拒绝静默丢图。
+var ErrMessageConflict = errors.New("模板含图片消息，请使用支持图片的客户端更新")
+
 // Template 是脱离数据库和 HTTP DTO 的发货模板应用模型。
 type Template struct {
 	// ID 是模板稳定标识。
@@ -50,6 +53,12 @@ type Message struct {
 	SortOrder int
 	// Content 是消息正文。
 	Content string
+	// Type 是 text 或 image；历史消息缺省为 text。
+	Type string
+	// ImageURL 是独立图片消息的固定 HTTP(S) 地址。
+	ImageURL string
+	// ImagePath 是实际执行账号目录内的固定相对图片路径。
+	ImagePath string
 }
 
 // Draft 是模板创建和更新允许提交的业务字段。
@@ -60,6 +69,8 @@ type Draft struct {
 	Enabled bool
 	// Messages 是按顺序提交的消息正文。
 	Messages []string
+	// MessageItems 优先于历史 Messages；非 nil 表示调用方能够无损表达图片消息。
+	MessageItems []deliverytemplate.Message
 }
 
 // Repository 定义模板用例需要的最小持久化能力。
@@ -159,11 +170,16 @@ func (s *Service) validateUser(userID int64) error {
 
 // validateDraft 校验模板名称和至少一条非空消息。
 func validateDraft(draft Draft) error {
-	if strings.TrimSpace(draft.Name) == "" || len(draft.Messages) == 0 {
+	if strings.TrimSpace(draft.Name) == "" {
 		return fmt.Errorf("%w: 发货模板名称和消息不能为空", ErrInvalidInput)
 	}
-	// err 保存模板变量语法解析失败原因。
-	if _, err := deliverytemplate.Parse(draft.Messages); err != nil {
+	// messages 优先使用结构化消息；nil 才回退历史文本字段。
+	messages := draft.MessageItems
+	if messages == nil {
+		messages = deliverytemplate.TextMessages(draft.Messages)
+	}
+	// err 保存模板变量语法或独立图片来源解析失败原因。
+	if _, err := deliverytemplate.ParseMessages(messages); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidInput, err)
 	}
 	return nil
@@ -173,5 +189,8 @@ func validateDraft(draft Draft) error {
 func normalizeDraft(draft Draft) Draft {
 	draft.Name = strings.TrimSpace(draft.Name)
 	draft.Messages = append([]string(nil), draft.Messages...)
+	if draft.MessageItems != nil {
+		draft.MessageItems = append([]deliverytemplate.Message{}, draft.MessageItems...)
+	}
 	return draft
 }

@@ -20,6 +20,8 @@ export interface Card {
   // 图片类型
   /** 图片卡券地址。 */
   image_url?: string;
+  /** 实际发货账号图片目录中的相对路径，不可作为浏览器图片地址。 */
+  image_path?: string;
   // 通用配置
   /** 卡券发送延迟秒数。 */
   delay_seconds?: number;

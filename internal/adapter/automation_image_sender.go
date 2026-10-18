@@ -39,6 +39,8 @@ type automationImageSenderProvider struct {
 	uploader automationImageUploader
 	// downloader 在每次发送前临时读取卡密 URL 指向的图片字节。
 	downloader automationImageDownloader
+	// localLoader 复用账号级图片沙箱，按实际发货账号读取本地素材。
+	localLoader chatapp.LocalImageLoader
 }
 
 // automationImageSender 把单个账号的原始发送器与图片下载、上传能力绑定，避免自动化领域接触协议或凭证。
@@ -51,6 +53,8 @@ type automationImageSender struct {
 	uploader automationImageUploader
 	// downloader 只在发送图片时执行远程读取。
 	downloader automationImageDownloader
+	// localLoader 只在本地素材首次准备时读取账号沙箱，补发不再次调用。
+	localLoader chatapp.LocalImageLoader
 }
 
 // NewAutomationImageSenderProvider 创建自动化中心使用的图片发送器来源。
@@ -60,6 +64,7 @@ func NewAutomationImageSenderProvider(store *db.Store, manager *accountmanager.M
 	uploader := NewChatImageUploader(store, clientProvider, manager)
 	return automationImageSenderProvider{
 		manager: manager, uploader: uploader, downloader: downloadAutomationImage,
+		localLoader: newLocalReplyImageLoader(defaultReplyImageRoot()),
 	}
 }
 
@@ -74,7 +79,7 @@ func (p automationImageSenderProvider) Sender(accountID string) (automation.Mess
 		return nil, false
 	}
 	return automationImageSender{
-		accountID: accountID, sender: sender, uploader: p.uploader, downloader: p.downloader,
+		accountID: accountID, sender: sender, uploader: p.uploader, downloader: p.downloader, localLoader: p.localLoader,
 	}, true
 }
 

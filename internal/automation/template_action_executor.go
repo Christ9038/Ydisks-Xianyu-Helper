@@ -49,7 +49,9 @@ func (e *automationActionExecutor) sendTemplate(ctx context.Context, task Task, 
 	if !actionMatchesOrderSpec(task, action) {
 		return actionExecutionResult{}, nil
 	}
-	if len(action.TemplateMessages) == 0 {
+	// messages 优先使用结构化图文计划，缺省时兼容历史字符串消息数组。
+	messages := templateMessageItems(action)
+	if len(messages) == 0 {
 		return actionExecutionResult{}, errors.New("发货模板缺少消息")
 	}
 	// state 保存模板动作在多条消息间复用的绑定和卡密正文。
@@ -59,8 +61,27 @@ func (e *automationActionExecutor) sendTemplate(ctx context.Context, task Task, 
 	}
 	// result 保存已经确认投递成功的模板消息数量和发货凭证。
 	result := actionExecutionResult{}
-	result.proof.expectedUnits = len(action.TemplateMessages)
-	for /* messageIndex、message 分别表示模板消息的零基位置和当前待渲染内容。 */ messageIndex, message := range action.TemplateMessages {
+	result.proof.expectedUnits = len(messages)
+	for /* messageIndex、item 分别表示冻结计划中的零基位置和当前图文消息。 */ messageIndex, item := range messages {
+		if item.Type == "image" {
+			if item.Content != "" {
+				return result, fmt.Errorf("%w: 图片模板消息不能同时包含文本", ErrMessageNotSent)
+			}
+			// imageResult、imageErr 是独立图片消息的计数、平台快照和失败原因，不加载任何卡密变量。
+			imageResult, imageErr := e.deliverImage(ctx, task, item.ImageURL, item.ImagePath, 0)
+			result.sent += imageResult.sent
+			result.proof = mergeShipmentDeliveryProof(result.proof, imageResult.proof)
+			result.reviewProof = mergeShipmentDeliveryProof(result.reviewProof, imageResult.reviewProof)
+			if imageErr != nil {
+				return result, imageErr
+			}
+			continue
+		}
+		if (item.Type != "" && item.Type != "text") || item.ImageURL != "" || item.ImagePath != "" {
+			return result, fmt.Errorf("%w: 发货模板消息类型或图片来源无效", ErrMessageNotSent)
+		}
+		// message 保持历史文本变量渲染与空消息库存补偿语义。
+		message := item.Content
 		// executionErr 在加载下一条模板变量之前复核执行权，防止旧动作继续消费卡密。
 		if executionErr := checkRunExecution(ctx); executionErr != nil {
 			return result, executionErr

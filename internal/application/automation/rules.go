@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"xianyu-go/internal/deliverytemplate"
 	"xianyu-go/internal/money"
 )
 
@@ -208,6 +209,8 @@ type Action struct {
 	DeliveryTemplateName string
 	// TemplateMessages 是模板动作的有序消息。
 	TemplateMessages []string
+	// TemplateMessageItems 保留图片和文本的完整顺序，旧 TemplateMessages 只含文本。
+	TemplateMessageItems []deliverytemplate.Message
 	// TemplateKeys 是模板动作需要绑定的变量键。
 	TemplateKeys []string
 	// TemplateBindings 是模板变量绑定展示列表。
