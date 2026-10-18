@@ -67,6 +67,8 @@ type cardResponse struct {
 	DataContent string `json:"data_content"`
 	// ImageURL 是图片卡券地址。
 	ImageURL string `json:"image_url"`
+	// ImagePath 是实际执行账号素材目录内的相对图片路径。
+	ImagePath string `json:"image_path"`
 	// Description 是卡券组描述。
 	Description string `json:"description"`
 	// Enabled 表示卡券组是否启用。
@@ -378,12 +380,18 @@ type itemPublishBatchListResponse struct {
 
 // itemReplyResponse 是指定商品回复接口的具名 DTO。
 type itemReplyResponse struct {
+	// ReplyOnce 是商品独立的单会话去重开关，不代表账号兜底设置。
+	ReplyOnce bool `json:"reply_once"`
 	// ItemID 是商品平台标识。
 	ItemID string `json:"item_id,omitempty"`
 	// CookieID 是账号稳定标识。
 	CookieID string `json:"cookie_id,omitempty"`
 	// ReplyContent 是指定商品的回复内容。
 	ReplyContent string `json:"reply_content"`
+	// ReplyImageURL 是商品默认回复的网络图片来源。
+	ReplyImageURL string `json:"reply_image_url,omitempty"`
+	// ReplyImagePath 是账号图片目录内的本地图片相对路径。
+	ReplyImagePath string `json:"reply_image_path,omitempty"`
 }
 
 // defaultReplyResponse 是默认回复接口的具名 DTO。
@@ -396,6 +404,8 @@ type defaultReplyResponse struct {
 	ReplyContent string `json:"reply_content"`
 	// ReplyImageURL 是默认图片回复地址。
 	ReplyImageURL string `json:"reply_image_url,omitempty"`
+	// ReplyImagePath 是账号专用图片目录内的相对文件引用。
+	ReplyImagePath string `json:"reply_image_path,omitempty"`
 	// ReplyOnce 表示是否只回复一次。
 	ReplyOnce bool `json:"reply_once"`
 }
@@ -404,7 +414,7 @@ type defaultReplyResponse struct {
 func newDefaultReplyResponse(cookieID string, reply defaultreplyapp.Reply) defaultReplyResponse {
 	return defaultReplyResponse{
 		CookieID: cookieID, Enabled: reply.Enabled, ReplyContent: reply.ReplyContent,
-		ReplyImageURL: reply.ReplyImageURL, ReplyOnce: reply.ReplyOnce,
+		ReplyImageURL: reply.ReplyImageURL, ReplyImagePath: reply.ReplyImagePath, ReplyOnce: reply.ReplyOnce,
 	}
 }
 

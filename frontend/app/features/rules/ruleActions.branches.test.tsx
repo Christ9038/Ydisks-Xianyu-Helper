@@ -211,10 +211,15 @@ describe('useRuleActions 分支', /* 当前套件覆盖校验提示、异常路�
       await hook.result.current.handleResolveRunIssue(1, 'cancel');
       await hook.result.current.handleResolveDeferredIssue(1, 'retry');
       await hook.result.current.handleDeleteDefaultReply('a');
+    });
+    // message 是自动化规则失败分支期望出现的浏览器提示。
+    for (const /* message 是各失败分支期望出现的用户提示。 */ message of ['删除失败：d', '处理失败：r', '处理失败：t']) expect(alertMock).toHaveBeenCalledWith(message);
+    // 默认回复删除失败改由页面轻提示呈现，避免阻塞式 alert。
+    expect(hook.result.current.toast).toEqual({ type: 'error', text: '操作失败：dd' });
+    await act(/* 当前回调在确认下触发记录清理失败分支。 */ async () => {
       await hook.result.current.handleClearDefaultReplyRecords('a');
     });
-    // message 是各失败分支期望出现的用户提示。
-    for (const /* message 是各失败分支期望出现的用户提示。 */ message of ['删除失败：d', '处理失败：r', '处理失败：t', '删除失败：dd', '清空失败：cc']) expect(alertMock).toHaveBeenCalledWith(message);
+    expect(hook.result.current.toast).toEqual({ type: 'error', text: '操作失败：cc' });
     hook.unmount();
   });
 
@@ -239,23 +244,32 @@ describe('useRuleActions 分支', /* 当前套件覆盖校验提示、异常路�
     // hook 是未选账号时的规则动作。
     const empty = setup({ account: '' });
     await act(/* 当前回调在未选账号时打开默认回复。 */ async () => empty.result.current.openDefaultReplyModal());
-    expect(alertMock).toHaveBeenLastCalledWith('请先选择账号');
+    // 默认回复反馈统一走页面轻提示，不再弹阻塞式 alert。
+    expect(empty.result.current.toast).toEqual({ type: 'error', text: '请先选择账号' });
     empty.unmount();
     vi.mocked(api.getDefaultReply).mockRejectedValueOnce(new Error('x'));
     // hook 是已选账号的规则动作。
     const hook = setup();
     await act(/* 当前回调读取失败后回退空配置。 */ async () => hook.result.current.openDefaultReplyModal());
     expect(hook.result.current.defaultForm).toMatchObject({ enabled: false, reply_content: '' });
+    // 读取失败时编辑器必须保持不可保存状态，避免空草稿覆盖真实配置。
+    expect(hook.result.current.defaultReplyLoadFailed).toBe(true);
+    expect(hook.result.current.defaultReplyError).toContain('加载默认回复失败');
+    vi.mocked(api.getDefaultReply).mockResolvedValueOnce({ cookie_id: 'account-1', enabled: false, reply_content: '', reply_once: false, reply_image_url: '', reply_image_path: '' });
+    await act(/* 当前回调重试成功后恢复可保存状态。 */ async () => hook.result.current.openDefaultReplyModal());
+    expect(hook.result.current.defaultReplyLoadFailed).toBe(false);
     await act(/* 当前回调保存启用但无内容的配置。 */ async () => { hook.result.current.setDefaultForm({ cookie_id: 'account-1', enabled: true, reply_content: ' ', reply_once: false, reply_image_url: '' }); });
     await act(/* 当前回调保存无内容配置。 */ async () => hook.result.current.handleSaveDefaultReply());
-    expect(alertMock).toHaveBeenLastCalledWith('启用默认回复时，请填写回复内容或图片 URL');
+    // 校验错误留在编辑器内展示，并阻止发出写入请求。
+    expect(hook.result.current.defaultReplyError).toBe('启用默认回复时，请填写回复内容或图片');
+    expect(api.updateDefaultReply).not.toHaveBeenCalled();
     act(/* 当前回调清空账号。 */ () => hook.result.current.setDefaultForm({ cookie_id: '', enabled: false, reply_content: '', reply_once: false, reply_image_url: '' }));
     await act(/* 当前回调保存无账号配置。 */ async () => hook.result.current.handleSaveDefaultReply());
-    expect(alertMock).toHaveBeenLastCalledWith('请先选择账号');
+    expect(hook.result.current.defaultReplyError).toBe('请先选择账号');
     vi.mocked(api.updateDefaultReply).mockRejectedValueOnce(new Error('sv'));
     act(/* 当前回调写入合法配置。 */ () => hook.result.current.setDefaultForm({ cookie_id: 'account-1', enabled: true, reply_content: 'hi', reply_once: false, reply_image_url: '' }));
     await act(/* 当前回调保存失败。 */ async () => hook.result.current.handleSaveDefaultReply());
-    expect(alertMock).toHaveBeenLastCalledWith(expect.stringContaining('sv'));
+    expect(hook.result.current.defaultReplyError).toContain('sv');
     hook.unmount();
   });
 

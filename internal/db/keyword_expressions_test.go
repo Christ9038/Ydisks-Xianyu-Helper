@@ -272,7 +272,8 @@ func TestMultiDBKeywordExpressionsMigration(t *testing.T) {
 			goose.SetBaseFS(migrationsFS)
 			// version、versionErr 保存回退前的迁移版本及读取错误。
 			version, versionErr := goose.GetDBVersion(target.store.DB)
-			if versionErr != nil || version != 54 {
+			// 初始版本必须是全部迁移应用后的最新版本 00057（商品默认回复按会话去重）。
+			if versionErr != nil || version != 57 {
 				t.Fatalf("initial migration version=%d err=%v", version, versionErr)
 			}
 			// downErr 保存回退关键词表达式迁移的错误。

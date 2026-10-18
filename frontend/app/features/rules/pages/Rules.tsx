@@ -25,6 +25,8 @@ import AllItemsConfirmation from '../components/AllItemsConfirmation';
 import { AutomationIssuePanel } from '../components/AutomationIssuePanel';
 import TemplateVariantEditor from '../components/TemplateVariantEditor';
 import ReplyRuleEditor from '../components/ReplyRuleEditor';
+import DefaultRepliesPanel from '../components/DefaultRepliesPanel';
+import DefaultReplyEditor from '../components/DefaultReplyEditor';
 import { useRulesData } from '../hooks';
 import { filterAutomationIssues } from '../issueState';
 import { useRuleActions } from '../ruleActions';
@@ -107,14 +109,13 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
   });
   // 解构规则动作，保持旧页面 JSX 的字段名称和行为不变。
   const {
-    showAutomationModal, setShowAutomationModal, showReplyModal, setShowReplyModal, showDefaultModal, setShowDefaultModal,
+    showAutomationModal, setShowAutomationModal, showReplyModal, setShowReplyModal,
     editingAutomationRule, setEditingAutomationRule,
-    editingReplyRule, setEditingReplyRule, defaultForm, setDefaultForm, selectedRuleItem, isMultiSpecRule, currentTrigger,
+    editingReplyRule, setEditingReplyRule, selectedRuleItem, isMultiSpecRule, currentTrigger,
     currentMeta, reviewConfig, displayVariants, openAutomationRule, openNewAutomationRule, handleTriggerChange,
     handleAutomationItemChange, updateVariant, updateAdjustPriceTarget, updateAdjustPriceNotifyText, appendDeliveryContent, handleSaveAutomationRule, handleDeleteAutomation,
     handleToggleAutomation, handleResolveRunIssue, handleResolveDeferredIssue, handleAddReplyRule, handleSaveReplyRule,
-    handleDeleteReply, toast, openDefaultReplyModal, handleSaveDefaultReply, handleDeleteDefaultReply,
-    handleClearDefaultReplyRecords,
+    handleDeleteReply, toast, openDefaultReplyModal,
   } = ruleActions;
 
   useEffect(/* 当前回调同步 React 副作用和资源生命周期。 */ () => {
@@ -140,12 +141,6 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
   const visibleAutomationIssues = useMemo(
 	/* 当前回调计算并缓存派生数据。 */ () => filterAutomationIssues(automationIssues, selectedAccountId),
 	[automationIssues, selectedAccountId],
-  );
-
-  // visibleDefaultAccounts 可见数据默认账号列表，负责当前功能中的对应处理。
-  const visibleDefaultAccounts = useMemo(
-    /* 当前回调处理集合中的单个元素。 */ () => accounts.filter(/* 当前回调处理集合中的单个元素。 */ account => !selectedAccountId || account.id === selectedAccountId),
-    [accounts, selectedAccountId],
   );
 
   // automationPageNumbers 自动化页码Numbers，负责当前功能中的对应处理。
@@ -235,7 +230,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
             ))}
           </select>
           <button
-            onClick={refresh}
+            onClick={/* 当前回调刷新页签数据，默认回复同时刷新账号兜底和商品覆盖。 */ () => void Promise.all([refresh(), activeTab === 'default' ? ruleActions.loadItemDefaultReplies() : Promise.resolve()]).catch(/* error 是页面显式刷新失败。 */ error => console.error('刷新规则页面失败', error))}
             className="px-4 py-3 rounded-2xl font-bold bg-gray-100 hover:bg-gray-200 text-gray-700 flex items-center justify-center gap-2 whitespace-nowrap transition-colors"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
@@ -256,7 +251,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
         {[
           { id: 'automation' as const, label: '交易自动化', icon: Zap },
           { id: 'reply' as const, label: '关键词回复', icon: MessageCircle },
-          { id: 'default' as const, label: '账号默认回复', icon: Bot },
+          { id: 'default' as const, label: '默认回复', icon: Bot },
         ].map(/* 当前回调处理用户交互或异步状态变化。 */ tab => {
           // Icon 渲染Icon React 组件。
           const Icon = tab.icon;
@@ -602,68 +597,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
         </section>
       )}
 
-      {activeTab === 'default' && (
-        <section className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
-          <div className="flex items-center gap-2 text-sm text-blue-700 bg-blue-50 px-4 py-2 rounded-xl mb-5 w-fit">
-            <AlertCircle className="w-4 h-4" />
-            默认回复只处理买家用户消息；关键词未命中且 AI 未接管时才会使用。
-          </div>
-          <div className="space-y-3">
-            {visibleDefaultAccounts.map(/* 当前回调处理集合中的单个元素。 */ account => {
-              // defaultReply 默认Reply，负责当前功能中的对应处理。
-              const defaultReply = defaultReplies[account.id];
-              // enabled 启用状态。
-              const enabled = Boolean(defaultReply?.enabled);
-              return (
-                <div key={account.id} className={`flex flex-col md:flex-row md:items-center justify-between p-5 rounded-2xl border transition-all gap-4 ${enabled ? 'border-purple-100 bg-purple-50/50 hover:bg-white hover:shadow-lg' : 'border-gray-100 bg-surface-subtle hover:bg-white hover:shadow-lg'}`}>
-                  <div className="flex items-center gap-4 min-w-0">
-                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${enabled ? 'bg-purple-600 text-white' : 'bg-gray-200 text-gray-400'}`}>
-                      <Bot className="w-5 h-5" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 mb-2">
-                        <h3 className="font-bold text-gray-900 text-lg truncate">{accountLabel(account)}</h3>
-                        <span className={`px-2 py-0.5 rounded-lg text-xs font-bold ${enabled ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-500'}`}>
-                          {enabled ? '已启用' : '未启用'}
-                        </span>
-                        {defaultReply?.reply_once && (
-                          <span className="px-2 py-0.5 rounded-lg text-xs font-bold bg-purple-100 text-purple-700">只回复一次</span>
-                        )}
-                      </div>
-                      <div className="text-sm text-gray-600 line-clamp-2">
-                        {enabled ? (defaultReply.reply_content || defaultReply.reply_image_url || '已配置默认回复') : '未配置默认回复'}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3 border-t md:border-t-0 md:border-l border-gray-200 pt-4 md:pt-0 md:pl-6">
-                    <button
-                      onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => void openDefaultReplyModal(account.id)}
-                      className="p-2 text-gray-400 hover:text-black hover:bg-gray-100 rounded-xl transition-colors"
-                      title="编辑"
-                    >
-                      <Edit className="w-4 h-4" />
-                    </button>
-                    {enabled && (
-                      <>
-                        <button
-                          onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => void handleClearDefaultReplyRecords(account.id)}
-                          className="px-3 py-2 text-xs font-bold text-blue-600 hover:bg-blue-50 rounded-xl transition-colors"
-                        >
-                          清空记录
-                        </button>
-                        <button onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => void handleDeleteDefaultReply(account.id)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors" title="删除">
-                          <Trash2 className="w-5 h-5" />
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-            {visibleDefaultAccounts.length === 0 && <div className="text-center py-20 text-gray-400">暂无账号</div>}
-          </div>
-        </section>
-      )}
+      {activeTab === 'default' && <DefaultRepliesPanel selectedAccountId={selectedAccountId} accounts={accounts} replies={defaultReplies} items={items} actions={ruleActions} />}
 
       {showAutomationModal && editingAutomationRule && createPortal(
         <div className="modal-overlay">
@@ -1094,108 +1028,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
         />
       )}
 
-      {showDefaultModal && createPortal(
-        <div className="modal-overlay">
-          <div className="modal-container">
-            <div className="modal-header">
-              <div className="flex items-center justify-between w-full">
-                <div>
-                  <h3 className="text-2xl font-extrabold text-gray-900">账号默认回复</h3>
-                  <p className="text-sm text-gray-500 mt-1">关键词和 AI 都未处理时，才会使用默认回复。</p>
-                </div>
-                <button
-                  onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setShowDefaultModal(false)}
-                  className="p-2 bg-gray-100 rounded-full hover:bg-gray-200 transition-colors"
-                  title="关闭"
-                >
-                  <X className="w-5 h-5 text-gray-600" />
-                </button>
-              </div>
-            </div>
-
-            <div className="modal-body space-y-5">
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">闲鱼账号</label>
-                <select
-                  value={defaultForm.cookie_id}
-                  onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setDefaultForm({ ...defaultForm, cookie_id: event.target.value })}
-                  className="w-full ios-input px-4 py-3 rounded-xl"
-                >
-                  <option value="">选择账号</option>
-                  {accounts.map(/* 当前回调处理集合中的单个元素。 */ account => (
-                    <option key={account.id} value={account.id}>{accountLabel(account)}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
-                <div>
-                  <div className="font-bold text-gray-900">启用默认回复</div>
-                  <div className="text-xs text-gray-500 mt-1">启用后，未命中关键词时自动发送</div>
-                </div>
-                <button
-                  type="button"
-                  onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setDefaultForm({ ...defaultForm, enabled: !defaultForm.enabled })}
-                  className={`w-14 h-8 rounded-full transition-colors duration-300 relative ${defaultForm.enabled ? 'bg-brand' : 'bg-gray-300'}`}
-                >
-                  <span className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow-md transition-transform duration-300 block ${defaultForm.enabled ? 'translate-x-7' : 'translate-x-1'}`} />
-                </button>
-              </div>
-
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">回复内容</label>
-                <textarea
-                  value={defaultForm.reply_content}
-                  onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setDefaultForm({ ...defaultForm, reply_content: event.target.value })}
-                  placeholder="输入默认回复内容"
-                  className="w-full ios-input px-4 py-3 rounded-xl h-32 resize-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">回复图片 URL（可选）</label>
-                <input
-                  type="text"
-                  value={defaultForm.reply_image_url}
-                  onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setDefaultForm({ ...defaultForm, reply_image_url: event.target.value })}
-                  placeholder="https://example.com/image.jpg"
-                  className="w-full ios-input px-4 py-3 rounded-xl"
-                />
-              </div>
-
-              <label className="flex items-center justify-between p-4 bg-gray-50 rounded-xl text-sm font-bold text-gray-800">
-                <span>
-                  只回复一次
-                  <span className="block text-xs text-gray-500 font-medium mt-1">同一会话只发送一次默认回复</span>
-                </span>
-                <input
-                  type="checkbox"
-                  checked={defaultForm.reply_once}
-                  onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setDefaultForm({ ...defaultForm, reply_once: event.target.checked })}
-                  className="w-4 h-4 rounded"
-                />
-              </label>
-
-              <div className="flex gap-3 pt-4">
-                <button
-                  onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setShowDefaultModal(false)}
-                  className="flex-1 px-6 py-3 rounded-xl font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
-                >
-                  取消
-                </button>
-                <button
-                  onClick={handleSaveDefaultReply}
-                  className="flex-1 ios-btn-primary px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2"
-                >
-                  <Save className="w-4 h-4" />
-                  保存默认回复
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
+      <DefaultReplyEditor accounts={accounts} items={items} actions={ruleActions} />
 
       <Toast toast={toast} />
     </div>

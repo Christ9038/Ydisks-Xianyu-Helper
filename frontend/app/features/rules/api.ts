@@ -8,6 +8,7 @@ AutomationTriggerType,
 Card,
 DefaultReply,
 DefaultReplyResponse,
+ItemDefaultReply,
 Item,
 DeliveryTemplate,
 DeliveryTemplateBinding,
@@ -612,18 +613,20 @@ export const getDefaultReply = async (cookieId: string): Promise<DefaultReply> =
     enabled: result.enabled || false,
     reply_content: result.reply_content || '',
     reply_once: result.reply_once || false,
-    reply_image_url: result.reply_image_url || ''
+    reply_image_url: result.reply_image_url || '',
+    reply_image_path: result.reply_image_path || '',
   };
 };
 
-// updateDefaultReply 更新默认回复。
+// updateDefaultReply 提交账号默认回复的完整表单，显式清空另一种图片来源以避免残留。
 export const updateDefaultReply = async (cookieId: string, data: Partial<DefaultReply>): Promise<OperationResponse> => {
-  return runContractRequest(/* signal 控制默认回复更新请求的取消和超时。 */ signal => contractClient.PUT('/api/v1/default-replies/{cid}', { params: { path: { cid: cookieId }, }, body: {
+  return runContractRequest(/* signal 控制默认回复更新请求的取消和超时。 */ signal => contractClient.PUT('/api/v1/default-replies/{cid}', { params: { path: { cid: cookieId } }, body: {
     enabled: data.enabled ?? false,
     reply_content: data.reply_content || '',
     reply_once: data.reply_once ?? false,
-    reply_image_url: data.reply_image_url || ''
-  } as never, signal }));
+    reply_image_url: data.reply_image_url || '',
+    reply_image_path: data.reply_image_path || '',
+  }, signal }));
 };
 
 // deleteDefaultReply 删除默认回复。
@@ -635,3 +638,40 @@ export const deleteDefaultReply = async (cookieId: string): Promise<OperationRes
 export const clearDefaultReplyRecords = async (cookieId: string): Promise<OperationResponse> => {
 	return runContractRequest(/* signal 控制默认回复记录清理请求的取消和超时。 */ signal => contractClient.POST('/api/v1/default-replies/{cid}/clear-records', { params: { path: { cid: cookieId } }, body: {} as never, signal }));
 };
+
+/** normalizeItemDefaultReply 将历史纯文字商品回复补齐为图文表单，缺少商品去重字段时独立回退为false。 */
+const normalizeItemDefaultReply = (reply: Partial<ItemDefaultReply>, cookieID = '', itemID = ''): ItemDefaultReply => ({
+  reply_once: reply.reply_once ?? false,
+  cookie_id: reply.cookie_id || cookieID,
+  item_id: reply.item_id || itemID,
+  reply_content: reply.reply_content || '',
+  reply_image_url: reply.reply_image_url || '',
+  reply_image_path: reply.reply_image_path || '',
+});
+
+/** getItemDefaultReplies 读取当前用户的商品默认回复，options 可取消列表加载。 */
+export const getItemDefaultReplies = async (options?: RequestControlOptions): Promise<ItemDefaultReply[]> => {
+  // response 保留契约客户端返回值，由 feature adapter 兼容历史包裹形状。
+  const response = await runContractRequest(/* signal 控制商品默认回复列表请求。 */ signal => contractClient.GET('/api/v1/reply-rules/items', { signal }), options);
+  return collectionFrom<Partial<ItemDefaultReply>>(response, ['data', 'items']).map(/* reply 是一条账号隔离的商品回复。 */ reply => normalizeItemDefaultReply(reply));
+};
+
+/** getItemDefaultReply 读取指定账号商品的配置，未配置时后端返回空正文。 */
+export const getItemDefaultReply = async (cookieID: string, itemID: string): Promise<ItemDefaultReply> => {
+  // response 是商品回复 DTO，缺少图片字段的旧结果仍可编辑。
+  const response = await runContractRequest(/* signal 控制单个商品回复读取。 */ signal => contractClient.GET('/api/v1/reply-rules/items/{cookie_id}/{item_id}', { params: { path: { cookie_id: cookieID, item_id: itemID } }, signal }));
+  return normalizeItemDefaultReply(response, cookieID, itemID);
+};
+
+/** updateItemDefaultReply 保存商品图文及独立会话去重，不发送账号启用开关；缺省 once 留给服务端兼容保留。 */
+export const updateItemDefaultReply = async (cookieID: string, itemID: string, reply: Pick<ItemDefaultReply, 'reply_content' | 'reply_image_url' | 'reply_image_path' | 'reply_once'>): Promise<OperationResponse> =>
+  runContractRequest(/* signal 控制商品默认回复保存。 */ signal => contractClient.PUT('/api/v1/reply-rules/items/{cookie_id}/{item_id}', { params: { path: { cookie_id: cookieID, item_id: itemID } }, body: {
+    reply_content: reply.reply_content,
+    reply_once: reply.reply_once,
+    reply_image_url: reply.reply_image_url,
+    reply_image_path: reply.reply_image_path,
+  }, signal }));
+
+/** deleteItemDefaultReply 删除商品专属配置，使之后的消息重新使用账号兜底。 */
+export const deleteItemDefaultReply = async (cookieID: string, itemID: string): Promise<OperationResponse> =>
+  runContractRequest(/* signal 控制商品默认回复删除。 */ signal => contractClient.DELETE('/api/v1/reply-rules/items/{cookie_id}/{item_id}', { params: { path: { cookie_id: cookieID, item_id: itemID } }, signal }));

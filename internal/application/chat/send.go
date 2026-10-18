@@ -71,6 +71,8 @@ type ReplyInput struct {
 	Text string
 	// ImageURL 保存可选的来源图片地址；发送时会先下载并复用 SendImage 上传链路。
 	ImageURL string
+	// ImagePath 保存账号素材目录内的相对图片路径；与 ImageURL 互斥，仅用于默认回复。
+	ImagePath string
 }
 
 // ReplyResult 是完整回复的分段投递结果，用于调用方恢复一次性回复状态。
@@ -174,31 +176,31 @@ func (s *Service) ImageUploadAvailable() bool {
 	return s != nil && s.uploader != nil
 }
 
-// SendReply 按消息页面的统一发送规则投递一条完整回复，图片先发送、文字随后发送。
-// 图片 URL 会先进入 SendImage 的上传、真实尺寸透传和本地状态收口链路，不再由自动回复直接调用 WebSocket。
+// SendReply 按消息页面的统一发送规则投递 input，图片先发送、文字随后发送。
+// URL 和本地图片均复用 SendImage 的上传、尺寸与状态收口；图片失败时不继续发送文字。
 func (s *Service) SendReply(ctx context.Context, input ReplyInput) (*ReplyResult, error) {
-	// session、text 和 imageURL 保存规范化后的完整回复内容。
-	session, text, imageURL, normalizeErr := normalizeReplyInput(input)
+	// reply 和 normalizeErr 保存规范化后的完整回复及输入校验结果。
+	reply, normalizeErr := normalizeReplyInput(input)
 	if normalizeErr != nil {
 		return nil, normalizeErr
 	}
-	if s == nil || s.outgoing == nil || s.senders == nil || (imageURL != "" && (s.uploader == nil || s.imageDownloader == nil)) {
+	if s == nil || s.outgoing == nil || s.senders == nil {
 		return nil, ErrUnavailable
 	}
 	// result 保存图片和文字两个分段的本地消息及平台确认状态。
 	result := &ReplyResult{}
-	if imageURL != "" {
-		// imageMessage 和 imageErr 保存公开 URL 图片发送入口的结果及错误。
-		imageMessage, imageErr := s.SendImageURL(ctx, ImageURLInput{Session: session, ImageURL: imageURL})
+	if reply.ImageURL != "" || reply.ImagePath != "" {
+		// imageMessage 和 imageErr 保存统一图片发送入口的结果及错误。
+		imageMessage, imageErr := s.sendReplyImage(ctx, reply)
 		result.Image = imageMessage
 		result.ImageSent = replyPartDelivered(imageMessage, imageErr)
 		if imageErr != nil {
 			return result, imageErr
 		}
 	}
-	if text != "" {
+	if reply.Text != "" {
 		// textMessage 和 textErr 保存统一文字发送入口的结果及错误。
-		textMessage, textErr := s.SendText(ctx, OutgoingInput{Session: session, Text: text})
+		textMessage, textErr := s.SendText(ctx, OutgoingInput{Session: reply.Session, Text: reply.Text})
 		result.Text = textMessage
 		result.TextSent = replyPartDelivered(textMessage, textErr)
 		if textErr != nil {
@@ -420,21 +422,20 @@ func normalizeOutgoingInput(session Session, text string) (Session, string, erro
 	return session, text, nil
 }
 
-// normalizeReplyInput 校验并规范化完整回复输入，至少要求文字或图片存在其一。
-func normalizeReplyInput(input ReplyInput) (Session, string, string, error) {
-	// session、text 和 imageURL 保存去除空白后的回复定位和内容。
-	session := input.Session
-	session.AccountID = strings.TrimSpace(session.AccountID)
-	session.ChatID = strings.TrimSpace(session.ChatID)
-	session.PeerUserID = strings.TrimSpace(session.PeerUserID)
-	// text 保存去除首尾空白后的文字回复。
-	text := strings.TrimSpace(input.Text)
-	// imageURL 保存去除首尾空白后的图片回复地址。
-	imageURL := strings.TrimSpace(input.ImageURL)
-	if session.AccountID == "" || session.ChatID == "" || session.PeerUserID == "" || (text == "" && imageURL == "") || len([]rune(text)) > 2000 {
-		return Session{}, "", "", ErrSendInvalidInput
+// normalizeReplyInput 规范化 input 的会话与内容，返回至少包含一个分段且图片来源不冲突的回复。
+func normalizeReplyInput(input ReplyInput) (ReplyInput, error) {
+	input.Session.AccountID = strings.TrimSpace(input.Session.AccountID)
+	input.Session.ChatID = strings.TrimSpace(input.Session.ChatID)
+	input.Session.PeerUserID = strings.TrimSpace(input.Session.PeerUserID)
+	input.Text = strings.TrimSpace(input.Text)
+	input.ImageURL = strings.TrimSpace(input.ImageURL)
+	input.ImagePath = strings.TrimSpace(input.ImagePath)
+	if input.Session.AccountID == "" || input.Session.ChatID == "" || input.Session.PeerUserID == "" ||
+		(input.Text == "" && input.ImageURL == "" && input.ImagePath == "") || len([]rune(input.Text)) > 2000 ||
+		(input.ImageURL != "" && input.ImagePath != "") {
+		return ReplyInput{}, ErrSendInvalidInput
 	}
-	return session, text, imageURL, nil
+	return input, nil
 }
 
 // messagePointer 在状态更新返回空值时回退到已创建消息，确保错误响应仍能携带幂等键。

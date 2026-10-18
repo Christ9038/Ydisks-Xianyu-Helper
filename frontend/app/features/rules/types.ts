@@ -45,18 +45,26 @@ export interface RulesProps {
   onDeliveryTargetHandled?: () => void;
 }
 
-// DefaultReplyForm 表示账号默认回复弹窗的可编辑字段。
+// DefaultReplyForm 表示账号或商品默认回复的编辑草稿，图片来源是表单状态而非 HTTP 字段。
 export interface DefaultReplyForm {
   // cookie_id 表示默认回复所属账号。
   cookie_id: string;
-  // enabled 表示是否启用默认回复。
+  // scope 区分账号兜底与商品专属配置；旧草稿缺省为账号。
+  scope?: 'account' | 'item';
+  // item_id 是商品专属配置绑定的商品标识。
+  item_id?: string;
+  // enabled 仅控制账号兜底，商品配置保持独立生效。
   enabled: boolean;
   // reply_content 表示默认文字回复内容。
   reply_content: string;
-  // reply_once 表示是否只对每个会话回复一次。
+  // reply_once 仅控制账号兜底是否对每个会话回复一次。
   reply_once: boolean;
+  // image_source 保存当前选择的输入方式，允许 URL 或本地路径尚未填写。
+  image_source?: 'none' | 'url' | 'local';
   // reply_image_url 表示可选的默认图片地址。
   reply_image_url: string;
+  // reply_image_path 是账号专用图片目录内的相对路径。
+  reply_image_path?: string;
 }
 
 // TriggerMeta 描述自动化触发类型在页面中的展示元数据。

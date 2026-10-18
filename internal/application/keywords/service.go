@@ -123,12 +123,18 @@ type Draft struct {
 
 // ItemReply 是指定商品回复的应用层模型。
 type ItemReply struct {
+	// ReplyOnce 仅对同一账号、商品、会话去重，默认关闭且不继承账号兜底开关。
+	ReplyOnce bool
 	// ItemID 是指定商品标识。
 	ItemID string
 	// CookieID 是回复所属账号标识。
 	CookieID string
 	// ReplyContent 是商品命中后的回复正文。
 	ReplyContent string
+	// ReplyImageURL 是商品默认回复的网络图片来源。
+	ReplyImageURL string
+	// ReplyImagePath 是账号专用图片目录中的相对文件引用。
+	ReplyImagePath string
 }
 
 // Repository 定义关键词用例所需的最小持久化能力。
@@ -152,6 +158,8 @@ type Repository interface {
 	GetItemReply(ctx context.Context, userID int64, cookieID, itemID string) (ItemReply, error)
 	// SetItemReply 覆盖指定用户账号和商品的回复。
 	SetItemReply(ctx context.Context, userID int64, cookieID, itemID, content string) error
+	// UpdateItemReply 在账号事务内把最新配置交给 build；回调失败不写入且不得执行外部 I/O。
+	UpdateItemReply(ctx context.Context, userID int64, cookieID, itemID string, build func(ItemReply) (ItemReply, error)) error
 	// DeleteItemReply 删除指定用户账号和商品的回复。
 	DeleteItemReply(ctx context.Context, userID int64, cookieID, itemID string) error
 }

@@ -338,6 +338,8 @@ type APIRequestTesterPort interface {
 type DefaultRepliesPort interface {
 	Get(context.Context, int64, string) (defaultreplyapp.Reply, error)
 	Upsert(context.Context, int64, string, defaultreplyapp.Reply) error
+	// Update 合并 cookieID 的图片缺省字段，draft 中显式空串负责清除来源。
+	Update(ctx context.Context, userID int64, cookieID string, draft defaultreplyapp.Draft) error
 	List(context.Context, int64) ([]defaultreplyapp.Summary, error)
 	Delete(context.Context, int64, string) error
 	ClearRecords(context.Context, int64, string) error
@@ -354,6 +356,8 @@ type KeywordsPort interface {
 	ListItemReplies(context.Context, int64) ([]keywordsapp.ItemReply, error)
 	GetItemReply(context.Context, int64, string, string) (keywordsapp.ItemReply, error)
 	SetItemReply(context.Context, int64, string, string, string) error
+	// SetItemReplyDraft 合并 userID 所属账号 cookieID 下 itemID 的图文配置，图片缺省不擦除旧值。
+	SetItemReplyDraft(ctx context.Context, userID int64, cookieID, itemID string, draft keywordsapp.ItemReplyDraft) error
 	DeleteItemReply(context.Context, int64, string, string) error
 }
 
