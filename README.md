@@ -432,9 +432,11 @@ This project receives discussion and feedback from the LINUX DO community:
 
 ### Sponsor the project
 
-If this project is useful to you, you can support its continued development with USDT on the BNB Smart Chain
-(BSC, BEP-20):
+If this project is useful to you, you can support its continued development with USDT or USDC on the BNB Smart
+Chain (BSC, BEP-20):
 
 `0xc7b77931af39e292bfcadef6228a067ad5a69e3a`
 
-Send USDT only on BNB Smart Chain (BEP-20). Transfers on other networks may be lost.
+![USDT and USDC sponsor QR code on BNB Smart Chain (BEP-20)](docs/img/sponsor-bsc.png)
+
+Send USDT or USDC only on BNB Smart Chain (BEP-20). Transfers on other networks may be lost.
