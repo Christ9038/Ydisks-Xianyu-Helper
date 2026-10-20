@@ -268,8 +268,33 @@ func TestPrepareTaskGapBranches(t *testing.T) {
 		// center 的详情查询返回空详情。
 		center := NewWithDependencies(store, nil, nil, CenterDependencies{OrderDetailFetcher: testFetcher{}})
 		// err 保存被测调用返回的错误，用于断言失败分支是否按预期触发；got 保存被测函数的实际返回值，供断言比较。
-		if got, err := center.prepareTask(ctx, paid); err != nil || got.OrderID != "prep-order" {
-			t.Fatalf("got=%+v err=%v", got, err)
+		if got, err := center.prepareTask(ctx, paid); err == nil || !strings.Contains(err.Error(), "购买数量") {
+			t.Fatalf("没有可靠数量时应拒绝自动发货: got=%+v err=%v", got, err)
+		}
+		// withQuantity 已带可靠数量的付款任务，详情为空时仍可继续。
+		withQuantity := paid
+		withQuantity.Quantity = "2"
+		// got、err 保存已有可靠数量任务的准备结果。
+		if got, err := center.prepareTask(ctx, withQuantity); err != nil || got.OrderID != "prep-order" || got.Quantity != "2" {
+			t.Fatalf("已有可靠数量应继续: got=%+v err=%v", got, err)
+		}
+	})
+	t.Run("详情缺少数量不默认一件", func(t *testing.T) {
+		// store、cleanup 保存隔离数据库。
+		store, cleanup := newAutomationTestStore(t)
+		defer cleanup()
+		// center 的详情查询成功但没有返回购买数量。
+		center := NewWithDependencies(store, nil, nil, CenterDependencies{OrderDetailFetcher: testFetcher{detail: &OrderDetail{Amount: "9.9"}}})
+		// err 保存缺少数量时的准备阶段错误。
+		if _, err := center.prepareTask(ctx, paid); err == nil || !strings.Contains(err.Error(), "购买数量") {
+			t.Fatalf("缺少数量应拒绝自动发货: %v", err)
+		}
+		// invalid 的数量文本无法识别，同样不得退化为一件。
+		invalid := paid
+		invalid.Quantity = "abc"
+		// err 保存无法识别数量时的准备阶段错误。
+		if _, err := center.prepareTask(ctx, invalid); err == nil {
+			t.Fatal("无法识别的数量应拒绝自动发货")
 		}
 	})
 	t.Run("详情写回失败", func(t *testing.T) {

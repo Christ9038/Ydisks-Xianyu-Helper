@@ -671,7 +671,7 @@ func (c *Center) prepareTask(ctx context.Context, task Task) (Task, error) {
 		return task, err
 	}
 	if detail == nil {
-		return task, nil
+		return task, requireReliablePaidQuantity(task)
 	}
 	if detail.Quantity != "" {
 		task.Quantity = detail.Quantity
@@ -702,7 +702,7 @@ func (c *Center) prepareTask(ctx context.Context, task Task) (Task, error) {
 	}); err != nil {
 		return task, fmt.Errorf("保存订单详情事实: %w", err)
 	}
-	return task, nil
+	return task, requireReliablePaidQuantity(task)
 }
 
 // executeAction 将具体动作委托给发货动作执行器。

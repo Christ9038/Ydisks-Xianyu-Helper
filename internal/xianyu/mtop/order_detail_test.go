@@ -173,8 +173,8 @@ func TestSplitOrderSpecTextHandlesSegments(t *testing.T) {
 	}
 }
 
-// TestFetchOrderDetailMissingBuyAmountDefaultsTo1: components 无 buyAmount 时 Quantity 默认 "1"。
-func TestFetchOrderDetailMissingBuyAmountDefaultsTo1(t *testing.T) {
+// TestFetchOrderDetailMissingBuyAmountKeepsQuantityEmpty: components 无 buyAmount 时 Quantity 保持为空，绝不默认成 "1" 导致少发卡密。
+func TestFetchOrderDetailMissingBuyAmountKeepsQuantityEmpty(t *testing.T) {
 	// server 用于本次流程后续判断的server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"components":[{"render":"orderInfoVO","data":{"itemInfo":{}}}]}}`)
@@ -188,8 +188,8 @@ func TestFetchOrderDetailMissingBuyAmountDefaultsTo1(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err=%v", err)
 	}
-	if res.Quantity != "1" {
-		t.Fatalf("Quantity=%q want 1", res.Quantity)
+	if res.Quantity != "" {
+		t.Fatalf("缺少 buyAmount 时 Quantity=%q，应保持为空", res.Quantity)
 	}
 }
 
@@ -317,7 +317,7 @@ func TestFetchOrderDetailTokenExpiredRefreshesInline(t *testing.T) {
 }
 
 // TestFetchOrderDetailNoOrderInfoComponent: SUCCESS 但无 orderInfoVO component，
-// Quantity 默认 1，其他字段空。
+// 所有字段保持为空。
 // TestFetchOrderDetailNoOrderInfoComponent 封装TestFetch订单DetailNo订单InfoComponent业务协调。
 func TestFetchOrderDetailNoOrderInfoComponent(t *testing.T) {
 	// server 用于本次流程后续判断的server
@@ -333,7 +333,7 @@ func TestFetchOrderDetailNoOrderInfoComponent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err=%v", err)
 	}
-	if res.Quantity != "1" || res.Amount != "" || res.OrderStatus != "" {
+	if res.Quantity != "" || res.Amount != "" || res.OrderStatus != "" {
 		t.Fatalf("res=%+v", res)
 	}
 }
