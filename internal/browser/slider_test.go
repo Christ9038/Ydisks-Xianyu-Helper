@@ -10,8 +10,21 @@ import (
 func TestGenerateTrajectoryShape(t *testing.T) {
 	// pts 是本次生成的轨迹采样点，用于核验水平移动的边界与顺序。
 	pts := generateTrajectory(200, 34)
-	if len(pts) < 8 || len(pts) > 12 {
-		t.Fatalf("主引擎应生成 8 至 12 个高层点，got %d", len(pts))
+	if len(pts) < 60 || len(pts) > 90 {
+		t.Fatalf("主引擎应生成 60 至 90 个高层点，got %d", len(pts))
+	}
+	// seenMin、seenMax 记录多次采样的最少和最多锚点数，确认范围内的随机性且不越界。
+	seenMin, seenMax := len(pts), len(pts)
+	for sample := 0; sample < 300; sample++ {
+		// count 是本次采样生成的锚点数量。
+		count := len(generateTrajectory(200, 34))
+		if count < 60 || count > 90 {
+			t.Fatalf("锚点数越界: %d", count)
+		}
+		seenMin, seenMax = min(seenMin, count), max(seenMax, count)
+	}
+	if seenMax == seenMin {
+		t.Fatalf("锚点数应在 60–90 内随机变化，300 次采样均为 %d", seenMin)
 	}
 	// last 是最后一个鼠标目标点；其 X 应位于可用距离外的受控超调范围。
 	last := pts[len(pts)-1]

@@ -121,7 +121,7 @@ slider.addEventListener('click', event => {
 	if moveCountErr != nil || durationErr != nil || verticalSpanErr != nil || overshootErr != nil {
 		t.Fatalf("真实滑动状态字段无效: %#v", motionValues)
 	}
-	if moveCount < 8 || durationMS < 450 || durationMS > 1300 || verticalSpan < 20 || verticalSpan > 24 || overshoot < 4 || overshoot > 20 {
+	if moveCount < 60 || durationMS < 450 || durationMS > 1300 || verticalSpan < 20 || verticalSpan > 24 || overshoot < 4 || overshoot > 20 {
 		t.Fatalf("真实轨迹应包含连续多点、提速后的墙钟范围、半轨道高度纵向范围和受控超调: moves=%.0f duration_ms=%.0f vertical_span=%.0f overshoot=%.0f", moveCount, durationMS, verticalSpan, overshoot)
 	}
 }

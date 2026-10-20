@@ -35,6 +35,9 @@ const (
 	// sliderMovementMinDuration、sliderMovementMaxDuration 是主引擎按下到释放的目标墙钟范围，较上一版提速一倍。
 	sliderMovementMinDuration = 550 * time.Millisecond
 	sliderMovementMaxDuration = 1050 * time.Millisecond
+	// sliderMinTrajectoryPoints、sliderMaxTrajectoryPoints 是主引擎每次拖动生成的高层轨迹锚点数量范围（含端点）。
+	sliderMinTrajectoryPoints = 60
+	sliderMaxTrajectoryPoints = 90
 )
 
 // trajectoryPoint 轨迹中的单个采样点。
@@ -66,10 +69,11 @@ type sliderResetResult struct {
 // generateTrajectory 根据 distance 和 verticalSpan 生成标准 NC 的单调三阶段曲线锚点。
 // distance 是按钮可用移动距离；verticalSpan 是 Y 轴峰峰值，锚点之间由连续微移动连接，末点会受控超出可用距离。
 func generateTrajectory(distance, verticalSpan float64) []trajectoryPoint {
-	// requestedSteps 是本次高层鼠标移动采样数，范围避免固定轨迹特征，同时保持在 Chromium CDP 的低开销区间。
-	requestedSteps := 8 + rng.Intn(5)
+	// requestedSteps 是本次高层鼠标移动采样数，取 60–90 个锚点以避免稀疏轨迹特征；总时长仍由墙钟预算约束，不会因点数增多而拉长。
+	requestedSteps := sliderMinTrajectoryPoints + rng.Intn(sliderMaxTrajectoryPoints-sliderMinTrajectoryPoints+1)
 	// averageDelay 是各采样点的基础等待秒数；实际总时长由 simulateSlide 的墙钟预算补偿。
-	averageDelay := randomFloat(0.045, 0.085)
+	// 按锚点数等比缩小，使相对时长权重总和保持与原 8–12 点时相当的量级（约 0.45–0.85s），诊断中的计划时长语义不变。
+	averageDelay := randomFloat(0.045, 0.085) * 10 / float64(requestedSteps)
 	// accelRatio、decelRatio 分别限定加速和减速阶段所占轨迹比例，余量构成中速前进阶段。
 	accelRatio := randomFloat(0.26, 0.34)
 	decelRatio := randomFloat(0.24, 0.32)
@@ -146,8 +150,8 @@ func expandContinuousTrajectory(points []trajectoryPoint, target time.Duration) 
 		if segmentDuration <= 0 {
 			segmentDuration = time.Nanosecond
 		}
-		// eventCount 是本段需要发出的微移动数量，预留节奏变化空间且至少两个事件以避免跨锚点跳跃。
-		eventCount := max(2, int(math.Ceil(float64(segmentDuration)/float64(sliderContinuousEventMaxInterval)*1.34)))
+		// eventCount 是本段需要发出的微移动数量，预留节奏变化空间且至少一个事件；锚点已达 60 个以上，相邻锚点本身就是连续轨迹，不再额外插值，避免真实 CDP 事件总数翻倍而拖慢墙钟时间。
+		eventCount := max(1, int(math.Ceil(float64(segmentDuration)/float64(sliderContinuousEventMaxInterval)*1.34)))
 		// rhythmPhase、rhythmRate 为本段节奏曲线的随机相位和周期，产生平滑的快慢变化而不是逐点抖动。
 		rhythmPhase := randomFloat(0, 2*math.Pi)
 		rhythmRate := randomFloat(0.8, 1.6)
