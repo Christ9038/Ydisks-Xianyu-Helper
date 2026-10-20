@@ -51,83 +51,39 @@ func chatOnlyPaidTask() Task {
 	return Task{Source: "ws", AccountID: "cid", TriggerType: TriggerOrderPaid, ChatID: "simple-chat"}
 }
 
-// TestChatOnlyPaidEventNeverGuessesOrder 验证只有会话标识的付款事件不按会话猜测订单：
-// 无论同会话存在待发货订单还是已发货订单，都不发卡、不创建运行，而是延期等待订单同步。
-func TestChatOnlyPaidEventNeverGuessesOrder(t *testing.T) {
+// TestPaidEventWithoutOrderIDNeverGuessesOrder 验证缺订单号的付款事件不按会话猜测订单：
+// 即使带买家和商品，同会话存在待发货或已发货订单时也不发卡、不创建运行，而是延期等待订单同步。
+func TestPaidEventWithoutOrderIDNeverGuessesOrder(t *testing.T) {
+	// tasks 覆盖只有会话标识，以及带买家和商品但仍无订单号的两种付款事件。
+	tasks := map[string]Task{"仅会话": chatOnlyPaidTask(), "会话买家商品": simplifiedPaidTask()}
 	// status 依次覆盖同会话旧订单仍待发货与已发货两种情形。
 	for _, status := range []string{"pending_ship", "shipped"} {
-		t.Run(status, func(t *testing.T) {
-			// store、cleanup 提供隔离数据库及关闭责任。
-			store, cleanup := newAutomationTestStore(t)
-			defer cleanup()
-			seedSimplifiedEventFixture(t, store, status)
-			// sender 记录任何不应发生的买家消息副作用。
-			sender := &testSender{}
-			// center 使用真实事实记录和运行协调器。
-			center := New(store, testSenderProvider{sender: sender}, nil)
-			// handleErr 保存事件处理结果，期望延期而非报错。
-			if handleErr := center.HandleTask(context.Background(), chatOnlyPaidTask()); handleErr != nil {
-				t.Fatalf("会话事件延期不应返回错误: %v", handleErr)
-			}
-			// pending、runs 是处理后的延期任务数与运行数。
-			pending, runs := countPendingAndRuns(t, store)
-			if pending != 1 || runs != 0 || len(sender.texts) != 0 {
-				t.Fatalf("仅会话标识不应关联订单: pending=%d runs=%d messages=%v", pending, runs, sender.texts)
-			}
-		})
+		// name、task 是当前事件形态及其任务。
+		for name, task := range tasks {
+			t.Run(status+"/"+name, func(t *testing.T) {
+				// store、cleanup 提供隔离数据库及关闭责任。
+				store, cleanup := newAutomationTestStore(t)
+				defer cleanup()
+				seedSimplifiedEventFixture(t, store, status)
+				// sender 记录任何不应发生的买家消息副作用。
+				sender := &testSender{}
+				// center 使用真实事实记录和运行协调器。
+				center := New(store, testSenderProvider{sender: sender}, nil)
+				// handleErr 保存事件处理结果，期望延期而非报错。
+				if handleErr := center.HandleTask(context.Background(), task); handleErr != nil {
+					t.Fatalf("缺订单号事件延期不应返回错误: %v", handleErr)
+				}
+				// pending、runs 是处理后的延期任务数与运行数。
+				pending, runs := countPendingAndRuns(t, store)
+				if pending != 1 || runs != 0 || len(sender.texts) != 0 {
+					t.Fatalf("缺订单号不应关联订单: pending=%d runs=%d messages=%v", pending, runs, sender.texts)
+				}
+			})
+		}
 	}
 }
 
-// TestPaidEventDoesNotRelinkPendingOrderWithPaidRun 验证待发货订单已有付款运行时，缺订单号的付款事件不再关联到它。
-func TestPaidEventDoesNotRelinkPendingOrderWithPaidRun(t *testing.T) {
-	// store、cleanup 提供隔离数据库及关闭责任。
-	store, cleanup := newAutomationTestStore(t)
-	defer cleanup()
-	seedSimplifiedEventFixture(t, store, "pending_ship")
-	// ctx 限制本测试的数据库访问生命周期。
-	ctx := context.Background()
-	// ruleErr 保存规则创建错误；运行记录的外键需要真实规则。
-	admin, adminErr := store.Users.GetByUsername(ctx, "admin")
-	if adminErr != nil || admin == nil {
-		t.Fatalf("读取测试管理员失败: %v", adminErr)
-	}
-	// cardID 是付款动作所需的卡密组。
-	cardID := catchupCard(t, store, admin.ID)
-	// ruleID 是账号级付款规则。
-	ruleID := catchupRule(t, store, admin.ID, "cid", "simple-item", []db.AutomationActionInput{catchupCardAction(cardID)})
-	catchupRun(t, store, ruleID, "cid", "simple-order", "{}")
-	// center 使用真实事实记录和运行协调器。
-	center := New(store, testSenderProvider{sender: &testSender{}}, nil)
-	// resolved、resolveErr 是按会话补齐后的任务及错误。
-	resolved, resolveErr := center.resolvePaidTaskOrder(ctx, simplifiedPaidTask())
-	if resolveErr != nil || resolved.OrderID != "" {
-		t.Fatalf("已有付款运行的订单不应再被关联: task=%+v err=%v", resolved, resolveErr)
-	}
-}
-
-// TestSimplifiedPaidEventAfterShippedOrderIsResolvedWithoutDeferral 验证完整事件已让订单发货后，
-// 同会话的简化付款事件被安全收口：不延期、不创建运行、不重复发货、也就不会进入死信产生人工处理误报。
-func TestSimplifiedPaidEventAfterShippedOrderIsResolvedWithoutDeferral(t *testing.T) {
-	// store、cleanup 提供隔离数据库及关闭责任。
-	store, cleanup := newAutomationTestStore(t)
-	defer cleanup()
-	seedSimplifiedEventFixture(t, store, "shipped")
-	// sender 记录任何不应发生的买家消息副作用。
-	sender := &testSender{}
-	// center 使用真实事实记录和运行协调器。
-	center := New(store, testSenderProvider{sender: sender}, nil)
-	// handleErr 保存简化事件处理结果，期望为 nil。
-	if handleErr := center.HandleTask(context.Background(), simplifiedPaidTask()); handleErr != nil {
-		t.Fatalf("已发货订单的简化事件不应返回错误: %v", handleErr)
-	}
-	// pending、runs 是简化事件处理后的延期任务数与运行数。
-	pending, runs := countPendingAndRuns(t, store)
-	if pending != 0 || runs != 0 || len(sender.texts) != 0 {
-		t.Fatalf("简化事件应安全收口: pending=%d runs=%d messages=%v", pending, runs, sender.texts)
-	}
-}
-
-// TestSimplifiedPaidEventStillDeliversPendingShipOrder 验证订单仍待发货时，简化付款事件照常按会话回填并发卡（原有行为回归）。
+// TestSimplifiedPaidEventStillDeliversPendingShipOrder 验证待发货订单只在付款事件携带订单号时发卡，缺订单号的事件不会抢先发货。
 func TestSimplifiedPaidEventStillDeliversPendingShipOrder(t *testing.T) {
 	// store、cleanup 提供隔离数据库及关闭责任。
 	store, cleanup := newAutomationTestStore(t)
@@ -156,12 +112,22 @@ func TestSimplifiedPaidEventStillDeliversPendingShipOrder(t *testing.T) {
 	sender := &testSender{}
 	// center 使用真实事实记录和运行协调器。
 	center := New(store, testSenderProvider{sender: sender}, nil)
-	// handleErr 保存简化事件处理结果，期望为 nil。
-	if handleErr := center.HandleTask(ctx, simplifiedPaidTask()); handleErr != nil {
-		t.Fatalf("待发货订单的简化事件应正常处理: %v", handleErr)
+	// guessErr 保存缺订单号事件的处理结果，期望延期且不发卡。
+	if guessErr := center.HandleTask(ctx, simplifiedPaidTask()); guessErr != nil {
+		t.Fatalf("缺订单号事件应延期: %v", guessErr)
+	}
+	if len(sender.texts) != 0 {
+		t.Fatalf("缺订单号事件不应发卡: %v", sender.texts)
+	}
+	// withOrder 是携带订单号的同一笔付款事件。
+	withOrder := simplifiedPaidTask()
+	withOrder.OrderID = "simple-order"
+	// handleErr 保存带订单号事件的处理结果，期望为 nil。
+	if handleErr := center.HandleTask(ctx, withOrder); handleErr != nil {
+		t.Fatalf("带订单号的待发货事件应正常处理: %v", handleErr)
 	}
 	if len(sender.texts) != 1 || sender.texts[0] != "SIMPLE-CARD" {
-		t.Fatalf("简化事件未按待发货订单发卡: %v", sender.texts)
+		t.Fatalf("带订单号事件未按待发货订单发卡: %v", sender.texts)
 	}
 }
 

@@ -55,7 +55,7 @@ func TestPrepareBuyerNicknameBoundaries(t *testing.T) {
 	closedCleanup()
 }
 
-// TestResolvePaidTaskOrderFromSimplifiedContext 验证简化付款事件可从本账号会话订单补齐自动发货所需事实。
+// TestResolvePaidTaskOrderFromSimplifiedContext 验证缺订单号的简化付款事件不会按会话猜测订单，原有事实原样保留。
 func TestResolvePaidTaskOrderFromSimplifiedContext(t *testing.T) {
 	// store、cleanup 提供自动化中心所需的隔离数据库。
 	store, cleanup := newAutomationTestStore(t)
@@ -74,8 +74,8 @@ func TestResolvePaidTaskOrderFromSimplifiedContext(t *testing.T) {
 	task := Task{AccountID: "cid", TriggerType: TriggerOrderPaid, ChatID: "simple-chat", BuyerID: "buyer-1", ItemID: "item-1"}
 	// resolved、resolveErr 保存回填后的付款任务及错误。
 	resolved, resolveErr := center.resolvePaidTaskOrder(ctx, task)
-	if resolveErr != nil || resolved.OrderID != "simple-order" {
-		t.Fatalf("简化付款订单回填异常: task=%+v err=%v", resolved, resolveErr)
+	if resolveErr != nil || resolved.OrderID != "" || resolved.ItemID != "item-1" {
+		t.Fatalf("缺订单号的付款事件不应按会话猜测订单: task=%+v err=%v", resolved, resolveErr)
 	}
 	// untouched、untouchedErr 验证普通评价任务不会触发付款订单回填。
 	untouched, untouchedErr := center.resolvePaidTaskOrder(ctx, Task{AccountID: "cid", TriggerType: TriggerBuyerReviewed, ChatID: "simple-chat"})

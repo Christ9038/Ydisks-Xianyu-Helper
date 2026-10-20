@@ -31,34 +31,15 @@ func (c *Center) resolvePaidTaskOrder(ctx context.Context, task Task) (Task, err
 	if task.ChatID == "" {
 		return task, nil
 	}
-	// isCreated 表示拍下事件；拍下事件没有待发货语义，只允许在订单号和商品都缺失时按近期订单识别重复事件。
-	isCreated := task.TriggerType == TriggerOrderCreated
-	if isCreated && task.ItemID != "" {
+	if task.TriggerType != TriggerOrderCreated {
+		// 付款与砍价阶段事件缺少订单号时不按会话猜测订单：买家加商品也不能唯一确定一笔交易，
+		// 同一买家再次购买同一商品而新订单尚未同步时，旧的待发货订单会被误发卡，已发货旧订单会把新消息误当重复消息收口。
+		// 事件保持订单号缺失，由角色门禁延期等待订单同步；订单同步后的丢消息兜底由待发货扫描负责。
 		return task, nil
 	}
-	if !isCreated && (task.BuyerID == "" || task.ItemID == "") {
-		// 仅凭会话标识无法证明付款订单身份：同一买家再次下单而新订单尚未同步时，会话内的旧订单会被误选发货，
-		// 或已发货旧订单会把新消息误当旧消息收口。缺少买家或商品证据时不按会话猜测，事件保持订单号缺失，交给角色门禁延期并等待订单同步。
+	if task.ItemID != "" {
+		// 拍下事件已带商品，说明不是只含会话标识的简化事件，不改写。
 		return task, nil
-	}
-	if !isCreated {
-		// order 保存按账号、会话以及可选买家和商品条件命中的待发货订单。
-		order, err := c.store.Orders.FindLatestPendingByChat(ctx, task.AccountID, task.ChatID, task.BuyerID, task.ItemID)
-		if err != nil && !errors.Is(err, db.ErrNotFound) {
-			return task, fmt.Errorf("按会话回填自动发货订单: %w", err)
-		}
-		if order != nil {
-			// 已有付款发货运行的待发货订单已被完整事件处理过，简化消息更可能属于尚未同步的新订单，不得再次关联。
-			// run、runErr 保存该订单最近的付款发货运行；无运行（ErrNotFound）才允许关联，读取失败不放行。
-			run, runErr := c.store.Automation.GetLatestOrderDeliveryRun(ctx, task.AccountID, order.OrderID)
-			if runErr != nil && !errors.Is(runErr, db.ErrNotFound) {
-				return task, fmt.Errorf("核对会话关联订单的付款运行: %w", runErr)
-			}
-			if runErr == nil && run != nil {
-				return task, nil
-			}
-			return mergeOrderIntoTask(task, order), nil
-		}
 	}
 	// recent 保存同会话近期已被完整事件处理的订单（如已发货）；简化事件只含会话标识，
 	// 命中后合并订单事实，使后续角色门禁把“订单已不是待发货”判为不可重试并安全收口，而不是反复延期后误报人工处理。

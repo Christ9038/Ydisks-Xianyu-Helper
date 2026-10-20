@@ -189,7 +189,7 @@ func TestResolvePaidTaskOrderFailures(t *testing.T) {
 	if _, err = center.resolvePaidTaskOrder(ctx, byOrder); err == nil || !strings.Contains(err.Error(), "按订单回填") {
 		t.Fatalf("应返回订单读取错误: %v", err)
 	}
-	if _, err = center.resolvePaidTaskOrder(ctx, byChat); err == nil || !strings.Contains(err.Error(), "按会话回填") {
-		t.Fatalf("应返回会话读取错误: %v", err)
+	if got, err = center.resolvePaidTaskOrder(ctx, byChat); err != nil || got.OrderID != "" {
+		t.Fatalf("缺订单号的付款事件不应读取会话订单: %+v %v", got, err)
 	}
 }
