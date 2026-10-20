@@ -343,6 +343,15 @@ go vet ./internal/browser ./internal/engine ./internal/account ./internal/server
 
 用户明确要求并授权把主引擎高层轨迹点数提高到 60 个以上，原因是 8–12 个锚点的稀疏轨迹在风控页上缺少人工拖动应有的采样密度。第 3.3 节据此将高层锚点数从 `8–12` 调整为 `60–90`，并把锚点间微移动的最少事件数从 2 降为 1：锚点已足够密集，不再额外插值，避免真实 CDP 事件总数翻倍而拖慢墙钟时间。锚点相对时长权重按点数等比缩小，使计划时长仍保持原量级。非匀速节奏、三段速度形状、完整 S 形纵向范围、`4–20px` 受控鼠标超调、`0.55–1.05s` 目标窗口、距离计算、成功判定、失败恢复、Cookie 处理和备用引擎保持不变。真实 Chromium 集成断言的最小事件数同步从 8 提高到 60，墙钟范围断言未放宽。
 
+### 2026-10-19 页面初始化脚本授权变更
+
+用户参考开源 `stealth.min.js` 要求更新 `internal/browser/stealth.go`，同时明确不得改动浏览器 UA，并要求与主引擎 UA 归一化无冲突。随后用户又明确授权加入图形厂商、逻辑核数、编解码与插件处理，并放开原测试对这些项的禁令。`stealth.go` 因此在原有 webdriver 与驱动全局变量清理之外：
+
+- 仅在检测到缺失或矛盾时补齐 `window.chrome`（app、csi、loadTimes、runtime）、通知权限状态、窗口外框尺寸、空 `languages` 和空插件列表（Chrome 内置 PDF 查看器）；
+- 把 WebGL 未遮蔽厂商与渲染器固定为 `Intel Inc.` / `Intel Iris OpenGL Engine`，`hardwareConcurrency` 固定为 `4`，并让常见 H.264、AAC、MP3 格式的 `canPlayType` 返回 `probably`。
+
+脚本仍不得出现 `userAgent`、`userAgentData`、`Sec-CH`、`vendor`、平台、`deviceMemory`、Canvas、WebRTC 与随机数相关代码，由单元测试和真实 Chromium 集成测试（UA 与 Client Hints 不变）共同保证；第 6 节的 UA 归一化与页面级 Emulation 覆盖保持不变。
+
 ### 2026-08-18 滑动失败直接重试授权变更
 
 用户明确要求滑动后出现平台失败提示时，不得刷新验证页；必须点击失败按钮，让平台在当前页重新生成滑块后直接进行下一次拖动。第 5 节据此限制已完成拖动后的恢复路径为按钮点击与归位确认：找不到失败按钮或点击后滑块未归位时结束本次流程并保留现场。首次页面准备尚未实际拖动时的既有重载恢复保留。

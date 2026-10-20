@@ -73,7 +73,7 @@ func TestCookiesToMapAndStr(t *testing.T) {
 	}
 }
 
-// TestStealthScriptKeepsNativeFingerprint 封装TestStealthScriptKeepsNativeFingerprint业务协调。
+// TestStealthScriptKeepsNativeFingerprint 验证脚本包含授权的补齐项，且不触碰 Canvas、内存容量、WebRTC、随机数与平台字段。
 func TestStealthScriptKeepsNativeFingerprint(t *testing.T) {
 	// s 用于本次流程后续判断的s
 	s := stealthScript()
@@ -81,12 +81,30 @@ func TestStealthScriptKeepsNativeFingerprint(t *testing.T) {
 		t.Fatalf("stealth 脚本仍有未替换占位符: %q", s[:min(200, len(s))])
 	}
 	if !strings.Contains(s, "webdriver") {
-		t.Fatal("stealth 脚本应只规范化 webdriver")
+		t.Fatal("stealth 脚本应规范化 webdriver")
 	}
-	// forbidden 表示当前遍历过程中的forbidden
-	for _, forbidden := range []string{"toDataURL", "WebGL", "hardwareConcurrency", "deviceMemory", "RTCPeerConnection", "Math.random", "navigator.platform"} {
+	// required 是用户授权加入的图形厂商、逻辑核数、编解码和插件补齐，必须保留在脚本中。
+	for _, required := range []string{"WebGLRenderingContext", "hardwareConcurrency", "canPlayType", "PluginArray"} {
+		if !strings.Contains(s, required) {
+			t.Fatalf("stealth 脚本应包含授权的 %q 处理", required)
+		}
+	}
+	// forbidden 仍未获授权改写的指纹项：Canvas、内存容量、WebRTC、随机数与平台字段。
+	for _, forbidden := range []string{"toDataURL", "deviceMemory", "RTCPeerConnection", "Math.random", "navigator.platform"} {
 		if strings.Contains(s, forbidden) {
 			t.Fatalf("stealth 脚本不应伪造 %q", forbidden)
+		}
+	}
+}
+
+// TestStealthScriptNeverTouchesUserAgentFingerprint 验证 stealth 脚本不读取或改写 UA、Client Hints 与平台字段，保证与主引擎 UA 归一化互不冲突。
+func TestStealthScriptNeverTouchesUserAgentFingerprint(t *testing.T) {
+	// script 是注入每个浏览器上下文的初始化脚本。
+	script := stealthScript()
+	// token 是脚本中不得出现的 UA 相关标识。
+	for _, token := range []string{"userAgent", "userAgentData", "Sec-CH", "HeadlessChrome", "appVersion", "oscpu", "vendor"} {
+		if strings.Contains(script, token) {
+			t.Fatalf("stealth 脚本不应触碰 UA 相关字段 %q", token)
 		}
 	}
 }
