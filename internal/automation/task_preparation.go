@@ -36,6 +36,11 @@ func (c *Center) resolvePaidTaskOrder(ctx context.Context, task Task) (Task, err
 	if isCreated && task.ItemID != "" {
 		return task, nil
 	}
+	if !isCreated && (task.BuyerID == "" || task.ItemID == "") {
+		// 仅凭会话标识无法证明付款订单身份：同一买家再次下单而新订单尚未同步时，会话内的旧订单会被误选发货，
+		// 或已发货旧订单会把新消息误当旧消息收口。缺少买家或商品证据时不按会话猜测，事件保持订单号缺失，交给角色门禁延期并等待订单同步。
+		return task, nil
+	}
 	if !isCreated {
 		// order 保存按账号、会话以及可选买家和商品条件命中的待发货订单。
 		order, err := c.store.Orders.FindLatestPendingByChat(ctx, task.AccountID, task.ChatID, task.BuyerID, task.ItemID)
@@ -43,6 +48,15 @@ func (c *Center) resolvePaidTaskOrder(ctx context.Context, task Task) (Task, err
 			return task, fmt.Errorf("按会话回填自动发货订单: %w", err)
 		}
 		if order != nil {
+			// 已有付款发货运行的待发货订单已被完整事件处理过，简化消息更可能属于尚未同步的新订单，不得再次关联。
+			// run、runErr 保存该订单最近的付款发货运行；无运行（ErrNotFound）才允许关联，读取失败不放行。
+			run, runErr := c.store.Automation.GetLatestOrderDeliveryRun(ctx, task.AccountID, order.OrderID)
+			if runErr != nil && !errors.Is(runErr, db.ErrNotFound) {
+				return task, fmt.Errorf("核对会话关联订单的付款运行: %w", runErr)
+			}
+			if runErr == nil && run != nil {
+				return task, nil
+			}
 			return mergeOrderIntoTask(task, order), nil
 		}
 	}
@@ -112,4 +126,16 @@ func mergeOrderIntoTask(task Task, order *db.Order) Task {
 		task.IsBargain = true
 	}
 	return task
+}
+
+// requireReliablePaidQuantity 要求付款发货在执行外部动作前已可靠取得正整数购买数量。
+// 订单详情成功但缺少或无法识别 buyAmount 时，数量不得退化为 1 而少发卡密；返回错误使准备阶段延期重试。
+func requireReliablePaidQuantity(task Task) error {
+	if task.TriggerType != TriggerOrderPaid {
+		return nil
+	}
+	if parsePositiveInt(task.Quantity) <= 0 {
+		return fmt.Errorf("订单 %s 的购买数量缺失或无法识别，暂不自动发货", task.OrderID)
+	}
+	return nil
 }

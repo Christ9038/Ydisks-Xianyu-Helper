@@ -41,9 +41,68 @@ func countPendingAndRuns(t *testing.T, store *db.Store) (pending, runs int) {
 	return pending, runs
 }
 
-// simplifiedPaidTask 构造只含账号和会话标识的简化付款系统事件，不含订单号、商品和角色。
+// simplifiedPaidTask 构造带会话、买家和商品证据但不含订单号与角色的简化付款系统事件。
 func simplifiedPaidTask() Task {
+	return Task{Source: "ws", AccountID: "cid", TriggerType: TriggerOrderPaid, ChatID: "simple-chat", BuyerID: "simple-buyer", ItemID: "simple-item"}
+}
+
+// chatOnlyPaidTask 构造只含账号和会话标识的付款事件，无法证明订单身份。
+func chatOnlyPaidTask() Task {
 	return Task{Source: "ws", AccountID: "cid", TriggerType: TriggerOrderPaid, ChatID: "simple-chat"}
+}
+
+// TestChatOnlyPaidEventNeverGuessesOrder 验证只有会话标识的付款事件不按会话猜测订单：
+// 无论同会话存在待发货订单还是已发货订单，都不发卡、不创建运行，而是延期等待订单同步。
+func TestChatOnlyPaidEventNeverGuessesOrder(t *testing.T) {
+	// status 依次覆盖同会话旧订单仍待发货与已发货两种情形。
+	for _, status := range []string{"pending_ship", "shipped"} {
+		t.Run(status, func(t *testing.T) {
+			// store、cleanup 提供隔离数据库及关闭责任。
+			store, cleanup := newAutomationTestStore(t)
+			defer cleanup()
+			seedSimplifiedEventFixture(t, store, status)
+			// sender 记录任何不应发生的买家消息副作用。
+			sender := &testSender{}
+			// center 使用真实事实记录和运行协调器。
+			center := New(store, testSenderProvider{sender: sender}, nil)
+			// handleErr 保存事件处理结果，期望延期而非报错。
+			if handleErr := center.HandleTask(context.Background(), chatOnlyPaidTask()); handleErr != nil {
+				t.Fatalf("会话事件延期不应返回错误: %v", handleErr)
+			}
+			// pending、runs 是处理后的延期任务数与运行数。
+			pending, runs := countPendingAndRuns(t, store)
+			if pending != 1 || runs != 0 || len(sender.texts) != 0 {
+				t.Fatalf("仅会话标识不应关联订单: pending=%d runs=%d messages=%v", pending, runs, sender.texts)
+			}
+		})
+	}
+}
+
+// TestPaidEventDoesNotRelinkPendingOrderWithPaidRun 验证待发货订单已有付款运行时，缺订单号的付款事件不再关联到它。
+func TestPaidEventDoesNotRelinkPendingOrderWithPaidRun(t *testing.T) {
+	// store、cleanup 提供隔离数据库及关闭责任。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	seedSimplifiedEventFixture(t, store, "pending_ship")
+	// ctx 限制本测试的数据库访问生命周期。
+	ctx := context.Background()
+	// ruleErr 保存规则创建错误；运行记录的外键需要真实规则。
+	admin, adminErr := store.Users.GetByUsername(ctx, "admin")
+	if adminErr != nil || admin == nil {
+		t.Fatalf("读取测试管理员失败: %v", adminErr)
+	}
+	// cardID 是付款动作所需的卡密组。
+	cardID := catchupCard(t, store, admin.ID)
+	// ruleID 是账号级付款规则。
+	ruleID := catchupRule(t, store, admin.ID, "cid", "simple-item", []db.AutomationActionInput{catchupCardAction(cardID)})
+	catchupRun(t, store, ruleID, "cid", "simple-order", "{}")
+	// center 使用真实事实记录和运行协调器。
+	center := New(store, testSenderProvider{sender: &testSender{}}, nil)
+	// resolved、resolveErr 是按会话补齐后的任务及错误。
+	resolved, resolveErr := center.resolvePaidTaskOrder(ctx, simplifiedPaidTask())
+	if resolveErr != nil || resolved.OrderID != "" {
+		t.Fatalf("已有付款运行的订单不应再被关联: task=%+v err=%v", resolved, resolveErr)
+	}
 }
 
 // TestSimplifiedPaidEventAfterShippedOrderIsResolvedWithoutDeferral 验证完整事件已让订单发货后，

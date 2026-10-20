@@ -180,7 +180,7 @@ func TestResolvePaidTaskOrderFailures(t *testing.T) {
 		t.Fatalf("缺订单应原样返回: %+v %v", got, err)
 	}
 	// byChat 是只有会话号的付款任务。
-	byChat := Task{TriggerType: TriggerOrderPaid, AccountID: "cid", ChatID: "chat-none"}
+	byChat := Task{TriggerType: TriggerOrderPaid, AccountID: "cid", ChatID: "chat-none", BuyerID: "b", ItemID: "i"}
 	got, err = center.resolvePaidTaskOrder(ctx, byChat)
 	if err != nil || got.OrderID != "" {
 		t.Fatalf("无待发货订单应原样返回: %+v %v", got, err)
