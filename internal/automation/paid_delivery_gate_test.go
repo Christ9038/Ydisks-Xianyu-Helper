@@ -308,3 +308,32 @@ func TestResumedPaidRunWithProgressWhenOrderPastPendingShip(t *testing.T) {
 		})
 	}
 }
+
+// TestPaidEventWithoutOrderIDNeverDeliversEvenAsExplicitSeller 验证缺订单号的付款事件即使明确标为卖家、带更新键并匹配规则，也不发卡、不创建运行。
+func TestPaidEventWithoutOrderIDNeverDeliversEvenAsExplicitSeller(t *testing.T) {
+	// sources 覆盖 WebSocket 与非 WebSocket 来源，缺订单号的防线不依赖来源。
+	for _, source := range []string{"ws", "api"} {
+		t.Run(source, func(t *testing.T) {
+			// cleanup、fixture 分别保存：测试数据库的关闭函数；带账号、规则与假发送器的门禁测试夹具。
+			fixture, cleanup := newPaidGateFixture(t)
+			defer cleanup()
+			// task 是明确卖家角色、带更新键与买家信息但没有订单号的付款事件。
+			task := paidTask("")
+			task.Source = source
+			task.UpdateKey = "gate-update-key"
+			// handleErr 保存事件处理结果，缺订单号只能延期或忽略，不应报错。
+			if handleErr := fixture.center.HandleTask(context.Background(), task); handleErr != nil {
+				t.Fatalf("缺订单号事件不应返回错误: %v", handleErr)
+			}
+			// runs 保存付款运行总数。
+			var runs int
+			// queryErr 保存运行计数查询错误。
+			if queryErr := fixture.store.DB.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM automation_runs`).Scan(&runs); queryErr != nil {
+				t.Fatal(queryErr)
+			}
+			if runs != 0 || len(fixture.sender.texts) != 0 {
+				t.Fatalf("缺订单号不得发卡: runs=%d texts=%v", runs, fixture.sender.texts)
+			}
+		})
+	}
+}

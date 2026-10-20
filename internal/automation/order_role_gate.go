@@ -37,9 +37,18 @@ func isWebSocketSellerOrderTask(task Task) bool {
 	return strings.TrimSpace(task.Source) == "ws" && strings.TrimSpace(task.TriggerType) == TriggerOrderCreated
 }
 
-// authorizeWebSocketSellerTask 校验缺少 role 的 WebSocket 发货事件是否能由本地卖家事实证明。
+// authorizeWebSocketSellerTask 校验缺少 role 的 WebSocket 发货事件是否能由本地卖家事实证明；
+// 任何来源、任何角色的付款事件缺订单号时一律拒绝（missing_order_id，可重试）。
 // 未通过校验时返回 false 且不写订单事实；数据库读取失败返回错误，调用方必须停止外部动作并保留后续扫描机会。
 func (c *Center) authorizeWebSocketSellerTask(ctx context.Context, task Task) (Task, bool, string, error) {
+	if task.TriggerType == TriggerOrderPaid && strings.TrimSpace(task.OrderID) == "" {
+		// 付款发货必须由订单号证明交易身份：无论事件来源，即使明确标为卖家，缺订单号也不得放行，
+		// 否则准备阶段会因订单号为空而跳过订单事实与数量核验。该原因可重试，等待订单同步后再处理。
+		if task.OrderRole == OrderRoleBuyer {
+			return task, false, "explicit_buyer_role", nil
+		}
+		return task, false, "missing_order_id", nil
+	}
 	if !isWebSocketSellerOrderTask(task) {
 		return task, true, "", nil
 	}
