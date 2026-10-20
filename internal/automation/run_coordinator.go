@@ -183,24 +183,6 @@ func (r automationRunCoordinator) executeRule(ctx context.Context, task Task, ru
 	return nil
 }
 
-// paidRunMayResumeOnBlockedOrder 判断订单已被付款门禁拦截时，已有进度的付款运行是否仍可继续执行剩余动作。
-// blockedReason 是门禁原因；run 提供动作游标；actions 是完整动作计划。
-// 只有订单已发货、已完成或系统已发货，且剩余动作为空或全部是平台侧幂等的确认发货时才可继续；
-// 取消、退款、部分发货以及仍含发卡或模板动作的剩余计划一律不得继续。
-func paidRunMayResumeOnBlockedOrder(blockedReason string, run *db.AutomationRun, actions []db.AutomationAction) bool {
-	switch blockedReason {
-	case "order_shipped", "order_completed", "system_shipped":
-	default:
-		return false
-	}
-	// cursor 是剩余动作的起点，越界时按没有剩余动作处理。
-	cursor := run.ActionCursor
-	if cursor >= len(actions) {
-		return true
-	}
-	return canContinueAfterUncertainAction(actions[cursor:])
-}
-
 // prepareRuleRun 先补全任务事实和动作计划，再恢复既有运行或原子创建新的幂等运行；skipped 为 true 表示重复事件或已失效恢复任务无需执行。
 func (r automationRunCoordinator) prepareRuleRun(ctx context.Context, task Task, rule db.AutomationRule) (preparedTask Task, run *db.AutomationRun, skipped bool, err error) {
 	// AllowAllItems 固化当前规则的显式全商品授权；恢复历史运行时仍以当前有效规则授权为准，不从订单规格推断通配范围。
@@ -258,10 +240,20 @@ func (r automationRunCoordinator) prepareRuleRun(ctx context.Context, task Task,
 			r.logger.Info("订单已不再待发货，取消尚未执行动作的付款运行", "run_id", existingRun.ID, "account", preparedTask.AccountID, "order_id", preparedTask.OrderID, "reason", blockedReason)
 			return preparedTask, nil, true, nil
 		}
-		if blockedReason != "" && !paidRunMayResumeOnBlockedOrder(blockedReason, existingRun, preparedTask.ActionPlan) {
-			// 已有发货进度的运行遇到订单已结束或已越过待发货阶段时，不能再执行剩余的发卡或模板动作；
-			// 仅剩平台侧幂等的确认发货且订单已发货/完成时才放行。其余情况已发出的内容需要人工核对，
-			// 因此停止自动重放并发送独立的人工处理通知。
+		if blockedReason == "order_shipped" || blockedReason == "order_completed" || blockedReason == "system_shipped" {
+			// 订单已发货、完成或系统已发货时，旧运行不再需要执行任何外部动作，包括再次调用确认发货接口；
+			// 条件取消运行（仅在订单确实不再待发货时生效），不发送人工通知。
+			cancelReason := "订单状态为 " + blockedReason + "，不再需要自动发货"
+			// cancelErr 保存条件取消已有进度的付款运行时的错误。
+			if _, cancelErr := r.store.Automation.CancelObsoletePaidRecoveryRun(ctx, *existingRun, cancelReason); cancelErr != nil {
+				return Task{}, nil, false, fmt.Errorf("取消已失效付款运行: %w", cancelErr)
+			}
+			r.logger.Info("订单已发货或完成，取消已有进度的付款运行", "run_id", existingRun.ID, "account", preparedTask.AccountID, "order_id", preparedTask.OrderID, "reason", blockedReason)
+			return preparedTask, nil, true, nil
+		}
+		if blockedReason != "" {
+			// 已有发货进度的运行遇到订单取消、退款或部分发货时，剩余的发卡、模板与确认发货都不应再执行；
+			// 已发出的内容需要人工核对，因此停止自动重放并发送独立的人工处理通知。
 			reason := "订单状态为 " + blockedReason + "，付款发货已有进度，已停止自动重放，请人工核对"
 			// quarantineCtx 保证人工核对状态在请求取消后仍能落库。
 			quarantineCtx, quarantineCancel := newAutomationRunCompensationContext(ctx)
