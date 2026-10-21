@@ -9,9 +9,29 @@ import (
 	"database/sql"
 )
 
+// ObsoleteRunReasonMarker 标记「订单离开待发货时被安全取消、且从未触达任何外部动作」的付款运行。
+// 订单经平台快照从退款中回到待发货后，只有带此标记的运行才允许被重领或不再阻断无运行兜底；
+// 其余已取消运行（人工取消、已有发送副作用、动作结果未知）仍永久保持终态，避免重复发货。
+const ObsoleteRunReasonMarker = "[obsolete-pending-ship]"
+
+// reclaimableObsoleteRunSQL 是「可被新一轮付款发货接管的已取消运行」的行条件（列名不加别名，可用于 UPDATE 与子查询）。
+// 要求：带安全取消标记，且无已发送内容、无动作游标进度、无进行中动作、无发货凭证。
+const reclaimableObsoleteRunSQL = `status='canceled' AND error_message LIKE '` + ObsoleteRunReasonMarker + `%'
+	            AND action_started=0 AND sent_count=0 AND action_cursor=0 AND delivery_proof=''`
+
+// resumableObsoleteProgressRunSQL 是「订单离开待发货时被安全取消、且发卡/模板已确认完成」的运行行条件（列名不加别名）。
+// 动作游标只在动作成功后推进且取消时没有进行中动作，因此买家已收到内容；订单退款撤回后只允许由冻结计划
+// 判定为纯幂等收尾（确认发货）的运行续跑，绝不重发内容。
+const resumableObsoleteProgressRunSQL = `status='canceled' AND error_message LIKE '` + ObsoleteRunReasonMarker + `%'
+	            AND action_started=0 AND action_cursor>0`
+
 // CancelObsoletePaidRecoveryRun 取消已不再处于待发货状态的付款运行恢复，并清除可重放发货凭证。
 // 更新同时校验扫描快照和订单当前事实；并发续租、游标推进或订单重新进入待发货都会让本次取消失效。
 func (a *AutomationRules) CancelObsoletePaidRecoveryRun(ctx context.Context, run AutomationRun, reason string) (bool, error) {
+	// 取消时动作结果未知（action_started=1）的运行不打可接管标记，订单重新待发货后也不得自动重放。
+	if !run.ActionStarted {
+		reason = ObsoleteRunReasonMarker + reason
+	}
 	// result、err 保存基于运行快照和最新订单状态的条件取消结果。
 	result, err := a.DB.ExecContext(ctx, `UPDATE automation_runs
    SET status='canceled',action_started=0,lease_expires_at=0,next_retry_at=0,error_message=?,delivery_proof='',updated_at=CURRENT_TIMESTAMP
@@ -36,8 +56,9 @@ func (a *AutomationRules) CancelObsoletePaidRecoveryRun(ctx context.Context, run
 //
 // 兜底边界：
 //   - 只取 order_status 属于待发货取值集合（pending_ship、paid、2、pending_delivery，见 pendingShipStatuses），即平台侧已确认付款、只差我方发货；
-//   - 只取**完全没有任何** order_paid 运行的订单；已有运行的订单交给失败的运行恢复扫描处理，
-//     避免与恢复链重复触发、也避免形成第二个执行入口；
+//   - 只取**没有任何有效** order_paid 运行的订单；已有运行的订单交给失败的运行恢复扫描处理，
+//     避免与恢复链重复触发、也避免形成第二个执行入口。唯一例外是订单离开待发货时被安全取消、
+//     且无任何发送副作用的运行（ObsoleteRunReasonMarker），退款撤回后该订单重新进入候选并由同一幂等键重领；
 //   - 砍价订单只有在“待刀成”阶段已成功免拼后才允许进入候选集合；调度器不得调用免拼接口，
 //     也不得根据订单的砍价标记推断平台阶段；
 //   - 要求账号下存在启用的 order_paid 规则且商品匹配，否则没有可执行的动作；
@@ -69,7 +90,9 @@ WHERE o.order_status IN `+pendingShipStatusSQLList()+`
 	   AND (o.is_bargain=0 OR EXISTS (SELECT 1 FROM bargain_free_shipping_stages bfs
 	                                  WHERE bfs.order_id=o.order_id AND bfs.cookie_id=o.cookie_id AND bfs.status IN ('ready','succeeded')))
    AND NOT EXISTS (SELECT 1 FROM automation_runs r
-                    WHERE r.order_id=o.order_id AND r.trigger_type='order_paid')
+                    WHERE r.order_id=o.order_id AND r.trigger_type='order_paid'
+                      AND NOT (r.status='canceled' AND r.error_message LIKE '`+ObsoleteRunReasonMarker+`%'
+                               AND r.action_started=0 AND r.sent_count=0 AND r.action_cursor=0 AND r.delivery_proof=''))
    AND EXISTS (SELECT 1 FROM automation_rules r2
                 WHERE r2.cookie_id=o.cookie_id AND r2.trigger_type='order_paid'
                   AND r2.deleted_at IS NULL AND r2.enabled=1
@@ -134,7 +157,7 @@ type PendingShipResume struct {
 	Attempt int
 	// ActionCursor 是尚未执行的下一个动作下标。
 	ActionCursor int
-	// Status 是运行当前状态（needs_review 或 failed）。
+	// Status 是运行当前状态（needs_review、failed，或退款撤回后可续跑的 canceled）。
 	Status string
 }
 
@@ -149,6 +172,8 @@ type PendingShipResume struct {
 // **归属规则仍处于启用状态**。真正的放行判据（剩余动作是否只含幂等状态动作）必须由调用方
 // 依据运行快照里冻结的动作计划判定：`automation_rule_actions` 是会被管理员编辑的现行配置，
 // 用它判定会把数字游标套用到改过的规则上，从而改变历史订单的发货义务。
+// 订单退款撤回后，带 ObsoleteRunReasonMarker 且游标已推进的已取消运行同样纳入，由调用方的冻结计划检查
+// 保证只会补做确认发货，不会重发内容。
 // 因此本方法额外返回 RawEventJSON，供调用方恢复冻结计划。
 func (a *AutomationRules) PendingShipResumableRunsAfter(ctx context.Context, afterOrderID string, maxAttempts, limit int) ([]PendingShipResume, error) {
 	if limit <= 0 {
@@ -182,7 +207,9 @@ WHERE o.order_status IN `+pendingShipStatusSQLList()+`
    AND (o.is_bargain=0 OR EXISTS (SELECT 1 FROM bargain_free_shipping_stages bfs
                                   WHERE bfs.order_id=o.order_id AND bfs.cookie_id=o.cookie_id AND bfs.status IN ('ready','succeeded')))
    AND r.cookie_id=o.cookie_id
-   AND r.status IN ('needs_review','failed')
+   AND (r.status IN ('needs_review','failed')
+        OR (r.status='canceled' AND r.error_message LIKE '`+ObsoleteRunReasonMarker+`%'
+            AND r.action_started=0 AND r.action_cursor>0))
    AND r.attempt_count<?
    AND r.id=(SELECT latest.id
                FROM automation_runs latest
