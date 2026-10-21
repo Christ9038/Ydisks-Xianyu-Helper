@@ -43,7 +43,7 @@ func isWebSocketSellerOrderTask(task Task) bool {
 func (c *Center) authorizeWebSocketSellerTask(ctx context.Context, task Task) (Task, bool, string, error) {
 	if task.TriggerType == TriggerOrderPaid && strings.TrimSpace(task.OrderID) == "" {
 		// 付款发货必须由订单号证明交易身份：无论事件来源，即使明确标为卖家，缺订单号也不得放行，
-		// 否则准备阶段会因订单号为空而跳过订单事实与数量核验。该原因可重试，等待订单同步后再处理。
+		// 否则准备阶段会因订单号为空而跳过订单事实与数量核验。该原因不可重试，事件被丢弃，订单同步后的兜底由待发货扫描负责。
 		if task.OrderRole == OrderRoleBuyer {
 			return task, false, "explicit_buyer_role", nil
 		}
@@ -162,9 +162,11 @@ func paidDeliveryBlockedReason(order *db.Order) string {
 }
 
 // roleVerificationRetryable 判断拒绝原因是否可能因订单或商品同步完成而恢复；身份冲突和已结束订单不应反复重放。
+// missing_order_id 不可重试：延期快照不会因重放而获得订单号（不允许按会话猜订单），反复重放只会耗尽次数并对已由待发货扫描
+// 处理的订单发出误报；缺订单号的付款事件直接丢弃，订单同步后的丢消息兜底由待发货扫描负责。
 func roleVerificationRetryable(reason string) bool {
 	switch reason {
-	case "missing_local_order", "missing_order_id", "incomplete_local_order_identity", "missing_local_item", "order_store_unavailable", "item_store_unavailable":
+	case "missing_local_order", "incomplete_local_order_identity", "missing_local_item", "order_store_unavailable", "item_store_unavailable":
 		return true
 	default:
 		return false

@@ -270,3 +270,44 @@ func TestAdjustOrderPriceAttemptGapBranches(t *testing.T) {
 		}
 	})
 }
+
+// TestAIPricingUncertainResultNotifiesManualIntervention 验证 AI 自动改价结果不确定时发送独立的人工处理通知，明确失败则不打扰用户。
+func TestAIPricingUncertainResultNotifiesManualIntervention(t *testing.T) {
+	// ctx 是调用共用的上下文。
+	ctx := context.Background()
+	// cases 覆盖传输中断（报价转人工核对）、改价成功但本地状态保存失败、平台明确拒绝三种结果。
+	cases := []struct {
+		// name 是用例名称。
+		name string
+		// fake 是注入的平台改价替身。
+		fake *fakeMTop
+		// abortQuote 表示是否让报价终态写入失败。
+		abortQuote bool
+		// wantCalls 是期望的人工处理通知次数。
+		wantCalls int
+	}{
+		{"传输中断", &fakeMTop{adjustErr: errors.New("连接中断")}, false, 1},
+		{"改价成功但状态保存失败", &fakeMTop{adjustOk: true, adjustRet: []string{"SUCCESS::ok"}}, true, 1},
+		{"平台明确拒绝", &fakeMTop{adjustRet: []string{"FAIL_BIZ_ORDER_CLOSED::订单已关闭"}}, false, 0},
+	}
+	// testCase 是当前待验证的改价结果。
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// f 保存夹具。
+			f := newAIPricingGapFixture(t, testCase.fake)
+			// probe 记录自动化中心发出的人工处理通知。
+			probe := &triggerAwareNotificationProbe{}
+			f.center = NewWithDependencies(f.store, nil, nil, CenterDependencies{MTop: testCase.fake, Notifier: probe})
+			if testCase.abortQuote {
+				execGapSQL(t, f.store, `CREATE TRIGGER gap_abort_quote BEFORE UPDATE ON ai_bargain_quotes WHEN NEW.status IN ('adjusted','failed','needs_review') BEGIN SELECT RAISE(ABORT, 'forced quote finish failure'); END`)
+			}
+			_, _ = f.center.handleAIPricingMode(ctx, f.task)
+			if probe.manualCalls != testCase.wantCalls {
+				t.Fatalf("人工处理通知次数=%d，期望 %d", probe.manualCalls, testCase.wantCalls)
+			}
+			if testCase.wantCalls > 0 && (probe.manualAction != "AI 自动改价" || !strings.HasPrefix(probe.manualKey, "manual-intervention:ai-pricing:")) {
+				t.Fatalf("通知内容异常: action=%q key=%q", probe.manualAction, probe.manualKey)
+			}
+		})
+	}
+}

@@ -74,13 +74,30 @@ func (c *Center) handleAIPricingMode(ctx context.Context, task Task) (bool, erro
 	finishErr := c.store.AIReply.FinishQuote(ctx, quote.ID, status, errorMessage)
 	if finishErr != nil {
 		if adjustErr == nil {
+			// 远端已改价但本地无法确认，必须提醒用户核对订单价格。
+			c.notifyAIPricingNeedsReview(ctx, task, quote.ID, "闲鱼已完成 AI 报价改价，但本地状态保存失败，请核对订单价格")
 			return true, uncertainAction(fmt.Errorf("闲鱼已完成 AI 报价改价，但本地状态保存失败: %w", finishErr))
 		}
+		if status == "needs_review" {
+			c.notifyAIPricingNeedsReview(ctx, task, quote.ID, "AI 自动改价结果不确定且本地状态保存失败，请核对订单价格")
+		}
 		return true, errors.Join(adjustErr, fmt.Errorf("保存 AI 报价改价状态: %w", finishErr))
+	}
+	if status == "needs_review" {
+		c.notifyAIPricingNeedsReview(ctx, task, quote.ID, "AI 自动改价结果不确定，平台可能已改价，请核对订单价格")
 	}
 	if adjustErr != nil {
 		return true, adjustErr
 	}
 	c.logger.Info("AI 报价已自动应用到订单", "account", task.AccountID, "order_id", task.OrderID, "quote_id", quote.ID)
 	return true, nil
+}
+
+// notifyAIPricingNeedsReview 在 AI 自动改价结果无法确认时发送独立的人工处理通知；quoteID 构成稳定幂等键，重复事件不会重复告警。
+// 通知使用独立的短时上下文，请求取消后仍能入队。
+func (c *Center) notifyAIPricingNeedsReview(ctx context.Context, task Task, quoteID int64, reason string) {
+	// notifyCtx 保证事件上下文取消后人工处理通知仍有独立的入队预算。
+	notifyCtx, notifyCancel := newAutomationRunCompensationContext(ctx)
+	defer notifyCancel()
+	c.notifications.notifyManualIntervention(notifyCtx, task, "AI 自动改价", reason, fmt.Sprintf("manual-intervention:ai-pricing:%d", quoteID))
 }
