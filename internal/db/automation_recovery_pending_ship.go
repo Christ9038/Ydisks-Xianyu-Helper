@@ -31,10 +31,17 @@ const MissingProofReasonMarker = "[missing-delivery-proof]"
 
 // QuarantineCanceledRunMissingProof 把凭证缺失的可续跑已取消运行（含 07453c1 版本遗留的、取消时已清空凭证的记录）
 // 转入人工核对；仅当运行仍与 attempt 代次一致、带安全取消标记、无进行中动作且凭证为空时生效。
-// 返回是否真正隔离及数据库错误；零行是与其他调度器竞争的正常结果。
-func (a *AutomationRules) QuarantineCanceledRunMissingProof(ctx context.Context, runID int64, attempt int, reason string) (bool, error) {
+// outbox 是同一事件的人工处理通知记录：它们与状态更新在同一事务内写入，只有真正隔离成功（恰好更新一行）才提交，
+// 因此不会出现「通知已发出而运行未进入人工核对」。返回是否真正隔离及数据库错误；零行是与其他调度器竞争的正常结果。
+func (a *AutomationRules) QuarantineCanceledRunMissingProof(ctx context.Context, runID int64, attempt int, reason string, outbox []NotificationOutboxInput) (bool, error) {
+	// tx、beginErr 保存状态更新与通知入队共用的事务。
+	tx, beginErr := a.DB.BeginTx(ctx, nil)
+	if beginErr != nil {
+		return false, beginErr
+	}
+	defer tx.Rollback()
 	// result、err 保存条件隔离结果。
-	result, err := a.DB.ExecContext(ctx, `UPDATE automation_runs
+	result, err := tx.ExecContext(ctx, `UPDATE automation_runs
    SET status='needs_review',error_message=?,lease_expires_at=0,next_retry_at=0,updated_at=CURRENT_TIMESTAMP
  WHERE id=? AND attempt_count=? AND `+resumableObsoleteProgressRunSQL+` AND delivery_proof=''`, MissingProofReasonMarker+reason, runID, attempt)
 	if err != nil {
@@ -42,7 +49,21 @@ func (a *AutomationRules) QuarantineCanceledRunMissingProof(ctx context.Context,
 	}
 	// affected、rowsErr 保存实际隔离行数与驱动错误。
 	affected, rowsErr := result.RowsAffected()
-	return affected == 1, rowsErr
+	if rowsErr != nil {
+		return false, rowsErr
+	}
+	if affected != 1 {
+		return false, nil
+	}
+	// insertErr 保存事务内通知入队错误；失败时整体回滚，状态更新不生效。
+	if insertErr := insertOutboxMessages(ctx, tx, a.Dialect, outbox); insertErr != nil {
+		return false, insertErr
+	}
+	// commitErr 保存提交结果；提交不确定时不报告已隔离。
+	if commitErr := tx.Commit(); commitErr != nil {
+		return false, commitErr
+	}
+	return true, nil
 }
 
 // CancelObsoletePaidRecoveryRun 取消已不再处于待发货状态的付款运行恢复；除「退款中且发卡已完成」外清除可重放发货凭证。

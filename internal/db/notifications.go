@@ -292,20 +292,30 @@ func (n *Notifications) EnqueueOutbox(ctx context.Context, messages []Notificati
 		return err
 	}
 	defer tx.Rollback()
-	// insertSQL 使用方言一致的冲突忽略语义，只把同一渠道的相同业务投递键视为重复。
-	insertSQL := dialectInsertIgnorePrefix(n.Dialect) + ` INTO notification_outbox
+	// insertErr 保存事务内写入 outbox 的错误。
+	if insertErr := insertOutboxMessages(ctx, tx, n.Dialect, messages); insertErr != nil {
+		return insertErr
+	}
+	return tx.Commit()
+}
+
+// insertOutboxMessages 在调用方提供的事务内写入 outbox 记录，使用方言一致的冲突忽略语义，
+// 只把同一渠道的相同业务投递键视为重复。调用方负责提交或回滚，使通知可以与业务状态变更原子生效。
+func insertOutboxMessages(ctx context.Context, tx *sql.Tx, dialect Dialect, messages []NotificationOutboxInput) error {
+	// insertSQL 使用方言一致的冲突忽略语义。
+	insertSQL := dialectInsertIgnorePrefix(dialect) + ` INTO notification_outbox
 			(channel_id,event_type,body,idempotency_key,status,attempt_count,next_attempt_at,lease_expires_at,worker_token,last_error)
-			VALUES (?,?,?,?, 'pending',0,0,0,'','')` + dialectInsertIgnore(n.Dialect, []string{"channel_id", "idempotency_key"})
+			VALUES (?,?,?,?, 'pending',0,0,0,'','')` + dialectInsertIgnore(dialect, []string{"channel_id", "idempotency_key"})
 	// message 表示当前事务中待写入的单渠道通知。
 	for _, message := range messages {
 		// idempotencyKey 将空字符串转换为 NULL，使未指定业务幂等键的历史通知保持可重复发送语义。
 		idempotencyKey := nullableOutboxIdempotencyKey(message.IdempotencyKey)
-		if // err 用于本次流程后续判断的err
-		_, err := tx.ExecContext(ctx, insertSQL, message.ChannelID, message.EventType, message.Body, idempotencyKey); err != nil {
+		// err 保存单渠道记录写入错误。
+		if _, err := tx.ExecContext(ctx, insertSQL, message.ChannelID, message.EventType, message.Body, idempotencyKey); err != nil {
 			return err
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 // nullableOutboxIdempotencyKey 将未声明幂等语义的空键写为 SQL NULL。

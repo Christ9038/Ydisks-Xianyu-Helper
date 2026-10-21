@@ -146,62 +146,86 @@ func TestRefundWithdrawnResumeWithoutProofGoesToManualReview(t *testing.T) {
 	}
 }
 
-// flakyStrictNotifier 是可注入入队失败的通知器替身：前 failures 次入队返回错误，之后成功并记录通知。
-type flakyStrictNotifier struct {
-	// failures 是仍需返回入队错误的剩余次数。
-	failures int
-	// enqueued 记录成功入队的 (运行主键, 状态)，用于断言通知恰好补发一次。
-	enqueued []string
+// preparingNotifier 是支持事务内入队的通知器替身：prepareErr 非空时模拟渠道查询失败，否则返回写向 channelID 的一条 outbox 记录。
+type preparingNotifier struct {
+	// channelID 是真实存在的通知渠道主键，满足 outbox 外键。
+	channelID int64
+	// prepareErr 是渠道查询失败时返回的错误。
+	prepareErr error
+	// legacyCalls 记录被回退路径调用的次数，事务内入队时必须为零。
+	legacyCalls int
 }
 
-// NotifyAutomationRun 满足 Notifier 接口；严格入口存在时不会被调用。
-func (f *flakyStrictNotifier) NotifyAutomationRun(context.Context, int64, string, string, string, string, string, string) {
+// NotifyAutomationRun 满足 Notifier 接口；事务内入队路径不应调用它。
+func (p *preparingNotifier) NotifyAutomationRun(context.Context, int64, string, string, string, string, string, string) {
+	p.legacyCalls++
 }
 
-// EnqueueAutomationRunForTrigger 模拟渠道查询或 outbox 写入失败后恢复。
-func (f *flakyStrictNotifier) EnqueueAutomationRunForTrigger(_ context.Context, _ string, runID int64, _, _, _, status, _, _ string) error {
-	if f.failures > 0 {
-		f.failures--
-		return context.DeadlineExceeded
+// PrepareAutomationRunOutbox 返回待与状态更新同事务写入的 outbox 记录。
+func (p *preparingNotifier) PrepareAutomationRunOutbox(_ context.Context, _ string, runID int64, _, _, _, status, message, _ string) ([]db.NotificationOutboxInput, error) {
+	if p.prepareErr != nil {
+		return nil, p.prepareErr
 	}
-	f.enqueued = append(f.enqueued, fmt.Sprintf("%d:%s", runID, status))
-	return nil
+	return []db.NotificationOutboxInput{{ChannelID: p.channelID, EventType: "manual_intervention_required", Body: message, IdempotencyKey: fmt.Sprintf("automation-run:%d:%s", runID, status)}}, nil
 }
 
-// TestMissingProofNotificationRetriesAfterEnqueueFailure 验证通知入队失败时运行保持已取消，下一轮重试成功后才转人工核对，通知不丢也不重复。
-func TestMissingProofNotificationRetriesAfterEnqueueFailure(t *testing.T) {
+// seedMissingProofRun 写入一条退款撤回后缺凭证的历史已取消运行和账号夹具，返回存储、运行主键与通知渠道主键。
+func seedMissingProofRun(t *testing.T, accountID string) (*db.Store, int64, int64, func()) {
+	t.Helper()
 	// store、cleanup 保存测试数据库及关闭责任。
 	store, cleanup := newAutomationTestStore(t)
-	defer cleanup()
-	// ctx 保存本测试共用的数据库上下文。
+	// ctx 保存夹具共用的数据库上下文。
 	ctx := context.Background()
 	// admin 保存规则所属管理员账号。
 	admin, adminErr := store.Users.GetByUsername(ctx, "admin")
 	if adminErr != nil {
 		t.Fatal(adminErr)
 	}
-	catchupAccount(t, store, admin.ID, "retry-acc")
+	catchupAccount(t, store, admin.ID, accountID)
 	// ruleID 是含发卡与确认发货的付款发货规则。
-	ruleID := catchupRule(t, store, admin.ID, "retry-acc", "item-retry",
+	ruleID := catchupRule(t, store, admin.ID, accountID, "item-"+accountID,
 		[]db.AutomationActionInput{catchupCardAction(catchupCard(t, store, admin.ID)), {ActionType: ActionConfirmShipment, Enabled: true}})
-	catchupOrder(t, store, "retry-acc", "o-retry", "item-retry", "chat-retry")
+	catchupOrder(t, store, accountID, "o-"+accountID, "item-"+accountID, "chat-"+accountID)
 	// rawTask 是运行冻结快照。
-	rawTask := `{"Source":"scheduler","AccountID":"retry-acc","TriggerType":"order_paid","ChatID":"chat-retry","OrderID":"o-retry","ItemID":"item-retry","BuyerID":"buyer-o-retry",` +
+	rawTask := `{"Source":"scheduler","AccountID":"` + accountID + `","TriggerType":"order_paid","ChatID":"chat-` + accountID + `","OrderID":"o-` + accountID + `","ItemID":"item-` + accountID + `","BuyerID":"buyer-o-` + accountID + `",` +
 		`"ActionPlan":[{"ActionType":"send_card","Enabled":true,"ConfigJSON":"{\"spec_name\":\"颜色\",\"spec_value\":\"黑\"}"},{"ActionType":"confirm_shipment","Enabled":true}]}`
 	// runID 是缺凭证的历史已取消运行。
-	runID := catchupRun(t, store, ruleID, "retry-acc", "o-retry", rawTask)
-	if _, seedErr := store.DB.ExecContext(ctx, `UPDATE automation_runs SET status='canceled',error_message=?,action_cursor=1,sent_count=1,action_started=0,delivery_proof='',attempt_count=1 WHERE id=?`, db.ObsoleteRunReasonMarker+"订单退款中", runID); seedErr != nil { // seedErr 保存历史状态写入结果。
+	runID := catchupRun(t, store, ruleID, accountID, "o-"+accountID, rawTask)
+	// seedErr 保存历史状态写入结果。
+	if _, seedErr := store.DB.ExecContext(ctx, `UPDATE automation_runs SET status='canceled',error_message=?,action_cursor=1,sent_count=1,action_started=0,delivery_proof='',attempt_count=1 WHERE id=?`, db.ObsoleteRunReasonMarker+"订单退款中", runID); seedErr != nil {
 		t.Fatal(seedErr)
 	}
-	// notifier 前两次入队失败；scheduler 驱动续跑扫描。
-	notifier := &flakyStrictNotifier{failures: 2}
-	// platform 记录是否错误地确认发货。
-	platform := &fakeMTop{consignOk: true}
-	// scheduler 使用真实存储与可注入入队失败的通知器驱动续跑扫描。
-	scheduler := &Scheduler{center: NewWithDependencies(store, testSenderProvider{sender: &testSender{}}, nil, CenterDependencies{MTop: platform, Notifier: notifier}),
-		pendingShipCooldown: map[string]time.Time{}, pendingShipSettleWindow: -1}
+	// channelResult、channelErr 保存满足 outbox 外键的通知渠道。
+	channelResult, channelErr := store.DB.ExecContext(ctx, `INSERT INTO notification_channels (name,type,config,enabled,user_id) VALUES ('测试','webhook','{}',1,?)`, admin.ID)
+	if channelErr != nil {
+		t.Fatal(channelErr)
+	}
+	// channelID 是新建渠道主键。
+	channelID, _ := channelResult.LastInsertId()
+	return store, runID, channelID, cleanup
+}
+
+// TestMissingProofQuarantineAndNotificationAreAtomic 验证人工处理通知与隔离同事务：
+// 渠道查询失败或事务内入队失败时运行保持已取消且没有任何通知；成功时状态与 outbox 同时生效且不走非事务回退。
+func TestMissingProofQuarantineAndNotificationAreAtomic(t *testing.T) {
+	// ctx 保存本测试共用的数据库上下文。
+	ctx := context.Background()
+	// outboxCount 统计指定运行的 outbox 记录数。
+	outboxCount := func(store *db.Store, runID int64) int {
+		// count 保存匹配幂等键的记录数。
+		var count int
+		if err := store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM notification_outbox WHERE idempotency_key=?`, fmt.Sprintf("automation-run:%d:needs_review", runID)).Scan(&count); err != nil { // err 保存计数查询错误。
+			t.Fatal(err)
+		}
+		return count
+	}
+	// newScheduler 构造使用给定通知器的调度器。
+	newScheduler := func(store *db.Store, notifier Notifier) *Scheduler {
+		return &Scheduler{center: NewWithDependencies(store, testSenderProvider{sender: &testSender{}}, nil, CenterDependencies{MTop: &fakeMTop{consignOk: true}, Notifier: notifier}),
+			pendingShipCooldown: map[string]time.Time{}, pendingShipSettleWindow: -1}
+	}
 	// statusOf 读取运行当前状态。
-	statusOf := func() string {
+	statusOf := func(store *db.Store, runID int64) string {
 		// run、err 保存最新运行记录。
 		run, err := store.Automation.GetRun(ctx, runID)
 		if err != nil {
@@ -209,17 +233,53 @@ func TestMissingProofNotificationRetriesAfterEnqueueFailure(t *testing.T) {
 		}
 		return run.Status
 	}
-	scheduler.scanPendingShipResumes(ctx)
-	scheduler.scanPendingShipResumes(ctx)
-	if statusOf() != "canceled" || len(notifier.enqueued) != 0 {
-		t.Fatalf("入队失败期间运行应保持已取消以便重试: status=%s enqueued=%v", statusOf(), notifier.enqueued)
-	}
-	scheduler.scanPendingShipResumes(ctx)
-	scheduler.scanPendingShipResumes(ctx)
-	if statusOf() != "needs_review" || len(notifier.enqueued) != 1 || notifier.enqueued[0] != fmt.Sprintf("%d:needs_review", runID) {
-		t.Fatalf("恢复后应转人工核对且通知恰好一次: status=%s enqueued=%v", statusOf(), notifier.enqueued)
-	}
-	if platform.consignCalls != 0 {
-		t.Fatalf("不得用空凭证确认发货: %d", platform.consignCalls)
-	}
+
+	t.Run("渠道查询失败保持原状并可重试", func(t *testing.T) {
+		// store、runID、channelID、cleanup 保存夹具存储、缺凭证运行、通知渠道及释放函数。
+		store, runID, channelID, cleanup := seedMissingProofRun(t, "atomic-a")
+		defer cleanup()
+		// notifier 先模拟渠道查询失败，再恢复。
+		notifier := &preparingNotifier{channelID: channelID, prepareErr: context.DeadlineExceeded}
+		// scheduler 使用该通知器驱动续跑扫描。
+		scheduler := newScheduler(store, notifier)
+		scheduler.scanPendingShipResumes(ctx)
+		if statusOf(store, runID) != "canceled" || outboxCount(store, runID) != 0 {
+			t.Fatalf("渠道查询失败时应保持已取消且无通知")
+		}
+		notifier.prepareErr = nil
+		scheduler.scanPendingShipResumes(ctx)
+		if statusOf(store, runID) != "needs_review" || outboxCount(store, runID) != 1 || notifier.legacyCalls != 0 {
+			t.Fatalf("恢复后应同时转人工核对并写入一条通知: status=%s outbox=%d legacy=%d", statusOf(store, runID), outboxCount(store, runID), notifier.legacyCalls)
+		}
+	})
+
+	t.Run("事务内入队失败回滚状态", func(t *testing.T) {
+		// store、runID、channelID、cleanup 保存夹具存储、缺凭证运行、通知渠道及释放函数。
+		store, runID, channelID, cleanup := seedMissingProofRun(t, "atomic-b")
+		defer cleanup()
+		// 指向不存在渠道的记录会触发外键失败，模拟「状态已更新但通知写入失败」。
+		notifier := &preparingNotifier{channelID: channelID + 999}
+		newScheduler(store, notifier).scanPendingShipResumes(ctx)
+		if statusOf(store, runID) != "canceled" || outboxCount(store, runID) != 0 {
+			t.Fatalf("通知写入失败时状态更新必须回滚: status=%s", statusOf(store, runID))
+		}
+	})
+
+	t.Run("并发状态变化零行更新不发通知", func(t *testing.T) {
+		// store、runID、channelID、cleanup 保存夹具存储、缺凭证运行、通知渠道及释放函数。
+		store, runID, channelID, cleanup := seedMissingProofRun(t, "atomic-c")
+		defer cleanup()
+		// run、runErr 保存扫描时的运行快照，随后让运行状态被其他流程改变。
+		if _, err := store.DB.ExecContext(ctx, `UPDATE automation_runs SET attempt_count=2 WHERE id=?`, runID); err != nil { // err 保存模拟并发代次变化的结果。
+			t.Fatal(err)
+		}
+		// quarantined、err 保存使用过期代次的条件隔离结果。
+		quarantined, err := store.Automation.QuarantineCanceledRunMissingProof(ctx, runID, 1, "原因", []db.NotificationOutboxInput{{ChannelID: channelID, EventType: "x", Body: "b", IdempotencyKey: fmt.Sprintf("automation-run:%d:needs_review", runID)}})
+		if err != nil || quarantined {
+			t.Fatalf("过期代次不应隔离: quarantined=%v err=%v", quarantined, err)
+		}
+		if outboxCount(store, runID) != 0 {
+			t.Fatal("零行更新不得留下通知")
+		}
+	})
 }
