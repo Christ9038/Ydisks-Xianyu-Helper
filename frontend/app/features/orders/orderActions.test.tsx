@@ -3,6 +3,7 @@ import { act,renderHook } from '@testing-library/react';
 import { afterEach,beforeEach,describe,expect,test,vi } from 'vitest';
 import type { Order,OrderRefreshResponse } from './api';
 import { useOrderActions } from './orderActions';
+import { OrderRefreshStillRunningError } from './refreshErrors';
 
 // orderActionMocks 保存订单动作 Hook 测试使用的 API 替身。
 const orderActionMocks = vi.hoisted(/* orderActionMockFactory 创建订单动作 API 替身。 */ () => ({
@@ -79,6 +80,32 @@ describe('useOrderActions 订单动作协调器', /* 当前回调验证订单动
     await act(/* singleSyncAction 执行失败的单笔同步。 */ async () => hook.result.current.handleSyncSingle('order-1'));
     expect(window.alert).toHaveBeenCalledWith('单笔同步失败');
     expect(hook.result.current.syncingOrderId).toBeNull();
+  });
+
+  test('同步仍在后台运行时刷新已入库订单并提示而不是报失败', /* 当前回调验证前端等待预算耗尽但任务继续运行的分支。 */ async () => {
+    orderActionMocks.syncOrders.mockRejectedValueOnce(new OrderRefreshStillRunningError('job-running'));
+    // hook、loadOrders 保存订单动作协调器及其列表刷新替身。
+    const { hook, loadOrders } = createActionHook();
+    await act(/* syncAction 执行等待预算耗尽的批量同步。 */ async () => hook.result.current.handleSync());
+    expect(loadOrders).toHaveBeenCalledTimes(1);
+    expect(window.alert).toHaveBeenCalledWith(expect.stringContaining('仍在后台进行'));
+    expect(window.alert).not.toHaveBeenCalledWith(expect.stringContaining('同步失败'));
+  });
+
+  test('旧同步的仍在后台运行提示在新同步开始后被忽略', /* 当前回调验证后台运行提示同样受代次隔离。 */ async () => {
+    // rejectFirst 保存旧同步的失败入口，用于在新同步完成后再放行。
+    let rejectFirst: ((reason: unknown) => void) | undefined;
+    orderActionMocks.syncOrders.mockImplementationOnce(/* firstSync 模拟较早请求尚未返回。 */ () => new Promise<OrderRefreshResponse>(/* reject 保存旧同步失败入口。 */ (_resolve, reject) => { rejectFirst = reject; }))
+      .mockResolvedValueOnce({ message: '最新同步完成' });
+    // hook、loadOrders 保存订单动作协调器及其列表刷新替身。
+    const { hook, loadOrders } = createActionHook();
+    // firstTask 启动旧同步但不等待它完成。
+    const firstTask = hook.result.current.handleSync();
+    await act(/* 完成最新同步并等待它刷新列表。 */ async () => { await hook.result.current.handleSync(); });
+    rejectFirst?.(new OrderRefreshStillRunningError('job-old'));
+    await act(/* 放行旧同步的后台运行错误。 */ async () => { await firstTask; });
+    expect(loadOrders).toHaveBeenCalledTimes(1);
+    expect(window.alert).not.toHaveBeenCalledWith(expect.stringContaining('仍在后台进行'));
   });
 
   test('晚到的旧批量同步结果不会覆盖最新请求的列表刷新和提示', /* 当前回调验证重复点击同步时旧任务响应的代次隔离。 */ async () => {

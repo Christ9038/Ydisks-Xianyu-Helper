@@ -299,6 +299,21 @@ func (r *OrderRuntime) FetchOrderDetail(ctx context.Context, detail *orderapp.Pl
 // detail 中的明文凭证只用于平台请求；返回值保留已抓订单和 Cookie 更新，只有分页完整结束才返回 nil 错误。
 // SellerID 仅声明每页实际请求共同使用的 unb，缺失时为空；身份冲突及中途失败均不得用于落库或软删除。
 func (r *OrderRuntime) FetchSoldOrders(ctx context.Context, detail *orderapp.PlatformRuntimeData) (orderapp.RefreshSoldFetchResult, error) {
+	return r.fetchSoldOrders(ctx, detail, nil)
+}
+
+// FetchSoldOrdersPaged 与 FetchSoldOrders 使用同一分页与身份校验，但每取得并校验一页就交给 onPage 提交，不累积订单。
+// onPage 在平台请求之外被调用，返回错误会立即终止后续分页；已提交页保留，调用方据此禁止缺失订单清理。
+// 返回值只携带最终身份与 Cookie 状态；onPage 不能为空。
+func (r *OrderRuntime) FetchSoldOrdersPaged(ctx context.Context, detail *orderapp.PlatformRuntimeData, onPage orderapp.RefreshSoldPageHandler) (orderapp.RefreshSoldFetchResult, error) {
+	if onPage == nil {
+		return orderapp.RefreshSoldFetchResult{}, errors.New("订单列表分页处理器不能为空")
+	}
+	return r.fetchSoldOrders(ctx, detail, onPage)
+}
+
+// fetchSoldOrders 是两种读取方式的共同实现：onPage 为空时累积全部订单返回，否则逐页回调并只返回最终状态。
+func (r *OrderRuntime) fetchSoldOrders(ctx context.Context, detail *orderapp.PlatformRuntimeData, onPage orderapp.RefreshSoldPageHandler) (orderapp.RefreshSoldFetchResult, error) {
 	// client 固定本次同步的平台客户端，身份检查与分页调用使用同一实例。
 	client := r.mtopClient()
 	// fetcher、available 保存订单列表接口实现及其可用状态。
@@ -311,7 +326,7 @@ func (r *OrderRuntime) FetchSoldOrders(ctx context.Context, detail *orderapp.Pla
 	}
 	// requestCtx、session 保存带 Cookie 快照的平台上下文及响应会话。
 	requestCtx, session := withOrderCookieSnapshot(ctx, platformRuntimeDataForOrder(detail))
-	// orders 保存跨分页累积的平台订单。
+	// orders 保存跨分页累积的平台订单；逐页提交模式下保持为空。
 	orders := make([]orderapp.RefreshSoldOrder, 0)
 	// sellerID 保存已观察到的请求 UID，identityComplete 要求每一页都具备可验证的相同身份。
 	sellerID, identityComplete := "", true
@@ -338,21 +353,33 @@ func (r *OrderRuntime) FetchSoldOrders(ctx context.Context, detail *orderapp.Pla
 		if page == nil {
 			return orderapp.RefreshSoldFetchResult{Orders: orders, CookieUpdate: orderCookieUpdate(detail, session)}, errors.New("订单列表接口未返回结果")
 		}
+		// pageOrders 保存本页转换后的订单；整页通过结构校验后才可累积或提交。
+		pageOrders := make([]orderapp.RefreshSoldOrder, 0, len(page.Items))
 		// remote 是当前平台订单列表项。
 		for _, remote := range page.Items {
 			if strings.TrimSpace(remote.OrderID) == "" {
 				return orderapp.RefreshSoldFetchResult{Orders: orders, CookieUpdate: orderCookieUpdate(detail, session)}, fmt.Errorf("订单列表第 %d 页存在缺失订单号的条目，分页不完整", pageNumber)
 			}
-			orders = append(orders, orderapp.RefreshSoldOrder{OrderID: remote.OrderID, ItemID: remote.ItemID, BuyerID: remote.BuyerID, CreatedAt: remote.CreatedAt, OrderStatus: orderapp.NormalizeOrderStatus(remote.OrderStatus), Quantity: remote.Quantity, Amount: remote.Amount, ReceiverName: remote.ReceiverName, ReceiverPhone: remote.ReceiverPhone, ReceiverAddr: remote.ReceiverAddr, ReceiverCity: remote.ReceiverCity, IsBargain: remote.IsBargain})
+			pageOrders = append(pageOrders, orderapp.RefreshSoldOrder{OrderID: remote.OrderID, ItemID: remote.ItemID, BuyerID: remote.BuyerID, CreatedAt: remote.CreatedAt, OrderStatus: orderapp.NormalizeOrderStatus(remote.OrderStatus), Quantity: remote.Quantity, Amount: remote.Amount, ReceiverName: remote.ReceiverName, ReceiverPhone: remote.ReceiverPhone, ReceiverAddr: remote.ReceiverAddr, ReceiverCity: remote.ReceiverCity, IsBargain: remote.IsBargain})
+		}
+		if page.NextPage && len(page.Items) == 0 {
+			return orderapp.RefreshSoldFetchResult{Orders: append(orders, pageOrders...), CookieUpdate: orderCookieUpdate(detail, session)}, fmt.Errorf("订单列表第 %d 页为空页但 nextPage 为真，分页不完整", pageNumber)
+		}
+		// pageSellerID 只在此前每页身份都完整时才声明，任一页缺失身份后禁止后续页做跨账号归属修复。
+		pageSellerID := sellerID
+		if !identityComplete {
+			pageSellerID = ""
+		}
+		if onPage != nil {
+			// handlerErr 是调用方提交本页的错误；非空时终止后续分页，已提交页由调用方保留。
+			if handlerErr := onPage(ctx, orderapp.RefreshSoldPage{SellerID: pageSellerID, Orders: pageOrders, CookieUpdate: orderCookieUpdate(detail, session)}); handlerErr != nil {
+				return orderapp.RefreshSoldFetchResult{SellerID: pageSellerID, CookieUpdate: orderCookieUpdate(detail, session)}, handlerErr
+			}
+		} else {
+			orders = append(orders, pageOrders...)
 		}
 		if !page.NextPage {
-			if !identityComplete {
-				sellerID = ""
-			}
-			return orderapp.RefreshSoldFetchResult{SellerID: sellerID, Orders: orders, CookieUpdate: orderCookieUpdate(detail, session)}, nil
-		}
-		if len(page.Items) == 0 {
-			return orderapp.RefreshSoldFetchResult{Orders: orders, CookieUpdate: orderCookieUpdate(detail, session)}, fmt.Errorf("订单列表第 %d 页为空页但 nextPage 为真，分页不完整", pageNumber)
+			return orderapp.RefreshSoldFetchResult{SellerID: pageSellerID, Orders: orders, CookieUpdate: orderCookieUpdate(detail, session)}, nil
 		}
 	}
 	return orderapp.RefreshSoldFetchResult{Orders: orders, CookieUpdate: orderCookieUpdate(detail, session)}, fmt.Errorf("订单列表达到 %d 页上限但 nextPage 为真，分页不完整", orderRuntimeMaxSoldOrderPages)

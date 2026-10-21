@@ -477,61 +477,59 @@ func (s *RefreshService) discoverAccount(ctx context.Context, userID int64, cook
 		return 0, 0, emptyResult, err
 	}
 	unlock()
-	// fetchResult、discoveryErr 保存锁外订单发现结果及错误。
-	fetchResult, discoveryErr := s.runtime.FetchSoldOrders(ctx, latest)
-	if discoveryErr == nil {
-		// 联系人补缓存可能访问平台，必须在凭证锁外完成；下方重新复核凭证及发现代次后才可写订单。
-		discoveryErr = s.prepareSoldChats(ctx, cookieID, fetchResult.Orders)
-	}
+	// state 保存多页提交之间共享的统计、基线凭证和完整快照集合。
+	state := &soldDiscoveryState{baseline: latest, result: emptyResult, activeIDs: make(map[string]struct{})}
+	// fetchResult、discoveryErr 保存锁外分页读取的最终身份、Cookie 状态及错误；每页在 handler 内即时提交。
+	fetchResult, discoveryErr := s.fetchSoldPaged(ctx, latest, func(pageCtx context.Context, page RefreshSoldPage) error {
+		// commitErr 保存本页提交错误，非空时终止后续分页。
+		commitErr := s.commitSoldPage(pageCtx, userID, cookieID, generation, state, page)
+		if commitErr == nil {
+			s.notifyRunningCookie(pageCtx, cookieID, state, page.CookieUpdate)
+		}
+		return commitErr
+	})
 	unlock = s.repository.LockCredentials(cookieID)
 	if ctx.Err() != nil {
 		unlock()
-		return 0, 0, emptyResult, ctx.Err()
+		return state.discovered, state.updated, state.result, ctx.Err()
 	}
 	if !s.discoveryCurrent(cookieID, generation) {
 		unlock()
-		return 0, 0, emptyResult, errors.New("该账号已有更新的订单同步，本次旧结果未写入")
+		return state.discovered, state.updated, state.result, errors.New("该账号已有更新的订单同步，本次旧结果未写入")
 	}
-	// latestAfterFetch、reloadErr 保存发现完成后的凭证视图及重读错误。
+	// latestAfterFetch、reloadErr 保存分页结束后的凭证视图及重读错误。
 	latestAfterFetch, reloadErr := s.repository.LoadCookiePlatformDetail(ctx, cookieID)
-	// credentialChanged 表示发现期间凭证快照是否发生变化。
-	credentialChanged := reloadErr != nil || latestAfterFetch == nil || latestAfterFetch.UserID != userID || latestAfterFetch.Value != latest.Value || latestAfterFetch.MetadataJSON != latest.MetadataJSON
-	if credentialChanged {
+	if !state.credentialUnchanged(latestAfterFetch, userID, reloadErr) {
 		unlock()
-		return 0, 0, emptyResult, ErrRefreshCredentialChanged
+		return state.discovered, state.updated, state.result, ErrRefreshCredentialChanged
 	}
-	// persistErr 保存已通过代次和凭证复核的响应 Cookie 写入错误；旧会话错误不得影响当前凭证。
-	_, _, _, persistErr := s.runtime.PersistCookieSession(ctx, latest, fetchResult.CookieUpdate)
-	if persistErr != nil {
-		discoveryErr = errors.Join(discoveryErr, fmt.Errorf("保存订单列表响应 Cookie Jar: %w", persistErr))
+	// persistErr 保存读取结束后尚未提交的响应 Cookie 写入错误（例如读取失败前最后一次会话变化）。
+	if persistErr := s.persistDiscoveryCookie(ctx, cookieID, state, fetchResult.CookieUpdate); persistErr != nil {
+		discoveryErr = errors.Join(discoveryErr, persistErr)
 	}
 	// result 保存当前账号发现阶段的汇总结果。
-	result := emptyResult
+	result := state.result
 	if discoveryErr != nil {
 		unlock()
+		if s.runtime.IsSessionExpired(discoveryErr) {
+			result.SessionExpired = true
+			s.runtime.RecoverExpiredSession(ctx, cookieID, discoveryErr)
+		}
+		return state.discovered, state.updated, result, discoveryErr
 	}
-	if s.runtime.IsSessionExpired(discoveryErr) {
-		result.SessionExpired = true
-		s.runtime.RecoverExpiredSession(ctx, cookieID, discoveryErr)
-	}
-	if discoveryErr != nil {
-		return 0, 0, result, discoveryErr
-	}
-	// discovered、updated、result、remoteOrderIDs、writeErr 保存已提交统计、逐单明细、完整远端集合和写入失败。
-	discovered, updated, result, remoteOrderIDs, writeErr := s.persistSoldSnapshot(ctx, userID, cookieID, fetchResult.SellerID, fetchResult.Orders)
+	// writeErr 保存已隔离归属冲突；存在冲突时不得清理缺失订单。
+	writeErr := state.blockedErr
 	if writeErr == nil {
 		// deleted、deleteErr 保存完整快照成功处理后的缺失清理结果，有冲突或写入失败时不清理。
-		deleted, deleteErr := s.repository.SoftDeleteMissingOrders(ctx, cookieID, remoteOrderIDs)
+		deleted, deleteErr := s.repository.SoftDeleteMissingOrders(ctx, cookieID, state.activeIDs)
 		result.SoftDeleted = deleted
 		if deleteErr != nil {
 			writeErr = fmt.Errorf("标记缺失订单失败: %w", deleteErr)
 		}
 	}
 	unlock()
-	if fetchResult.CookieUpdate.Changed && fetchResult.CookieUpdate.Value != "" {
-		s.runtime.UpdateRunningCookie(ctx, cookieID, fetchResult.CookieUpdate.Value)
-	}
-	return discovered, updated, result, writeErr
+	s.notifyRunningCookie(ctx, cookieID, state, fetchResult.CookieUpdate)
+	return state.discovered, state.updated, result, writeErr
 }
 
 // refreshDetailChunk 刷新一个账号详情分片并提交单事务结果。

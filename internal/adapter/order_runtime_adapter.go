@@ -165,6 +165,14 @@ func (adapter OrderRuntimeAdapter) FetchSoldOrders(ctx context.Context, detail *
 	return adapter.runtime.FetchSoldOrders(ctx, detail)
 }
 
+// FetchSoldOrdersPaged 调用平台已售订单接口并逐页交给 onPage 提交，使取消或超时不丢失已完成页。
+func (adapter OrderRuntimeAdapter) FetchSoldOrdersPaged(ctx context.Context, detail *orderapp.PlatformRuntimeData, onPage orderapp.RefreshSoldPageHandler) (orderapp.RefreshSoldFetchResult, error) {
+	if adapter.runtime == nil {
+		return orderapp.RefreshSoldFetchResult{}, errors.New("订单运行时未初始化")
+	}
+	return adapter.runtime.FetchSoldOrdersPaged(ctx, detail, onPage)
+}
+
 // RefreshChatConversations 委托订单运行时刷新聊天联系人缓存。
 func (adapter OrderRuntimeAdapter) RefreshChatConversations(ctx context.Context, cookieID string) error {
 	if adapter.runtime == nil {

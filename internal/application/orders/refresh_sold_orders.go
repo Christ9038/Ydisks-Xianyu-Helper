@@ -113,6 +113,14 @@ func (s *RefreshService) persistSoldOrders(ctx context.Context, cookieID string,
 // prepareSoldChats 为 cookieID 的 remoteOrders 按需补齐联系人缓存，ctx 控制平台请求取消。
 // 调用方必须在凭证锁外执行；最多刷新一次，平台失败只影响关联，数据库查询或取消错误阻止本轮提交。
 func (s *RefreshService) prepareSoldChats(ctx context.Context, cookieID string, remoteOrders []RefreshSoldOrder) error {
+	// refreshed 是单次调用内的刷新标记，独立调用永远允许刷新一次联系人缓存。
+	refreshed := false
+	return s.prepareSoldChatsOnce(ctx, cookieID, remoteOrders, &refreshed)
+}
+
+// prepareSoldChatsOnce 同 prepareSoldChats，但用 *refreshed 在多页之间共享“已刷新”标记：
+// 一次订单发现最多请求一次平台联系人缓存，之后的分页只查询本地候选，避免上百页产生上百次平台请求。
+func (s *RefreshService) prepareSoldChatsOnce(ctx context.Context, cookieID string, remoteOrders []RefreshSoldOrder, refreshed *bool) error {
 	// refresher、supported 判断可选平台联系人能力，未装配时仅在提交阶段查询本地缓存。
 	refresher, supported := s.runtime.(chatConversationRefresher)
 	if !supported {
@@ -130,7 +138,10 @@ func (s *RefreshService) prepareSoldChats(ctx context.Context, cookieID string, 
 		}
 		if len(chatIDs) == 0 {
 			// 可选平台刷新失败不会阻止订单落库；即使部分分页失败，提交阶段仍重新查询已落库的可信会话。
-			_ = refresher.RefreshChatConversations(ctx, cookieID)
+			if !*refreshed {
+				*refreshed = true
+				_ = refresher.RefreshChatConversations(ctx, cookieID)
+			}
 			return ctx.Err()
 		}
 	}

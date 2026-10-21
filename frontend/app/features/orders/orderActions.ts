@@ -1,6 +1,7 @@
 import { useCallback,useEffect,useRef,useState,type Dispatch,type SetStateAction } from 'react';
 import type { Order } from './api';
 import { deleteOrder,manualShipOrder,syncOrders,syncSingleOrder,updateOrder } from './api';
+import { OrderRefreshStillRunningError } from './refreshErrors';
 import { formatOrderSyncResult } from './syncResult';
 
 // OrderShipMode 表示订单发货操作的两种业务模式。
@@ -150,6 +151,13 @@ export const useOrderActions = ({ orders, page, accountFilter, filter, searchTex
       if (message) alert(message);
     } catch (/* error 表示订单同步请求异常。 */ error: unknown) {
 			if (generation !== syncGeneration.current) return;
+      if (error instanceof OrderRefreshStillRunningError) {
+        // 后台任务仍在运行且已入库前序订单页：刷新列表展示已同步部分，并说明任务未被取消，不当作失败。
+        await loadOrders();
+        if (generation !== syncGeneration.current) return;
+        alert(error.message);
+        return;
+      }
       console.error('同步订单失败:', error);
       alert(orderErrorMessage(error, '同步失败，请重试'));
     }
