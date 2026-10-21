@@ -25,16 +25,26 @@ const reclaimableObsoleteRunSQL = `status='canceled' AND error_message LIKE '` +
 const resumableObsoleteProgressRunSQL = `status='canceled' AND error_message LIKE '` + ObsoleteRunReasonMarker + `%'
 	            AND action_started=0 AND action_cursor>0`
 
-// CancelObsoletePaidRecoveryRun 取消已不再处于待发货状态的付款运行恢复，并清除可重放发货凭证。
+// CancelObsoletePaidRecoveryRun 取消已不再处于待发货状态的付款运行恢复；除「退款中且发卡已完成」外清除可重放发货凭证。
 // 更新同时校验扫描快照和订单当前事实；并发续租、游标推进或订单重新进入待发货都会让本次取消失效。
 func (a *AutomationRules) CancelObsoletePaidRecoveryRun(ctx context.Context, run AutomationRun, reason string) (bool, error) {
 	// 取消时动作结果未知（action_started=1）的运行不打可接管标记，订单重新待发货后也不得自动重放。
 	if !run.ActionStarted {
 		reason = ObsoleteRunReasonMarker + reason
 	}
+	// proofSQL 决定取消后的发货凭证：订单因退款中而离开待发货、且发卡/模板已完成（游标已推进、无进行中动作）时，
+	// 退款撤回后的续跑需要用它恢复已发送的卡密文本/图片来确认发货，必须原样保留（仍为加密存储）；
+	// 其余取消（订单已发货、完成、取消等）不再需要，照旧清空。
+	proofSQL := "''"
+	if !run.ActionStarted && run.ActionCursor > 0 {
+		proofSQL = `CASE WHEN EXISTS (SELECT 1 FROM orders ro
+                           WHERE ro.order_id=automation_runs.order_id AND ro.cookie_id=automation_runs.cookie_id
+                             AND ro.order_status='refunding')
+                      THEN delivery_proof ELSE '' END`
+	}
 	// result、err 保存基于运行快照和最新订单状态的条件取消结果。
 	result, err := a.DB.ExecContext(ctx, `UPDATE automation_runs
-   SET status='canceled',action_started=0,lease_expires_at=0,next_retry_at=0,error_message=?,delivery_proof='',updated_at=CURRENT_TIMESTAMP
+   SET status='canceled',action_started=0,lease_expires_at=0,next_retry_at=0,error_message=?,delivery_proof=`+proofSQL+`,updated_at=CURRENT_TIMESTAMP
  WHERE id=? AND attempt_count=? AND status=? AND action_cursor=? AND action_started=? AND lease_expires_at=?
    AND trigger_type='order_paid'
    AND NOT EXISTS (SELECT 1 FROM orders o
