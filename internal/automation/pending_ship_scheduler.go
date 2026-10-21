@@ -349,25 +349,25 @@ func (s *Scheduler) releasePendingShipAttempt(orderID string) {
 	delete(s.pendingShipCooldown, orderID)
 }
 
-// quarantineMissingProofResume 把凭证缺失的退款撤回续跑候选转入人工核对并通知；竞争失败或写入失败只记录日志，下一轮重试。
+// quarantineMissingProofResume 把凭证缺失的退款撤回续跑候选转入人工核对并通知。
+// 顺序是「先确认通知入队、再隔离运行」：隔离后运行会被续跑查询排除，通知若在之后失败就永远不会补发；
+// 通知按运行与终态幂等去重，所以入队成功但隔离失败时下一轮重试不会重复通知。任一步失败只记录日志，下一轮重试。
 func (s *Scheduler) quarantineMissingProofResume(ctx context.Context, candidate db.PendingShipResume) {
 	// reason 说明停止自动确认发货的原因，不含任何凭证内容。
 	reason := "退款撤回后续跑缺少已发送的发货凭证，已停止自动确认发货，请人工核对"
-	// quarantined、err 保存条件隔离结果；陈旧扫描不产生通知。
-	quarantined, err := s.center.store.Automation.QuarantineCanceledRunMissingProof(ctx, candidate.RunID, candidate.Attempt, reason)
-	if err != nil {
-		s.center.logger.Error("保存缺失凭证续跑运行人工核对状态失败", "run_id", candidate.RunID, "err", err)
-		return
-	}
-	if !quarantined {
-		return
-	}
-	// run 由扫描候选直接构造通知上下文，不再回读数据库：运行已转为人工核对并被续跑查询排除，
-	// 回读失败会让这条需要人工处理的订单永久没有通知。
+	// run 由扫描候选直接构造通知上下文，不依赖回读数据库。
 	run := db.AutomationRun{
 		ID: candidate.RunID, RuleID: candidate.RuleID, CookieID: candidate.Order.CookieID, ItemID: candidate.Order.ItemID,
 		OrderID: candidate.Order.OrderID, BuyerID: candidate.Order.BuyerID, ChatID: candidate.Order.ChatID,
 		TriggerType: TriggerOrderPaid, Status: "needs_review", AttemptCount: candidate.Attempt, ActionCursor: candidate.ActionCursor,
 	}
-	s.center.notifyRunNeedsReview(ctx, run, reason)
+	// notifyErr 保存人工处理通知入队错误；非空时不得隔离运行，否则通知将永久丢失。
+	if notifyErr := s.center.notifications.notifyRunNeedsReviewStrict(ctx, run, reason); notifyErr != nil {
+		s.center.logger.Error("缺失凭证续跑的人工处理通知入队失败，保留运行等待下一轮重试", "run_id", candidate.RunID, "err", notifyErr)
+		return
+	}
+	// _, err 保存条件隔离结果；陈旧扫描零行更新属于正常竞争，通知已按幂等键去重。
+	if _, err := s.center.store.Automation.QuarantineCanceledRunMissingProof(ctx, candidate.RunID, candidate.Attempt, reason); err != nil {
+		s.center.logger.Error("保存缺失凭证续跑运行人工核对状态失败，下一轮重试", "run_id", candidate.RunID, "err", err)
+	}
 }

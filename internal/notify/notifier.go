@@ -182,11 +182,23 @@ func (n *Notifier) NotifyAutomationRunForTrigger(ctx context.Context, triggerTyp
 
 // notifyAutomationRun 统一处理自动化终态通知的输入校验、格式化和幂等入队。
 func (n *Notifier) notifyAutomationRun(ctx context.Context, eventType string, runID int64, accountID, buyerID, itemID, status, message, chatID string) {
+	// 兼容入口只记录日志；需要感知入队失败的调用方使用 EnqueueAutomationRunForTrigger。
+	_ = n.enqueueAutomationRun(ctx, eventType, runID, accountID, buyerID, itemID, status, message, chatID)
+}
+
+// EnqueueAutomationRunForTrigger 与 NotifyAutomationRunForTrigger 语义相同，但把渠道查询或 outbox 写入失败返回给调用方，
+// 供「先确认通知入队、再推进业务状态」的路径在失败时保留重试机会。没有启用渠道或订阅不匹配不属于失败。
+func (n *Notifier) EnqueueAutomationRunForTrigger(ctx context.Context, triggerType string, runID int64, accountID, buyerID, itemID, status, message, chatID string) error {
+	return n.enqueueAutomationRun(ctx, automationEventType(triggerType), runID, accountID, buyerID, itemID, status, message, chatID)
+}
+
+// enqueueAutomationRun 统一处理自动化终态通知的输入校验、格式化和幂等入队，并返回需要重试的入队错误。
+func (n *Notifier) enqueueAutomationRun(ctx context.Context, eventType string, runID int64, accountID, buyerID, itemID, status, message, chatID string) error {
 	if n == nil || runID <= 0 || strings.TrimSpace(status) == "" {
 		if n != nil && n.logger != nil {
 			n.logger.Warn("忽略无效的自动化终态通知", "run_id", runID, "account_id", accountID, "status", status)
 		}
-		return
+		return nil
 	}
 	// idempotencyKey 绑定自动化运行主键与终态，避免恢复扫描或状态收口重试创建新 outbox 消息。
 	idempotencyKey := fmt.Sprintf("automation-run:%d:%s", runID, strings.TrimSpace(status))
@@ -198,7 +210,7 @@ func (n *Notifier) notifyAutomationRun(ctx context.Context, eventType string, ru
 		notificationType, notificationLevel, notificationTitle = EventManualInterventionRequired, "critical", "自动化需要人工处理"
 		fallbackTypes = []string{eventType}
 	}
-	n.notifyEvent(ctx, NotificationEvent{
+	return n.enqueueEvent(ctx, NotificationEvent{
 		AccountID: accountID,
 		Type:      notificationType,
 		Level:     notificationLevel,
@@ -286,15 +298,22 @@ func (n *Notifier) NotifyEvent(ctx context.Context, ev NotificationEvent) {
 
 // notifyEvent 根据事件类型筛选渠道并发送通知；idempotencyKey 只用于 outbox 持久化去重，不能为空时必须来自稳定业务事实。
 func (n *Notifier) notifyEvent(ctx context.Context, ev NotificationEvent, idempotencyKey string) {
+	// 兼容入口只记录日志；入队失败的细节已在 enqueueEvent 内脱敏记录。
+	_ = n.enqueueEvent(ctx, ev, idempotencyKey)
+}
+
+// enqueueEvent 筛选渠道并写入 outbox（或在未启动 worker 且无业务键时同步发送）。
+// 仅渠道查询失败和 outbox 持久化失败返回错误；无渠道、无匹配订阅属于无需投递，返回 nil。
+func (n *Notifier) enqueueEvent(ctx context.Context, ev NotificationEvent, idempotencyKey string) error {
 	if n == nil || n.repository == nil {
 		if n != nil && n.logger != nil {
 			n.logger.Warn("通知入队跳过：通知仓储未初始化", "event_type", ev.Type, "account_id", ev.AccountID)
 		}
-		return
+		return nil
 	}
 	if ctx == nil {
 		n.logger.Warn("忽略缺少生命周期 Context 的通知入队请求")
-		return
+		return nil
 	}
 	if ev.Time.IsZero() {
 		ev.Time = time.Now()
@@ -303,11 +322,11 @@ func (n *Notifier) notifyEvent(ctx context.Context, ev NotificationEvent, idempo
 	channels, err := n.repository.AccountChannels(ctx, ev.AccountID)
 	if err != nil {
 		n.logger.Error("查询通知渠道失败", "event_type", ev.Type, "account_id", ev.AccountID, "err", logsafe.Error(err))
-		return
+		return fmt.Errorf("查询通知渠道: %w", err)
 	}
 	if len(channels) == 0 {
 		n.logger.Info("通知事件未找到已启用渠道", "event_type", ev.Type, "account_id", ev.AccountID)
-		return
+		return nil
 	}
 	// full 用于本次流程后续判断的full
 	full := formatEvent(ev)
@@ -328,7 +347,7 @@ func (n *Notifier) notifyEvent(ctx context.Context, ev NotificationEvent, idempo
 	}
 	if len(eligible) == 0 {
 		n.logger.Info("通知事件没有匹配的订阅渠道", "event_type", ev.Type, "account_id", ev.AccountID, "channel_count", len(channels))
-		return
+		return nil
 	}
 	// 自动化运行终态必须先进入 outbox：即使 worker 尚未随应用生命周期启动，也不能回退到
 	// 同步网络发送，否则会绕过业务幂等键和发送成功后的 uncertain 隔离。
@@ -342,10 +361,10 @@ func (n *Notifier) notifyEvent(ctx context.Context, ev NotificationEvent, idempo
 		if // err 用于本次流程后续判断的err
 		err := n.repository.EnqueueOutbox(ctx, messages); err != nil {
 			n.logger.Error("持久化通知失败", "event_type", ev.Type, "account_id", ev.AccountID, "channel_count", len(eligible), "err", logsafe.Error(err))
-		} else {
-			n.logger.Info("自动化通知已写入 outbox", "event_type", ev.Type, "account_id", ev.AccountID, "channel_count", len(eligible), "idempotency_key", idempotencyKey)
+			return fmt.Errorf("持久化通知: %w", err)
 		}
-		return
+		n.logger.Info("自动化通知已写入 outbox", "event_type", ev.Type, "account_id", ev.AccountID, "channel_count", len(eligible), "idempotency_key", idempotencyKey)
+		return nil
 	}
 	// 未启动 worker 的独立使用场景保持同步行为，便于 CLI 和单元测试显式使用。
 	for _, ch := range eligible {
@@ -356,6 +375,7 @@ func (n *Notifier) notifyEvent(ctx context.Context, ev NotificationEvent, idempo
 			n.logger.Info("通知已发送", "channel", ch.Type, "channel_id", ch.ID, "event_type", ev.Type)
 		}
 	}
+	return nil
 }
 
 // runOutbox 封装运行Outbox业务协调。

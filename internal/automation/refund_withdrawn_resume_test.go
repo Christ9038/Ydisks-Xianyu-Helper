@@ -2,6 +2,7 @@ package automation
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -142,5 +143,83 @@ func TestRefundWithdrawnResumeWithoutProofGoesToManualReview(t *testing.T) {
 	}
 	if platform.consignCalls != 0 || len(sender.texts) != 0 {
 		t.Fatalf("不得用空凭证确认发货或重发内容: confirms=%d texts=%v", platform.consignCalls, sender.texts)
+	}
+}
+
+// flakyStrictNotifier 是可注入入队失败的通知器替身：前 failures 次入队返回错误，之后成功并记录通知。
+type flakyStrictNotifier struct {
+	// failures 是仍需返回入队错误的剩余次数。
+	failures int
+	// enqueued 记录成功入队的 (运行主键, 状态)，用于断言通知恰好补发一次。
+	enqueued []string
+}
+
+// NotifyAutomationRun 满足 Notifier 接口；严格入口存在时不会被调用。
+func (f *flakyStrictNotifier) NotifyAutomationRun(context.Context, int64, string, string, string, string, string, string) {
+}
+
+// EnqueueAutomationRunForTrigger 模拟渠道查询或 outbox 写入失败后恢复。
+func (f *flakyStrictNotifier) EnqueueAutomationRunForTrigger(_ context.Context, _ string, runID int64, _, _, _, status, _, _ string) error {
+	if f.failures > 0 {
+		f.failures--
+		return context.DeadlineExceeded
+	}
+	f.enqueued = append(f.enqueued, fmt.Sprintf("%d:%s", runID, status))
+	return nil
+}
+
+// TestMissingProofNotificationRetriesAfterEnqueueFailure 验证通知入队失败时运行保持已取消，下一轮重试成功后才转人工核对，通知不丢也不重复。
+func TestMissingProofNotificationRetriesAfterEnqueueFailure(t *testing.T) {
+	// store、cleanup 保存测试数据库及关闭责任。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// ctx 保存本测试共用的数据库上下文。
+	ctx := context.Background()
+	// admin 保存规则所属管理员账号。
+	admin, adminErr := store.Users.GetByUsername(ctx, "admin")
+	if adminErr != nil {
+		t.Fatal(adminErr)
+	}
+	catchupAccount(t, store, admin.ID, "retry-acc")
+	// ruleID 是含发卡与确认发货的付款发货规则。
+	ruleID := catchupRule(t, store, admin.ID, "retry-acc", "item-retry",
+		[]db.AutomationActionInput{catchupCardAction(catchupCard(t, store, admin.ID)), {ActionType: ActionConfirmShipment, Enabled: true}})
+	catchupOrder(t, store, "retry-acc", "o-retry", "item-retry", "chat-retry")
+	// rawTask 是运行冻结快照。
+	rawTask := `{"Source":"scheduler","AccountID":"retry-acc","TriggerType":"order_paid","ChatID":"chat-retry","OrderID":"o-retry","ItemID":"item-retry","BuyerID":"buyer-o-retry",` +
+		`"ActionPlan":[{"ActionType":"send_card","Enabled":true,"ConfigJSON":"{\"spec_name\":\"颜色\",\"spec_value\":\"黑\"}"},{"ActionType":"confirm_shipment","Enabled":true}]}`
+	// runID 是缺凭证的历史已取消运行。
+	runID := catchupRun(t, store, ruleID, "retry-acc", "o-retry", rawTask)
+	if _, seedErr := store.DB.ExecContext(ctx, `UPDATE automation_runs SET status='canceled',error_message=?,action_cursor=1,sent_count=1,action_started=0,delivery_proof='',attempt_count=1 WHERE id=?`, db.ObsoleteRunReasonMarker+"订单退款中", runID); seedErr != nil { // seedErr 保存历史状态写入结果。
+		t.Fatal(seedErr)
+	}
+	// notifier 前两次入队失败；scheduler 驱动续跑扫描。
+	notifier := &flakyStrictNotifier{failures: 2}
+	// platform 记录是否错误地确认发货。
+	platform := &fakeMTop{consignOk: true}
+	// scheduler 使用真实存储与可注入入队失败的通知器驱动续跑扫描。
+	scheduler := &Scheduler{center: NewWithDependencies(store, testSenderProvider{sender: &testSender{}}, nil, CenterDependencies{MTop: platform, Notifier: notifier}),
+		pendingShipCooldown: map[string]time.Time{}, pendingShipSettleWindow: -1}
+	// statusOf 读取运行当前状态。
+	statusOf := func() string {
+		// run、err 保存最新运行记录。
+		run, err := store.Automation.GetRun(ctx, runID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return run.Status
+	}
+	scheduler.scanPendingShipResumes(ctx)
+	scheduler.scanPendingShipResumes(ctx)
+	if statusOf() != "canceled" || len(notifier.enqueued) != 0 {
+		t.Fatalf("入队失败期间运行应保持已取消以便重试: status=%s enqueued=%v", statusOf(), notifier.enqueued)
+	}
+	scheduler.scanPendingShipResumes(ctx)
+	scheduler.scanPendingShipResumes(ctx)
+	if statusOf() != "needs_review" || len(notifier.enqueued) != 1 || notifier.enqueued[0] != fmt.Sprintf("%d:needs_review", runID) {
+		t.Fatalf("恢复后应转人工核对且通知恰好一次: status=%s enqueued=%v", statusOf(), notifier.enqueued)
+	}
+	if platform.consignCalls != 0 {
+		t.Fatalf("不得用空凭证确认发货: %d", platform.consignCalls)
 	}
 }
