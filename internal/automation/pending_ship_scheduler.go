@@ -362,11 +362,12 @@ func (s *Scheduler) quarantineMissingProofResume(ctx context.Context, candidate 
 	if !quarantined {
 		return
 	}
-	// run、getErr 保存通知所需的最新运行记录。
-	run, getErr := s.center.store.Automation.GetRun(ctx, candidate.RunID)
-	if getErr != nil {
-		s.center.logger.Warn("读取缺失凭证续跑运行失败，跳过通知", "run_id", candidate.RunID, "err", getErr)
-		return
+	// run 由扫描候选直接构造通知上下文，不再回读数据库：运行已转为人工核对并被续跑查询排除，
+	// 回读失败会让这条需要人工处理的订单永久没有通知。
+	run := db.AutomationRun{
+		ID: candidate.RunID, RuleID: candidate.RuleID, CookieID: candidate.Order.CookieID, ItemID: candidate.Order.ItemID,
+		OrderID: candidate.Order.OrderID, BuyerID: candidate.Order.BuyerID, ChatID: candidate.Order.ChatID,
+		TriggerType: TriggerOrderPaid, Status: "needs_review", AttemptCount: candidate.Attempt, ActionCursor: candidate.ActionCursor,
 	}
-	s.center.notifyRunNeedsReview(ctx, *run, reason)
+	s.center.notifyRunNeedsReview(ctx, run, reason)
 }

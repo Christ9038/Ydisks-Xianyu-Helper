@@ -115,12 +115,14 @@ func TestRefundWithdrawnResumeWithoutProofGoesToManualReview(t *testing.T) {
 	if _, seedErr := store.DB.ExecContext(ctx, `UPDATE automation_runs SET status='canceled',error_message=?,action_cursor=1,sent_count=1,action_started=0,delivery_proof='',attempt_count=1 WHERE id=?`, db.ObsoleteRunReasonMarker+"订单退款中", runID); seedErr != nil {
 		t.Fatal(seedErr)
 	}
+	// notifier 记录人工处理通知是否入队。
+	notifier := &recordingNotifier{}
 	// sender 记录是否错误地重发内容。
 	sender := &testSender{}
 	// platform 记录是否错误地提交确认发货。
 	platform := &fakeMTop{consignOk: true}
 	// scheduler 使用真实存储与平台替身驱动续跑扫描。
-	scheduler := &Scheduler{center: NewWithDependencies(store, testSenderProvider{sender: sender}, nil, CenterDependencies{MTop: platform}),
+	scheduler := &Scheduler{center: NewWithDependencies(store, testSenderProvider{sender: sender}, nil, CenterDependencies{MTop: platform, Notifier: notifier}),
 		pendingShipCooldown: map[string]time.Time{}, pendingShipSettleWindow: -1}
 	// 连续扫描两轮：第一轮隔离，第二轮不得再次选中或提交。
 	scheduler.scanPendingShipResumes(ctx)
@@ -133,6 +135,10 @@ func TestRefundWithdrawnResumeWithoutProofGoesToManualReview(t *testing.T) {
 	}
 	if run.Status != "needs_review" || run.AttemptCount != 1 {
 		t.Fatalf("缺凭证运行应转人工核对且不重开: status=%s attempt=%d", run.Status, run.AttemptCount)
+	}
+	// 通知只在隔离成功的那一轮发送一次，且不依赖运行回读。
+	if len(notifier.calls) != 1 || notifier.calls[0].runID != runID || notifier.calls[0].status != "needs_review" {
+		t.Fatalf("缺凭证运行应恰好发送一次人工处理通知: %+v", notifier.calls)
 	}
 	if platform.consignCalls != 0 || len(sender.texts) != 0 {
 		t.Fatalf("不得用空凭证确认发货或重发内容: confirms=%d texts=%v", platform.consignCalls, sender.texts)
