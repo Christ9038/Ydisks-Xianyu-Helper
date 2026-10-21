@@ -25,6 +25,26 @@ const reclaimableObsoleteRunSQL = `status='canceled' AND error_message LIKE '` +
 const resumableObsoleteProgressRunSQL = `status='canceled' AND error_message LIKE '` + ObsoleteRunReasonMarker + `%'
 	            AND action_started=0 AND action_cursor>0`
 
+// MissingProofReasonMarker 标记「退款撤回后本可续跑、但发货凭证缺失」而被转入人工核对的运行。
+// 带此标记的运行不再进入自动续跑扫描，避免循环隔离，也避免用空凭证提交确认发货。
+const MissingProofReasonMarker = "[missing-delivery-proof]"
+
+// QuarantineCanceledRunMissingProof 把凭证缺失的可续跑已取消运行（含 07453c1 版本遗留的、取消时已清空凭证的记录）
+// 转入人工核对；仅当运行仍与 attempt 代次一致、带安全取消标记、无进行中动作且凭证为空时生效。
+// 返回是否真正隔离及数据库错误；零行是与其他调度器竞争的正常结果。
+func (a *AutomationRules) QuarantineCanceledRunMissingProof(ctx context.Context, runID int64, attempt int, reason string) (bool, error) {
+	// result、err 保存条件隔离结果。
+	result, err := a.DB.ExecContext(ctx, `UPDATE automation_runs
+   SET status='needs_review',error_message=?,lease_expires_at=0,next_retry_at=0,updated_at=CURRENT_TIMESTAMP
+ WHERE id=? AND attempt_count=? AND `+resumableObsoleteProgressRunSQL+` AND delivery_proof=''`, MissingProofReasonMarker+reason, runID, attempt)
+	if err != nil {
+		return false, err
+	}
+	// affected、rowsErr 保存实际隔离行数与驱动错误。
+	affected, rowsErr := result.RowsAffected()
+	return affected == 1, rowsErr
+}
+
 // CancelObsoletePaidRecoveryRun 取消已不再处于待发货状态的付款运行恢复；除「退款中且发卡已完成」外清除可重放发货凭证。
 // 更新同时校验扫描快照和订单当前事实；并发续租、游标推进或订单重新进入待发货都会让本次取消失效。
 func (a *AutomationRules) CancelObsoletePaidRecoveryRun(ctx context.Context, run AutomationRun, reason string) (bool, error) {
@@ -167,6 +187,8 @@ type PendingShipResume struct {
 	Attempt int
 	// ActionCursor 是尚未执行的下一个动作下标。
 	ActionCursor int
+	// HasDeliveryProof 表示运行是否保存了发货凭证；canceled 候选缺失凭证时不得自动确认发货。
+	HasDeliveryProof bool
 	// Status 是运行当前状态（needs_review、failed，或退款撤回后可续跑的 canceled）。
 	Status string
 }
@@ -208,7 +230,8 @@ SELECT o.order_id,o.item_id,o.buyer_id,o.spec_name,o.spec_value,o.quantity,o.amo
        COALESCE(o.paid_at,''),COALESCE(o.shipped_at,''),COALESCE(o.completed_at,''),
        COALESCE(o.buyer_reviewed_at,''),COALESCE(o.last_review_request_at,''),o.review_request_count,
        o.created_at,o.updated_at,
-       r.id,r.rule_id,COALESCE(r.raw_event_json,''),r.attempt_count,r.action_cursor,r.status
+       r.id,r.rule_id,COALESCE(r.raw_event_json,''),r.attempt_count,r.action_cursor,r.status,
+       CASE WHEN r.delivery_proof<>'' THEN 1 ELSE 0 END
   FROM orders o
   JOIN automation_runs r ON r.order_id=o.order_id AND r.trigger_type='order_paid'
 WHERE o.order_status IN `+pendingShipStatusSQLList()+`
@@ -217,7 +240,7 @@ WHERE o.order_status IN `+pendingShipStatusSQLList()+`
    AND (o.is_bargain=0 OR EXISTS (SELECT 1 FROM bargain_free_shipping_stages bfs
                                   WHERE bfs.order_id=o.order_id AND bfs.cookie_id=o.cookie_id AND bfs.status IN ('ready','succeeded')))
    AND r.cookie_id=o.cookie_id
-   AND (r.status IN ('needs_review','failed')
+   AND (r.status IN ('needs_review','failed') AND r.error_message NOT LIKE '`+MissingProofReasonMarker+`%'
         OR (r.status='canceled' AND r.error_message LIKE '`+ObsoleteRunReasonMarker+`%'
             AND r.action_started=0 AND r.action_cursor>0))
    AND r.attempt_count<?
@@ -247,7 +270,7 @@ WHERE o.order_status IN `+pendingShipStatusSQLList()+`
 		// candidate 保存当前行的订单事实与运行检查点。
 		var candidate PendingShipResume
 		// isBargain、version、sysShipped 保存订单行的整型事实字段。
-		var isBargain, version, sysShipped int
+		var isBargain, version, sysShipped, hasProof int
 		// 以下 NullString 保存可能为空的订单文本字段。
 		var itemID, buyerID, specName, specValue, qty, amount, status, cookieID,
 			receiverName, receiverPhone, receiverAddr, receiverCity, chatID sql.NullString
@@ -258,9 +281,10 @@ WHERE o.order_status IN `+pendingShipStatusSQLList()+`
 			&candidate.Order.ShippedAt, &candidate.Order.CompletedAt, &candidate.Order.BuyerReviewedAt,
 			&candidate.Order.LastReviewRequestAt, &candidate.Order.ReviewRequestCount,
 			&candidate.Order.CreatedAt, &candidate.Order.UpdatedAt,
-			&candidate.RunID, &candidate.RuleID, &candidate.RawEventJSON, &candidate.Attempt, &candidate.ActionCursor, &candidate.Status); err != nil {
+			&candidate.RunID, &candidate.RuleID, &candidate.RawEventJSON, &candidate.Attempt, &candidate.ActionCursor, &candidate.Status, &hasProof); err != nil {
 			return nil, err
 		}
+		candidate.HasDeliveryProof = hasProof != 0
 		candidate.Order.ItemID = itemID.String
 		candidate.Order.BuyerID = buyerID.String
 		candidate.Order.SpecName = specName.String

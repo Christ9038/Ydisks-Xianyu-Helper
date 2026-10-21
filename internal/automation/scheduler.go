@@ -348,6 +348,12 @@ func (s *Scheduler) scanPendingShipResumesWithContextAndLimit(ctx context.Contex
 					"run_id", candidate.RunID, "action_cursor", candidate.ActionCursor, "err", planErr)
 				continue
 			}
+			if candidate.Status == "canceled" && !candidate.HasDeliveryProof {
+				// 退款撤回后的已取消运行缺失发货凭证（例如旧版本取消时已清空）：确认发货会提交空凭证，
+				// 且无法证明买家收到的内容，必须停止自动确认并转人工核对，同时发送独立通知。
+				s.quarantineMissingProofResume(ctx, candidate)
+				continue
+			}
 			// 冷却窗口先做一次本地预约，避免多个调度器同时提交重开；已知抢占失败时会释放这次预约。
 			if !s.claimPendingShipAttempt(candidate.Order.OrderID) {
 				continue

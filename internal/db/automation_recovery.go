@@ -598,7 +598,7 @@ SELECT COUNT(*) FROM automation_runs
 	   SET status='running',action_started=0,attempt_count=attempt_count+1,
 	       lease_expires_at=?,next_retry_at=0,error_message='',updated_at=CURRENT_TIMESTAMP
 	 WHERE id=? AND attempt_count=? AND action_started=0
-	   AND (status IN ('needs_review','failed') OR (`+resumableObsoleteProgressRunSQL+`))`, leaseExpiresAt, runID, attempt)
+	   AND (status IN ('needs_review','failed') OR (`+resumableObsoleteProgressRunSQL+` AND delivery_proof<>''))`, leaseExpiresAt, runID, attempt)
 	if updateErr != nil {
 		return false, updateErr
 	}

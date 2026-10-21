@@ -58,6 +58,12 @@ func TestRefundWithdrawnReleasesSafelyCanceledPaidRun(t *testing.T) {
 		if cancelErr != nil || !canceled {
 			t.Fatalf("%s: 取消失败 canceled=%v err=%v", scenario.name, canceled, cancelErr)
 		}
+		if scenario.resumed {
+			// proofErr 保存取消后的凭证占位值：测试库没有加密密钥，凭证保留与续跑的端到端行为由 automation 包测试覆盖，这里只验证重开要求凭证存在。
+			if _, proofErr := s.DB.ExecContext(ctx, `UPDATE automation_runs SET delivery_proof='opaque-proof' WHERE id=?`, runID); proofErr != nil {
+				t.Fatal(proofErr)
+			}
+		}
 		// 买家撤回退款，平台快照让订单回到待发货。
 		// withdrawErr 保存退款撤回后订单回到待发货的写入结果。
 		if withdrawErr := s.Orders.Upsert(ctx, orderID, OrderUpsertOpts{CookieID: cookieID, OrderStatus: "pending_ship", PlatformSnapshot: true}); withdrawErr != nil {

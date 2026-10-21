@@ -348,3 +348,25 @@ func (s *Scheduler) releasePendingShipAttempt(orderID string) {
 	defer s.pendingShipMu.Unlock()
 	delete(s.pendingShipCooldown, orderID)
 }
+
+// quarantineMissingProofResume 把凭证缺失的退款撤回续跑候选转入人工核对并通知；竞争失败或写入失败只记录日志，下一轮重试。
+func (s *Scheduler) quarantineMissingProofResume(ctx context.Context, candidate db.PendingShipResume) {
+	// reason 说明停止自动确认发货的原因，不含任何凭证内容。
+	reason := "退款撤回后续跑缺少已发送的发货凭证，已停止自动确认发货，请人工核对"
+	// quarantined、err 保存条件隔离结果；陈旧扫描不产生通知。
+	quarantined, err := s.center.store.Automation.QuarantineCanceledRunMissingProof(ctx, candidate.RunID, candidate.Attempt, reason)
+	if err != nil {
+		s.center.logger.Error("保存缺失凭证续跑运行人工核对状态失败", "run_id", candidate.RunID, "err", err)
+		return
+	}
+	if !quarantined {
+		return
+	}
+	// run、getErr 保存通知所需的最新运行记录。
+	run, getErr := s.center.store.Automation.GetRun(ctx, candidate.RunID)
+	if getErr != nil {
+		s.center.logger.Warn("读取缺失凭证续跑运行失败，跳过通知", "run_id", candidate.RunID, "err", getErr)
+		return
+	}
+	s.center.notifyRunNeedsReview(ctx, *run, reason)
+}

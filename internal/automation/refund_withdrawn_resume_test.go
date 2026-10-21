@@ -83,3 +83,58 @@ func TestRefundWithdrawnResumeKeepsDeliveryProofForConfirmShipment(t *testing.T)
 		t.Fatalf("续跑不得重发卡密: %v", sender.texts)
 	}
 }
+
+// TestRefundWithdrawnResumeWithoutProofGoesToManualReview 验证旧版本遗留的「已取消、游标已推进但凭证已清空」运行：
+// 退款撤回后不得提交空凭证确认发货，而是转入人工核对且之后不再被自动续跑扫描反复选中。
+func TestRefundWithdrawnResumeWithoutProofGoesToManualReview(t *testing.T) {
+	// store、cleanup 保存测试数据库及关闭责任。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// ctx 保存本测试共用的数据库上下文。
+	ctx := context.Background()
+	// admin 保存规则所属管理员账号。
+	admin, adminErr := store.Users.GetByUsername(ctx, "admin")
+	if adminErr != nil {
+		t.Fatal(adminErr)
+	}
+	catchupAccount(t, store, admin.ID, "legacy-acc")
+	// confirmErr 保存开启账号自动发货与自动确认发货开关的结果。
+	if _, confirmErr := store.DB.ExecContext(ctx, `UPDATE cookies SET auto_confirm=1,auto_consign=1 WHERE id='legacy-acc'`); confirmErr != nil {
+		t.Fatal(confirmErr)
+	}
+	// ruleID 是含发卡与确认发货的付款发货规则。
+	ruleID := catchupRule(t, store, admin.ID, "legacy-acc", "item-legacy",
+		[]db.AutomationActionInput{catchupCardAction(catchupCard(t, store, admin.ID)), {ActionType: ActionConfirmShipment, Enabled: true}})
+	catchupOrder(t, store, "legacy-acc", "o-legacy", "item-legacy", "chat-legacy")
+	// rawTask 是运行冻结快照。
+	rawTask := `{"Source":"scheduler","AccountID":"legacy-acc","TriggerType":"order_paid","ChatID":"chat-legacy","OrderID":"o-legacy","ItemID":"item-legacy","BuyerID":"buyer-o-legacy",` +
+		`"ActionPlan":[{"ActionType":"send_card","Enabled":true,"ConfigJSON":"{\"spec_name\":\"颜色\",\"spec_value\":\"黑\"}"},{"ActionType":"confirm_shipment","Enabled":true}]}`
+	// runID 是模拟 07453c1 取消后的历史记录：带可续跑标记、游标已推进、凭证为空。
+	runID := catchupRun(t, store, ruleID, "legacy-acc", "o-legacy", rawTask)
+	// seedErr 保存历史遗留状态的写入结果。
+	if _, seedErr := store.DB.ExecContext(ctx, `UPDATE automation_runs SET status='canceled',error_message=?,action_cursor=1,sent_count=1,action_started=0,delivery_proof='',attempt_count=1 WHERE id=?`, db.ObsoleteRunReasonMarker+"订单退款中", runID); seedErr != nil {
+		t.Fatal(seedErr)
+	}
+	// sender 记录是否错误地重发内容。
+	sender := &testSender{}
+	// platform 记录是否错误地提交确认发货。
+	platform := &fakeMTop{consignOk: true}
+	// scheduler 使用真实存储与平台替身驱动续跑扫描。
+	scheduler := &Scheduler{center: NewWithDependencies(store, testSenderProvider{sender: sender}, nil, CenterDependencies{MTop: platform}),
+		pendingShipCooldown: map[string]time.Time{}, pendingShipSettleWindow: -1}
+	// 连续扫描两轮：第一轮隔离，第二轮不得再次选中或提交。
+	scheduler.scanPendingShipResumes(ctx)
+	scheduler.scanPendingShipResumes(ctx)
+
+	// run、runErr 保存扫描后的运行记录。
+	run, runErr := store.Automation.GetRun(ctx, runID)
+	if runErr != nil {
+		t.Fatal(runErr)
+	}
+	if run.Status != "needs_review" || run.AttemptCount != 1 {
+		t.Fatalf("缺凭证运行应转人工核对且不重开: status=%s attempt=%d", run.Status, run.AttemptCount)
+	}
+	if platform.consignCalls != 0 || len(sender.texts) != 0 {
+		t.Fatalf("不得用空凭证确认发货或重发内容: confirms=%d texts=%v", platform.consignCalls, sender.texts)
+	}
+}
