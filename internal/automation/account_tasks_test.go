@@ -155,7 +155,8 @@ func TestAccountTaskRateIsOrderIdempotent(t *testing.T) {
 	}
 	// second、err 用于本次流程后续判断的second、err
 	second, err := center.RunAccountTask(ctx, "cid", TaskAutoRate)
-	if err != nil || second.Skipped != 2 || client.rateCalls != 2 {
+	// 已办完的订单不再是候选（issue #96），二次扫描既不发请求也不计入候选。
+	if err != nil || second.Found != 0 || second.Skipped != 0 || client.rateCalls != 2 {
 		t.Fatalf("second=%+v calls=%d err=%v", second, client.rateCalls, err)
 	}
 }
@@ -200,7 +201,8 @@ func TestAccountTaskRatePermanentPlatformFailureStopsFutureRequests(t *testing.T
 	}
 	// secondSummary、secondErr 保存后续扫描跳过永久失败订单的结果。
 	secondSummary, secondErr := center.RunAccountTask(ctx, "cid", TaskAutoRate)
-	if secondErr != nil || secondSummary.Skipped != 1 || client.rateCalls != 1 {
+	// 永久失败订单不再是候选，后续扫描不再请求评价。
+	if secondErr != nil || secondSummary.Found != 0 || secondSummary.Skipped != 0 || client.rateCalls != 1 {
 		t.Fatalf("超期订单后续不应再次请求评价: summary=%+v calls=%d err=%v", secondSummary, client.rateCalls, secondErr)
 	}
 }
@@ -427,7 +429,8 @@ func TestAccountTaskRateCancellationQuarantinesAndBlocksRetry(t *testing.T) {
 	}
 	// retrySummary、retryErr 保存新请求尝试重跑时的结果，确认人工核对状态不会被自动重放。
 	retrySummary, retryErr := center.RunAccountTask(context.Background(), "cid", TaskAutoRate)
-	if retryErr != nil || retrySummary.Skipped != 1 || client.rateCalls != 1 {
+	// 人工核对订单不再是候选，不会被自动重放。
+	if retryErr != nil || retrySummary.Found != 0 || retrySummary.Skipped != 0 || client.rateCalls != 1 {
 		t.Fatalf("人工核对任务不应自动重试: summary=%+v calls=%d err=%v", retrySummary, client.rateCalls, retryErr)
 	}
 }

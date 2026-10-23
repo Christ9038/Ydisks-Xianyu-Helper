@@ -3,6 +3,8 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
+	"reflect"
 	"testing"
 )
 
@@ -172,6 +174,80 @@ func TestDueAutoRateOrderIDsOnlyReturnsLocallyCompletedOrders(t *testing.T) {
 	candidates, candidateErr := store.AccountTasks.DueAutoRateOrderIDs(ctx, "rate-candidate-account", 1)
 	if candidateErr != nil || len(candidates) != 1 || candidates[0] != "completed-order" {
 		t.Fatalf("本地自动评价候选错误: candidates=%v err=%v", candidates, candidateErr)
+	}
+}
+
+// TestDueAutoRateOrderIDsSkipsOrdersThatCannotBeClaimedAgain 回归 issue #96：
+// 累计已办完订单超过候选窗口后，新订单仍必须进入候选；仍可重试的失败记录继续保留。
+func TestDueAutoRateOrderIDsSkipsOrdersThatCannotBeClaimedAgain(t *testing.T) {
+	// store、cleanup 保存本地迁移数据库及其释放函数。
+	store, cleanup := newTestDB(t)
+	defer cleanup()
+	// ctx 是本测试共用的数据库上下文。
+	ctx := context.Background()
+	if created, err := store.Users.Create(ctx, "rate-window-user", "rate-window@example.com", "pw"); err != nil || !created { // created、err 保存测试用户初始化结果。
+		t.Fatalf("创建测试用户失败: created=%v err=%v", created, err)
+	}
+	// user、userErr 保存账号归属用户。
+	user, userErr := store.Users.GetByUsername(ctx, "rate-window-user")
+	if userErr != nil || user == nil {
+		t.Fatalf("读取测试用户失败: %v", userErr)
+	}
+	if cookieErr := store.Cookies.Save(ctx, "rate-window-account", "sid=window", user.ID); cookieErr != nil { // cookieErr 保存账号写入错误。
+		t.Fatal(cookieErr)
+	}
+	// seed 写入一个已确认收货的订单；completedAt 控制它在候选窗口中的先后。
+	seed := func(orderID, completedAt string) {
+		t.Helper()
+		if err := store.Orders.Upsert(ctx, orderID, OrderUpsertOpts{CookieID: "rate-window-account", OrderStatus: "completed"}); err != nil { // err 保存订单写入错误。
+			t.Fatal(err)
+		}
+		if _, err := store.DB.ExecContext(ctx, `UPDATE orders SET completed_at=? WHERE order_id=?`, completedAt, orderID); err != nil { // err 保存确认收货时间写入错误。
+			t.Fatal(err)
+		}
+	}
+	// finish 为订单写入指定终态的评价运行记录。
+	finish := func(orderID, status, message string, attempts int, nextRetryAt int64) {
+		t.Helper()
+		// insertErr 保存运行记录写入错误。
+		if _, insertErr := store.DB.ExecContext(ctx, `INSERT INTO account_task_runs
+			(run_key,cookie_id,task_type,target_id,run_date,status,error_message,attempt_count,next_retry_at,started_at,finished_at)
+			VALUES (?,?,?,?,'',?,?,?,?,1,1)`, "rate:rate-window-account:"+orderID, "rate-window-account", "auto_rate", orderID, status, message, attempts, nextRetryAt); insertErr != nil {
+			t.Fatal(insertErr)
+		}
+	}
+	// 窗口为 200：先放入 200 个更早的已评价成功订单，把窗口占满。
+	for index := 0; index < 200; index++ {
+		// orderID 是第 index 个历史已评价订单，时间戳按序递增保证排在新订单之前。
+		orderID := fmt.Sprintf("done-%03d", index)
+		seed(orderID, fmt.Sprintf("2024-01-01 00:%02d:%02d", index/60, index%60))
+		finish(orderID, "success", "", 1, 0)
+	}
+	// 其余订单均晚于历史订单：新订单、各类终态记录与可重试失败。
+	seed("fresh-1", "2024-02-01 00:00:01")
+	seed("fresh-2", "2024-02-01 00:00:02")
+	seed("review", "2024-02-01 00:00:03")
+	finish("review", "needs_review", "人工核对", 1, 0)
+	seed("stuck-running", "2024-02-01 00:00:04")
+	finish("stuck-running", "running", "", 1, 0)
+	seed("no-retry", "2024-02-01 00:00:05")
+	finish("no-retry", "failed", NoRetryErrorPrefix+": 超出期限", 1, 0)
+	seed("exhausted", "2024-02-01 00:00:06")
+	finish("exhausted", "failed", "平台错误", accountTaskMaxAttempts, 0)
+	seed("cooling", "2024-02-01 00:00:07")
+	finish("cooling", "failed", "平台错误", 1, 4102444800)
+	seed("retryable", "2024-02-01 00:00:08")
+	finish("retryable", "failed", "平台错误", 1, 1)
+
+	// candidates、candidatesErr 保存窗口内的候选订单；必须只含两个新订单与可重试订单。
+	candidates, candidatesErr := store.AccountTasks.DueAutoRateOrderIDs(ctx, "rate-window-account", 200)
+	if candidatesErr != nil {
+		t.Fatal(candidatesErr)
+	}
+	// want 是期望的候选集合，按完成时间升序。
+	want := []string{"fresh-1", "fresh-2", "retryable"}
+	if !reflect.DeepEqual(candidates, want) {
+		t.Fatalf("候选应排除不可再领取的订单: got=%v want=%v", candidates, want)
 	}
 }
 

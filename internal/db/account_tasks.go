@@ -135,14 +135,21 @@ func (s *AccountTaskStore) Enabled(ctx context.Context) ([]AccountTaskSettings, 
 
 // DueAutoRateOrderIDs 返回由买家确认收货 WebSocket 标记、尚可由本地自动评价任务消费的订单号。
 // 它只读取本地 orders 表，绝不为了发现待评价订单向平台发起列表请求。
+//
+// 候选必须排除 claimRun 永远无法再领取的订单，否则评价成功后 completed_at 仍保留，已办完的订单会按时间升序
+// 永久占满 limit 个名额，更新的订单进不了窗口（issue #96）。仍可领取的订单只有：尚无运行记录，或运行为 failed、
+// 未达重试上限、未标记永久失败且已过重试冷却时间；其余（success、needs_review、running、重试用尽、永久失败、冷却中）都不返回。
 func (s *AccountTaskStore) DueAutoRateOrderIDs(ctx context.Context, cookieID string, limit int) ([]string, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 200
 	}
 	// rows、err 分别保存按确认收货时间排序的本地候选订单和查询错误。
-	rows, err := s.DB.QueryContext(ctx, `SELECT order_id FROM orders
-		WHERE cookie_id=? AND deleted_at IS NULL AND order_status='completed' AND completed_at<>''
-		ORDER BY completed_at,order_id LIMIT ?`, cookieID, limit)
+	rows, err := s.DB.QueryContext(ctx, `SELECT o.order_id FROM orders o
+		WHERE o.cookie_id=? AND o.deleted_at IS NULL AND o.order_status='completed' AND o.completed_at<>''
+		AND NOT EXISTS (SELECT 1 FROM account_task_runs r
+			WHERE r.cookie_id=o.cookie_id AND r.task_type='auto_rate' AND r.target_id=o.order_id
+			AND (r.status<>'failed' OR r.attempt_count>=? OR r.error_message LIKE ? OR r.next_retry_at>?))
+		ORDER BY o.completed_at,o.order_id LIMIT ?`, cookieID, accountTaskMaxAttempts, NoRetryErrorPrefix+"%", time.Now().UTC().Unix(), limit)
 	if err != nil {
 		return nil, err
 	}
