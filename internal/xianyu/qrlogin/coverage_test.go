@@ -56,6 +56,13 @@ func newStubbedManager(t *testing.T, handler http.Handler) (*Manager, *httptest.
 	m := NewManager(nil)
 	m.httpc = &http.Client{Timeout: 10 * time.Second, Transport: tr}
 	t.Cleanup(srv.Close)
+	// 先取消并等待二维码后台轮询，再关闭 HTTP 替身，避免任务泄漏到后续验证用例。
+	t.Cleanup(func() {
+		// closeErr 表示测试管理器等待后台任务退出失败。
+		if closeErr := m.CloseContext(context.Background()); closeErr != nil {
+			t.Errorf("关闭测试扫码管理器: %v", closeErr)
+		}
+	})
 	return m, srv, tr
 }
 
@@ -964,6 +971,8 @@ func TestMonitorQRStatusVerificationRequiredStopsPollingAndRunsFaceFlow(t *testi
 	hc := &handlerChain{}
 	// queryCalls 用于本次流程后续判断的查询Calls
 	var queryCalls atomic.Int64
+	// longLoginSetCalls、longLoginQueryCalls 记录人脸验证后的保持登录收口请求。
+	var longLoginSetCalls, longLoginQueryCalls atomic.Int64
 	hc.handle("/newlogin/qrcode/query.do", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		queryCalls.Add(1)
 		// resp 用于本次流程后续判断的resp
@@ -993,6 +1002,31 @@ func TestMonitorQRStatusVerificationRequiredStopsPollingAndRunsFaceFlow(t *testi
 		http.SetCookie(w, &http.Cookie{Name: "unb", Value: "777", Domain: ".goofish.com", Path: "/", Secure: true, HttpOnly: true})
 		http.SetCookie(w, &http.Cookie{Name: "cookie2", Value: "z", Domain: ".goofish.com", Path: "/", Secure: true})
 		_, _ = w.Write([]byte(`ok`))
+	}))
+	hc.handle("/im", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.Header.Get("Cookie"), "unb=777") {
+			t.Fatalf("人脸验证后的 /im 未携带登录 Cookie: %q", r.Header.Get("Cookie"))
+		}
+		_, _ = w.Write([]byte(`ok`))
+	}))
+	hc.handle("/ac/account/setLoginSettings.do", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		longLoginSetCalls.Add(1)
+		// err 表示测试请求表单解析失败；status=0 是开启保持登录的官网协议值。
+		if err := r.ParseForm(); err != nil || r.Form.Get("status") != "0" {
+			t.Fatalf("人脸验证后的保持登录参数异常: form=%v err=%v", r.Form, err)
+		}
+		http.SetCookie(w, &http.Cookie{
+			Name: "havana_lgc_exp", Value: strconv.FormatInt(time.Now().Add(24*time.Hour).UnixMilli(), 10),
+			Domain: ".goofish.com", Path: "/", Secure: true, HttpOnly: true,
+		})
+		_, _ = w.Write([]byte(`{"data":{"success":true}}`))
+	}))
+	hc.handle("/ac/account/queryLoginSettings.do", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		longLoginQueryCalls.Add(1)
+		if !strings.Contains(r.Header.Get("Cookie"), "havana_lgc_exp=") {
+			t.Fatalf("查询人脸验证后的保持登录状态未携带长登录 Cookie: %q", r.Header.Get("Cookie"))
+		}
+		_, _ = w.Write([]byte(`{"content":{"data":{"returnValue":{"canOpenLongLogin":true,"hasLongTokenLogin":true}}}}`))
 	}))
 	// m 用于本次流程后续判断的m
 	m, _, _ := newStubbedManager(t, hc)
@@ -1044,6 +1078,21 @@ func TestMonitorQRStatusVerificationRequiredStopsPollingAndRunsFaceFlow(t *testi
 	}
 	if !foundUNB {
 		t.Fatalf("人脸验证 Cookie 属性丢失: %+v", state.cookieSnapshot)
+	}
+	if longLoginSetCalls.Load() != 1 || longLoginQueryCalls.Load() != 1 {
+		t.Fatalf("人脸验证后未完整执行保持登录收口: set=%d query=%d", longLoginSetCalls.Load(), longLoginQueryCalls.Load())
+	}
+	// foundLongLogin 证明人脸验证收尾下发的长登录 Cookie 连同属性进入最终快照。
+	var foundLongLogin bool
+	// cookie 是当前待核对的最终登录凭证。
+	for _, cookie := range state.cookieSnapshot {
+		if cookie.Name == "havana_lgc_exp" && cookie.HTTPOnly && cookie.Domain == ".goofish.com" {
+			foundLongLogin = true
+			break
+		}
+	}
+	if !foundLongLogin {
+		t.Fatalf("人脸验证后的长登录 Cookie 未保存: %+v", state.cookieSnapshot)
 	}
 }
 
@@ -1265,21 +1314,27 @@ func TestCompleteVerificationNoTmpCookies(t *testing.T) {
 
 // TestCompleteVerificationHTTPSuccessWithUNB 封装TestCompleteVerificationHTTPSuccessWithUNB业务协调。
 func TestCompleteVerificationHTTPSuccessWithUNB(t *testing.T) {
-	// srv 用于本次流程后续判断的srv
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// hc 用于本次流程后续判断的hc
+	hc := &handlerChain{}
+	hc.handle("/im", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.SetCookie(w, &http.Cookie{Name: "unb", Value: "100"})
 		http.SetCookie(w, &http.Cookie{Name: "extra", Value: "e"})
 		w.WriteHeader(http.StatusOK)
 	}))
-	t.Cleanup(srv.Close)
+	hc.handle("/ac/account/setLoginSettings.do", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.SetCookie(w, &http.Cookie{
+			Name: "havana_lgc_exp", Value: strconv.FormatInt(time.Now().Add(24*time.Hour).UnixMilli(), 10),
+			Domain: ".goofish.com", Path: "/", Secure: true,
+		})
+		_, _ = w.Write([]byte(`{"data":{"success":true}}`))
+	}))
+	hc.handle("/ac/account/queryLoginSettings.do", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"content":{"data":{"returnValue":{"canOpenLongLogin":true,"hasLongTokenLogin":true}}}}`))
+	}))
 
 	// m 用于本次流程后续判断的m
-	m := NewManager(nil)
+	m, _, _ := newStubbedManager(t, hc)
 	m.sessions["s"] = testVerificationSession()
-	// old 用于本次流程后续判断的old
-	old := qrVerifyTargetURL
-	qrVerifyTargetURL = srv.URL
-	defer func() { qrVerifyTargetURL = old }()
 
 	// cookies、unb、err 用于本次流程后续判断的cookies、unb、err
 	cookies, unb, err := m.CompleteVerification(context.Background(), "s")
@@ -1291,6 +1346,9 @@ func TestCompleteVerificationHTTPSuccessWithUNB(t *testing.T) {
 	}
 	if !strings.Contains(cookies, "unb=100") {
 		t.Fatalf("cookies 异常: %q", cookies)
+	}
+	if !strings.Contains(cookies, "havana_lgc_exp=") {
+		t.Fatal("人工验证返回的凭证缺少保持登录响应中的长登录 Cookie")
 	}
 	if m.sessions["s"].Status != "success" {
 		t.Fatalf("状态异常: %s", m.sessions["s"].Status)

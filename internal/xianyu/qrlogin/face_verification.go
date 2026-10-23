@@ -124,8 +124,12 @@ func (m *Manager) runFaceVerification(ctx context.Context, sessionID, iframeURL 
 			s.cookieSnapshot = nil
 		}
 		s.unb = finalCookies["unb"]
-		s.Status = "success"
 		s.mu.Unlock()
+	}
+	// 人脸验证只是完成平台风控挑战，后续仍必须走与普通扫码一致的官网收口和
+	// “保持登录”设置，否则只能得到短期 Session，无法验证长登录能力。
+	if s != nil {
+		m.finishLogin(ctx, s, sessionID, "face_verification", true)
 	}
 	m.logger.Info("人脸验证登录成功", "session_id", sessionID, "account_hash", logsafe.ID(finalCookies["unb"]))
 	return nil

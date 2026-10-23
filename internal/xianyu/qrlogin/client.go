@@ -694,7 +694,13 @@ func (m *Manager) enableConfirmedLongLogin(ctx context.Context, sess *Session) e
 				sess.unb = unb
 			}
 		}
+		// hasHavana、hasCookie3 仅表示长登录标志是否存在；havanaHTTPOnly、cookie3HTTPOnly 记录对应属性，禁止记录值。
+		hasHavana, havanaHTTPOnly, hasCookie3, cookie3HTTPOnly := longLoginCookieFlagsLocked(sess)
 		sess.mu.Unlock()
+		m.logger.Info("官网保持登录查询完成", "can_open_long_login", settings.CanOpenLongLogin,
+			"has_long_token_login", settings.Enabled,
+			"has_havana_lgc_exp", hasHavana, "havana_lgc_exp_http_only", havanaHTTPOnly,
+			"has_cookie3_bak_exp", hasCookie3, "cookie3_bak_exp_http_only", cookie3HTTPOnly)
 	}
 	if err != nil {
 		return err
