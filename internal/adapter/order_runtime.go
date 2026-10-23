@@ -324,8 +324,8 @@ func (r *OrderRuntime) fetchSoldOrders(ctx context.Context, detail *orderapp.Pla
 	if detail == nil {
 		return orderapp.RefreshSoldFetchResult{}, errors.New("订单列表请求缺少账号凭证")
 	}
-	// requestCtx、session 保存带 Cookie 快照的平台上下文及响应会话。
-	requestCtx, session := withOrderCookieSnapshot(ctx, platformRuntimeDataForOrder(detail))
+	// requestCtx、session 保存带 Cookie 快照的平台上下文及响应会话；分页读取属于后台批量访问，使用更长的账号级请求间隔。
+	requestCtx, session := withOrderCookieSnapshot(mtop.WithBackgroundPacing(ctx), platformRuntimeDataForOrder(detail))
 	// orders 保存跨分页累积的平台订单；逐页提交模式下保持为空。
 	orders := make([]orderapp.RefreshSoldOrder, 0)
 	// sellerID 保存已观察到的请求 UID，identityComplete 要求每一页都具备可验证的相同身份。

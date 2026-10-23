@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"errors"
+	"strconv"
 	"sync"
 	"testing"
 )
@@ -336,19 +337,28 @@ func (r *readMessageRepository) FindInboundParsedJSONContaining(context.Context,
 	return r.values, r.err
 }
 
-// blockingIdentityResolver 用于让所有身份工作器停在平台查询阶段，稳定触发排队上下文取消分支。
-type blockingIdentityResolver struct {
-	// started 通知已经进入平台查询的工作器数量。
-	started chan<- struct{}
-	// release 控制阻塞查询统一结束。
-	release <-chan struct{}
+// countingIdentityResolver 记录平台身份查询次数，并可在指定次数返回错误，用于验证批量查询的上限与停止行为。
+type countingIdentityResolver struct {
+	// calls 统计已发起的平台查询次数；顺序查询下无需额外同步。
+	calls *int
+	// failAt 为大于零时表示第几次查询返回 err。
+	failAt int
+	// err 是 failAt 次查询返回的平台错误。
+	err error
+	// onCall 在每次查询开始时被调用，可用于在测试中取消上下文。
+	onCall func()
 }
 
-// Resolve 等待测试释放信号后返回空的非敏感身份。
-func (r blockingIdentityResolver) Resolve(context.Context, string, string) (Identity, error) {
-	r.started <- struct{}{}
-	<-r.release
-	return Identity{}, nil
+// Resolve 记录一次查询并按配置返回错误或固定身份。
+func (r countingIdentityResolver) Resolve(context.Context, string, string) (Identity, error) {
+	*r.calls++
+	if r.onCall != nil {
+		r.onCall()
+	}
+	if r.failAt > 0 && *r.calls == r.failAt {
+		return Identity{}, r.err
+	}
+	return Identity{PeerName: "名称", PeerAvatar: "头像"}, nil
 }
 
 // historyOnlyRepository 仅实现历史读取端口，用于验证可选会话维护能力缺失时的错误。
@@ -691,42 +701,47 @@ func TestSessionOwnershipAndRefreshBoundaries(t *testing.T) {
 	if refreshErr != nil || len(refreshed) != 1 {
 		t.Fatalf("no identity refresh=%+v err=%v", refreshed, refreshErr)
 	}
-	// started、release 控制八个身份工作器进入阻塞查询并统一放行。
-	started, release := make(chan struct{}, 8), make(chan struct{})
-	// blockingService 是稳定验证排队取消分支的身份刷新服务。
-	blockingService := NewWithIdentity(&fakeRepository{}, blockingIdentityResolver{started: started, release: release})
-	// refreshContext、cancel 保存刷新生命周期上下文及取消函数。
-	refreshContext, cancel := context.WithCancel(context.Background())
-	// resultChannel 保存异步刷新结果，避免测试线程在释放工作器前阻塞。
-	resultChannel := make(chan struct {
-		// sessions 保存异步刷新后的会话集合。
-		sessions []Session
-		// err 保存异步刷新返回的首个错误。
-		err error
-	})
-	// blockedSessions 保存足以占满八个身份工作器的会话队列。
-	blockedSessions := make([]Session, 9)
-	// index 表示当前需要填充的阻塞会话下标。
-	for index := range blockedSessions {
-		blockedSessions[index] = sessions[0]
+	// calls 统计平台身份查询次数。
+	calls := 0
+	// manySessions 保存全部缺少身份的联系人，数量超过单次上限。
+	manySessions := make([]Session, maxIdentityLookupsPerRefresh+4)
+	// index 表示当前需要填充的会话下标。
+	for index := range manySessions {
+		manySessions[index] = Session{AccountID: "account-1", ChatID: "chat-" + strconv.Itoa(index), PeerUserID: "buyer"}
 	}
-	go func() {
-		// refreshed、refreshErr 保存异步刷新调用结果。
-		refreshed, refreshErr := blockingService.RefreshSessionIdentities(refreshContext, "account-1", blockedSessions)
-		resultChannel <- struct {
-			sessions []Session
-			err      error
-		}{sessions: refreshed, err: refreshErr}
-	}()
-	for range 8 {
-		<-started
+	// cappedService 使用只计数的解析器验证单次查询上限。
+	cappedService := NewWithIdentity(&fakeRepository{}, countingIdentityResolver{calls: &calls})
+	// capErr 保存超过单次上限的批量刷新返回的错误。
+	if _, capErr := cappedService.RefreshSessionIdentities(context.Background(), "account-1", manySessions); capErr != nil || calls != maxIdentityLookupsPerRefresh {
+		t.Fatalf("单次刷新必须限制平台查询数: calls=%d err=%v", calls, capErr)
 	}
-	cancel()
-	close(release)
-	// canceled 保存排队取消后的刷新结果。
-	canceled := <-resultChannel
-	if canceled.err != nil || len(canceled.sessions) != len(blockedSessions) {
-		t.Fatalf("canceled refresh=%+v", canceled)
+	// 已有昵称和头像的联系人不应触发平台查询。
+	calls = 0
+	// completeSessions 是昵称和头像都已存在的联系人列表。
+	completeSessions := []Session{{AccountID: "account-1", ChatID: "done", PeerUserID: "buyer", PeerName: "甲", PeerAvatar: "头像"}}
+	// completeErr 保存身份完整列表刷新返回的错误。
+	if _, completeErr := cappedService.RefreshSessionIdentities(context.Background(), "account-1", completeSessions); completeErr != nil || calls != 0 {
+		t.Fatalf("身份完整的联系人不应查询平台: calls=%d err=%v", calls, completeErr)
+	}
+	// 第二次查询返回风控错误后必须立即停止，不能继续请求其余联系人。
+	calls = 0
+	// riskErr 模拟平台返回的风控错误。
+	riskErr := errors.New("RGV587_ERROR")
+	// stoppingService 在第二次查询时返回风控错误。
+	stoppingService := NewWithIdentity(&fakeRepository{}, countingIdentityResolver{calls: &calls, failAt: 2, err: riskErr})
+	// stopErr 保存风控后刷新返回的首个错误。
+	if _, stopErr := stoppingService.RefreshSessionIdentities(context.Background(), "account-1", manySessions); !errors.Is(stopErr, riskErr) || calls != 2 {
+		t.Fatalf("平台错误后必须停止后续查询: calls=%d err=%v", calls, stopErr)
+	}
+	// 上下文取消后不再发起后续查询。
+	calls = 0
+	// cancelContext、cancel 保存可在首次查询时取消的上下文及取消函数。
+	cancelContext, cancel := context.WithCancel(context.Background())
+	// cancelService 在首次查询时取消上下文。
+	cancelService := NewWithIdentity(&fakeRepository{}, countingIdentityResolver{calls: &calls, onCall: cancel})
+	// cancelErr 保存取消后刷新返回的错误。
+	if _, cancelErr := cancelService.RefreshSessionIdentities(cancelContext, "account-1", manySessions); cancelErr != nil || calls != 1 {
+		t.Fatalf("取消后不得继续查询: calls=%d err=%v", calls, cancelErr)
 	}
 	// invalidRefreshErr 保存空账号刷新返回的输入错误。
 	if _, invalidRefreshErr := service.RefreshSessionIdentities(context.Background(), "", sessions); !errors.Is(invalidRefreshErr, ErrInvalidInput) {

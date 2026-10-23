@@ -296,9 +296,9 @@ func (c *accountTaskCoordinator) openAccountTaskCredentialSession(ctx context.Co
 	var session *mtop.CookieSession
 	// snapshot、complete 保存 metadata 中的完整 Cookie 快照及其有效性。
 	if snapshot, complete := cookierefresh.SnapshotFromMetadataOK(data.MetadataJSON); complete {
-		requestContext, session = mtop.WithCookieSnapshot(ctx, snapshot)
+		requestContext, session = mtop.WithCookieSnapshot(mtop.WithBackgroundPacing(ctx), snapshot)
 	} else {
-		requestContext, session = mtop.WithFlatCookieSession(ctx, cookieValue)
+		requestContext, session = mtop.WithFlatCookieSession(mtop.WithBackgroundPacing(ctx), cookieValue)
 	}
 	return accountTaskCredentialSession{requestContext: requestContext, cookieSession: session, cookieValue: cookieValue, persistedValue: data.Value, persistedMetadata: data.MetadataJSON}, nil
 }
@@ -545,8 +545,8 @@ func (c *accountTaskCoordinator) runAutoPolish(ctx context.Context, settings db.
 			if result != nil && result.Message != "" {
 				lastError = result.Message
 			}
-			// Token 内部刷新耗尽后停止当前批次，后续恢复仍由 MTOP 客户端负责。
-			if mtop.IsSessionExpiredErr(polishErr) || mtop.IsMTopTokenExpiredErr(polishErr) {
+			// Token 内部刷新耗尽或平台要求风控验证后立即停止当前批次，不再向平台发送后续请求。
+			if mtop.IsSessionExpiredErr(polishErr) || mtop.IsMTopTokenExpiredErr(polishErr) || mtop.IsRiskVerificationErr(polishErr) {
 				return summary, errors.Join(polishErr, persistErr, c.finishAccountTaskRun(ctx, runKey, "failed", summary.Success, summary.Failed, lastError, 0))
 			}
 			if persistErr != nil {

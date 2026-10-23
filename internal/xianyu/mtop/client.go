@@ -91,6 +91,8 @@ type ClientImpl struct {
 	ChatUserQueryURL    string
 	// ChatItemSearchURL 允许测试将聊天商品查询指向本地 HTTP 服务；生产空值使用官方端点。
 	ChatItemSearchURL string
+	// Pacer 是账号级请求节拍器；为空时使用进程共享的默认节拍器，测试可注入确定性实现。
+	Pacer *Pacer
 }
 
 // httpClient 返回带统一请求/响应日志的 HTTP 客户端副本。统一放在传输层，
@@ -114,7 +116,7 @@ func (c *ClientImpl) httpClientWithTimeout(defaultTimeout time.Duration) *http.C
 	if transport == nil {
 		transport = http.DefaultTransport
 	}
-	clone.Transport = loggingTransport{base: transport, logger: c.Logger}
+	clone.Transport = c.pacedTransport(loggingTransport{base: transport, logger: c.Logger})
 	return &clone
 }
 

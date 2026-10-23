@@ -697,6 +697,32 @@ func TestManualPolishReportsItemFailures(t *testing.T) {
 	}
 }
 
+// TestPolishStopsRemainingItemsOnRiskVerification 验证擦亮遇到风控后立即停止，不再请求剩余商品。
+func TestPolishStopsRemainingItemsOnRiskVerification(t *testing.T) {
+	// store、cleanup 保存测试使用的 SQLite 存储及其释放函数。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// riskErr 模拟平台在擦亮第一件商品时要求安全验证。
+	riskErr := &mtop.RiskVerificationError{API: "擦亮接口", Ret: []string{"FAIL_SYS_USER_VALIDATE::RGV587_ERROR"}}
+	// client 返回风控错误并统计擦亮调用次数。
+	client := &fakeAccountTaskClient{items: []mtop.ItemListItem{{ID: "item-1"}, {ID: "item-2"}, {ID: "item-3"}}, polishErr: riskErr}
+	// center 注入擦亮客户端。
+	center := NewWithDependencies(store, testSenderProvider{sender: &testSender{}}, nil, CenterDependencies{AccountTaskClient: client})
+	// ctx 是任务共用的上下文。
+	ctx := context.Background()
+	// settingsErr 保存擦亮任务配置写入错误。
+	settingsErr := store.AccountTasks.Upsert(ctx, db.AccountTaskSettings{CookieID: "cid", AutoPolishEnabled: true,
+		RateContent: "交易愉快", PolishTime: "00:00"})
+	if settingsErr != nil {
+		t.Fatal(settingsErr)
+	}
+	// summary、err 保存风控后的任务统计与原始错误。
+	summary, err := center.RunAccountTask(ctx, "cid", TaskAutoPolish)
+	if !mtop.IsRiskVerificationErr(err) || summary.Failed != 1 || client.polishCalls != 1 {
+		t.Fatalf("风控后必须停止剩余商品: summary=%+v calls=%d err=%v", summary, client.polishCalls, err)
+	}
+}
+
 // TestManualPolishCanRetryImmediatelyAfterFailure 封装TestManualPolishCan重试ImmediatelyAfterFailure业务协调。
 func TestManualPolishCanRetryImmediatelyAfterFailure(t *testing.T) {
 	// store、cleanup 用于本次流程后续判断的store、cleanup

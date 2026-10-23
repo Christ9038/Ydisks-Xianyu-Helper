@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -603,7 +602,16 @@ func (s *Service) ResolveSessionIdentity(ctx context.Context, session Session) (
 	return session, resolveErr
 }
 
-// RefreshSessionIdentities 并发补全会话列表身份，保留首个失败以供调用方处理过期会话。
+// maxIdentityLookupsPerRefresh 是一次列表刷新最多向平台查询的联系人身份数；
+// 其余缺失身份留给后续刷新或打开会话时逐步补全，避免一次页面操作扇出成批量平台请求。
+const maxIdentityLookupsPerRefresh = 5
+
+// identityLookupTimeout 是单个联系人平台查询的最长时间，包含账号级请求节拍的排队等待。
+const identityLookupTimeout = 10 * time.Second
+
+// RefreshSessionIdentities 顺序补全会话列表中缺失的展示身份，返回遇到的第一个平台错误。
+// 只处理缺少昵称或头像的普通联系人，单次最多 maxIdentityLookupsPerRefresh 个；
+// 出现任何平台错误（含风控、会话过期）立即停止，不再向平台发送后续请求。
 func (s *Service) RefreshSessionIdentities(ctx context.Context, accountID string, sessions []Session) ([]Session, error) {
 	accountID = strings.TrimSpace(accountID)
 	if s == nil || s.repository == nil || accountID == "" {
@@ -612,54 +620,30 @@ func (s *Service) RefreshSessionIdentities(ctx context.Context, accountID string
 	if s.identityResolver == nil {
 		return sessions, nil
 	}
-	// result 复制输入列表，避免异步身份补全修改 handler 持有的外部切片。
+	// result 复制输入列表，避免身份补全修改 handler 持有的外部切片。
 	result := append([]Session(nil), sessions...)
-	// jobs 保存待补全的会话下标。
-	jobs := make(chan int)
-	// workers 保存身份补全工作器的完成状态。
-	var workers sync.WaitGroup
-	// once 保证只记录第一个平台查询错误。
-	var once sync.Once
-	// firstErr 保存第一个平台查询错误。
-	var firstErr error
-	// workerCount 是固定的并发度，避免单个账号的联系人数量放大 goroutine 数量。
-	workerCount := 8
-	// worker 表示当前启动的身份补全工作器序号。
-	for worker := 0; worker < workerCount; worker++ {
-		workers.Add(1)
-		go func() {
-			defer workers.Done()
-			// index 表示当前待处理会话在结果切片中的下标。
-			for index := range jobs {
-				// identityCtx 和 cancel 限制单个联系人平台查询的最长时间。
-				identityCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-				// updated 和 err 保存身份补全后的会话及平台查询错误。
-				updated, err := s.ResolveSessionIdentity(identityCtx, result[index])
-				cancel()
-				result[index] = updated
-				if err != nil {
-					once.Do(func() { firstErr = err })
-				}
-			}
-		}()
-	}
-	// queueDone 表示是否因为父上下文取消而提前停止投递。
-	queueDone := false
-	// index 表示当前排队会话在结果切片中的下标。
+	// lookups 统计本次已发起的平台查询数，用于执行单次上限。
+	lookups := 0
+	// index 表示当前检查的会话在结果切片中的下标。
 	for index := range result {
-		if result[index].PeerUserID == "1400" {
-			continue
-		}
-		select {
-		case jobs <- index:
-		case <-ctx.Done():
-			queueDone = true
-		}
-		if queueDone {
+		if ctx.Err() != nil || lookups >= maxIdentityLookupsPerRefresh {
 			break
 		}
+		// current 是当前待检查的会话；官方会话和身份已完整的会话不需要平台查询。
+		current := result[index]
+		if current.PeerUserID == "1400" || (strings.TrimSpace(current.PeerName) != "" && strings.TrimSpace(current.PeerAvatar) != "") {
+			continue
+		}
+		lookups++
+		// identityCtx 和 cancel 限制单个联系人平台查询的最长时间。
+		identityCtx, cancel := context.WithTimeout(ctx, identityLookupTimeout)
+		// updated 和 err 保存身份补全后的会话及平台查询错误。
+		updated, err := s.ResolveSessionIdentity(identityCtx, current)
+		cancel()
+		result[index] = updated
+		if err != nil {
+			return result, err
+		}
 	}
-	close(jobs)
-	workers.Wait()
-	return result, firstErr
+	return result, nil
 }
