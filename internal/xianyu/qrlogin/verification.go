@@ -94,9 +94,11 @@ func (m *Manager) CompleteVerification(ctx context.Context, sessionID string) (c
 		sess.cookieSnapshot = nil
 	}
 	sess.unb = finalUNB
-	sess.Status = "success"
 	sess.verificationScreenshot = ""
 	sess.mu.Unlock()
+	// 人工完成平台验证后同样需要确认官网“保持登录”状态。/im 已由本函数访问，
+	// 因此这里只复用长登录设置和最终状态记录，避免重复导航。
+	m.finishLogin(ctx, sess, sessionID, "manual_verification", false)
 	m.logger.Info("纯 Go 提取登录凭证成功", "session_id", sessionID, "account_hash", logsafe.ID(finalUNB), "cookie_count", len(finalCookies))
 	return snapshotCookieHeader(sess.snapshot(), qrVerifyTargetURL), finalUNB, nil
 }
