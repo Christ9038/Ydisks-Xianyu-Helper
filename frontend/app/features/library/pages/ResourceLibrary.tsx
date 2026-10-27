@@ -132,16 +132,15 @@ const ResourceLibrary: React.FC<ResourceLibraryProps> = ({ onBatchStarted }) => 
   };
 
   return (
-    <div className="space-y-8">
-      <header className="flex flex-wrap items-end justify-between gap-4">
+    <div className="space-y-6 animate-fade-in">
+      <header className="flex flex-col md:flex-row justify-between md:items-end gap-4">
         <div>
-          <p className="text-xs font-black uppercase tracking-[0.24em] text-sky-600">Local library</p>
-          <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-950">本地资源库</h1>
-          <p className="mt-2 text-sm text-slate-500">保存常用商品模板与图片，一键把同款商品铺到多个账号。</p>
+          <h2 className="text-4xl font-extrabold text-gray-900 tracking-tight">本地资源库</h2>
+          <p className="text-gray-500 mt-2 font-medium">保存常用商品模板与图片，一键把同款商品铺到多个账号。</p>
         </div>
         <div className="flex gap-2" role="tablist" aria-label="资源库分类">
-          <button type="button" role="tab" aria-selected={tab === 'templates'} onClick={/* 切换到商品模板。 */ () => setTab('templates')} className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold ${tab === 'templates' ? 'bg-slate-950 text-white' : 'bg-slate-100 text-slate-700'}`}><Package className="h-4 w-4" />商品模板</button>
-          <button type="button" role="tab" aria-selected={tab === 'images'} onClick={/* 切换到图片库。 */ () => setTab('images')} className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold ${tab === 'images' ? 'bg-slate-950 text-white' : 'bg-slate-100 text-slate-700'}`}><ImageIcon className="h-4 w-4" />图片库</button>
+          <button type="button" role="tab" aria-selected={tab === 'templates'} onClick={/* 切换到商品模板。 */ () => setTab('templates')} className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold ${tab === 'templates' ? 'bg-gray-950 text-white' : 'ios-btn-secondary '}`}><Package className="h-4 w-4" />商品模板</button>
+          <button type="button" role="tab" aria-selected={tab === 'images'} onClick={/* 切换到图片库。 */ () => setTab('images')} className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold ${tab === 'images' ? 'bg-gray-950 text-white' : 'ios-btn-secondary '}`}><ImageIcon className="h-4 w-4" />图片库</button>
         </div>
       </header>
 
@@ -151,9 +150,9 @@ const ResourceLibrary: React.FC<ResourceLibraryProps> = ({ onBatchStarted }) => 
         <section className="space-y-4" aria-label="商品模板">
           {templates.error && <div role="alert" className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">{templates.error}</div>}
           <div className="flex flex-wrap gap-3">
-            <button type="button" onClick={/* 打开空白编辑器。 */ () => setEditing(null)} className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800"><Plus className="h-4 w-4" />新建模板</button>
+            <button type="button" onClick={/* 打开空白编辑器。 */ () => setEditing(null)} className="inline-flex items-center gap-2 rounded-xl ios-btn-primary px-4 py-3 text-sm font-bold "><Plus className="h-4 w-4" />新建模板</button>
             <button type="button" disabled={selectedTemplates.length === 0} onClick={/* 打开发布弹窗。 */ () => setPublishing(true)} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white disabled:opacity-50"><Rocket className="h-4 w-4" />发布所选（{selectedTemplates.length}）</button>
-            <button type="button" disabled={selectedTemplates.length === 0 || templates.busy} onClick={/* 批量删除勾选的模板。 */ () => void removeSelectedTemplates()} className="inline-flex items-center gap-2 rounded-xl bg-red-50 px-4 py-3 text-sm font-bold text-red-600 disabled:opacity-50"><Trash2 className="h-4 w-4" />删除所选</button>
+            <button type="button" disabled={selectedTemplates.length === 0 || templates.busy} onClick={/* 批量删除勾选的模板。 */ () => void removeSelectedTemplates()} className="inline-flex items-center gap-2 rounded-xl ios-btn-danger px-4 py-3 text-sm font-bold  disabled:opacity-50"><Trash2 className="h-4 w-4" />删除所选</button>
           </div>
           <ListToolbar searchLabel="搜索模板名称、标题、描述或类目" query={templateFilters.query} onQueryChange={/* 更新搜索词。 */ query => setTemplateFilters(/* previous 是更新前的条件。 */ previous => ({ ...previous, query }))}
             shown={visibleTemplates.length} total={templates.templates.length} active={isTemplateFilterActive(templateFilters)}
@@ -166,8 +165,8 @@ const ResourceLibrary: React.FC<ResourceLibraryProps> = ({ onBatchStarted }) => 
             ]} />
           <div className="flex flex-wrap items-center gap-3">
             <SelectAllCheckbox label="全选当前结果" state={selectionState(visibleTemplateIds, selectedIds)} disabled={visibleTemplateIds.length === 0} onToggle={/* 全选或取消当前可见模板。 */ () => setSelectedIds(/* previous 是切换前的选择。 */ previous => toggleAllVisible(previous, visibleTemplateIds))} />
-            <span className="text-xs text-slate-500">已选 {selectedIds.length} 个{countHidden(selectedIds, visibleTemplateIds) > 0 ? `，其中 ${countHidden(selectedIds, visibleTemplateIds)} 个不在当前筛选中` : ''}</span>
-            {selectedIds.length > 0 && <button type="button" onClick={/* 清空全部选择。 */ () => setSelectedIds([])} className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-bold text-slate-700">清空选择</button>}
+            <span className="text-xs text-gray-500">已选 {selectedIds.length} 个{countHidden(selectedIds, visibleTemplateIds) > 0 ? `，其中 ${countHidden(selectedIds, visibleTemplateIds)} 个不在当前筛选中` : ''}</span>
+            {selectedIds.length > 0 && <button type="button" onClick={/* 清空全部选择。 */ () => setSelectedIds([])} className="rounded-lg ios-btn-secondary px-2.5 py-1.5 text-xs font-bold ">清空选择</button>}
           </div>
           <div className="grid gap-4 md:grid-cols-2">
             {visibleTemplates.map(/* template 渲染一张模板卡片。 */ template => (
@@ -175,8 +174,8 @@ const ResourceLibrary: React.FC<ResourceLibraryProps> = ({ onBatchStarted }) => 
                 onToggle={/* 切换多选。 */ () => toggleSelected(template.id)} onEdit={/* 打开该模板编辑器。 */ () => setEditing(template)}
                 onDuplicate={/* 复制该模板。 */ () => void duplicateTemplate(template)} onDelete={/* 删除该模板。 */ () => void removeTemplate(template)} />
             ))}
-            {!templates.loading && templates.templates.length === 0 && <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center text-sm text-slate-500 md:col-span-2">还没有商品模板，先创建一份吧。</div>}
-            {!templates.loading && templates.templates.length > 0 && visibleTemplates.length === 0 && <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center text-sm text-slate-500 md:col-span-2">没有匹配的模板，可以调整搜索词或点击“重置筛选”。</div>}
+            {!templates.loading && templates.templates.length === 0 && <div className="ios-card rounded-xl bg-white p-12 text-center text-sm text-gray-500 md:col-span-2">还没有商品模板，先创建一份吧。</div>}
+            {!templates.loading && templates.templates.length > 0 && visibleTemplates.length === 0 && <div className="ios-card rounded-xl bg-white p-12 text-center text-sm text-gray-500 md:col-span-2">没有匹配的模板，可以调整搜索词或点击“重置筛选”。</div>}
           </div>
         </section>
       ) : (
@@ -184,7 +183,7 @@ const ResourceLibrary: React.FC<ResourceLibraryProps> = ({ onBatchStarted }) => 
           {images.error && <div role="alert" className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">{images.error}</div>}
           <div className="flex flex-wrap items-center gap-3">
             <ImageUploadButton busy={images.busy} onUpload={images.upload} onResults={/* 上传摘要作为普通提示展示。 */ text => setNotice({ text, tone: 'ok' })} />
-            <button type="button" disabled={checkedImageIds.length === 0 || images.busy} onClick={/* 批量删除勾选的图片。 */ () => void removeCheckedImages()} className="inline-flex items-center gap-2 rounded-xl bg-red-50 px-4 py-3 text-sm font-bold text-red-600 disabled:opacity-50"><Trash2 className="h-4 w-4" />删除所选（{checkedImageIds.length}）</button>
+            <button type="button" disabled={checkedImageIds.length === 0 || images.busy} onClick={/* 批量删除勾选的图片。 */ () => void removeCheckedImages()} className="inline-flex items-center gap-2 rounded-xl ios-btn-danger px-4 py-3 text-sm font-bold  disabled:opacity-50"><Trash2 className="h-4 w-4" />删除所选（{checkedImageIds.length}）</button>
           </div>
           <ListToolbar searchLabel="搜索图片文件名" query={imageFilters.query} onQueryChange={/* 更新搜索词。 */ query => setImageFilters(/* previous 是更新前的条件。 */ previous => ({ ...previous, query }))}
             shown={visibleImages.length} total={images.images.length} active={isImageFilterActive(imageFilters)}
@@ -196,10 +195,10 @@ const ResourceLibrary: React.FC<ResourceLibraryProps> = ({ onBatchStarted }) => 
             ]} />
           <div className="flex flex-wrap items-center gap-3">
             <SelectAllCheckbox label="全选当前结果" state={selectionState(visibleImageIds, checkedImageIds)} disabled={visibleImageIds.length === 0 || images.busy} onToggle={/* 全选或取消当前可见图片。 */ () => setCheckedImageIds(/* previous 是切换前的勾选。 */ previous => toggleAllVisible(previous, visibleImageIds))} />
-            <span className="text-xs text-slate-500">已选 {checkedImageIds.length} 张{countHidden(checkedImageIds, visibleImageIds) > 0 ? `，其中 ${countHidden(checkedImageIds, visibleImageIds)} 张不在当前筛选中` : ''}；点击图片查看大图</span>
-            {checkedImageIds.length > 0 && <button type="button" onClick={/* 清空全部勾选。 */ () => setCheckedImageIds([])} className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-bold text-slate-700">清空选择</button>}
+            <span className="text-xs text-gray-500">已选 {checkedImageIds.length} 张{countHidden(checkedImageIds, visibleImageIds) > 0 ? `，其中 ${countHidden(checkedImageIds, visibleImageIds)} 张不在当前筛选中` : ''}；点击图片查看大图</span>
+            {checkedImageIds.length > 0 && <button type="button" onClick={/* 清空全部勾选。 */ () => setCheckedImageIds([])} className="rounded-lg ios-btn-secondary px-2.5 py-1.5 text-xs font-bold ">清空选择</button>}
           </div>
-          {!images.loading && images.images.length === 0 ? <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center text-sm text-slate-500">图片库还是空的，上传几张图片开始使用。</div> : visibleImages.length === 0 ? <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center text-sm text-slate-500">没有匹配的图片，可以调整搜索词或点击“重置筛选”。</div> : <ImageGrid images={visibleImages} usage={usage} checkedIds={checkedImageIds} onCheck={/* 切换该图片的批量勾选。 */ image => setCheckedImageIds(/* previous 是切换前的勾选。 */ previous => previous.includes(image.id) ? previous.filter(/* id 移除该图片。 */ id => id !== image.id) : [...previous, image.id])} onDelete={/* 请求删除图片。 */ image => void removeImage(image)} disabled={images.busy} />}
+          {!images.loading && images.images.length === 0 ? <div className="ios-card rounded-xl bg-white p-12 text-center text-sm text-gray-500">图片库还是空的，上传几张图片开始使用。</div> : visibleImages.length === 0 ? <div className="ios-card rounded-xl bg-white p-12 text-center text-sm text-gray-500">没有匹配的图片，可以调整搜索词或点击“重置筛选”。</div> : <ImageGrid images={visibleImages} usage={usage} checkedIds={checkedImageIds} onCheck={/* 切换该图片的批量勾选。 */ image => setCheckedImageIds(/* previous 是切换前的勾选。 */ previous => previous.includes(image.id) ? previous.filter(/* id 移除该图片。 */ id => id !== image.id) : [...previous, image.id])} onDelete={/* 请求删除图片。 */ image => void removeImage(image)} disabled={images.busy} />}
         </section>
       )}
 

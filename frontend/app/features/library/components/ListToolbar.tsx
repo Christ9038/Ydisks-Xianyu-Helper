@@ -44,18 +44,18 @@ export interface ListToolbarProps {
 export const ListToolbar = ({ searchLabel, query, onQueryChange, selects, shown, total, active, onReset }: ListToolbarProps) => (
   <div className="flex flex-wrap items-center gap-3">
     <div className="relative min-w-56">
-      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
       <input type="search" aria-label={searchLabel} placeholder={searchLabel} className="ios-input w-full rounded-xl py-2.5 pl-9 pr-3 text-sm" value={query} onChange={/* 更新搜索词。 */ event => onQueryChange(event.target.value)} />
     </div>
     {selects.map(/* select 渲染一个筛选或排序下拉框。 */ select => (
-      <label key={select.label} className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500">
+      <label key={select.label} className="inline-flex items-center gap-1.5 text-xs font-bold text-gray-500">
         {select.label}
-        <select aria-label={select.label} className="ios-input rounded-xl px-2.5 py-2 text-sm font-medium text-slate-800" value={select.value} onChange={/* 切换取值。 */ event => select.onChange(event.target.value)}>
+        <select aria-label={select.label} className="ios-input rounded-xl px-2.5 py-2 text-sm font-medium text-gray-800" value={select.value} onChange={/* 切换取值。 */ event => select.onChange(event.target.value)}>
           {select.options.map(/* option 渲染一个选项。 */ option => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
       </label>
     ))}
-    <span className="text-xs text-slate-500">显示 {shown} / 共 {total}</span>
-    {active && <button type="button" onClick={onReset} className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-bold text-slate-700"><RotateCcw className="h-3.5 w-3.5" />重置筛选</button>}
+    <span className="text-xs text-gray-500">显示 {shown} / 共 {total}</span>
+    {active && <button type="button" onClick={onReset} className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2.5 py-1.5 text-xs font-bold text-gray-700"><RotateCcw className="h-3.5 w-3.5" />重置筛选</button>}
   </div>
 );

@@ -37,7 +37,7 @@ export const ImageUploadButton = ({ busy, onUpload, onResults }: ImageUploadButt
     onResults(summarizeUpload(await onUpload(files)));
   };
   return (
-    <label className={`inline-flex cursor-pointer items-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-bold text-white hover:bg-slate-800 ${busy ? 'pointer-events-none opacity-50' : ''}`}>
+    <label className={`inline-flex cursor-pointer items-center gap-2 rounded-xl ios-btn-primary px-4 py-2.5 text-sm font-bold  ${busy ? 'pointer-events-none opacity-50' : ''}`}>
       <UploadCloud className="h-4 w-4" />{busy ? '处理中...' : '上传图片'}
       <input className="hidden" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple disabled={busy} onChange={/* 选择文件后立即上传。 */ event => void handleChange(event)} />
     </label>

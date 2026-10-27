@@ -58,9 +58,9 @@ const ImagePickerBody = ({ title, maxSelect, initialSelected, onClose, onConfirm
         <div className="modal-body space-y-4">
           <div className="flex flex-wrap items-center gap-3">
             <ImageUploadButton busy={library.busy} onUpload={library.upload} onResults={setNotice} />
-            <button type="button" disabled={visible.length === 0 || selected.length >= maxSelect} onClick={fillVisible} className="rounded-xl bg-slate-100 px-3 py-2.5 text-sm font-bold text-slate-700 disabled:opacity-50">全选当前结果（最多 {maxSelect} 张）</button>
-            <button type="button" disabled={selected.length === 0} onClick={/* 清空已选图片。 */ () => setSelected([])} className="rounded-xl bg-slate-100 px-3 py-2.5 text-sm font-bold text-slate-700 disabled:opacity-50">清空选择</button>
-            {notice && <span role="status" className="text-xs text-slate-600">{notice}</span>}
+            <button type="button" disabled={visible.length === 0 || selected.length >= maxSelect} onClick={fillVisible} className="rounded-xl ios-btn-secondary px-3 py-2.5 text-sm font-bold  disabled:opacity-50">全选当前结果（最多 {maxSelect} 张）</button>
+            <button type="button" disabled={selected.length === 0} onClick={/* 清空已选图片。 */ () => setSelected([])} className="rounded-xl ios-btn-secondary px-3 py-2.5 text-sm font-bold  disabled:opacity-50">清空选择</button>
+            {notice && <span role="status" className="text-xs text-gray-600">{notice}</span>}
           </div>
           <ListToolbar searchLabel="搜索图片文件名" query={filters.query} onQueryChange={/* 更新搜索词。 */ query => setFilters(/* previous 是更新前的条件。 */ previous => ({ ...previous, query }))}
             shown={visible.length} total={library.images.length} active={isImageFilterActive(filters)}
@@ -70,12 +70,12 @@ const ImagePickerBody = ({ title, maxSelect, initialSelected, onClose, onConfirm
               { label: '排序', value: filters.sort, onChange: /* 切换排序方式。 */ value => setFilters(/* previous 是更新前的条件。 */ previous => ({ ...previous, sort: value as ImageFilters['sort'] })), options: [{ value: 'newest', label: '最新上传' }, { value: 'oldest', label: '最早上传' }, { value: 'name-asc', label: '文件名 A→Z' }, { value: 'name-desc', label: '文件名 Z→A' }, { value: 'size-desc', label: '文件大→小' }, { value: 'size-asc', label: '文件小→大' }] },
             ]} />
           {library.error && <div role="alert" className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{library.error}</div>}
-          {library.loading && library.images.length === 0 ? <p className="text-sm text-slate-500">加载中...</p> : library.images.length === 0 ? <p className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">图片库还是空的，先上传几张图片。</p> : visible.length === 0 ? <p className="p-6 text-center text-sm text-slate-500">没有匹配的图片。</p> : <ImageGrid images={visible} selectedIds={selected} onToggle={toggle} disabled={library.busy} />}
+          {library.loading && library.images.length === 0 ? <p className="text-sm text-gray-500">加载中...</p> : library.images.length === 0 ? <p className="rounded-2xl border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500">图片库还是空的，先上传几张图片。</p> : visible.length === 0 ? <p className="p-6 text-center text-sm text-gray-500">没有匹配的图片。</p> : <ImageGrid images={visible} selectedIds={selected} onToggle={toggle} disabled={library.busy} />}
         </div>
-        <div className="modal-footer flex justify-end gap-3">
-          <button type="button" onClick={onClose} className="rounded-xl bg-gray-100 px-4 py-2.5 text-sm font-bold text-gray-700">取消</button>
-          <button type="button" disabled={selected.length === 0} onClick={confirm} className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">确认选择</button>
-        </div>
+        <div className="modal-footer"><div className="flex gap-3 w-full">
+          <button type="button" onClick={onClose} className="flex-1 px-6 py-3 rounded-xl font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors">取消</button>
+          <button type="button" disabled={selected.length === 0} onClick={confirm} className="flex-1 ios-btn-primary px-6 py-3 rounded-xl font-bold disabled:opacity-50">确认选择</button>
+        </div></div>
       </div>
     </div>,
     document.body,

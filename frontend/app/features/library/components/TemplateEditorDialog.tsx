@@ -90,12 +90,12 @@ export const TemplateEditorDialog = ({ template, busy, options, onSave, onClose 
 
           <section className="space-y-3" aria-labelledby="template-images-title">
             <div className="flex items-center justify-between"><h3 id="template-images-title" className="text-sm font-extrabold text-gray-900">商品主图（1-{maxMainImages} 张，来自图片库）</h3>
-              <button type="button" className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white" onClick={/* 打开主图选择。 */ () => setPicker({ kind: 'main' })}><ImagePlus className="h-4 w-4" />从图片库选择</button></div>
+              <button type="button" className="inline-flex items-center gap-2 rounded-xl ios-btn-primary px-3 py-2 text-xs" onClick={/* 打开主图选择。 */ () => setPicker({ kind: 'main' })}><ImagePlus className="h-4 w-4" />从图片库选择</button></div>
             <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">
               {draft.imageIds.map(/* id、index 渲染一张主图。 */ (id, index) => (
-                <figure key={id} className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                <figure key={id} className="relative overflow-hidden rounded-2xl border border-gray-200 bg-white">
                   <img src={libraryImageUrl(id)} alt={`第 ${index + 1} 张主图`} className="aspect-square w-full object-cover" />
-                  <figcaption className="absolute inset-x-0 top-0 bg-slate-950/70 px-2 py-1 text-[11px] font-bold text-white">{index === 0 ? '主图' : `第 ${index + 1} 张`}</figcaption>
+                  <figcaption className="absolute inset-x-0 top-0 bg-gray-900/70 px-2 py-1 text-[11px] font-bold text-white">{index === 0 ? '主图' : `第 ${index + 1} 张`}</figcaption>
                   <div className="flex items-center justify-between bg-white p-1">
                     <button type="button" aria-label={`第 ${index + 1} 张前移`} disabled={index === 0} className="rounded p-1 disabled:opacity-30" onClick={/* 前移。 */ () => moveImage(index, index - 1)}><ChevronUp className="h-4 w-4" /></button>
                     <button type="button" aria-label={`第 ${index + 1} 张后移`} disabled={index === draft.imageIds.length - 1} className="rounded p-1 disabled:opacity-30" onClick={/* 后移。 */ () => moveImage(index, index + 1)}><ChevronDown className="h-4 w-4" /></button>
@@ -109,7 +109,7 @@ export const TemplateEditorDialog = ({ template, busy, options, onSave, onClose 
           <PublishSpecsEditor specs={draft.specs} skuRows={draft.skuRows}
             onChange={/* 规格变化后同步 SKU、规格图片和自动化范围。 */ next => setDraft(/* previous 是变化前草稿。 */ previous => reconcileDraftSpecs(previous, next.specs, next.skuRows))}
             renderValueImage={/* 规格值图片从图片库选择。 */ value => (
-              <button key={`img-${value.valueId}`} type="button" aria-label={`为规格值 ${value.value || ''} 选择图片`} title="从图片库选择规格图片" className={`flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl border ${draft.specImageIds[value.valueId] ? 'border-emerald-300' : 'border-slate-200 bg-white text-slate-400'}`} onClick={/* 打开规格图选择。 */ () => setPicker({ kind: 'spec', valueId: value.valueId })}>
+              <button key={`img-${value.valueId}`} type="button" aria-label={`为规格值 ${value.value || ''} 选择图片`} title="从图片库选择规格图片" className={`flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl border ${draft.specImageIds[value.valueId] ? 'border-emerald-300' : 'border-gray-200 bg-white text-gray-400'}`} onClick={/* 打开规格图选择。 */ () => setPicker({ kind: 'spec', valueId: value.valueId })}>
                 {draft.specImageIds[value.valueId] ? <img src={libraryImageUrl(draft.specImageIds[value.valueId])} alt="规格图片" className="h-full w-full object-cover" /> : <ImagePlus className="h-4 w-4" />}
               </button>
             )} />
@@ -120,10 +120,10 @@ export const TemplateEditorDialog = ({ template, busy, options, onSave, onClose 
             <TemplateAutomationEditor automation={draft.automation} scopes={scopes} cards={options.cards} deliveryTemplates={options.deliveryTemplates} onChange={/* 写回自动化配置。 */ automation => patch({ automation })} />
           </section>
         </div>
-        <div className="modal-footer flex justify-end gap-3">
-          <button type="button" onClick={onClose} className="rounded-xl bg-gray-100 px-4 py-2.5 text-sm font-bold text-gray-700">取消</button>
-          <button type="button" disabled={busy} onClick={/* 提交保存。 */ () => void submit()} className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">{busy ? '保存中...' : '保存模板'}</button>
-        </div>
+        <div className="modal-footer"><div className="flex gap-3 w-full">
+          <button type="button" onClick={onClose} className="flex-1 px-6 py-3 rounded-xl font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors">取消</button>
+          <button type="button" disabled={busy} onClick={/* 提交保存。 */ () => void submit()} className="flex-1 ios-btn-primary px-6 py-3 rounded-xl font-bold disabled:opacity-50">{busy ? '保存中...' : '保存模板'}</button>
+        </div></div>
       </div>
       <ImagePickerDialog open={picker !== null} title={picker?.kind === 'spec' ? '选择规格图片' : '选择商品主图'} maxSelect={picker?.kind === 'spec' ? 1 : maxMainImages}
         initialSelected={picker?.kind === 'spec' ? (picker.valueId && draft.specImageIds[picker.valueId] ? [draft.specImageIds[picker.valueId]] : []) : draft.imageIds}

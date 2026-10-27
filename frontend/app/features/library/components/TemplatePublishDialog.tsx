@@ -122,33 +122,33 @@ export const TemplatePublishDialog = ({ templates, accounts, onClose, onStarted 
           {error && <div role="alert" className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
           <fieldset className="space-y-2">
             <legend className="text-sm font-extrabold text-gray-900">目标账号</legend>
-            {accounts.length === 0 && <p className="text-sm text-slate-500">没有可用账号，请先在账号管理中启用账号。</p>}
+            {accounts.length === 0 && <p className="text-sm text-gray-500">没有可用账号，请先在账号管理中启用账号。</p>}
             {accounts.length > 0 && (
               <div className="flex flex-wrap items-center gap-3">
                 <input type="search" aria-label="搜索账号" placeholder="搜索账号" className="ios-input w-48 rounded-xl px-3 py-2 text-sm" value={accountQuery} onChange={/* 更新账号搜索词。 */ event => setAccountQuery(event.target.value)} />
                 <SelectAllCheckbox label="全选账号" state={selectionState(visibleAccountIds, selectedAccounts)} disabled={visibleAccountIds.length === 0} onToggle={toggleAllAccounts} />
-                <span className="text-xs text-slate-500">已选 {selectedAccounts.length}/{accounts.length} 个账号</span>
+                <span className="text-xs text-gray-500">已选 {selectedAccounts.length}/{accounts.length} 个账号</span>
               </div>
             )}
-            {accounts.length > 0 && visibleAccounts.length === 0 && <p className="text-sm text-slate-500">没有匹配的账号。</p>}
+            {accounts.length > 0 && visibleAccounts.length === 0 && <p className="text-sm text-gray-500">没有匹配的账号。</p>}
             <div className="grid gap-2 sm:grid-cols-2">
               {visibleAccounts.map(/* account 渲染一个账号勾选项。 */ account => (
-                <label key={account.id} className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"><input type="checkbox" checked={selectedAccounts.includes(account.id)} onChange={/* 切换账号。 */ () => toggleAccount(account.id)} />{account.label}</label>
+                <label key={account.id} className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm"><input type="checkbox" checked={selectedAccounts.includes(account.id)} onChange={/* 切换账号。 */ () => toggleAccount(account.id)} />{account.label}</label>
               ))}
             </div>
           </fieldset>
           <label className="block text-sm font-bold text-gray-800">发布间隔（秒）<input aria-label="发布间隔秒数" type="number" min={0} max={3600} className="ios-input mt-1 w-32 rounded-xl px-3 py-2" value={interval} onChange={/* 修改间隔并使旧预检失效。 */ event => { setInterval(event.target.value); setPreview(null); }} /></label>
-          <p className="text-xs text-slate-500">将生成 {rowCount} 行（模板 × 账号，上限 {maxPublishRows}）；发货地使用账号平台默认值。</p>
+          <p className="text-xs text-gray-500">将生成 {rowCount} 行（模板 × 账号，上限 {maxPublishRows}）；发货地使用账号平台默认值。</p>
           {preview && (
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-4">
                 <p className="text-sm font-bold">共 {preview.total} 行，<span className="text-emerald-700">可发布 {preview.valid}</span>，<span className="text-red-700">需修正 {preview.invalid}</span></p>
-                {preview.invalid > 0 && <label className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600"><input type="checkbox" checked={onlyInvalid} onChange={/* 切换只看需修正。 */ event => setOnlyInvalid(event.target.checked)} />只看需修正</label>}
+                {preview.invalid > 0 && <label className="inline-flex items-center gap-1.5 text-xs font-bold text-gray-600"><input type="checkbox" checked={onlyInvalid} onChange={/* 切换只看需修正。 */ event => setOnlyInvalid(event.target.checked)} />只看需修正</label>}
               </div>
-              <div className="max-h-72 overflow-auto rounded-xl border border-slate-200">
+              <div className="max-h-72 overflow-auto rounded-xl border border-gray-200">
                 <table className="min-w-full text-left text-sm">
-                  <thead className="bg-slate-50 text-xs text-slate-500"><tr><th className="px-3 py-2">账号</th><th className="px-3 py-2">标题</th><th className="px-3 py-2">价格</th><th className="px-3 py-2">库存</th><th className="px-3 py-2">状态</th></tr></thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <thead className="bg-gray-50 text-xs text-gray-500"><tr><th className="px-3 py-2">账号</th><th className="px-3 py-2">标题</th><th className="px-3 py-2">价格</th><th className="px-3 py-2">库存</th><th className="px-3 py-2">状态</th></tr></thead>
+                  <tbody className="divide-y divide-gray-100">
                     {visibleRows.map(/* row 渲染一行预检。 */ row => (
                       <tr key={row.rowNo}><td className="px-3 py-2">{accountLabels.get(row.cookieId) ?? row.cookieId}</td><td className="px-3 py-2">{row.title}</td><td className="px-3 py-2">{row.price}</td><td className="px-3 py-2">{row.quantity}</td>
                         <td className="px-3 py-2">{row.valid ? <span className="text-emerald-700">可发布</span> : <span className="text-red-700">{row.errors.join('；') || '需修正'}</span>}</td></tr>
@@ -159,11 +159,11 @@ export const TemplatePublishDialog = ({ templates, accounts, onClose, onStarted 
             </div>
           )}
         </div>
-        <div className="modal-footer flex justify-end gap-3">
-          <button type="button" onClick={onClose} className="rounded-xl bg-gray-100 px-4 py-2.5 text-sm font-bold text-gray-700">取消</button>
-          <button type="button" disabled={busy || rowCount === 0 || rowCount > maxPublishRows} onClick={/* 生成预检。 */ () => void runPreview()} className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">{busy && !preview ? '处理中...' : '生成预检'}</button>
-          <button type="button" disabled={busy || !preview || preview.valid <= 0} onClick={/* 确认并启动批次。 */ () => void confirm()} className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">{preview ? `确认发布 ${preview.valid} 个商品` : '确认发布'}</button>
-        </div>
+        <div className="modal-footer"><div className="flex gap-3 w-full">
+          <button type="button" onClick={onClose} className="flex-1 px-6 py-3 rounded-xl font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors">取消</button>
+          <button type="button" disabled={busy || rowCount === 0 || rowCount > maxPublishRows} onClick={/* 生成预检。 */ () => void runPreview()} className="flex-1 ios-btn-secondary px-6 py-3 rounded-xl font-bold disabled:opacity-50">{busy && !preview ? '处理中...' : '生成预检'}</button>
+          <button type="button" disabled={busy || !preview || preview.valid <= 0} onClick={/* 确认并启动批次。 */ () => void confirm()} className="flex-1 ios-btn-primary px-6 py-3 rounded-xl font-bold disabled:opacity-50">{preview ? `确认发布 ${preview.valid} 个商品` : '确认发布'}</button>
+        </div></div>
       </div>
     </div>,
     document.body,
