@@ -320,7 +320,7 @@ func (c *connectionCoordinator) handleTokenAcquisitionFailure(ctx context.Contex
 		return false, tokenErr
 	}
 	a.setRuntimeState(RuntimeReconnecting, "获取消息凭证失败，正在重试")
-	a.notifyOffline(ctx, "获取消息凭证失败，正在自动重试："+errString(tokenErr))
+	a.notifyDialRetrying(ctx, "获取消息凭证失败，正在自动重试："+errString(tokenErr))
 	// sleepErr 保存退避等待被取消或超时的原因；该错误必须终止当前账号运行循环。
 	if sleepErr := sleepCtx(ctx, a.tokenRetryDelay()); sleepErr != nil {
 		return false, sleepErr

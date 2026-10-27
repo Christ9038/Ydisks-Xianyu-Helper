@@ -564,14 +564,14 @@ func (a *Account) notifyOffline(ctx context.Context, reason string) {
 		fmt.Sprintf("账号 %s 的闲鱼消息连接已进入不可自动重连状态。原因：%s。请更新登录信息或重新登录后再启动账号。", a.CookieID, reason))
 }
 
-// notifyDialRetrying 在连续拨号失败达到阈值时发送一次离线通知；reason 是最近一次网络错误文本。
+// notifyDialRetrying 为拨号失败或消息 Token 获取失败发送一次可自动重试的离线通知；reason 保存本次失败原因。
 // 与 notifyOffline 不同，账号仍会自动重试，文案不要求用户重新登录；连接恢复后沿用既有恢复通知。
 func (a *Account) notifyDialRetrying(ctx context.Context, reason string) {
 	if !a.markOfflineNotified(reason) {
 		return
 	}
 	a.alertEvent(ctx, EventAccountOffline, AlertLevelWarn, "账号消息连接中断，正在自动重试",
-		fmt.Sprintf("账号 %s 连续多次无法连接闲鱼消息服务，疑似网络故障。原因：%s。系统会持续退避重试，网络恢复后自动重新上线。", a.CookieID, reason))
+		fmt.Sprintf("账号 %s 暂时无法连接闲鱼消息服务。原因：%s。系统会持续退避重试，连接恢复后自动重新上线。", a.CookieID, reason))
 }
 
 // notifyRecoveringOffline 封装notifyRecoveringOffline业务协调。
