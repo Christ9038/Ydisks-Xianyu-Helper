@@ -35,7 +35,7 @@ func TestAuthorizeSellerTaskEarlyRejections(t *testing.T) {
 		task.ItemID = ""
 		// _, ok、reason、err 保存核验结论。
 		_, ok, reason, err := bare.authorizeWebSocketSellerTask(ctx, task)
-		if ok || reason != "missing_local_item" || err != nil {
+		if ok || reason != reasonOrderCreatedNotLocalItem || err != nil {
 			t.Fatalf("ok=%v reason=%s err=%v", ok, reason, err)
 		}
 	})

@@ -298,7 +298,8 @@ func (c *Center) handleTask(ctx context.Context, task Task) (bool, error) {
 		if roleVerificationRetryable(rejectReason) {
 			if isDeferredReplay(task) {
 				// 未知角色延期任务再次没有本地证据时交给统一退避；达到上限后由调度器发送人工处理通知。
-				return false, errSellerRoleEvidencePending
+				// 携带具体拒绝原因（如 missing_local_item），便于日志和人工处理通知区分买家订单与商品未同步；errors.Is 仍可识别哨兵错误。
+				return false, fmt.Errorf("%w（原因：%s）", errSellerRoleEvidencePending, rejectReason)
 			}
 			// deferErr 保存首条未知角色事件写入延期队列的错误；写入失败不能伪装成已安全处理。
 			if deferErr := c.deferUnknownRoleTask(ctx, task, rejectReason); deferErr != nil {

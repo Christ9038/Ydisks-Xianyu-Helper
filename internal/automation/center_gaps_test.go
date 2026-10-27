@@ -80,11 +80,18 @@ func TestHandleTaskGapBranches(t *testing.T) {
 		// store、cleanup 保存隔离数据库。
 		store, cleanup := newAutomationTestStore(t)
 		defer cleanup()
-		// replayed 是延期重放的未知角色付款任务，本地没有订单。
-		replayed := Task{Source: "ws", AccountID: "cid", TriggerType: TriggerOrderPaid, OrderID: "gap-none", Raw: map[string]any{"automation_deferred_replay": true}}
+		// 订单已由本账号订单同步写入，但对应商品尚未同步：卖家身份基本确定，仅等待商品事实。
+		if upsertErr := store.Orders.Upsert(ctx, "gap-pending", db.OrderUpsertOpts{CookieID: "cid", ItemID: "gap-unsynced-item", OrderStatus: "paid"}); upsertErr != nil {
+			t.Fatal(upsertErr)
+		}
+		// replayed 是延期重放的未知角色付款任务，本地有订单但缺商品。
+		replayed := Task{Source: "ws", AccountID: "cid", TriggerType: TriggerOrderPaid, OrderID: "gap-pending", Raw: map[string]any{"automation_deferred_replay": true}}
 		// err 保存被测调用返回的错误，用于断言失败分支是否按预期触发。
 		if _, err := New(store, nil, nil).handleTask(ctx, replayed); !errors.Is(err, errSellerRoleEvidencePending) {
 			t.Fatalf("err=%v", err)
+		} else if !strings.Contains(err.Error(), "missing_local_item") {
+			// 错误文本必须带出具体拒绝原因，供日志与人工处理通知区分缺订单和缺商品。
+			t.Fatalf("错误未携带拒绝原因: %v", err)
 		}
 	})
 	t.Run("未知角色首次事件保存失败", func(t *testing.T) {
@@ -92,8 +99,12 @@ func TestHandleTaskGapBranches(t *testing.T) {
 		store, cleanup := newAutomationTestStore(t)
 		defer cleanup()
 		execGapSQL(t, store, `ALTER TABLE automation_pending_tasks RENAME TO automation_pending_gap_hidden`)
+		// 订单已在本地但商品未同步，首次事件需要写入延期队列。
+		if upsertErr := store.Orders.Upsert(ctx, "gap-first", db.OrderUpsertOpts{CookieID: "cid", ItemID: "gap-unsynced-item", OrderStatus: "paid"}); upsertErr != nil {
+			t.Fatal(upsertErr)
+		}
 		// first 是首次到达的未知角色付款任务。
-		first := Task{Source: "ws", AccountID: "cid", TriggerType: TriggerOrderPaid, OrderID: "gap-none"}
+		first := Task{Source: "ws", AccountID: "cid", TriggerType: TriggerOrderPaid, OrderID: "gap-first"}
 		// err 保存被测调用返回的错误，用于断言失败分支是否按预期触发。
 		if _, err := New(store, nil, nil).handleTask(ctx, first); err == nil {
 			t.Fatal("保存延期任务失败应返回错误")

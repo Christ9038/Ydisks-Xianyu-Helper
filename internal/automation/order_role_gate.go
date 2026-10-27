@@ -19,6 +19,9 @@ const roleVerificationTaskKeyField = "automation_role_verification_key"
 // roleVerificationRetryInterval 控制首条未知角色事件等待订单/商品同步的最短间隔。
 const roleVerificationRetryInterval = time.Minute
 
+// reasonOrderCreatedNotLocalItem 表示无角色拍下事件的商品不在本账号本地商品库；该原因不可重试，调用方静默跳过。
+const reasonOrderCreatedNotLocalItem = "order_created_not_local_item"
+
 // errSellerRoleEvidencePending 表示待核验任务暂时没有足够的本地卖家事实；调度器会按既有延期队列退避并最终通知人工。
 var errSellerRoleEvidencePending = errors.New("未知角色事件暂缺本地卖家事实")
 
@@ -60,7 +63,8 @@ func (c *Center) authorizeWebSocketSellerTask(ctx context.Context, task Task) (T
 	}
 	if task.TriggerType == TriggerOrderCreated {
 		if strings.TrimSpace(task.ItemID) == "" {
-			return task, false, "missing_local_item", nil
+			// 拍下事件没有商品号时无法证明是本账号商品，自动化没有意义，直接跳过。
+			return task, false, reasonOrderCreatedNotLocalItem, nil
 		}
 		if c == nil || c.store == nil || c.store.Items == nil {
 			return task, false, "item_store_unavailable", nil
@@ -71,7 +75,9 @@ func (c *Center) authorizeWebSocketSellerTask(ctx context.Context, task Task) (T
 			return task, false, "", fmt.Errorf("核对未知角色拍下商品归属: %w", itemErr)
 		}
 		if !owned {
-			return task, false, "missing_local_item", nil
+			// 商品不在本账号商品库时，拍下自动化本身没有意义（同一用户作为买家拍下他人商品也属此类），静默跳过：
+			// 不延期、不通知、不请求平台。付款后的发货由付款事件和待发货扫描负责，不依赖拍下事件。
+			return task, false, reasonOrderCreatedNotLocalItem, nil
 		}
 		task.OrderRole = OrderRoleSeller
 		return task, true, "", nil
