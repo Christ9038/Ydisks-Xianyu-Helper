@@ -47,7 +47,7 @@ type Template struct {
 	OriginalPriceCents int64
 	// Quantity 是单规格库存；多规格时由 SKU 库存汇总。
 	Quantity int
-	// PostageMode 是邮费模式 free 或 fixed。
+	// PostageMode 是邮费模式：free 包邮、distance 按距离计费、fixed 一口价、none 无需邮寄。
 	PostageMode string
 	// PostageCents 是固定邮费，单位为分。
 	PostageCents int64
@@ -189,10 +189,10 @@ func (s *TemplateService) normalize(ctx context.Context, input Template) (Templa
 	if input.Title == "" || utf8.RuneCountInString(input.Title) > maxTemplateTitleRunes {
 		return Template{}, invalid("商品标题必填")
 	}
-	if input.PostageMode != "free" && input.PostageMode != "fixed" {
-		return Template{}, invalid("邮费模式必须是 free 或 fixed")
+	if input.PostageMode != "free" && input.PostageMode != "fixed" && input.PostageMode != "distance" && input.PostageMode != "none" {
+		return Template{}, invalid("邮费模式必须是 free、distance、fixed 或 none")
 	}
-	if input.PostageMode == "free" {
+	if input.PostageMode != "fixed" {
 		input.PostageCents = 0
 	} else if input.PostageCents < 0 {
 		return Template{}, invalid("固定邮费不能为负数")

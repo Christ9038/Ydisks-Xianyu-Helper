@@ -82,7 +82,7 @@ export const TemplateEditorDialog = ({ template, busy, options, onSave, onClose 
             </>}
             <label className="text-sm font-bold text-gray-800">原价（元，可选）<input inputMode="decimal" className={`${fieldClass} mt-1`} value={draft.originalPrice} onChange={/* 修改原价。 */ event => patch({ originalPrice: event.target.value })} /></label>
             <div className="grid grid-cols-2 gap-3">
-              <label className="text-sm font-bold text-gray-800">邮费<select className={`${fieldClass} mt-1`} value={draft.postageMode} onChange={/* 切换邮费模式。 */ event => patch({ postageMode: event.target.value === 'fixed' ? 'fixed' : 'free' })}><option value="free">包邮</option><option value="fixed">固定邮费</option></select></label>
+              <label className="text-sm font-bold text-gray-800">邮费<select className={`${fieldClass} mt-1`} value={draft.postageMode} onChange={/* 切换邮费模式，取值限定为四种已知模式。 */ event => patch({ postageMode: event.target.value as TemplateDraft['postageMode'] })}><option value="free">包邮</option><option value="distance">按距离计费</option><option value="fixed">一口价邮费</option><option value="none">无需邮寄</option></select></label>
               {draft.postageMode === 'fixed' && <label className="text-sm font-bold text-gray-800">邮费（元）<input inputMode="decimal" className={`${fieldClass} mt-1`} value={draft.postage} onChange={/* 修改邮费。 */ event => patch({ postage: event.target.value })} /></label>}
             </div>
             <p className="text-xs text-gray-500 md:col-span-2">类目：{draft.category.catName}（默认电子资料，与批量铺货兜底一致）；发货地使用各账号在平台上的默认值。</p>

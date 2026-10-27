@@ -328,3 +328,32 @@ func TestBatchLocalPublishCreatesSKUBoundAndTemplateRules(t *testing.T) {
 		t.Fatalf("损坏快照处理异常: %v", completeErr)
 	}
 }
+
+// TestNormalizePostageModeAcceptsAllPublishModes 验证批量导入接受与单品发布一致的四种邮费模式及其中文别名。
+func TestNormalizePostageModeAcceptsAllPublishModes(t *testing.T) {
+	// cases 保存用户输入及其归一化后的稳定模式。
+	cases := map[string]string{"包邮": "free", "按距离计费": "distance", "一口价邮费": "fixed", "固定邮费": "fixed", "无需邮寄": "none", "NONE": "none"}
+	// input、want 是当前输入与期望模式。
+	for input, want := range cases {
+		// got 是实际归一化结果。
+		if got := normalizePostageMode(input); got != want {
+			t.Fatalf("normalizePostageMode(%q)=%q want %q", input, got, want)
+		}
+	}
+	// service 是用于校验邮费模式的预检服务。
+	service, err := NewBatchPreviewService(templatePreviewOwnershipFake{batchPreviewOwnershipFake: batchPreviewOwnershipFake{cookieOwned: "acc", cardOwned: 7}}, batchPreviewImageFake{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// mode 是待验证的邮费模式。
+	for _, mode := range []string{"free", "distance", "none"} {
+		// row 使用该模式且不填邮费，应通过校验。
+		row := previewRowForSpecs()
+		row.Specs, row.Automation, row.PostageMode, row.Postage = nil, BatchPreviewAutomation{}, mode, ""
+		// rows、rowsErr 保存预检结果及失败原因。
+		rows, rowsErr := service.PreviewRows(context.Background(), BatchPreviewInput{UserID: 1, DefaultCookieID: "acc"}, []BatchPreviewRow{row})
+		if rowsErr != nil || len(rows[0].Errors) != 0 {
+			t.Fatalf("%s 应通过校验: err=%v errors=%v", mode, rowsErr, rows[0].Errors)
+		}
+	}
+}

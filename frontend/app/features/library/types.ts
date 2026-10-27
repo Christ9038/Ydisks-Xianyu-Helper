@@ -154,7 +154,7 @@ export interface ProductTemplate {
   /** quantity 是库存。 */
   quantity: number;
   /** postageMode 是邮费模式。 */
-  postageMode: 'free' | 'fixed';
+  postageMode: 'free' | 'distance' | 'fixed' | 'none';
   /** postage 是固定邮费（元）。 */
   postage: string;
   /** category 是平台类目。 */

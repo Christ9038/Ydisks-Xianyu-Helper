@@ -65,6 +65,8 @@ describe('templateDraft', /* 草稿转换与校验的纯逻辑测试。 */ () =>
     expect(validateDraft({ ...base, price: '1', quantity: '0' })).toContain('库存');
     expect(validateDraft({ ...base, price: '1', postageMode: 'fixed', postage: '' })).toContain('邮费');
     expect(validateDraft({ ...base, price: '1' })).toBe('');
+    expect(validateDraft({ ...base, price: '1', postageMode: 'none' })).toBe('');
+    expect(toRequest({ ...base, price: '1', postageMode: 'none', postage: '9' })).toMatchObject({ postage_mode: 'none', postage: '0' });
   });
 
   test('规格变化后清理失效规格图与自动化范围', /* 规格对账。 */ () => {

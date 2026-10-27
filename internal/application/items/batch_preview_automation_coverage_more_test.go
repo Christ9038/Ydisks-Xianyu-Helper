@@ -87,7 +87,7 @@ func TestBatchPreviewValidateRowCoversMissingRequiredFields(t *testing.T) {
 	// message 保存当前行所有缺失字段提示。
 	message := strings.Join(row.Errors, "|")
 	// expectedMessages 表示本场景必须出现的业务校验提示。
-	expectedMessages := []string{"缺少账号ID", "缺少标题", "价格必须大于 0", "库存必须大于 0", "邮费模式必须是 free 或 fixed", "缺少图片"}
+	expectedMessages := []string{"缺少账号ID", "缺少标题", "价格必须大于 0", "库存必须大于 0", "邮费模式必须是 free、distance、fixed 或 none", "缺少图片"}
 	// expected 表示当前待断言的错误提示文本。
 	for _, expected := range expectedMessages {
 		if !strings.Contains(message, expected) {

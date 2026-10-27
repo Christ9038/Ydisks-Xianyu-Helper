@@ -17,7 +17,7 @@ export interface TemplateDraft {
   /** quantity 是单规格库存文本；多规格时由 SKU 推导。 */
   quantity: string;
   /** postageMode 是邮费模式。 */
-  postageMode: 'free' | 'fixed';
+  postageMode: 'free' | 'distance' | 'fixed' | 'none';
   /** postage 是固定邮费文本。 */
   postage: string;
   /** category 是平台类目。 */

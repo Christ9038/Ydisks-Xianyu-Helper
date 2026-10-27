@@ -65,6 +65,9 @@ const toAutomation = (dto: AutomationTransport): LibraryAutomation => ({
   },
 });
 
+/** postageModeFrom 把服务端邮费模式收敛为已知取值，未知值按包邮处理。 */
+const postageModeFrom = (mode: string): ProductTemplate['postageMode'] => mode === 'fixed' || mode === 'distance' || mode === 'none' ? mode : 'free';
+
 /** specIdCounter 为从服务端恢复的规格生成草稿内稳定标识。 */
 let specIdCounter = 0;
 /** nextSpecId 生成不依赖时间的草稿标识，保证恢复结果可预测。 */
@@ -73,7 +76,7 @@ const nextSpecId = (prefix: string): string => `${prefix}-loaded-${++specIdCount
 /** toTemplate 将模板传输对象转换为 UI 模型，并把 spec_image_ids 还原为规格值上的图片主键。 */
 export const toTemplate = (dto: TemplateTransport): ProductTemplate => ({
   id: dto.id, name: dto.name, title: dto.title, description: dto.description, price: dto.price, originalPrice: dto.original_price,
-  quantity: dto.quantity, postageMode: dto.postage_mode === 'fixed' ? 'fixed' : 'free', postage: dto.postage,
+  quantity: dto.quantity, postageMode: postageModeFrom(dto.postage_mode), postage: dto.postage,
   category: { catId: dto.category.cat_id, catName: dto.category.cat_name, channelCatId: dto.category.channel_cat_id ?? '', tbCatId: dto.category.tb_cat_id ?? '' },
   imageIds: [...dto.image_ids],
   specs: dto.specs.specs.map(/* spec 是传输层规格维度。 */ spec => ({

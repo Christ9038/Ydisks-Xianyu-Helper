@@ -295,8 +295,8 @@ func (service *BatchPreviewService) validateRow(ctx context.Context, input Batch
 	if row.Quantity <= 0 {
 		row.Errors = append(row.Errors, "库存必须大于 0")
 	}
-	if row.PostageMode != "free" && row.PostageMode != "fixed" {
-		row.Errors = append(row.Errors, "邮费模式必须是 free 或 fixed")
+	if row.PostageMode != "free" && row.PostageMode != "fixed" && row.PostageMode != "distance" && row.PostageMode != "none" {
+		row.Errors = append(row.Errors, "邮费模式必须是 free、distance、fixed 或 none")
 	}
 	if row.PostageMode == "fixed" {
 		// cents 和 err 表示固定邮费的分值及解析错误。
@@ -630,6 +630,10 @@ func normalizePostageMode(raw string) string {
 		return "free"
 	case "固定邮费", "一口价邮费":
 		return "fixed"
+	case "按距离计费", "distance_fee":
+		return "distance"
+	case "无需邮寄", "不需要邮寄", "no_shipping":
+		return "none"
 	default:
 		return value
 	}

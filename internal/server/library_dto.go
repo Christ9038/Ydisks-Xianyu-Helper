@@ -164,7 +164,7 @@ type libraryTemplateRequest struct {
 	OriginalPrice string `json:"original_price"`
 	// Quantity 是单规格库存；多规格时被忽略并由 SKU 推导。
 	Quantity int `json:"quantity"`
-	// PostageMode 是邮费模式 free 或 fixed。
+	// PostageMode 是邮费模式：free、distance、fixed 或 none。
 	PostageMode string `json:"postage_mode"`
 	// Postage 是固定邮费。
 	Postage string `json:"postage"`
