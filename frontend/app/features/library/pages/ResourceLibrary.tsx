@@ -1,10 +1,12 @@
 import { Edit3, ImageIcon, Package, Plus, Rocket, Trash2 } from 'lucide-react';
 import React, { useState } from 'react';
 import { ImageGrid } from '../components/ImageGrid';
+import { ImageSearchBox } from '../components/ImageSearchBox';
 import { ImageUploadButton } from '../components/ImageUploadButton';
 import { TemplateEditorDialog } from '../components/TemplateEditorDialog';
 import { TemplatePublishDialog } from '../components/TemplatePublishDialog';
 import { useAutomationOptions, useLibraryImages, useProductTemplates } from '../hooks';
+import { filterImages } from '../imageSearch';
 import type { LibraryImage, ProductTemplate } from '../types';
 
 /** ResourceLibraryProps 描述资源库页面与应用壳之间的导航边界。 */
@@ -24,6 +26,8 @@ const ResourceLibrary: React.FC<ResourceLibraryProps> = ({ onBatchStarted }) => 
   const [editing, setEditing] = useState<ProductTemplate | null | undefined>(undefined);
   // selectedIds 是用户多选的模板主键。
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  // imageQuery 是图片文件名搜索词，可见图片由它推导。
+  const [imageQuery, setImageQuery] = useState('');
   // publishing 表示发布弹窗是否打开。
   const [publishing, setPublishing] = useState(false);
   // notice 是上传摘要或操作结果。
@@ -94,8 +98,12 @@ const ResourceLibrary: React.FC<ResourceLibraryProps> = ({ onBatchStarted }) => 
       ) : (
         <section className="space-y-4" aria-label="图片库">
           {images.error && <div role="alert" className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">{images.error}</div>}
-          <ImageUploadButton busy={images.busy} onUpload={images.upload} onResults={setNotice} />
-          {!images.loading && images.images.length === 0 ? <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center text-sm text-slate-500">图片库还是空的，上传几张图片开始使用。</div> : <ImageGrid images={images.images} onDelete={/* 请求删除图片。 */ image => void removeImage(image)} disabled={images.busy} />}
+          <div className="flex flex-wrap items-center gap-3">
+            <ImageUploadButton busy={images.busy} onUpload={images.upload} onResults={setNotice} />
+            <ImageSearchBox value={imageQuery} onChange={setImageQuery} />
+            <span className="text-xs text-slate-500">共 {images.images.length} 张，点击图片查看大图</span>
+          </div>
+          {!images.loading && images.images.length === 0 ? <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center text-sm text-slate-500">图片库还是空的，上传几张图片开始使用。</div> : filterImages(images.images, imageQuery).length === 0 ? <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center text-sm text-slate-500">没有匹配的图片。</div> : <ImageGrid images={filterImages(images.images, imageQuery)} onDelete={/* 请求删除图片。 */ image => void removeImage(image)} disabled={images.busy} />}
         </section>
       )}
 

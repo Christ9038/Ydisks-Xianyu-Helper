@@ -2,8 +2,10 @@ import { X } from 'lucide-react';
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLibraryImages } from '../hooks';
+import { filterImages } from '../imageSearch';
 import type { LibraryImage, LibraryImagePickerProps } from '../types';
 import { ImageGrid } from './ImageGrid';
+import { ImageSearchBox } from './ImageSearchBox';
 import { ImageUploadButton } from './ImageUploadButton';
 
 /** ImagePickerBodyProps 描述图片选择弹窗内容。 */
@@ -28,6 +30,10 @@ const ImagePickerBody = ({ title, maxSelect, initialSelected, onClose, onConfirm
   const [selected, setSelected] = useState<number[]>(initialSelected);
   // notice 是最近一次上传摘要。
   const [notice, setNotice] = useState('');
+  // query 是文件名搜索词，可见图片由它推导。
+  const [query, setQuery] = useState('');
+  // visible 是匹配搜索词的图片。
+  const visible = filterImages(library.images, query);
 
   /** toggle 切换选中状态，达到上限后忽略新增。 */
   const toggle = (image: LibraryImage): void => setSelected(/* previous 是切换前的选择。 */ previous => previous.includes(image.id) ? previous.filter(/* id 移除当前图片。 */ id => id !== image.id) : previous.length >= maxSelect ? previous : [...previous, image.id]);
@@ -48,10 +54,11 @@ const ImagePickerBody = ({ title, maxSelect, initialSelected, onClose, onConfirm
         <div className="modal-body space-y-4">
           <div className="flex flex-wrap items-center gap-3">
             <ImageUploadButton busy={library.busy} onUpload={library.upload} onResults={setNotice} />
+            <ImageSearchBox value={query} onChange={setQuery} />
             {notice && <span role="status" className="text-xs text-slate-600">{notice}</span>}
           </div>
           {library.error && <div role="alert" className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{library.error}</div>}
-          {library.loading && library.images.length === 0 ? <p className="text-sm text-slate-500">加载中...</p> : library.images.length === 0 ? <p className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">图片库还是空的，先上传几张图片。</p> : <ImageGrid images={library.images} selectedIds={selected} onToggle={toggle} disabled={library.busy} />}
+          {library.loading && library.images.length === 0 ? <p className="text-sm text-slate-500">加载中...</p> : library.images.length === 0 ? <p className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">图片库还是空的，先上传几张图片。</p> : visible.length === 0 ? <p className="p-6 text-center text-sm text-slate-500">没有匹配的图片。</p> : <ImageGrid images={visible} selectedIds={selected} onToggle={toggle} disabled={library.busy} />}
         </div>
         <div className="modal-footer flex justify-end gap-3">
           <button type="button" onClick={onClose} className="rounded-xl bg-gray-100 px-4 py-2.5 text-sm font-bold text-gray-700">取消</button>

@@ -294,55 +294,6 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery, publishImagesE
         </div>
         <div className="flex flex-wrap items-end gap-3">
             <div className="flex min-w-[200px] flex-col gap-1.5">
-              <label htmlFor="item-account-filter" className="px-1 text-[11px] font-extrabold tracking-wide text-gray-500">
-                商品列表筛选
-              </label>
-              <div className="relative">
-                <Filter className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                <select
-                  id="item-account-filter"
-                  aria-label="按账号筛选商品列表"
-                  className="ios-input w-full pl-10 pr-9 py-3 rounded-xl text-sm"
-                  value={accountFilter}
-                  onChange={/* 切换账号筛选并回到列表第一页。 */ event => { setAccountFilter(event.target.value); setListPage(1); }}
-                >
-                  <option value="">全部账号</option>
-                  {accounts.map(/* 当前回调处理集合中的单个元素。 */ account => (
-                    <option key={account.id} value={account.id}>{accountName(account.id)}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <div className="flex min-w-[200px] flex-col gap-1.5">
-              <label htmlFor="item-rule-filter" className="px-1 text-[11px] font-extrabold tracking-wide text-gray-500">
-                自动化规则筛选
-              </label>
-              <select
-                id="item-rule-filter"
-                aria-label="按交易自动化规则筛选商品列表"
-                className="ios-input w-full px-4 py-3 rounded-xl text-sm"
-                value={ruleFilter}
-                onChange={/* event 是规则筛选下拉框的选择事件；切换后回到列表第一页。 */ event => { setRuleFilter(event.target.value as RuleCoverageFilter); setListPage(1); }}
-              >
-                <option value="">全部商品</option>
-                <option value="any">未配置任何交易自动化</option>
-                {TRADE_AUTOMATION_TRIGGERS.map(/* entry 是一类可筛选的交易自动化触发器。 */ entry => (
-                  <option key={entry.trigger} value={entry.trigger}>未配置{entry.label}</option>
-                ))}
-              </select>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <span className="px-1 text-[11px] font-extrabold tracking-wide text-gray-500">展示方式</span>
-              <div role="group" aria-label="商品展示方式" className="flex rounded-xl bg-gray-100 p-1">
-                {(['card', 'list'] as const).map(/* mode 是一种展示模式按钮。 */ mode => (
-                  <button key={mode} type="button" aria-pressed={viewMode === mode} onClick={/* 点击切换到该展示模式。 */ () => changeViewMode(mode)}
-                    className={`rounded-lg px-4 py-2 text-sm font-bold ${viewMode === mode ? 'bg-white text-gray-900 shadow' : 'text-gray-500'}`}>
-                    {mode === 'card' ? '卡片' : '列表'}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="flex min-w-[200px] flex-col gap-1.5">
               <label htmlFor="item-sync-account" className="px-1 text-[11px] font-extrabold tracking-wide text-gray-500">
                 同步商品账号
               </label>
@@ -400,6 +351,58 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery, publishImagesE
               </button>
             )}
         </div>
+      </div>
+
+      <div className="flex flex-wrap items-end gap-3">
+            <div className="flex min-w-[200px] flex-col gap-1.5">
+              <label htmlFor="item-account-filter" className="px-1 text-[11px] font-extrabold tracking-wide text-gray-500">
+                商品列表筛选
+              </label>
+              <div className="relative">
+                <Filter className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                <select
+                  id="item-account-filter"
+                  aria-label="按账号筛选商品列表"
+                  className="ios-input w-full pl-10 pr-9 py-3 rounded-xl text-sm"
+                  value={accountFilter}
+                  onChange={/* 切换账号筛选并回到列表第一页。 */ event => { setAccountFilter(event.target.value); setListPage(1); }}
+                >
+                  <option value="">全部账号</option>
+                  {accounts.map(/* 当前回调处理集合中的单个元素。 */ account => (
+                    <option key={account.id} value={account.id}>{accountName(account.id)}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="flex min-w-[200px] flex-col gap-1.5">
+              <label htmlFor="item-rule-filter" className="px-1 text-[11px] font-extrabold tracking-wide text-gray-500">
+                自动化规则筛选
+              </label>
+              <select
+                id="item-rule-filter"
+                aria-label="按交易自动化规则筛选商品列表"
+                className="ios-input w-full px-4 py-3 rounded-xl text-sm"
+                value={ruleFilter}
+                onChange={/* event 是规则筛选下拉框的选择事件；切换后回到列表第一页。 */ event => { setRuleFilter(event.target.value as RuleCoverageFilter); setListPage(1); }}
+              >
+                <option value="">全部商品</option>
+                <option value="any">未配置任何交易自动化</option>
+                {TRADE_AUTOMATION_TRIGGERS.map(/* entry 是一类可筛选的交易自动化触发器。 */ entry => (
+                  <option key={entry.trigger} value={entry.trigger}>未配置{entry.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <span className="px-1 text-[11px] font-extrabold tracking-wide text-gray-500">展示方式</span>
+              <div role="group" aria-label="商品展示方式" className="flex rounded-xl bg-gray-100 p-1">
+                {(['card', 'list'] as const).map(/* mode 是一种展示模式按钮。 */ mode => (
+                  <button key={mode} type="button" aria-pressed={viewMode === mode} onClick={/* 点击切换到该展示模式。 */ () => changeViewMode(mode)}
+                    className={`rounded-lg px-4 py-2 text-sm font-bold ${viewMode === mode ? 'bg-white text-gray-900 shadow' : 'text-gray-500'}`}>
+                    {mode === 'card' ? '卡片' : '列表'}
+                  </button>
+                ))}
+              </div>
+            </div>
       </div>
 
       {viewMode === 'list' ? (
