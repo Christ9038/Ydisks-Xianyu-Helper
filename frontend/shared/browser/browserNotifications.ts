@@ -1,4 +1,5 @@
 import { useCallback,useEffect,useState } from 'react';
+import { playNotificationSoundIfEnabled } from './notificationSound';
 
 /** BROWSER_NOTIFICATION_PREFERENCE_KEY 保存当前浏览器的系统通知开关，不写入服务端配置。 */
 export const BROWSER_NOTIFICATION_PREFERENCE_KEY = 'ydisks.browser_notifications.enabled';
@@ -149,6 +150,8 @@ export const showBrowserNotification = (payload: BrowserNotificationPayload): bo
     // focusNotificationWindow 负责用户点击系统通知后的窗口聚焦行为。
     const focusNotificationWindow = (): void => window.focus();
     notification.onclick = focusNotificationWindow;
+    // 系统通知本身的提示音取决于操作系统，这里额外播放应用内默认提示音，由用户在基础设置中开关。
+    playNotificationSoundIfEnabled();
     return true;
   } catch {
     return false;

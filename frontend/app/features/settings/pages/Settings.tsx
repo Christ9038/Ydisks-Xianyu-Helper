@@ -14,6 +14,7 @@ Zap
 } from 'lucide-react';
 import React from 'react';
 import { DEFAULT_AI_API_URL,LOG_LEVELS } from '../constants';
+import { useNotificationSoundPreference } from '../../../../shared/browser/notificationSound';
 import { useSettings } from '../hooks';
 
 // Settings 展示系统配置、AI 模型和登录凭据编辑页面。
@@ -27,6 +28,8 @@ const Settings: React.FC = () => {
     setSettings, setModelDropdownOpen, setShowApiKey, setShowCaptchaSecret, setShowCurrentPassword,
     setShowNewPassword, setCredentials,
   } = useSettings();
+  // notificationSound 保存当前浏览器的新消息提示音偏好，仅存于本机浏览器，不随系统配置保存。
+  const notificationSound = useNotificationSoundPreference();
 
   if (!settings) {
     return (
@@ -128,6 +131,14 @@ const Settings: React.FC = () => {
                 />
                 <p className="text-xs text-gray-500">0 表示不自动清理续期日志</p>
               </div>
+
+              <label className="flex items-start gap-3 rounded-xl border border-gray-200 bg-gray-50 p-4 cursor-pointer">
+                <input type="checkbox" className="mt-1" aria-label="新消息提示音" checked={notificationSound.enabled} onChange={/* 当前回调写入本机提示音偏好，开启时试听。 */ event => notificationSound.setEnabled(event.target.checked)} />
+                <span>
+                  <span className="block text-sm font-bold text-gray-800">新消息浏览器通知提示音</span>
+                  <span className="mt-1 block text-xs leading-5 text-gray-500">收到买家新消息并弹出浏览器通知时播放默认提示音。仅对当前浏览器生效，需要先在在线聊天页开启浏览器提醒；浏览器可能要求页面至少交互过一次才允许发声。</span>
+                </span>
+              </label>
 
               <label className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 cursor-pointer">
                 <input type="checkbox" className="mt-1" checked={settings.outbound_http_public_only || false} onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setSettings({ ...settings, outbound_http_public_only: event.target.checked })} />

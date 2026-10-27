@@ -146,3 +146,22 @@ describe('getBrowserNotificationHint', /* 覆盖通知无法开启时的各类�
     expect(getBrowserNotificationHint('unsupported', true)).toContain('不支持');
   });
 });
+
+describe('showBrowserNotification 提示音', /* 当前测试组验证通知弹出时联动播放提示音。 */ () => {
+  test('通知创建成功后调用提示音入口', /* 当前回调验证联动。 */ async () => {
+    vi.resetModules();
+    // playMock 记录提示音入口调用次数。
+    const playMock = vi.fn(() => true);
+    vi.doMock('./notificationSound', /* 当前回调替换提示音模块。 */ () => ({ playNotificationSoundIfEnabled: playMock }));
+    vi.stubGlobal('Notification', FakeNotification);
+    Object.defineProperty(window, 'localStorage', { configurable: true, value: testLocalStorage });
+    FakeNotification.permission = 'granted';
+    testLocalStorage.setItem(BROWSER_NOTIFICATION_PREFERENCE_KEY, 'true');
+    // fresh 是重新加载并带有提示音替身的通知模块。
+    const fresh = await import('./browserNotifications');
+    expect(fresh.showBrowserNotification({ title: 't', body: 'b' })).toBe(true);
+    expect(playMock).toHaveBeenCalledTimes(1);
+    vi.doUnmock('./notificationSound');
+    vi.unstubAllGlobals();
+  });
+});
