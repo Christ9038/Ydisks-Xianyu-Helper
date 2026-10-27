@@ -481,17 +481,24 @@ func (s *ChatStore) SaveMessage(ctx context.Context, session ChatSession, messag
 		}
 		// inheritErr 保存平台消息补入历史时继承本地临时消息已读回执的失败，避免同一消息因键不同长期显示未读。
 		if message.Direction == "outgoing" && strings.HasSuffix(message.MessageKey, ".PNM") {
-			// inheritErr 表示把临时出站消息的已读回执继承到平台补入历史消息时的数据库错误。
-			_, inheritErr := tx.ExecContext(ctx, `UPDATE chat_messages AS platform SET read_status=2,read_at=(SELECT local.read_at FROM chat_messages AS local
-				WHERE local.cookie_id=platform.cookie_id AND local.chat_id=platform.chat_id AND local.direction='outgoing'
-				AND local.message_key NOT LIKE '%.PNM' AND local.content=platform.content AND local.read_status=2
-				AND ABS(local.sent_at-platform.sent_at)<=10000 ORDER BY local.read_at DESC LIMIT 1)
-				WHERE platform.cookie_id=? AND platform.message_key=? AND platform.read_status<>2 AND EXISTS (SELECT 1 FROM chat_messages AS local
-				WHERE local.cookie_id=platform.cookie_id AND local.chat_id=platform.chat_id AND local.direction='outgoing'
-				AND local.message_key NOT LIKE '%.PNM' AND local.content=platform.content AND local.read_status=2
-				AND ABS(local.sent_at-platform.sent_at)<=10000)`, message.CookieID, message.MessageKey)
-			if inheritErr != nil {
-				return nil, false, fmt.Errorf("继承聊天已读回执: %w", inheritErr)
+			// localReadAt 保存与该平台消息匹配的本地临时消息已读时间；先单独查询，避免 MySQL 禁止 UPDATE 子查询引用目标表（错误 1093）。
+			var localReadAt sql.NullInt64
+			// lookupErr 表示查询可继承已读回执的本地临时消息时的数据库错误；无匹配行属于正常情况。
+			lookupErr := tx.QueryRowContext(ctx, `SELECT local.read_at FROM chat_messages AS local
+				WHERE local.cookie_id=? AND local.chat_id=? AND local.direction='outgoing'
+				AND local.message_key NOT LIKE '%.PNM' AND local.content=? AND local.read_status=2
+				AND ABS(local.sent_at-?)<=10000 ORDER BY local.read_at DESC LIMIT 1`,
+				message.CookieID, message.ChatID, message.Content, message.SentAt).Scan(&localReadAt)
+			if lookupErr != nil && !errors.Is(lookupErr, sql.ErrNoRows) {
+				return nil, false, fmt.Errorf("继承聊天已读回执: %w", lookupErr)
+			}
+			if lookupErr == nil && localReadAt.Valid {
+				// inheritErr 表示把临时出站消息的已读回执继承到平台补入历史消息时的数据库错误。
+				_, inheritErr := tx.ExecContext(ctx, `UPDATE chat_messages SET read_status=2,read_at=?
+					WHERE cookie_id=? AND message_key=? AND read_status<>2`, localReadAt.Int64, message.CookieID, message.MessageKey)
+				if inheritErr != nil {
+					return nil, false, fmt.Errorf("继承聊天已读回执: %w", inheritErr)
+				}
 			}
 		}
 		// unreadDelta 用于本次流程后续判断的unreadDelta
