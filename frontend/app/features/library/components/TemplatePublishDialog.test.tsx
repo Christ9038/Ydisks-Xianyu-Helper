@@ -44,4 +44,36 @@ describe('TemplatePublishDialog', /* 先预检再确认的发布流程。 */ () 
     fireEvent.click(screen.getByLabelText('店铺2'));
     expect(screen.queryByText('缺少卡密')).toBeNull();
   });
+
+  test('账号搜索后全选只选中可见账号，并使旧预检失效', /* 搜索与全选。 */ async () => {
+    vi.mocked(api.previewTemplatePublish).mockResolvedValue({ previewId: 'p', total: 1, valid: 1, invalid: 0, rows: [{ rowNo: 1, valid: true, errors: [], cookieId: 'a2', title: '标题Y', price: '1', quantity: 1 }] });
+    render(<TemplatePublishDialog templates={[template]} accounts={accounts} onClose={vi.fn()} onStarted={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('搜索账号'), { target: { value: '店铺2' } });
+    expect(screen.queryByLabelText('店铺1')).toBeNull();
+    fireEvent.click(screen.getByLabelText('全选账号'));
+    expect((screen.getByLabelText('店铺2') as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getByText('生成预检'));
+    await waitFor(/* 等待预检表格，账号列显示展示名而不是标识。 */ () => expect(screen.getByText('标题Y')).toBeTruthy());
+    expect(api.previewTemplatePublish).toHaveBeenCalledWith(expect.objectContaining({ cookieIds: ['a2'] }), expect.anything());
+    expect(screen.getAllByText('店铺2').length).toBeGreaterThan(1);
+    fireEvent.click(screen.getByLabelText('全选账号'));
+    expect(screen.queryByText('标题Y')).toBeNull();
+    fireEvent.change(screen.getByLabelText('搜索账号'), { target: { value: '不存在' } });
+    expect(screen.getByText('没有匹配的账号。')).toBeTruthy();
+    expect((screen.getByLabelText('全选账号') as HTMLInputElement).disabled).toBe(true);
+  });
+
+  test('只看需修正仅过滤预检表展示', /* 预检行过滤。 */ async () => {
+    vi.mocked(api.previewTemplatePublish).mockResolvedValue({ previewId: 'p', total: 2, valid: 1, invalid: 1, rows: [
+      { rowNo: 1, valid: true, errors: [], cookieId: 'a1', title: '正常行', price: '1', quantity: 1 },
+      { rowNo: 2, valid: false, errors: ['缺少卡密'], cookieId: 'a2', title: '问题行', price: '1', quantity: 1 },
+    ] });
+    render(<TemplatePublishDialog templates={[template]} accounts={accounts} onClose={vi.fn()} onStarted={vi.fn()} />);
+    fireEvent.click(screen.getByLabelText('全选账号'));
+    fireEvent.click(screen.getByText('生成预检'));
+    await waitFor(/* 等待预检表格。 */ () => expect(screen.getByText('正常行')).toBeTruthy());
+    fireEvent.click(screen.getByLabelText('只看需修正'));
+    expect(screen.queryByText('正常行')).toBeNull();
+    expect(screen.getByText('问题行')).toBeTruthy();
+  });
 });

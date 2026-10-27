@@ -3,10 +3,47 @@ import {
   deleteLibraryImage, deleteProductTemplate, listAccountOptions, listCardOptions, listDeliveryTemplateOptions,
   libraryErrorMessage, listLibraryImages, listProductTemplates, saveProductTemplate, uploadLibraryImages, type TemplateRequestTransport,
 } from './api';
+import { draftFromTemplate, toRequest } from './templateDraft';
 import type { LibraryAccountOption, LibraryCardOption, LibraryDeliveryTemplateOption, LibraryImage, LibraryUploadResult, ProductTemplate } from './types';
 
 /** isAbort 判断错误是否来自主动取消，取消不应展示给用户。 */
 const isAbort = (error: unknown): boolean => error instanceof Error && error.message.includes('取消');
+
+/** BatchDeleteFailure 是批量删除中单个失败项。 */
+export interface BatchDeleteFailure {
+  /** id 是删除失败的资源主键。 */
+  id: number;
+  /** message 是用户可见的失败原因，图片被引用时包含模板名。 */
+  message: string;
+}
+
+/** BatchDeleteResult 是一次批量删除的汇总结果。 */
+export interface BatchDeleteResult {
+  /** deleted 是成功删除的主键。 */
+  deleted: number[];
+  /** failures 是失败项及原因，单项失败不会中断其余项。 */
+  failures: BatchDeleteFailure[];
+}
+
+/**
+ * deleteSequentially 串行删除一批资源并汇总结果：单项失败只记录、不中断；signal 取消后立即停止，
+ * 未处理的项既不算成功也不算失败。串行执行是为了避免对本地接口并发扇出。
+ */
+const deleteSequentially = async (ids: number[], deleteOne: (id: number, signal?: AbortSignal) => Promise<void>, fallback: string, signal?: AbortSignal): Promise<BatchDeleteResult> => {
+  // result 累积成功与失败项。
+  const result: BatchDeleteResult = { deleted: [], failures: [] };
+  for (const /* id 是当前要删除的资源主键。 */ id of ids) {
+    if (signal?.aborted) break;
+    try {
+      await deleteOne(id, signal);
+      result.deleted.push(id);
+    } catch (failure /* failure 是该项删除失败原因。 */) {
+      if (signal?.aborted) break;
+      result.failures.push({ id, message: libraryErrorMessage(failure, fallback) });
+    }
+  }
+  return result;
+};
 
 /** LibraryImagesState 是图片库 Hook 的返回值。 */
 export interface LibraryImagesState {
@@ -24,6 +61,8 @@ export interface LibraryImagesState {
   upload: (files: File[]) => Promise<LibraryUploadResult[]>;
   /** remove 删除一张图片并刷新列表。 */
   remove: (id: number) => Promise<boolean>;
+  /** removeMany 串行批量删除图片，结束后只刷新一次列表；signal 取消时停止剩余项。 */
+  removeMany: (ids: number[], signal?: AbortSignal) => Promise<BatchDeleteResult>;
 }
 
 /** useLibraryImages 管理图片库列表；旧请求会被取消，过期响应不会覆盖新状态。 */
@@ -99,7 +138,21 @@ export const useLibraryImages = (): LibraryImagesState => {
     }
   }, [reload]);
 
-  return { images, loading, busy, error, reload, upload, remove };
+  /** removeMany 批量删除图片；失败原因逐项返回而不写入 error，由调用方汇总展示。 */
+  const removeMany = useCallback(/* 串行删除并只刷新一次列表。 */ async (ids: number[], signal?: AbortSignal): Promise<BatchDeleteResult> => {
+    setBusy(true);
+    setError('');
+    try {
+      // result 是批量删除汇总。
+      const result = await deleteSequentially(ids, /* 删除单张图片并透传取消信号。 */ (id, requestSignal) => deleteLibraryImage(id, { signal: requestSignal }), '删除图片失败', signal);
+      if (result.deleted.length > 0 && !signal?.aborted) await reload();
+      return result;
+    } finally {
+      setBusy(false);
+    }
+  }, [reload]);
+
+  return { images, loading, busy, error, reload, upload, remove, removeMany };
 };
 
 /** ProductTemplatesState 是商品模板 Hook 的返回值。 */
@@ -116,6 +169,10 @@ export interface ProductTemplatesState {
   save: (id: number | null, body: TemplateRequestTransport) => Promise<boolean>;
   /** remove 删除模板，成功返回 true。 */
   remove: (id: number) => Promise<boolean>;
+  /** removeMany 串行批量删除模板，结束后只刷新一次列表；signal 取消时停止剩余项。 */
+  removeMany: (ids: number[], signal?: AbortSignal) => Promise<BatchDeleteResult>;
+  /** duplicate 以“ 副本”后缀复制模板（含图片、规格与自动化），成功返回 true。 */
+  duplicate: (template: ProductTemplate) => Promise<boolean>;
 }
 
 /** useProductTemplates 管理商品模板列表，规则与 useLibraryImages 一致。 */
@@ -190,7 +247,37 @@ export const useProductTemplates = (): ProductTemplatesState => {
     }
   }, [reload]);
 
-  return { templates, loading, busy, error, save, remove };
+  /** removeMany 批量删除模板；失败原因逐项返回而不写入 error，由调用方汇总展示。 */
+  const removeMany = useCallback(/* 串行删除并只刷新一次列表。 */ async (ids: number[], signal?: AbortSignal): Promise<BatchDeleteResult> => {
+    setBusy(true);
+    setError('');
+    try {
+      // result 是批量删除汇总。
+      const result = await deleteSequentially(ids, /* 删除单个模板并透传取消信号。 */ (id, requestSignal) => deleteProductTemplate(id, { signal: requestSignal }), '删除商品模板失败', signal);
+      if (result.deleted.length > 0 && !signal?.aborted) await reload();
+      return result;
+    } finally {
+      setBusy(false);
+    }
+  }, [reload]);
+
+  /** duplicate 复用编辑器的草稿转换生成请求体，保证复制出的模板与手工保存的格式一致。 */
+  const duplicate = useCallback(/* 复制模板并刷新列表。 */ async (template: ProductTemplate): Promise<boolean> => {
+    setBusy(true);
+    setError('');
+    try {
+      await saveProductTemplate(null, toRequest({ ...draftFromTemplate(template), name: `${template.name} 副本` }));
+      await reload();
+      return true;
+    } catch (failure /* failure 是复制失败原因。 */) {
+      setError(libraryErrorMessage(failure, '复制商品模板失败'));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }, [reload]);
+
+  return { templates, loading, busy, error, save, remove, removeMany, duplicate };
 };
 
 /** AutomationOptions 是自动化编辑器需要的卡密组与发货模板选项。 */

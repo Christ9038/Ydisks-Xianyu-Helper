@@ -2,7 +2,9 @@ import { X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { libraryErrorMessage, previewTemplatePublish, startPublishBatch } from '../api';
+import { selectionState, toggleAllVisible } from '../selection';
 import type { LibraryAccountOption, LibraryPublishPreview, ProductTemplate } from '../types';
+import { SelectAllCheckbox } from './SelectAllCheckbox';
 
 /** TemplatePublishDialogProps 描述模板发布弹窗。 */
 export interface TemplatePublishDialogProps {
@@ -25,6 +27,10 @@ export const TemplatePublishDialog = ({ templates, accounts, onClose, onStarted 
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
   // interval 是发布间隔秒数文本。
   const [interval, setInterval] = useState('5');
+  // accountQuery 是账号搜索词，可见账号由它推导。
+  const [accountQuery, setAccountQuery] = useState('');
+  // onlyInvalid 为真时预检表只显示需修正的行，仅影响展示，不影响确认发布。
+  const [onlyInvalid, setOnlyInvalid] = useState(false);
   // preview 是最近一次预检结果。
   const [preview, setPreview] = useState<LibraryPublishPreview | null>(null);
   // busy 表示预检或启动请求进行中。
@@ -38,6 +44,24 @@ export const TemplatePublishDialog = ({ templates, accounts, onClose, onStarted 
 
   // rowCount 是将要生成的行数，由选择推导。
   const rowCount = templates.length * selectedAccounts.length;
+  // visibleAccounts 是匹配搜索词的账号（按展示名或标识，不区分大小写）。
+  const visibleAccounts = accounts.filter(/* account 按展示名或标识匹配搜索词。 */ account => {
+    // keyword 是去除首尾空白并小写化的搜索词。
+    const keyword = accountQuery.trim().toLowerCase();
+    return !keyword || account.label.toLowerCase().includes(keyword) || account.id.toLowerCase().includes(keyword);
+  });
+  // visibleAccountIds 是可见账号标识，全选只作用于它。
+  const visibleAccountIds = visibleAccounts.map(/* account 取标识。 */ account => account.id);
+  // accountLabels 把账号标识映射为展示名，预检表用它替换原始标识。
+  const accountLabels = new Map(accounts.map(/* account 转换为键值对。 */ account => [account.id, account.label] as const));
+  // visibleRows 是预检表实际展示的行。
+  const visibleRows = preview ? preview.rows.filter(/* row 在“只看需修正”开启时只保留无效行。 */ row => !onlyInvalid || !row.valid) : [];
+
+  /** toggleAllAccounts 全选或取消当前搜索结果中的账号，并使旧预检失效。 */
+  const toggleAllAccounts = (): void => {
+    setSelectedAccounts(/* previous 是切换前的勾选。 */ previous => toggleAllVisible(previous, visibleAccountIds));
+    setPreview(null);
+  };
 
   /** toggleAccount 切换账号勾选并使旧预检失效，避免确认与当前选择不一致的批次。 */
   const toggleAccount = (id: string): void => {
@@ -99,8 +123,16 @@ export const TemplatePublishDialog = ({ templates, accounts, onClose, onStarted 
           <fieldset className="space-y-2">
             <legend className="text-sm font-extrabold text-gray-900">目标账号</legend>
             {accounts.length === 0 && <p className="text-sm text-slate-500">没有可用账号，请先在账号管理中启用账号。</p>}
+            {accounts.length > 0 && (
+              <div className="flex flex-wrap items-center gap-3">
+                <input type="search" aria-label="搜索账号" placeholder="搜索账号" className="ios-input w-48 rounded-xl px-3 py-2 text-sm" value={accountQuery} onChange={/* 更新账号搜索词。 */ event => setAccountQuery(event.target.value)} />
+                <SelectAllCheckbox label="全选账号" state={selectionState(visibleAccountIds, selectedAccounts)} disabled={visibleAccountIds.length === 0} onToggle={toggleAllAccounts} />
+                <span className="text-xs text-slate-500">已选 {selectedAccounts.length}/{accounts.length} 个账号</span>
+              </div>
+            )}
+            {accounts.length > 0 && visibleAccounts.length === 0 && <p className="text-sm text-slate-500">没有匹配的账号。</p>}
             <div className="grid gap-2 sm:grid-cols-2">
-              {accounts.map(/* account 渲染一个账号勾选项。 */ account => (
+              {visibleAccounts.map(/* account 渲染一个账号勾选项。 */ account => (
                 <label key={account.id} className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"><input type="checkbox" checked={selectedAccounts.includes(account.id)} onChange={/* 切换账号。 */ () => toggleAccount(account.id)} />{account.label}</label>
               ))}
             </div>
@@ -109,13 +141,16 @@ export const TemplatePublishDialog = ({ templates, accounts, onClose, onStarted 
           <p className="text-xs text-slate-500">将生成 {rowCount} 行（模板 × 账号，上限 {maxPublishRows}）；发货地使用账号平台默认值。</p>
           {preview && (
             <div className="space-y-2">
-              <p className="text-sm font-bold">共 {preview.total} 行，<span className="text-emerald-700">可发布 {preview.valid}</span>，<span className="text-red-700">需修正 {preview.invalid}</span></p>
+              <div className="flex flex-wrap items-center gap-4">
+                <p className="text-sm font-bold">共 {preview.total} 行，<span className="text-emerald-700">可发布 {preview.valid}</span>，<span className="text-red-700">需修正 {preview.invalid}</span></p>
+                {preview.invalid > 0 && <label className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600"><input type="checkbox" checked={onlyInvalid} onChange={/* 切换只看需修正。 */ event => setOnlyInvalid(event.target.checked)} />只看需修正</label>}
+              </div>
               <div className="max-h-72 overflow-auto rounded-xl border border-slate-200">
                 <table className="min-w-full text-left text-sm">
                   <thead className="bg-slate-50 text-xs text-slate-500"><tr><th className="px-3 py-2">账号</th><th className="px-3 py-2">标题</th><th className="px-3 py-2">价格</th><th className="px-3 py-2">库存</th><th className="px-3 py-2">状态</th></tr></thead>
                   <tbody className="divide-y divide-slate-100">
-                    {preview.rows.map(/* row 渲染一行预检。 */ row => (
-                      <tr key={row.rowNo}><td className="px-3 py-2">{row.cookieId}</td><td className="px-3 py-2">{row.title}</td><td className="px-3 py-2">{row.price}</td><td className="px-3 py-2">{row.quantity}</td>
+                    {visibleRows.map(/* row 渲染一行预检。 */ row => (
+                      <tr key={row.rowNo}><td className="px-3 py-2">{accountLabels.get(row.cookieId) ?? row.cookieId}</td><td className="px-3 py-2">{row.title}</td><td className="px-3 py-2">{row.price}</td><td className="px-3 py-2">{row.quantity}</td>
                         <td className="px-3 py-2">{row.valid ? <span className="text-emerald-700">可发布</span> : <span className="text-red-700">{row.errors.join('；') || '需修正'}</span>}</td></tr>
                     ))}
                   </tbody>
