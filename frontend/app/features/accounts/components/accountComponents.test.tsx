@@ -56,6 +56,28 @@ describe('账号 feature 展示组件', /* 当前回调覆盖账号页面子模�
     expect(onDelete).toHaveBeenCalledWith(accountFixture);
   });
 
+  test('风控账号提示粘贴无风控 Cookie 而不是重新扫码', /* 当前回调验证风控与登录失效使用不同的恢复入口。 */ () => {
+    // onEdit 是打开编辑弹窗的测试替身。
+    const onEdit = vi.fn();
+    // onReauthorize 是二维码授权的测试替身。
+    const onReauthorize = vi.fn();
+    // riskAccount 是处于风控验证状态的账号。
+    const riskAccount = { ...accountFixture, runtime_state: 'verification_required' as const, runtime_message: '闲鱼要求安全验证' };
+    // view 用于后续切换为登录失效账号。
+    const view = render(<AccountCard account={riskAccount} refreshing={false} deleting={false} onRefreshProfile={noopAccountAction} onReauthorize={onReauthorize} onEdit={onEdit} onAI={noopAccountAction} onTasks={noopAccountAction} onToggle={noopAccountAction} onDelete={noopAccountAction} />);
+    expect(screen.queryByText('重新授权')).toBeNull();
+    expect(screen.getByText('查看操作教程').closest('a')?.getAttribute('href')).toContain('/issues/92');
+    fireEvent.click(screen.getByText('粘贴无风控 Cookie'));
+    expect(onEdit).toHaveBeenCalledWith(riskAccount);
+    expect(onReauthorize).not.toHaveBeenCalled();
+    // expiredAccount 是登录凭证失效的账号，仍应走二维码授权。
+    const expiredAccount = { ...accountFixture, runtime_state: 'auth_expired' as const, runtime_message: '登录凭证已失效' };
+    view.rerender(<AccountCard account={expiredAccount} refreshing={false} deleting={false} onRefreshProfile={noopAccountAction} onReauthorize={onReauthorize} onEdit={onEdit} onAI={noopAccountAction} onTasks={noopAccountAction} onToggle={noopAccountAction} onDelete={noopAccountAction} />);
+    expect(screen.queryByText('查看操作教程')).toBeNull();
+    fireEvent.click(screen.getByText('重新授权'));
+    expect(onReauthorize).toHaveBeenCalledWith(expiredAccount);
+  });
+
   test('AI 设置弹窗使用补丁更新并转发保存', /* 当前回调验证 AI 设置字段更新和保存动作。 */ () => {
     // onChange 是 AI 设置草稿更新测试替身。
     const onChange = vi.fn();

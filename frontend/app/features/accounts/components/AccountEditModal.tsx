@@ -146,6 +146,7 @@ export const AccountEditModal: React.FC<AccountEditModalProps> = ({
               placeholder="更新账号Cookie"
               className="w-full ios-input px-4 py-3 rounded-xl h-32 resize-none font-mono text-xs"
             />
+            <p className="text-xs text-gray-500 mt-1">账号触发风控时重新扫码无效：请在网页版闲鱼消息页人工通过验证，再到浏览器网络面板搜索 token，复制该请求的 Cookie 粘贴到这里。</p>
             <p className="text-xs text-gray-500 mt-1">当前Cookie长度: {editForm.cookie.length} 字符</p>
           </div>
 

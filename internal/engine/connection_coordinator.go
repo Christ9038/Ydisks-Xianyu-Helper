@@ -297,7 +297,7 @@ func (c *connectionCoordinator) handleTokenAcquisitionFailure(ctx context.Contex
 	a.setRuntimeError(ctx, tokenErr)
 	if mtop.IsRiskVerificationErr(tokenErr) {
 		a.logger.Warn("闲鱼要求安全验证，停止本次消息登录", "err", tokenErr)
-		a.alertEvent(ctx, EventSecurityVerification, AlertLevelWarn, "闲鱼要求安全验证", "账号触发闲鱼风控验证（滑块/人脸等），需要重新登录或完成人工验证。")
+		a.alertEvent(ctx, EventSecurityVerification, AlertLevelWarn, "闲鱼要求安全验证", "账号触发闲鱼风控验证（滑块/人脸等），重新扫码无效；请在网页版闲鱼通过风控后，复制 token 请求里的 Cookie 粘贴到账号设置。")
 		return false, tokenErr
 	}
 	if mtop.IsSessionExpiredErr(tokenErr) {

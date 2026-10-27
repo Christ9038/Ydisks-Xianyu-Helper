@@ -212,11 +212,11 @@ func (a *Account) setRuntimeError(ctx context.Context, err error) {
 	a.runtimeMu.Unlock()
 	switch {
 	case strings.Contains(msg, "验证"), strings.Contains(msg, "captcha"), strings.Contains(msg, "risk"), strings.Contains(msg, "rgv587"), strings.Contains(msg, "fail_sys_user_validate"):
-		a.setRuntimeState(RuntimeVerificationRequired, "闲鱼要求安全验证，请重新扫码并完成验证")
+		a.setRuntimeState(RuntimeVerificationRequired, "闲鱼要求安全验证；重新扫码无效，请在网页版闲鱼通过风控后，复制 token 请求中的 Cookie 粘贴到账号设置")
 		// 仅在从非验证状态转入时告警一次，避免重复刷屏。
 		if prev != RuntimeVerificationRequired {
 			a.alertEvent(ctx, EventSecurityVerification, AlertLevelWarn, "闲鱼要求安全验证",
-				"账号触发闲鱼风控验证（滑块/短信/人脸等）。系统可能无法自动恢复，请前往后台扫码完成验证。")
+				"账号触发闲鱼风控验证（滑块/短信/人脸等）。系统无法自动恢复，重新扫码无效；请在网页版闲鱼消息页人工通过风控，复制网络面板 token 请求里的 Cookie，粘贴到账号设置。")
 		}
 	case mtop.IsMTopTokenExpiredErr(err), strings.Contains(msg, "token_exoired"), strings.Contains(msg, "token_expired"), strings.Contains(msg, "token_empty"):
 		a.setRuntimeState(RuntimeReconnecting, "MTOP Token 刷新失败，等待重试")
