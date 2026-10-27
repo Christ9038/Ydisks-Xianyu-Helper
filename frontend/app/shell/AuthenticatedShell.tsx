@@ -50,11 +50,15 @@ const CardList = lazy(/* CardList 页面按路由激活时加载。 */ () => imp
 // ItemList 是按需加载的商品页面，避免首屏载入商品发布编辑器代码。
 const ItemList = lazy(/* ItemList 页面按路由激活时加载。 */ () => import('../features/items/pages/ItemList'));
 // PublishSpecsEditor 在商品页面中按需加载，保持规格编辑器与商品主分片解耦。
-const PublishSpecsEditor = lazy(/* 规格编辑器随商品页面路由加载。 */ () => import('../features/items/components/PublishSpecsEditor').then(/* module 提供规格编辑器的具名导出。 */ module => ({ default: module.PublishSpecsEditor })));
+const PublishSpecsEditor = lazy(/* 规格编辑器随商品页面路由加载。 */ () => import('../../shared/ui/publish/PublishSpecsEditor').then(/* module 提供规格编辑器的具名导出。 */ module => ({ default: module.PublishSpecsEditor })));
 // PublishImagesEditor 在商品页面中按需加载，避免图片编辑交互增大商品主分片。
 const PublishImagesEditor = lazy(/* 图片编辑器随商品页面路由加载。 */ () => import('../features/items/components/PublishImagesEditor').then(/* module 提供图片编辑器的具名导出。 */ module => ({ default: module.PublishImagesEditor })));
 // ItemAISettingsModal 在商品页面中按需加载，保持商品主分片在预算内。
 const ItemAISettingsModal = lazy(/* 商品 AI 弹窗随商品页面路由加载。 */ () => import('../features/items/components/ItemAISettingsModal').then(/* module 提供商品 AI 弹窗的具名导出。 */ module => ({ default: module.ItemAISettingsModal })));
+// LibraryImagePicker 供商品页单品发布按需使用，图片库代码仅在打开选择器时加载。
+const LibraryImagePicker = lazy(/* 图片库选择器随商品页面路由按需加载。 */ () => import('../features/library/components/LibraryImagePicker'));
+// ResourceLibrary 是按需加载的本地资源库页面（商品模板与图片库）。
+const ResourceLibrary = lazy(/* ResourceLibrary 页面按路由激活时加载。 */ () => import('../features/library/pages/ResourceLibrary'));
 // Settings 是按需加载的系统设置页面，仅在管理员访问时加载。
 const Settings = lazy(/* Settings 页面按路由激活时加载。 */ () => import('../features/settings/pages/Settings'));
 // Rules 是按需加载的自动化规则页面，避免首屏载入规则编辑器代码。
@@ -87,6 +91,8 @@ export interface AppContentProps {
   onConfigureDelivery: (target: DeliveryRuleTarget) => void;
   // onDeliveryTargetHandled 负责确认规则页已经消费跳转目标。
   onDeliveryTargetHandled: () => void;
+  // onNavigateToItems 在模板批次启动后跳转到商品页查看批量铺货进度。
+  onNavigateToItems?: () => void;
 }
 
 // AppContent 按当前导航标识选择业务页面，并隔离页面代码的动态加载边界。
@@ -96,6 +102,7 @@ export const AppContent: React.FC<AppContentProps> = ({
   deliveryRuleTarget,
   onConfigureDelivery,
   onDeliveryTargetHandled,
+  onNavigateToItems,
 }) => {
   // handleConfigureDelivery 将商品页面对象转换成路由壳使用的最小联动载荷。
   const handleConfigureDelivery = (item /* item 表示用户选择的商品。 */: Item) => {
@@ -115,12 +122,13 @@ export const AppContent: React.FC<AppContentProps> = ({
       case 'orders': return <OrderList />;
       case 'sales': return <SalesStats />;
       case 'cards': return <CardList />;
-      case 'items': return <ItemList onConfigureDelivery={handleConfigureDelivery} publishSpecsEditor={PublishSpecsEditor} publishImagesEditor={PublishImagesEditor} itemAISettingsModal={ItemAISettingsModal} />;
+      case 'items': return <ItemList onConfigureDelivery={handleConfigureDelivery} publishSpecsEditor={PublishSpecsEditor} publishImagesEditor={PublishImagesEditor} itemAISettingsModal={ItemAISettingsModal} libraryImagePicker={LibraryImagePicker} />;
       case 'rules': return <Rules
         initialDeliveryTarget={deliveryRuleTarget}
         onDeliveryTargetHandled={onDeliveryTargetHandled}
       />;
       case 'delivery-templates': return <DeliveryTemplates />;
+      case 'library': return <ResourceLibrary onBatchStarted={onNavigateToItems} />;
       case 'notifications': return <Notifications isAdmin={isAdmin} />;
       case 'logs': return isAdmin ? <RuntimeLogs /> : <Dashboard />;
       case 'settings': return isAdmin ? <Settings /> : <Dashboard />;
@@ -190,6 +198,7 @@ const AuthenticatedShell: React.FC<AuthenticatedShellProps> = ({
           deliveryRuleTarget={deliveryRuleTarget}
           onConfigureDelivery={onConfigureDelivery}
           onDeliveryTargetHandled={onDeliveryTargetHandled}
+          onNavigateToItems={/* 批次启动后进入商品页查看进度。 */ () => onNavigate('items')}
         />
       </div>
     </main>

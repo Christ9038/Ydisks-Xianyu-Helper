@@ -2,7 +2,7 @@ import { useCallback,useEffect,useRef,useState,type Dispatch,type SetStateAction
 import type { Item } from './api';
 import type { PublishLocation } from './api';
 import { createItem,deleteItem,getPublishLocations,itemErrorMessage,publishItem,recommendPublishCategory as recommendItemPublishCategory,syncItemsFromAccount,updateItem } from './api';
-import type { PublishSkuRow, PublishSpec } from './publishSpecs';
+import type { PublishSkuRow, PublishSpec } from '../../../shared/ui/publish/publishSpecs';
 import type { PublishCategory } from './types';
 
 // AddItemForm 描述手动添加商品弹窗的表单字段。

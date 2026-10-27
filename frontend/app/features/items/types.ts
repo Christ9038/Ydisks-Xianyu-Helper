@@ -1,7 +1,7 @@
 import type { ComponentType,Dispatch,SetStateAction } from 'react';
 import type { AccountDetail,Item,ShippingRule } from './api';
 import type { PublishImagesEditorProps } from './components/PublishImagesEditor';
-import type { PublishSpecsEditorProps } from './components/PublishSpecsEditor';
+import type { PublishSpecsEditorProps } from '../../../shared/ui/publish/PublishSpecsEditor';
 import type { ItemAISettingsModalProps } from './components/ItemAISettingsModal';
 import type { PublishLocation } from './api';
 
@@ -15,6 +15,20 @@ export interface ItemListProps {
   publishImagesEditor?: ComponentType<PublishImagesEditorProps>;
   // itemAISettingsModal 是应用壳按需注入的商品级 AI 配置弹窗。
   itemAISettingsModal?: ComponentType<ItemAISettingsModalProps>;
+  // libraryImagePicker 是应用壳按需注入的图片库选择器，缺省时单品发布不显示图片库入口。
+  libraryImagePicker?: ComponentType<LibraryImagePickerSlotProps>;
+}
+
+// LibraryImagePickerSlotProps 描述应用壳注入的图片库选择器；items 只依赖该最小结构，不引用 library feature。
+export interface LibraryImagePickerSlotProps {
+  // open 表示选择器是否显示。
+  open: boolean;
+  // maxSelect 是最多可选张数。
+  maxSelect: number;
+  // onClose 关闭选择器。
+  onClose: () => void;
+  // onPick 返回所选图片文件，顺序即选择顺序。
+  onPick: (files: File[]) => void;
 }
 
 // BatchPhase 表示批量铺货流程当前所在的步骤。

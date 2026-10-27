@@ -26,6 +26,7 @@ import (
 	itemgreetingapp "xianyu-go/internal/application/itemgreeting"
 	itemapp "xianyu-go/internal/application/items"
 	keywordsapp "xianyu-go/internal/application/keywords"
+	libraryapp "xianyu-go/internal/application/library"
 	lifecycleapp "xianyu-go/internal/application/lifecycle"
 	logsapp "xianyu-go/internal/application/logs"
 	notificationsapp "xianyu-go/internal/application/notifications"
@@ -129,6 +130,8 @@ type Services struct {
 	defaultReplies *defaultreplyapp.Service
 	// itemGreetings 是商品首次回复规则应用服务。
 	itemGreetings *itemgreetingapp.Service
+	// library 是本地资源库（图片库、商品模板、模板发布预检）应用服务。
+	library *libraryapp.Service
 	// keywords 是关键词规则与指定商品回复应用服务。
 	keywords *keywordsapp.Service
 	// settings 是系统、用户和账号 AI 设置应用服务。
@@ -346,9 +349,11 @@ type TransportPorts struct {
 	PublishAutomationRules *automationapp.PublishRuleService
 	DefaultReplies         *defaultreplyapp.Service
 	ItemGreetings          *itemgreetingapp.Service
-	Keywords               *keywordsapp.Service
-	Settings               *settingsapp.Service
-	Admin                  *adminapp.Service
+	// Library 是本地资源库应用服务。
+	Library  *libraryapp.Service
+	Keywords *keywordsapp.Service
+	Settings *settingsapp.Service
+	Admin    *adminapp.Service
 	// RuntimeLogs 是管理员运行日志查询用例。
 	RuntimeLogs *logsapp.Service
 }
@@ -370,7 +375,7 @@ func (services *Services) TransportPorts() TransportPorts {
 		AccountSummaries: services.accountSummaries, AccountTasks: services.accountTasks, Chat: services.chat,
 		UncertainNotifications: services.uncertainNotifications, NotificationChannels: services.notificationChannels,
 		Analytics: services.analytics, AutomationIssues: services.automationIssues, AutomationRules: services.automationRules, DeliveryTemplates: services.deliveryTemplates,
-		Cards: services.cards, APICardTester: services.apiCardTester, PublishAutomationRules: services.publishAutomationRules, DefaultReplies: services.defaultReplies, ItemGreetings: services.itemGreetings,
+		Cards: services.cards, APICardTester: services.apiCardTester, PublishAutomationRules: services.publishAutomationRules, DefaultReplies: services.defaultReplies, ItemGreetings: services.itemGreetings, Library: services.library,
 		Keywords: services.keywords, Settings: services.settings, Admin: services.admin, RuntimeLogs: services.runtimeLogs,
 	}
 }
@@ -489,13 +494,14 @@ func New(dependencies Dependencies) (*Services, error) {
 	}
 	// qrSessionRegistry 将扫码会话所有权、过期回收和幂等结果放在应用边界内。
 	qrSessionRegistry := accountapp.NewQRLoginSessionRegistry()
-	// catalogServices、catalogServicesErr 分别是商品目录服务集合及其组合期错误。
-	catalogServices, catalogServicesErr := buildItemCatalogServices(dependencies, sessionRecovery)
-	if catalogServicesErr != nil {
-		return nil, catalogServicesErr
+	// catalogServices、libraryService、catalogErr 分别是商品目录服务集合、本地资源库服务及其组合期错误。
+	catalogServices, libraryService, catalogErr := buildCatalogAndLibrary(dependencies, sessionRecovery, batchServices.preview)
+	if catalogErr != nil {
+		return nil, catalogErr
 	}
 	// services 是完成构造后只读注入 Server 的应用服务集合。
 	services := &Services{
+		library:                     libraryService,
 		lifecycleContext:            dependencies.LifecycleContext,
 		qrLogin:                     dependencies.QRLogin,
 		platformCredentials:         platformCredentials,

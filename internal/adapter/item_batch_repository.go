@@ -57,6 +57,11 @@ func (r *ItemBatchRepository) CreateBatch(ctx context.Context, batch itemapp.Bat
 		if automationErr != nil {
 			return automationErr
 		}
+		// specsJSON 和 specsErr 分别保存多规格快照文本与序列化错误，单规格为空串。
+		specsJSON, specsErr := itemapp.EncodeBatchSpecs(row.Specs)
+		if specsErr != nil {
+			return specsErr
+		}
 		// rawJSON 和 rawErr 分别保存原始行 JSON 与序列化错误。
 		rawJSON, rawErr := json.Marshal(row.Raw)
 		if rawErr != nil {
@@ -71,7 +76,7 @@ func (r *ItemBatchRepository) CreateBatch(ctx context.Context, batch itemapp.Bat
 			RowNo: row.RowNo, CookieID: row.CookieID, Title: row.Title, Description: row.Description,
 			Price: row.Price, OriginalPrice: row.OriginalPrice, Quantity: row.Quantity,
 			PostageMode: row.PostageMode, Postage: row.Postage, ImagesJSON: string(imagesJSON),
-			CategoryJSON: string(categoryJSON), AutomationJSON: string(automationJSON), Status: status,
+			CategoryJSON: string(categoryJSON), AutomationJSON: string(automationJSON), SpecsJSON: specsJSON, Status: status,
 			ErrorMessage: errorMessage, FailureKind: failureKind, RawJSON: string(rawJSON),
 		})
 	}
@@ -395,7 +400,7 @@ func batchRowApplicationModel(row db.ItemPublishBatchRow) itemapp.BatchRow {
 		ID: row.ID, BatchID: row.BatchID, RowNo: row.RowNo, CookieID: row.CookieID,
 		Title: row.Title, Description: row.Description, Price: row.Price, OriginalPrice: row.OriginalPrice,
 		Quantity: row.Quantity, PostageMode: row.PostageMode, Postage: row.Postage,
-		ImagesJSON: row.ImagesJSON, CategoryJSON: row.CategoryJSON, AutomationJSON: row.AutomationJSON,
+		ImagesJSON: row.ImagesJSON, CategoryJSON: row.CategoryJSON, AutomationJSON: row.AutomationJSON, SpecsJSON: row.SpecsJSON,
 		RawJSON: row.RawJSON, ItemID: row.ItemID, ItemURL: row.ItemURL, Status: row.Status,
 		ErrorMessage: row.ErrorMessage, FailureKind: row.FailureKind, WorkerToken: row.WorkerToken,
 		CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,

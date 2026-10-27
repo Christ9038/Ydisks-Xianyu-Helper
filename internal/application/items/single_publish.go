@@ -105,37 +105,37 @@ type PublishCategory struct {
 // PublishSpecValue 是单个规格值及其可选图片在应用层的表示。
 type PublishSpecValue struct {
 	// Value 是展示给买家的规格值文本。
-	Value string
+	Value string `json:"value"`
 	// ImageIndex 是规格图片在 PublishInput.SpecImages 中的下标，-1 表示未绑定图片。
-	ImageIndex int
+	ImageIndex int `json:"image_index"`
 }
 
 // PublishSpec 是单个商品规格维度在应用层的表示。
 type PublishSpec struct {
 	// PropertyName 是闲鱼规格名称，例如颜色或尺码。
-	PropertyName string
+	PropertyName string `json:"property_name"`
 	// SupportImage 表示该规格值是否允许绑定规格图片。
-	SupportImage bool
+	SupportImage bool `json:"support_image"`
 	// Values 保存该规格维度下的有效规格值。
-	Values []PublishSpecValue
+	Values []PublishSpecValue `json:"values"`
 }
 
 // PublishSKUProperty 是一个 SKU 中的规格名称和值对。
 type PublishSKUProperty struct {
 	// PropertyText 是 SKU 规格名称。
-	PropertyText string
+	PropertyText string `json:"property_text"`
 	// ValueText 是 SKU 规格值。
-	ValueText string
+	ValueText string `json:"value_text"`
 }
 
 // PublishSKU 是一个规格组合对应的价格、库存和规格值列表。
 type PublishSKU struct {
 	// PriceCents 是该 SKU 的售价，单位为分。
-	PriceCents int64
+	PriceCents int64 `json:"price_cents"`
 	// Quantity 是该 SKU 的库存数量。
-	Quantity int
+	Quantity int `json:"quantity"`
 	// PropertyList 保存该 SKU 的规格组合，顺序与规格维度一致。
-	PropertyList []PublishSKUProperty
+	PropertyList []PublishSKUProperty `json:"property_list"`
 }
 
 // PublishInput 是单商品发布用例输入，携带已由 HTTP 层验证的业务字段。

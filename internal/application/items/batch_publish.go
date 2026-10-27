@@ -41,6 +41,8 @@ type BatchRow struct {
 	CategoryJSON string
 	// AutomationJSON 是发布后自动化配置的 JSON。
 	AutomationJSON string
+	// SpecsJSON 是多规格快照 JSON，空串表示单规格。
+	SpecsJSON string
 	// RawJSON 是平台发布成功后保存的原始结果 JSON。
 	RawJSON string
 	// ItemID 是已知的平台商品标识；重试已远端成功的行时会复用它。

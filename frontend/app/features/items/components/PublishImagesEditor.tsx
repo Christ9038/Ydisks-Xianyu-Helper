@@ -19,10 +19,12 @@ export interface PublishImagesEditorProps {
   maxImages?: number;
   /** onChange 接收追加、删除或排序后的完整图片列表。 */
   onChange: (images: File[]) => void;
+  /** onPickFromLibrary 打开图片库选择器；缺省时不显示入口。 */
+  onPickFromLibrary?: () => void;
 }
 
 /** PublishImagesEditor 提供可追加、删除和排序的商品主图管理区。 */
-export const PublishImagesEditor = ({ images, previews, maxImages = 9, onChange }: PublishImagesEditorProps) => {
+export const PublishImagesEditor = ({ images, previews, maxImages = 9, onChange, onPickFromLibrary }: PublishImagesEditorProps) => {
   // dragIndex 保存当前正在拖拽的图片位置。
   const [dragIndex, setDragIndex] = useState<number | null>(null);
 
@@ -65,7 +67,10 @@ export const PublishImagesEditor = ({ images, previews, maxImages = 9, onChange 
           <h4 id="publish-images-title" className="text-sm font-extrabold text-gray-900">商品图片（1-{maxImages} 张）</h4>
           <p className="mt-1 text-xs leading-5 text-gray-600">第一张为主图；可继续添加、删除，或拖拽和使用箭头调整顺序。</p>
         </div>
-        <span className="rounded-full bg-slate-200 px-3 py-1 text-xs font-bold text-slate-700">{images.length}/{maxImages}</span>
+        <div className="flex items-center gap-2">
+          {onPickFromLibrary && images.length < maxImages && <button type="button" className="rounded-xl border border-emerald-200 bg-white px-3 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-50" onClick={onPickFromLibrary}>从图片库选择</button>}
+          <span className="rounded-full bg-slate-200 px-3 py-1 text-xs font-bold text-slate-700">{images.length}/{maxImages}</span>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-5">

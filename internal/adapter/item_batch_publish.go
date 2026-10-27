@@ -87,6 +87,16 @@ func (p *ItemBatchPublishPort) PublishRemoteRow(ctx context.Context, userID int6
 	if imageErr != nil {
 		return itemapp.BatchPublishOutcome{}, imageErr
 	}
+	// specs、skus、specImages、totalQuantity 保存多规格快照转换后的平台请求；单规格时均为空。
+	specs, skus, specImages, totalQuantity, specErr := loadBatchPublishSpecs(ctx, batch.UploadDir, row.SpecsJSON, p.readImage, p.downloadImage)
+	if specErr != nil {
+		return itemapp.BatchPublishOutcome{}, specErr
+	}
+	// quantity 是提交给平台的顶层库存；多规格商品取各 SKU 库存之和，与单品发布一致。
+	quantity := row.Quantity
+	if len(skus) > 0 {
+		quantity = totalQuantity
+	}
 	// markCtx、markCancel 限制远端开始检查点写入时间，避免租约失效时无限等待。
 	markCtx, markCancel := batchPublishStatusContext(ctx)
 	// remoteStarted、markErr 保存远端开始检查点的写入结果。
@@ -120,8 +130,9 @@ func (p *ItemBatchPublishPort) PublishRemoteRow(ctx context.Context, userID int6
 	// result、callErr 保存平台返回结果及调用错误。
 	result, callErr := p.mtopClient().PublishItem(mtopCtx, latest.Value, mtop.PublishItemRequest{
 		Title: row.Title, Description: firstBatchNonEmpty(row.Description, row.Title), PriceCents: priceCents,
-		OriginalPriceCents: originalPriceCents, Quantity: row.Quantity, PostageMode: row.PostageMode,
+		OriginalPriceCents: originalPriceCents, Quantity: quantity, PostageMode: row.PostageMode,
 		PostageCents: postageCents, Virtual: true, Location: location, PreferredCategory: preferredCategory, Images: images,
+		Specs: specs, SKUs: skus, SpecImages: specImages,
 		// BeforePublish 由 MTOP 客户端在图片上传和类目准备完成后、最终发布请求前调用。
 		BeforePublish: publishGate,
 	})

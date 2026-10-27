@@ -19,6 +19,7 @@ import (
 	accountapp "xianyu-go/internal/application/account"
 	itemapp "xianyu-go/internal/application/items"
 	"xianyu-go/internal/auth"
+	"xianyu-go/internal/uploadroot"
 )
 
 // maxPublishBatchRows 用于本次流程后续判断的max发布批次Rows
@@ -678,13 +679,9 @@ func (s *Server) publishUploadRoot() string {
 	return defaultPublishUploadRoot()
 }
 
-// defaultPublishUploadRoot 返回环境变量指定或默认的发布上传目录。
+// defaultPublishUploadRoot 返回环境变量指定或默认的发布上传目录，解析规则与资源库共用 uploadroot 包。
 func defaultPublishUploadRoot() string {
-	// v 是去除首尾空白后的上传目录环境变量值。
-	if v := strings.TrimSpace(os.Getenv("XIANYU_UPLOAD_DIR")); v != "" {
-		return v
-	}
-	return filepath.Join("data", "uploads")
+	return uploadroot.Dir()
 }
 
 // parseLooseBool 将常见的真值文本转换为布尔值。

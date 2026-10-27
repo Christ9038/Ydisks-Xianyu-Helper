@@ -162,30 +162,8 @@ func (p *ItemPublishPort) publish(ctx context.Context, input itemapp.PublishInpu
 			ChannelCatID: input.Category.ChannelCatID, TBCatID: input.Category.TBCatID,
 		}
 	}
-	// specs 保存应用层规格转换后的平台规格维度；skuRows 保存规格组合的价格库存。
-	specs := make([]mtop.PublishSpec, 0, len(input.Specs))
-	// spec 表示当前待转换的规格维度。
-	for _, spec := range input.Specs {
-		// values 保存当前规格维度的规格值及其图片索引。
-		values := make([]mtop.PublishSpecValue, 0, len(spec.Values))
-		// value 表示当前规格维度中的一个可选值。
-		for _, value := range spec.Values {
-			values = append(values, mtop.PublishSpecValue{Value: value.Value, ImageIndex: value.ImageIndex})
-		}
-		specs = append(specs, mtop.PublishSpec{PropertyName: spec.PropertyName, SupportImage: spec.SupportImage, Values: values})
-	}
-	// skuRows 保存应用层 SKU 组合转换后的平台 SKU 结构。
-	skuRows := make([]mtop.PublishSKU, 0, len(input.SKUs))
-	// sku 表示当前待转换的 SKU 组合。
-	for _, sku := range input.SKUs {
-		// properties 保存当前 SKU 的规格名称和值对。
-		properties := make([]mtop.PublishSKUProperty, 0, len(sku.PropertyList))
-		// property 表示当前 SKU 中的一组规格名称和值。
-		for _, property := range sku.PropertyList {
-			properties = append(properties, mtop.PublishSKUProperty{PropertyText: property.PropertyText, ValueText: property.ValueText})
-		}
-		skuRows = append(skuRows, mtop.PublishSKU{PriceCents: sku.PriceCents, Quantity: sku.Quantity, PropertyList: properties})
-	}
+	// specs、skuRows 保存应用层规格转换后的平台规格维度与规格组合的价格库存。
+	specs, skuRows := mtopSpecsFromApplication(input.Specs, input.SKUs)
 	// specImages 保存规格值图片转换后的平台图片请求。
 	specImages := make([]mtop.PublishImage, 0, len(input.SpecImages))
 	// image 表示当前待转换的规格值图片。

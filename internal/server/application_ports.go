@@ -16,6 +16,7 @@ import (
 	itemgreetingapp "xianyu-go/internal/application/itemgreeting"
 	itemapp "xianyu-go/internal/application/items"
 	keywordsapp "xianyu-go/internal/application/keywords"
+	libraryapp "xianyu-go/internal/application/library"
 	logsapp "xianyu-go/internal/application/logs"
 	notificationsapp "xianyu-go/internal/application/notifications"
 	orderapp "xianyu-go/internal/application/orders"
@@ -364,6 +365,20 @@ type ItemGreetingsPort interface {
 	ClearRecords(context.Context, int64, string) error
 }
 
+// LibraryPort 定义本地资源库能力：图片库、商品模板，以及「模板 × 账号」发布预检。
+type LibraryPort interface {
+	ListImages(context.Context, int64) ([]libraryapp.Image, error)
+	UploadImages(context.Context, int64, []libraryapp.ImageUpload) ([]libraryapp.UploadResult, error)
+	ImageContent(context.Context, int64, int64) (libraryapp.Image, []byte, error)
+	DeleteImage(context.Context, int64, int64) error
+	ListTemplates(context.Context, int64) ([]libraryapp.Template, error)
+	GetTemplate(context.Context, int64, int64) (libraryapp.Template, error)
+	CreateTemplate(context.Context, libraryapp.Template) (libraryapp.Template, error)
+	UpdateTemplate(context.Context, libraryapp.Template) (libraryapp.Template, error)
+	DeleteTemplate(context.Context, int64, int64) error
+	PreviewPublish(context.Context, libraryapp.PublishPreviewInput) (itemapp.BatchPreviewPersistenceResult, error)
+}
+
 // KeywordsPort 定义关键词与指定商品回复能力。
 type KeywordsPort interface {
 	List(context.Context, int64, string) ([]keywordsapp.Keyword, error)
@@ -487,6 +502,8 @@ type ApplicationPorts struct {
 	defaultReplies DefaultRepliesPort
 	// itemGreetings 是商品首次回复规则用例。
 	itemGreetings ItemGreetingsPort
+	// library 是本地资源库用例。
+	library LibraryPort
 	// keywords 是关键词回复用例。
 	keywords KeywordsPort
 	// settings 是系统设置用例。
@@ -540,6 +557,7 @@ type ApplicationPortsInput struct {
 	PublishAutomationRules PublishAutomationRulesPort
 	DefaultReplies         DefaultRepliesPort
 	ItemGreetings          ItemGreetingsPort
+	Library                LibraryPort
 	Keywords               KeywordsPort
 	Settings               SettingsPort
 	Admin                  AdminPort
@@ -560,7 +578,7 @@ func NewApplicationPorts(input ApplicationPortsInput) *ApplicationPorts {
 		accountSummaries: input.AccountSummaries, accountTasks: input.AccountTasks, chat: input.Chat,
 		uncertainNotifications: input.UncertainNotifications, notificationChannels: input.NotificationChannels,
 		analytics: input.Analytics, automationIssues: input.AutomationIssues, automationRules: input.AutomationRules,
-		cards: input.Cards, deliveryTemplates: input.DeliveryTemplates, apiRequestTester: input.APIRequestTester, publishAutomationRules: input.PublishAutomationRules, defaultReplies: input.DefaultReplies, itemGreetings: input.ItemGreetings,
+		cards: input.Cards, deliveryTemplates: input.DeliveryTemplates, apiRequestTester: input.APIRequestTester, publishAutomationRules: input.PublishAutomationRules, defaultReplies: input.DefaultReplies, itemGreetings: input.ItemGreetings, library: input.Library,
 		keywords: input.Keywords, settings: input.Settings, admin: input.Admin, runtimeLogs: input.RuntimeLogs,
 	}
 }
@@ -589,7 +607,7 @@ func (ports *ApplicationPorts) validate() error {
 		{"account_tasks", ports.accountTasks}, {"chat", ports.chat}, {"uncertain_notifications", ports.uncertainNotifications},
 		{"notification_channels", ports.notificationChannels}, {"analytics", ports.analytics}, {"automation_issues", ports.automationIssues},
 		{"automation_rules", ports.automationRules}, {"cards", ports.cards}, {"publish_automation_rules", ports.publishAutomationRules},
-		{"default_replies", ports.defaultReplies}, {"item_greetings", ports.itemGreetings}, {"keywords", ports.keywords}, {"settings", ports.settings}, {"admin", ports.admin},
+		{"default_replies", ports.defaultReplies}, {"item_greetings", ports.itemGreetings}, {"library", ports.library}, {"keywords", ports.keywords}, {"settings", ports.settings}, {"admin", ports.admin},
 		{"runtime_logs", ports.runtimeLogs},
 	}
 	// requiredPort 是当前必须在 Server 构造前绑定的应用 Port 名称。
@@ -647,6 +665,11 @@ func (server *Server) itemAISettingsApplication() ItemAISettingsPort {
 // itemSyncApplication 返回商品同步用例。
 func (server *Server) itemSyncApplication() ItemSyncPort {
 	return server.applicationServiceSet().itemSync
+}
+
+// libraryApplication 返回本地资源库用例。
+func (server *Server) libraryApplication() LibraryPort {
+	return server.applicationServiceSet().library
 }
 
 // cardsApplication 返回卡券库存用例。

@@ -4185,6 +4185,416 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/library/images":
+    get:
+      operationId: getApiV1LibraryImages
+      summary: 列出图片库图片
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LibraryImage'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      operationId: postApiV1LibraryImages
+      summary: 上传图片到图片库
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LibraryImageUploadRequest'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LibraryImageUploadResponse'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/library/images/{image_id}/content":
+    get:
+      operationId: getApiV1LibraryImagesByimage_idContent
+      summary: 读取图片库图片内容
+      parameters:
+          - name: image_id
+            in: path
+            required: true
+            schema:
+              type: integer
+              format: int64
+      security: [{cookieAuth: []}]
+      x-contract-success-exception:
+        kind: binary
+      responses:
+        '200':
+          description: 图片字节
+          content:
+            image/png: {schema: {type: string, format: binary}}
+            image/jpeg: {schema: {type: string, format: binary}}
+            image/gif: {schema: {type: string, format: binary}}
+            image/webp: {schema: {type: string, format: binary}}
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/library/images/{image_id}":
+    delete:
+      operationId: deleteApiV1LibraryImagesByimage_id
+      summary: 删除图片库图片
+      parameters:
+          - name: image_id
+            in: path
+            required: true
+            schema:
+              type: integer
+              format: int64
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationResponse'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/library/product-templates":
+    get:
+      operationId: getApiV1LibraryProductTemplates
+      summary: 列出商品模板
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LibraryTemplate'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      operationId: postApiV1LibraryProductTemplates
+      summary: 创建商品模板
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LibraryTemplateRequest'
+      responses:
+        '201':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LibraryTemplate'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/library/product-templates/publish-preview":
+    post:
+      operationId: postApiV1LibraryProductTemplatesPublishPreview
+      summary: 按模板与账号生成批量铺货预检
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LibraryTemplatePublishRequest'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemPublishBatchPreviewResponse'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/library/product-templates/{template_id}":
+    get:
+      operationId: getApiV1LibraryProductTemplatesBytemplate_id
+      summary: 查询商品模板
+      parameters:
+          - name: template_id
+            in: path
+            required: true
+            schema:
+              type: integer
+              format: int64
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LibraryTemplate'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      operationId: putApiV1LibraryProductTemplatesBytemplate_id
+      summary: 更新商品模板
+      parameters:
+          - name: template_id
+            in: path
+            required: true
+            schema:
+              type: integer
+              format: int64
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LibraryTemplateRequest'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LibraryTemplate'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      operationId: deleteApiV1LibraryProductTemplatesBytemplate_id
+      summary: 删除商品模板
+      parameters:
+          - name: template_id
+            in: path
+            required: true
+            schema:
+              type: integer
+              format: int64
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationResponse'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   "/api/v1/items/publish-batches":
     get:
       operationId: getApiV1ItemsPublishBatches
@@ -9777,6 +10187,194 @@ components:
           minimum: 0
         capacity:
           type: integer
+    LibraryImage:
+      type: object
+      required: [id, filename, content_type, size_bytes, created_at]
+      properties:
+        id: {type: integer, format: int64}
+        filename: {type: string}
+        content_type: {type: string}
+        size_bytes: {type: integer, format: int64}
+        created_at: {type: string}
+    LibraryImageUploadRequest:
+      type: object
+      required: [files]
+      properties:
+        files:
+          type: array
+          maxItems: 20
+          items: {type: string, format: binary}
+    LibraryImageUploadItem:
+      type: object
+      required: [filename, duplicate, error]
+      properties:
+        filename: {type: string}
+        duplicate: {type: boolean}
+        error: {type: string}
+        image:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/LibraryImage'
+    LibraryImageUploadResponse:
+      type: object
+      required: [results]
+      properties:
+        results:
+          type: array
+          items: {$ref: '#/components/schemas/LibraryImageUploadItem'}
+    LibraryTemplateBinding:
+      type: object
+      required: [variable_key, card_id, delivery_count]
+      properties:
+        variable_key: {type: string}
+        card_id: {type: integer, format: int64}
+        delivery_count: {type: integer}
+    LibraryTemplateAction:
+      type: object
+      required: [action_type, card_id, delivery_count, delay_seconds, delivery_template_id, template_bindings, custom_variables, spec_name, spec_value]
+      properties:
+        action_type: {type: string, enum: [send_card, send_template]}
+        card_id: {type: integer, format: int64}
+        delivery_count: {type: integer}
+        delay_seconds: {type: integer}
+        delivery_template_id: {type: integer, format: int64}
+        template_bindings:
+          type: array
+          items: {$ref: '#/components/schemas/LibraryTemplateBinding'}
+        custom_variables:
+          type: object
+          additionalProperties: {type: string}
+        spec_name: {type: string}
+        spec_value: {type: string}
+    LibraryTemplateCardAutomation:
+      type: object
+      required: [enabled, actions]
+      properties:
+        enabled: {type: boolean}
+        actions:
+          type: array
+          items: {$ref: '#/components/schemas/LibraryTemplateAction'}
+    LibraryTemplateReviewRequest:
+      type: object
+      required: [enabled, after_shipped_hours, message, max_attempts, delay_seconds]
+      properties:
+        enabled: {type: boolean}
+        after_shipped_hours: {type: integer}
+        message: {type: string}
+        max_attempts: {type: integer}
+        delay_seconds: {type: integer}
+    LibraryTemplateAutomation:
+      type: object
+      required: [paid_delivery, review_gift, review_request]
+      properties:
+        paid_delivery: {$ref: '#/components/schemas/LibraryTemplateCardAutomation'}
+        review_gift: {$ref: '#/components/schemas/LibraryTemplateCardAutomation'}
+        review_request: {$ref: '#/components/schemas/LibraryTemplateReviewRequest'}
+    LibraryTemplateSpecValue:
+      type: object
+      required: [value, image_index]
+      properties:
+        value: {type: string}
+        image_index: {type: integer}
+    LibraryTemplateSpec:
+      type: object
+      required: [property_name, support_image, values]
+      properties:
+        property_name: {type: string}
+        support_image: {type: boolean}
+        values:
+          type: array
+          items: {$ref: '#/components/schemas/LibraryTemplateSpecValue'}
+    LibraryTemplateSKUProperty:
+      type: object
+      required: [property_text, value_text]
+      properties:
+        property_text: {type: string}
+        value_text: {type: string}
+    LibraryTemplateSKU:
+      type: object
+      required: [price, quantity, property_list]
+      properties:
+        price: {type: string, description: 元，两位小数}
+        quantity: {type: integer}
+        property_list:
+          type: array
+          items: {$ref: '#/components/schemas/LibraryTemplateSKUProperty'}
+    LibraryTemplateSpecs:
+      type: object
+      required: [specs, skus, spec_image_ids]
+      properties:
+        specs:
+          type: array
+          items: {$ref: '#/components/schemas/LibraryTemplateSpec'}
+        skus:
+          type: array
+          items: {$ref: '#/components/schemas/LibraryTemplateSKU'}
+        spec_image_ids:
+          type: array
+          items: {type: integer, format: int64}
+    LibraryTemplateRequest:
+      type: object
+      required: [name, title, description, price, quantity, postage_mode, category, image_ids, specs, automation]
+      properties:
+        name: {type: string}
+        title: {type: string}
+        description: {type: string}
+        price: {type: string}
+        original_price: {type: string}
+        quantity: {type: integer}
+        postage_mode: {type: string}
+        postage: {type: string}
+        category: {$ref: '#/components/schemas/PublishCategoryResponse'}
+        image_ids:
+          type: array
+          items: {type: integer, format: int64}
+        specs: {$ref: '#/components/schemas/LibraryTemplateSpecs'}
+        automation: {$ref: '#/components/schemas/LibraryTemplateAutomation'}
+    LibraryTemplate:
+      type: object
+      required: [id, name, title, description, price, original_price, quantity, postage_mode, postage, category, image_ids, specs, automation, created_at, updated_at]
+      properties:
+        id: {type: integer, format: int64}
+        name: {type: string}
+        title: {type: string}
+        description: {type: string}
+        price: {type: string}
+        original_price: {type: string}
+        quantity: {type: integer}
+        postage_mode: {type: string}
+        postage: {type: string}
+        category: {$ref: '#/components/schemas/PublishCategoryResponse'}
+        image_ids:
+          type: array
+          items: {type: integer, format: int64}
+        specs: {$ref: '#/components/schemas/LibraryTemplateSpecs'}
+        automation: {$ref: '#/components/schemas/LibraryTemplateAutomation'}
+        created_at: {type: string}
+        updated_at: {type: string}
+    LibraryTemplateLocation:
+      type: object
+      properties:
+        area: {type: string}
+        city: {type: string}
+        division_id: {type: string}
+        longitude: {type: number}
+        latitude: {type: number}
+        poi_id: {type: string}
+        poi_name: {type: string}
+        province: {type: string}
+    LibraryTemplatePublishRequest:
+      type: object
+      required: [template_ids, cookie_ids]
+      properties:
+        template_ids:
+          type: array
+          items: {type: integer, format: int64}
+        cookie_ids:
+          type: array
+          items: {type: string}
+        location: {$ref: '#/components/schemas/LibraryTemplateLocation'}
+        publish_interval_seconds: {type: integer, minimum: 0, maximum: 3600}
     ErrorResponse:
       type: object
       required: [code, message]

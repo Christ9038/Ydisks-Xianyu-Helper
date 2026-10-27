@@ -56,7 +56,9 @@ const itemAIStatusClass: Record<ItemAIOverride, string> = {
 };
 
 // ItemList 渲染商品列表组件。
-const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery, publishImagesEditor: ImagesEditor, publishSpecsEditor: SpecsEditor, itemAISettingsModal: ItemAISettingsModal }) => {
+const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery, publishImagesEditor: ImagesEditor, publishSpecsEditor: SpecsEditor, itemAISettingsModal: ItemAISettingsModal, libraryImagePicker: LibraryPicker }) => {
+  // libraryPickerOpen 表示单品发布的图片库选择器是否打开，属于瞬时 UI 状态。
+  const [libraryPickerOpen, setLibraryPickerOpen] = useState(false);
   // [items, 解构得到当前 Hook 返回的状态和操作函数。
   const [items, setItems] = useState<Item[]>([]);
   // [shippingRules, 解构得到当前 Hook 返回的状态和操作函数。
@@ -686,7 +688,8 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery, publishImagesE
 				  {publishLocations.map(/* 当前回调处理集合中的单个元素。 */ (item, index) => <option key={`${item.division_id}-${item.poi_id}-${index}`} value={String(index)}>{[item.province, item.city, item.area, item.poi_name].filter(Boolean).join(' ')}</option>)}
 				</select>}
 			  </div>
-              {ImagesEditor && <ImagesEditor images={publishForm.images} previews={publishImagePreviews} onChange={/* publishImagesChangeAction 将图片追加、删除或排序后的列表写回发布草稿。 */ (images) => setPublishForm(/* previous 保存上一次发布草稿状态。 */ previous => ({ ...previous, images }))} />}
+              {ImagesEditor && <ImagesEditor images={publishForm.images} previews={publishImagePreviews} onPickFromLibrary={LibraryPicker ? /* 打开图片库选择器。 */ () => setLibraryPickerOpen(true) : undefined} onChange={/* publishImagesChangeAction 将图片追加、删除或排序后的列表写回发布草稿。 */ (images) => setPublishForm(/* previous 保存上一次发布草稿状态。 */ previous => ({ ...previous, images }))} />}
+              {LibraryPicker && <LibraryPicker open={libraryPickerOpen} maxSelect={Math.max(1, 9 - publishForm.images.length)} onClose={/* 关闭图片库选择器。 */ () => setLibraryPickerOpen(false)} onPick={/* 图片库文件追加到发布草稿，最多 9 张。 */ files => { setPublishForm(/* previous 是追加前的发布草稿。 */ previous => ({ ...previous, images: [...previous.images, ...files].slice(0, 9) })); setLibraryPickerOpen(false); }} />}
             </div>
             <div className="modal-footer">
               <button disabled={publishing} onClick={handlePublishItem} className="w-full bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 text-white px-6 py-3.5 rounded-xl font-bold flex items-center justify-center gap-2">

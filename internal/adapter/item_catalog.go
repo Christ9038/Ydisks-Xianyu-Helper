@@ -97,7 +97,7 @@ func (repository *ItemCatalogRepository) UpsertPublishedItem(ctx context.Context
 	return repository.store.Items.Upsert(ctx, &db.ItemInfoRow{
 		CookieID: input.CookieID, ItemID: input.ItemID, ItemTitle: input.ItemTitle, ItemDescription: input.ItemDescription,
 		ItemCategory: input.ItemCategory, ItemPrice: input.ItemPrice, ItemDetail: input.ItemDetail,
-		MultiQuantityDelivery: input.MultiQuantityDelivery,
+		MultiQuantityDelivery: input.MultiQuantityDelivery, IsMultiSpec: input.IsMultiSpec,
 	})
 }
 

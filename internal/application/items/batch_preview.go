@@ -47,7 +47,35 @@ type BatchPreviewCardAction struct {
 	DeliveryCount int `json:"delivery_count"`
 	// DelaySeconds 是发送动作的延迟秒数。
 	DelaySeconds int `json:"delay_seconds"`
+	// ActionType 是动作类型；空串兼容旧数据，等同发卡。
+	ActionType string `json:"action_type,omitempty"`
+	// DeliveryTemplateID 是发货模板动作引用的模板标识，仅 ActionType 为发货模板时有效。
+	DeliveryTemplateID int64 `json:"delivery_template_id,omitempty"`
+	// TemplateBindings 是发货模板变量到卡密组的绑定。
+	TemplateBindings []BatchPreviewTemplateBinding `json:"template_bindings,omitempty"`
+	// CustomVariables 是传给发货模板的自定义字符串键值表。
+	CustomVariables map[string]string `json:"custom_variables,omitempty"`
+	// SpecName 是多规格商品中该动作绑定的规范化规格名称，单规格为空。
+	SpecName string `json:"spec_name,omitempty"`
+	// SpecValue 是与 SpecName 同序的规格值，单规格为空。
+	SpecValue string `json:"spec_value,omitempty"`
 }
+
+// BatchPreviewTemplateBinding 是发货模板变量与卡密组的绑定。
+type BatchPreviewTemplateBinding struct {
+	// VariableKey 是模板变量键。
+	VariableKey string `json:"variable_key"`
+	// CardID 是绑定的卡密组标识。
+	CardID int64 `json:"card_id"`
+	// DeliveryCount 是每件商品准备的卡密份数。
+	DeliveryCount int `json:"delivery_count"`
+}
+
+// BatchActionSendCard 是批量自动化中发卡动作的类型值。
+const BatchActionSendCard = "send_card"
+
+// BatchActionSendTemplate 是批量自动化中发货模板动作的类型值。
+const BatchActionSendTemplate = "send_template"
 
 // BatchPreviewCardAutomation 是自动发货卡券配置。
 type BatchPreviewCardAutomation struct {
@@ -113,6 +141,8 @@ type BatchPreviewRow struct {
 	Errors []string
 	// Raw 是归一化前的原始字段副本。
 	Raw map[string]any
+	// Specs 是多规格快照；nil 表示单规格商品（表格导入恒为 nil）。
+	Specs *BatchSpecs
 }
 
 // BatchPreviewInput 是批量预检应用服务的输入。
@@ -311,17 +341,7 @@ func (service *BatchPreviewService) validateAutomation(ctx context.Context, user
 		for index, action := range cardConfig.Actions {
 			// prefix 是当前动作的用户可见错误前缀。
 			prefix := fmt.Sprintf("%s第%d项", label, index+1)
-			// owned 和 err 表示卡券归属查询结果。
-			owned, err := service.ownership.CardOwned(ctx, userID, action.CardID)
-			if err != nil || !owned {
-				errorsFound = append(errorsFound, prefix+"卡密组不存在或不属于当前用户")
-			}
-			if action.DeliveryCount <= 0 {
-				errorsFound = append(errorsFound, prefix+"每件份数必须大于0")
-			}
-			if action.DelaySeconds < 0 || action.DelaySeconds > 3600 {
-				errorsFound = append(errorsFound, prefix+"延迟秒必须在 0 到 3600 之间")
-			}
+			errorsFound = append(errorsFound, service.validateDeliveryAction(ctx, userID, prefix, action)...)
 		}
 	}
 	validateCards(config.PaidDelivery, "付款发货")

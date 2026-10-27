@@ -38,6 +38,8 @@ type BatchPublishedItem struct {
 	ItemDetail string
 	// MultiQuantityDelivery 表示库存大于一时是否启用多数量交付。
 	MultiQuantityDelivery bool
+	// IsMultiSpec 表示商品以多规格 SKU 发布，规则动作需要按规格绑定。
+	IsMultiSpec bool
 }
 
 // BatchPublishedItemRepository 保存远端发布成功后的本地商品记录。
@@ -93,11 +95,16 @@ func (service *BatchLocalPublishService) Complete(ctx context.Context, userID in
 	detail := map[string]any{"item_image": result.ImageURL, "web_url": result.ItemURL, "category_name": result.CategoryName, "quantity": result.Quantity, "publish_raw": result.RawData}
 	// detailJSON 保存商品详情扩展字段的 JSON 表示。
 	detailJSON, _ := json.Marshal(detail)
+	// specs、specsErr 保存行的多规格快照；损坏的快照在远端成功后按后置错误处理，避免重放发布。
+	specs, specsErr := DecodeBatchSpecs(row.SpecsJSON)
+	if specsErr != nil {
+		return &PostPublishError{Err: specsErr}
+	}
 	// itemErr 保存本地商品目录写入错误。
 	itemErr := service.itemRepository.UpsertPublishedItem(ctx, BatchPublishedItem{
 		CookieID: row.CookieID, ItemID: result.ItemID, ItemTitle: firstBatchResultTitle(result.Title, row.Title),
 		ItemDescription: row.Description, ItemCategory: result.CategoryID, ItemPrice: result.PriceText,
-		ItemDetail: string(detailJSON), MultiQuantityDelivery: row.Quantity > 1,
+		ItemDetail: string(detailJSON), MultiQuantityDelivery: row.Quantity > 1 || specs.TotalQuantity() > 1, IsMultiSpec: specs.IsMultiSpec(),
 	})
 	if itemErr != nil {
 		return &PostPublishError{Err: fmt.Errorf("保存发布商品信息: %w", itemErr)}
@@ -156,6 +163,18 @@ type batchPublishCardAction struct {
 	DeliveryCount int `json:"delivery_count"`
 	// DelaySeconds 是动作执行前的延迟秒数。
 	DelaySeconds int `json:"delay_seconds"`
+	// ActionType 是动作类型；空串兼容旧数据，等同发卡。
+	ActionType string `json:"action_type"`
+	// DeliveryTemplateID 是发货模板动作引用的模板标识。
+	DeliveryTemplateID int64 `json:"delivery_template_id"`
+	// TemplateBindings 是发货模板变量到卡密组的绑定。
+	TemplateBindings []BatchPreviewTemplateBinding `json:"template_bindings"`
+	// CustomVariables 是传给发货模板的自定义字符串键值表。
+	CustomVariables map[string]string `json:"custom_variables"`
+	// SpecName 是动作绑定的规范化规格名称，单规格为空。
+	SpecName string `json:"spec_name"`
+	// SpecValue 是与 SpecName 同序的规格值，单规格为空。
+	SpecValue string `json:"spec_value"`
 }
 
 // batchPublishReviewRequest 保存超时求评价规则参数。
@@ -183,14 +202,8 @@ func (service *BatchLocalPublishService) ensureAutomationRules(ctx context.Conte
 	// title 保存规则名称使用的平台标题或导入标题。
 	title := firstBatchResultTitle(result.Title, row.Title)
 	if config.PaidDelivery.Enabled {
-		// actions 保存付款后自动发货规则的动作顺序。
-		actions := make([]automationapp.ActionInput, 0, len(config.PaidDelivery.Actions)+1)
-		// index、action 保存当前卡密动作在配置中的顺序和内容。
-		for index, action := range config.PaidDelivery.Actions {
-			// actionConfig 保存动作延迟策略的结构化配置。
-			actionConfig, _ := json.Marshal(map[string]any{"delay_override": true})
-			actions = append(actions, automationapp.ActionInput{ActionType: automationapp.ActionSendCard, CardID: action.CardID, DeliveryCount: action.DeliveryCount, DelaySeconds: action.DelaySeconds, ConfigJSON: string(actionConfig), Enabled: true, SortOrder: index + 1})
-		}
+		// actions 保存付款后自动发货规则的动作顺序，发货动作之后固定追加确认发货。
+		actions := batchDeliveryActions(config.PaidDelivery.Actions)
 		actions = append(actions, automationapp.ActionInput{ActionType: automationapp.ActionConfirmShipment, Enabled: true, SortOrder: len(actions) + 1})
 		// err 表示付款后自动发货规则的幂等写入错误。
 		if err := service.ruleRepository.EnsurePublishRule(ctx, automationapp.RuleInput{UserID: userID, CookieID: row.CookieID, ItemID: result.ItemID, Name: "付款后自动发货 - " + title, TriggerType: automationapp.TriggerOrderPaid, Enabled: true, Priority: 100, ConfigJSON: "{}", Actions: actions}); err != nil {
@@ -199,13 +212,7 @@ func (service *BatchLocalPublishService) ensureAutomationRules(ctx context.Conte
 	}
 	if config.ReviewGift.Enabled {
 		// actions 保存评价后赠品规则的动作顺序。
-		actions := make([]automationapp.ActionInput, 0, len(config.ReviewGift.Actions))
-		// index、action 保存当前卡密动作在配置中的顺序和内容。
-		for index, action := range config.ReviewGift.Actions {
-			// actionConfig 保存动作延迟策略的结构化配置。
-			actionConfig, _ := json.Marshal(map[string]any{"delay_override": true})
-			actions = append(actions, automationapp.ActionInput{ActionType: automationapp.ActionSendCard, CardID: action.CardID, DeliveryCount: action.DeliveryCount, DelaySeconds: action.DelaySeconds, ConfigJSON: string(actionConfig), Enabled: true, SortOrder: index + 1})
-		}
+		actions := batchDeliveryActions(config.ReviewGift.Actions)
 		// err 表示评价赠品规则的幂等写入错误。
 		if err := service.ruleRepository.EnsurePublishRule(ctx, automationapp.RuleInput{UserID: userID, CookieID: row.CookieID, ItemID: result.ItemID, Name: "评价后发送赠品 - " + title, TriggerType: automationapp.TriggerBuyerReviewed, Enabled: true, Priority: 100, ConfigJSON: "{}", Actions: actions}); err != nil {
 			return err

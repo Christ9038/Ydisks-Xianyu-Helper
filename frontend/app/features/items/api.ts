@@ -16,7 +16,7 @@ ShippingRule
 import { ApiError, type RequestControlOptions } from '../../../shared/http/client';
 import { contractClient, contractMultipartBody, runContractRequest } from '../../../shared/api-contract/client';
 import { collectionFrom } from '../../../shared/http/contract';
-import type { PublishSkuRow, PublishSpec } from './publishSpecs';
+import type { PublishSkuRow, PublishSpec } from '../../../shared/ui/publish/publishSpecs';
 export type * from './models';
 import { getPublishLocations as queryPublishLocations,type PublishLocationRequestOptions } from './amapLocation';
 

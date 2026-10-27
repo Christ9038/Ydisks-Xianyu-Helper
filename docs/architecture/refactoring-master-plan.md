@@ -18,6 +18,8 @@
 
 ### 独立缺陷修复：单订单刷新凭证锁自死锁
 
+2026-10-27：新增“本地资源库”：图片库与商品模板。新增迁移 `00057`（`library_images`、`product_templates`，`item_publish_batch_rows.specs_json`，三种方言一致）、`library` 应用服务、`/api/v1/library/images`（上传、列表、内容、删除）与 `/api/v1/library/product-templates`（CRUD 与 `publish-preview`）共 10 个版本化接口（OpenAPI、生成类型与真实契约测试同步）、前端 `/app/library` 页面以及单品发布的“从图片库选择”入口。图片字节保存在 `<上传根目录>/library/<user_id>/<sha256>.<ext>`，上传根目录沿用 `$XIANYU_UPLOAD_DIR`（默认 `data/uploads`，Docker 下已位于 `app_data:/app/data` 卷内，compose 无需修改）；数据库只存元数据，`library/` 与 `publish_batches/` 同级、不受 7 天批次清理影响，备份时需与数据库一并备份上传目录的 `library/`。模板发布生成“模板 × 账号”预检后复用既有批量铺货 worker、进度、取消与失败重试；批量链路同步支持多规格（SKU）与发货模板动作，发货规则按完整规格组合写入，自动化运行时、砍价免拼与确认发货顺序不变。预检与模板增删改查不发 MTOP 请求；发布仍为每批最多 50 行、逐行串行并经账号级节流器。图片删除被模板引用时返回 409 并列出模板名。未修改六阶段状态或冻结 CAPTCHA 行为。
+
 2026-10-27（#97）：新增“商品首次回复”：可为一个或多个商品配置买家首次咨询时自动发送一次的回复（文字、图片、变量）。新增迁移 `00056`（`item_greeting_rules`、`item_greeting_rule_items`、`item_greeting_records`，三种方言一致；同账号下商品唯一属于一条规则）、`itemgreeting` 应用服务、`/api/v1/reply-rules/greetings` 五个版本化接口（OpenAPI、生成类型与真实契约测试同步）以及规则页“商品首次回复”页签。引擎在 `ReplyService.Handle` 开头先发首次回复，失败只记日志、不阻断原有 API/关键词/AI/默认回复链路；同一会话已触发后，账号默认回复中“仅回复一次”的部分让位。一次性投递状态机抽为按表名参数化的 `onceReplyRecords`，账号默认回复与首次回复共用且既有行为不变。遗留 `item_replay`（每条消息都回复、无图片）语义不同，原样保留。回复只走 WebSocket 发送，每会话至多一次，不新增任何 MTOP 请求。未修改六阶段状态或冻结 CAPTCHA 行为。
 
 2026-10-27（#95）：浏览器系统通知此前没有应用内提示音。新增前端 `shared/browser/notificationSound.ts`，用 Web Audio 合成默认两音符提示音（无音频资源文件），开关默认开启并仅保存在当前浏览器 localStorage（与浏览器通知开关一致，存储受限时退回内存），在 `showBrowserNotification` 成功弹出通知后播放；开关放在“系统设置 → 基础设置”，开启时立即试听。播放受浏览器自动播放策略约束，被拦截时静默失败。未修改 HTTP/OpenAPI、数据库、冻结 CAPTCHA 或六阶段状态。

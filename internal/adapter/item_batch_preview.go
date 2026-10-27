@@ -41,6 +41,26 @@ func (port *ItemBatchPreviewPort) CardOwned(ctx context.Context, userID, cardID 
 	return port.store.Cards.ExistsOwned(ctx, cardID, userID)
 }
 
+// DeliveryTemplateUsable 判断发货模板是否属于用户且已启用，不暴露模板内容。
+func (port *ItemBatchPreviewPort) DeliveryTemplateUsable(ctx context.Context, userID, templateID int64) (bool, error) {
+	// err 表示适配器依赖校验错误。
+	if err := port.validate(); err != nil {
+		return false, err
+	}
+	if port.store.DeliveryTemplates == nil {
+		return false, errors.New("发货模板存储未初始化")
+	}
+	// template、err 保存模板摘要及读取错误；不属于用户时视为不可用。
+	template, err := port.store.DeliveryTemplates.GetForUser(ctx, userID, templateID)
+	if errors.Is(err, db.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return template.Enabled, nil
+}
+
 // ValidateImageReference 校验本地图片路径位于指定上传目录内且对应普通文件。
 func (port *ItemBatchPreviewPort) ValidateImageReference(uploadDir, reference string) error {
 	_ = port
