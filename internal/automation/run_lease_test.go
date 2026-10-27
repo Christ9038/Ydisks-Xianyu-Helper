@@ -305,7 +305,7 @@ func TestCanceledExecutionStopsAllSideEffects(t *testing.T) {
 	// binding 用于验证单个模板变量内部的逐份消费保护。
 	binding := templateBindingCard{card: card, count: 2}
 	// err 保存模板数据卡在首次消费前的取消结果。
-	if _, _, _, _, _, _, err := executor.loadTemplateBatchLines(ctx, binding, nil); !errors.Is(err, context.Canceled) {
+	if _, _, _, _, _, _, err := executor.loadTemplateBatchLines(ctx, Task{}, binding, nil); !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
 	// state 保存模板 API 测试替身，不能产生真实请求。

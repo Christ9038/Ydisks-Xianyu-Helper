@@ -59,6 +59,13 @@ vi.mock('../components/BatchCardImportModal', /* batchModalMockFactory 提供批
   BatchCardImportModal: /* BatchCardImportModalMock 表示批量导入弹窗替身。 */ () => null,
 }));
 
+vi.mock('../components/CardStockDialog', /* stockDialogMockFactory 用可观察的替身代替库存记录弹窗。 */ () => ({
+  // 卡密库存弹窗替身：card 是传入的卡密组（id、name），onClose 是关闭回调。
+  CardStockDialog: /* CardStockDialogMock 展示收到的卡密组，并暴露关闭按钮。 */ ({ card, onClose }: { /* card 是传入的卡密组。 */ card: { /* id 是卡密组标识。 */ id: number; /* name 是卡密组名称。 */ name: string }; /* onClose 是关闭回调。 */ onClose: () => void }) => (
+    <div role="dialog" aria-label="库存记录替身">{card.id}:{card.name}<button onClick={onClose}>关闭替身</button></div>
+  ),
+}));
+
 import CardList from './CardList';
 
 // cardFixture 表示卡密页面中的 data 类型库存。
@@ -111,6 +118,22 @@ describe('CardList 页面组合行为', /* 当前回调验证卡密筛选、批�
     expect(screen.getByText('显示 1 / 2 组')).toBeTruthy();
     fireEvent.click(screen.getByText('批量导入'));
     expect(cardListMocks.openBatchModal).toHaveBeenCalledTimes(1);
+  });
+
+  test('data 卡展示未售与已售数量，并只为 data/API 卡提供库存记录入口', /* 当前回调验证库存列文案和弹窗开关。 */ () => {
+    cardListMocks.cards = [{ ...cardFixture, sold_count: 3 }, textCardFixture, { id: 9, name: '接口卡', type: 'api', enabled: true, sold_count: 1,
+      api_config: { url: 'https://example.com/claim', method: 'GET', content_type: 'application/json', timeout_seconds: 10, retry_enabled: false, headers_configured: false, params_configured: false, ready: true } }];
+    render(<CardList />);
+    expect(screen.getByText('未售 2 条 · 已售 3 条')).toBeTruthy();
+    expect(screen.queryByLabelText('查看卡密 文案二 库存记录')).toBeNull();
+
+    fireEvent.click(screen.getByLabelText('查看卡密 库存一 库存记录'));
+    expect(screen.getByRole('dialog', { name: '库存记录替身' }).textContent).toContain('1:库存一');
+    fireEvent.click(screen.getByText('关闭替身'));
+    expect(screen.queryByRole('dialog', { name: '库存记录替身' })).toBeNull();
+
+    fireEvent.click(screen.getByLabelText('查看卡密 接口卡 库存记录'));
+    expect(screen.getByRole('dialog', { name: '库存记录替身' }).textContent).toContain('9:接口卡');
   });
 
   test('新增和编辑卡密会映射表单字段并刷新库存', /* 当前回调验证卡密新增与编辑页面行为。 */ async () => {

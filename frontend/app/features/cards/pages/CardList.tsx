@@ -1,4 +1,4 @@
-import { Copy,CreditCard,Edit,FileText,Globe,Image as ImageIcon,Package,Plus,Save,Search,SlidersHorizontal,Trash2,Upload,X } from 'lucide-react';
+import { ClipboardList,Copy,CreditCard,Edit,FileText,Globe,Image as ImageIcon,Package,Plus,Save,Search,SlidersHorizontal,Trash2,Upload,X } from 'lucide-react';
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { Card, testCardAPI } from '../api';
@@ -7,6 +7,7 @@ import { apiConfigFromEditForm, apiConfigFromAddForm, updateAPIEditForm, updateA
 import { useCardActions } from '../cardActions';
 import { BatchCardImportModal } from '../components/BatchCardImportModal';
 import { CardIcon } from '../components/CardIcon';
+import { CardStockDialog } from '../components/CardStockDialog';
 import { useCardBatchActions,useCardsData } from '../hooks';
 
 // CardList 渲染卡密列表组件。
@@ -44,6 +45,8 @@ const CardList: React.FC = () => {
   } = cardActions;
   // batchState 批量发布状态。
   const batchState = useCardBatchActions({ dataCards, loadCards });
+  // stockCard 是正在查看库存记录的卡密组；为空表示弹窗关闭，属于页面瞬时 UI 状态。
+  const [stockCard, setStockCard] = React.useState<Card | null>(null);
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -121,10 +124,10 @@ const CardList: React.FC = () => {
               {filteredCards.map(/* 当前回调处理集合中的单个元素。 */ (card) => {
                 // 计算库存或内容预览
                 let stockInfo = '';
-                if (card.type === 'data' && card.data_content) {
+                if (card.type === 'data' && (card.data_content || card.sold_count)) {
                   // lines 文本行列表。
-                  const lines = card.data_content.split('\n').filter(/* 当前回调处理集合中的单个元素。 */ line => line.trim());
-                  stockInfo = `库存: ${lines.length} 条`;
+                  const lines = (card.data_content ?? '').split('\n').filter(/* 当前回调处理集合中的单个元素。 */ line => line.trim());
+                  stockInfo = `未售 ${lines.length} 条 · 已售 ${card.sold_count ?? 0} 条`;
                 } else if (card.type === 'text' && card.text_content) {
                   stockInfo = card.text_content;
                 } else if (card.type === 'api' && card.api_config) {
@@ -193,6 +196,16 @@ const CardList: React.FC = () => {
                     </td>
                     <td className="px-3 py-5">
                       <div className="flex items-center justify-end gap-0.5">
+                        {(card.type === 'data' || card.type === 'api') && (
+                          <button
+                            onClick={/* 打开该卡密组的库存记录弹窗。 */ () => setStockCard(card)}
+                            aria-label={`查看卡密 ${card.name} 库存记录`}
+                            className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-black"
+                            title="库存记录"
+                          >
+                            <ClipboardList className="w-4 h-4" />
+                          </button>
+                        )}
                         <button
                           onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => handleEdit(card)}
                           className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-black"
@@ -223,6 +236,9 @@ const CardList: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* 库存记录弹窗：按卡密组 key 挂载，切换卡密组会重置筛选并取消旧请求 */}
+      {stockCard && <CardStockDialog key={stockCard.id} card={stockCard} onClose={/* 关闭弹窗并丢弃卡密明文。 */ () => setStockCard(null)} />}
 
       {/* 编辑卡密弹窗 - 使用 Portal */}
       {showEditModal && selectedCard && createPortal(

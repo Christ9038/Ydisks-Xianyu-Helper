@@ -330,6 +330,14 @@ type CardsPort interface {
 	Update(context.Context, int64, int64, cardsapp.Draft) error
 	Delete(context.Context, int64, int64) error
 	AppendData(context.Context, int64, int64, string) (int, error)
+	// ListSaleRecords 分页读取所属卡密组的售出记录。
+	ListSaleRecords(context.Context, int64, int64, cardsapp.SaleListInput) (cardsapp.SalePage, error)
+	// ExportUnsold 导出 data 卡密组当前未售库存。
+	ExportUnsold(context.Context, int64, int64) (cardsapp.Export, error)
+	// ExportSold 导出卡密组的售出记录 CSV。
+	ExportSold(context.Context, int64, int64) (cardsapp.Export, error)
+	// SaleRecordsByOrder 读取某账号某订单已发出的卡密；调用方必须先确认订单归属。
+	SaleRecordsByOrder(context.Context, int64, string, string) ([]cardsapp.SaleRecord, error)
 }
 
 // APIRequestTesterPort 定义卡券 API 测试请求所需的最小应用能力。

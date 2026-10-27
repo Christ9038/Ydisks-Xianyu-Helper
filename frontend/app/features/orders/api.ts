@@ -6,6 +6,7 @@ OperationResponse,
 Order,
 OrderBatchResponse,
 OrderDTOResponse,
+OrderDeliveredCard,
 OrderRefreshJobCancelResponse,
 OrderRefreshResponse,
 OrderSingleRefreshResponse,
@@ -307,3 +308,19 @@ const normalizeOrderBatchResponse = (response: OrderBatchTransportResponse): Ord
     status: item.status === 'failed' || item.status === 'succeeded' || item.status === 'reconciliation_required' ? item.status : undefined,
   })),
 });
+
+// getOrderDeliveredCards 读取订单自动发货时发出的卡密；升级前的订单没有记录，返回空数组。
+export const getOrderDeliveredCards = async (orderId: string, options?: RequestControlOptions): Promise<OrderDeliveredCard[]> => {
+  // result 是订单已发卡密响应，卡密明文只存在于本次请求结果中。
+  const result = await runContractRequest(/* signal 绑定当前订单详情弹窗的请求生命周期。 */ signal => contractClient.GET('/api/v1/orders/{order_id}/delivered-cards', {
+    params: { path: { order_id: orderId } },
+    signal,
+  }), options);
+  return result.data.map(/* item 是一条传输层售出记录。 */ item => ({
+    id: item.id,
+    content: item.content,
+    status: item.status === 'sold' ? 'sold' : 'reserved',
+    cardName: item.card_name,
+    deliveredAtMs: (item.sold_at || item.created_at) * 1000,
+  }));
+};

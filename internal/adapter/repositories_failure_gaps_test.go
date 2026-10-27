@@ -189,6 +189,10 @@ func TestCardsRepositoryRejectsUnconfiguredAndFailsClosed(t *testing.T) {
 		errs["UpdateDataMetadata"] = repository.UpdateDataMetadata(ctx, cardsapp.Card{ID: 1})
 		errs["Delete"] = repository.Delete(ctx, 1)
 		_, errs["AppendData"] = repository.AppendData(ctx, 1, "x")
+		_, errs["SaleCounts"] = repository.SaleCounts(ctx, 1)
+		_, errs["ListSaleRecords"] = repository.ListSaleRecords(ctx, 1, cardsapp.SaleListQuery{CardID: 1, Limit: 10})
+		_, errs["AllSaleRecords"] = repository.AllSaleRecords(ctx, 1, 1)
+		_, errs["SaleRecordsByOrder"] = repository.SaleRecordsByOrder(ctx, 1, "c", "o")
 		return errs
 	}
 	requireAllFail(t, calls(NewCardsRepository(nil)))

@@ -308,3 +308,67 @@ func TestCardApplicationModelCopiesAPIConfigSummary(t *testing.T) {
 		t.Fatal("应用模型不应共享数据库摘要字段")
 	}
 }
+
+// TestCardsRepositorySaleRecordMapping 验证售出台账查询把数据库字段完整映射为应用模型，并保持分页和用户隔离。
+func TestCardsRepositorySaleRecordMapping(t *testing.T) {
+	// store 是使用临时 SQLite 数据库的测试存储。
+	store, cleanup := newAdapterTestStore(t)
+	defer cleanup()
+	// repository 是被测服务依赖的内存仓储替身。
+	repository := NewCardsRepository(store)
+	// ctx 是测试使用的根上下文。
+	ctx := context.Background()
+	// owner 是卡密组所有者；ownerErr 保存读取卡密组所有者的错误。
+	owner, ownerErr := store.Users.GetByUsername(ctx, "admin")
+	if ownerErr != nil {
+		t.Fatal(ownerErr)
+	}
+	// cardID 是被测卡密组标识；createErr 保存创建测试数据的错误。
+	cardID, createErr := repository.Create(ctx, cardsapp.Card{Name: "台账卡", Type: "data", DataContent: "A\nB", Enabled: true, UserID: owner.ID})
+	if createErr != nil {
+		t.Fatal(createErr)
+	}
+	// meta 是消费时的订单上下文。
+	meta := db.CardSaleMeta{RunID: 3, CookieID: "acc1", OrderID: "o1", ItemID: "i1", BuyerID: "b1"}
+	// recordID 是 reserved 台账记录标识；reserveErr 保存扣减库存并记账的错误。
+	_, recordID, reserveErr := store.Cards.ReserveBatchData(ctx, cardID, meta)
+	if reserveErr != nil {
+		t.Fatal(reserveErr)
+	}
+	// markErr 保存确认售出的错误。
+	if markErr := store.Cards.MarkSaleRecordsSold(ctx, recordID); markErr != nil {
+		t.Fatal(markErr)
+	}
+
+	// countErr 保存统计已售数量的错误；counts 保存按卡密组统计的已售数量。
+	counts, countErr := repository.SaleCounts(ctx, owner.ID)
+	if countErr != nil || counts[cardID] != 1 {
+		t.Fatalf("counts=%v err=%v", counts, countErr)
+	}
+	// listErr 保存分页读取台账的错误；page 保存被测分页查询的返回结果。
+	page, listErr := repository.ListSaleRecords(ctx, owner.ID, cardsapp.SaleListQuery{CardID: cardID, Status: cardsapp.SaleStatusSold, Limit: 10})
+	if listErr != nil || page.Total != 1 || len(page.Records) != 1 {
+		t.Fatalf("page=%+v err=%v", page, listErr)
+	}
+	// record 是映射后的应用模型，字段必须与消费上下文一致。
+	record := page.Records[0]
+	if record.CardID != cardID || record.CardName != "台账卡" || record.CardType != "data" || record.Content != "A" || record.Status != cardsapp.SaleStatusSold ||
+		record.CookieID != "acc1" || record.OrderID != "o1" || record.ItemID != "i1" || record.BuyerID != "b1" || record.CreatedAt == 0 || record.SoldAt == 0 {
+		t.Fatalf("字段映射错误: %+v", record)
+	}
+	// all 保存卡密组的全部台账记录；allErr 保存读取全部台账的错误。
+	all, allErr := repository.AllSaleRecords(ctx, owner.ID, cardID)
+	if allErr != nil || len(all) != 1 || all[0] != record {
+		t.Fatalf("all=%+v err=%v", all, allErr)
+	}
+	// byOrder 保存按订单读取到的台账记录；orderErr 保存按订单读取台账的错误。
+	byOrder, orderErr := repository.SaleRecordsByOrder(ctx, owner.ID, "acc1", "o1")
+	if orderErr != nil || len(byOrder) != 1 || byOrder[0] != record {
+		t.Fatalf("byOrder=%+v err=%v", byOrder, orderErr)
+	}
+	// 其他用户看不到该订单的台账，且结果为非 nil 空切片。
+	empty, emptyErr := repository.SaleRecordsByOrder(ctx, owner.ID+1, "acc1", "o1")
+	if emptyErr != nil || empty == nil || len(empty) != 0 {
+		t.Fatalf("empty=%#v err=%v", empty, emptyErr)
+	}
+}

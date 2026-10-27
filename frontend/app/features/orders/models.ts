@@ -428,3 +428,17 @@ export interface OrderRefreshJobCancelResponse {
   /** 取消后的任务状态。 */
   status: 'cancelled';
 }
+
+/** 订单自动发货时发出的一条卡密，由 adapter 归一的 UI 模型；content 为卡密明文，只在拥有者打开订单详情时持有。 */
+export interface OrderDeliveredCard {
+  /** 售出记录主键。 */
+  id: number;
+  /** 发出的卡密正文或 API 返回内容。 */
+  content: string;
+  /** sold 为已确认发给买家，reserved 为发送结果待人工核对。 */
+  status: 'sold' | 'reserved';
+  /** 发货时的卡密组名称快照。 */
+  cardName: string;
+  /** 确认发出的 Unix 毫秒时间；待核对记录回退为扣库存时间。 */
+  deliveredAtMs: number;
+}

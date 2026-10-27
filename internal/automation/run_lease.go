@@ -117,6 +117,20 @@ func checkRunExecution(ctx context.Context) error {
 	return nil
 }
 
+// runIDFromContext 返回 ctx 所属持久化自动化运行的标识；独立动作测试或人工路径没有租约时返回零。
+// 卡密售出台账用它把消费记录挂到运行上，运行成功收口时再批量确认待核对记录。
+func runIDFromContext(ctx context.Context) int64 {
+	if ctx == nil {
+		return 0
+	}
+	// lease、ok 区分持久化运行与没有租约的独立调用。
+	lease, ok := ctx.Value(runLeaseContextKey{}).(*runExecutionLease)
+	if !ok || lease == nil {
+		return 0
+	}
+	return lease.runID
+}
+
 // executeLeasedAction 为 r 的单个已领取动作维护租约；task/action/proof 保持原业务输入，run 固定执行代次，退出前等待心跳结束。
 func (r automationRunCoordinator) executeLeasedAction(ctx context.Context, task Task, action db.AutomationAction, proof shipmentDeliveryProof, run *db.AutomationRun) (actionExecutionResult, error) {
 	// executionCtx、stopLease、err 在外部动作开始前确认数据库执行权。

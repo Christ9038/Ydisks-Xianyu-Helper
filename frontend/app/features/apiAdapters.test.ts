@@ -25,13 +25,13 @@ updateAccountSettings,
 updateAccountStatus,
 updateAccountTaskSettings,
 } from './accounts/api';
-import { appendCardData,batchCreateCards,createCard,deleteCard,getCardDetails,getCards,getCardAPIEditor,testCardAPI,updateCard } from './cards/api';
+import { appendCardData,batchCreateCards,createCard,deleteCard,exportCard,getCardDetails,getCardSaleRecords,getCards,getCardAPIEditor,testCardAPI,updateCard } from './cards/api';
 import { getChatMessagePage,getChatMessages,getChatSessionPage,getChatSessions,markChatRead,sendChatImage,sendChatMessage } from './chat/api';
 import { getDashboardStats,getOrderAnalytics,getValidOrders } from './dashboard/api';
 import { cancelItemPublishBatch,createItem,deleteItem,deleteItemPublishBatch,getItemDetail,getItemPublishBatch,getItemPublishBatches,getItems,previewItemPublishBatch,publishItem,recommendPublishCategory,retryFailedItemPublishBatch,startItemPublishBatch,syncItemsFromAccount,updateItem } from './items/api';
 import { createNotificationChannel,deleteAccountNotifications,deleteMessageNotification,deleteNotificationChannel,getAccountBindings,getMessageNotifications,getNotificationChannel,getNotificationChannels,setAccountBindings,setMessageNotification,testNotificationChannel,updateNotificationChannel,updateSystemSettings as updateNotificationSystemSettings } from './notifications/api';
 import { OrderRefreshStillRunningError } from './orders/refreshErrors';
-import { cancelOrderRefreshJob,deleteOrder,getAdminStats,getOrderDetail,getOrders,manualShipOrder,syncOrders,syncSingleOrder,updateOrder } from './orders/api';
+import { cancelOrderRefreshJob,deleteOrder,getAdminStats,getOrderDeliveredCards,getOrderDetail,getOrders,manualShipOrder,syncOrders,syncSingleOrder,updateOrder } from './orders/api';
 import { clearDefaultReplyRecords,deleteDefaultReply,deleteReplyRule,deleteShippingRule,getAutomationIssues,getDefaultReplies,getDefaultReply,getReplyRules,getShippingRules,getShippingRulesPage,resolveAutomationRun,resolveDeferredAutomationTask,updateDefaultReply,updateReplyRule,updateShippingRule } from './rules/api';
 import { initializeAdmin,login,logout,verifySession } from './session/api';
 import { changePassword,fetchAIModels,getSystemSettings,updateLoginCredentials,updateSystemSettings } from './settings/api';
@@ -1845,4 +1845,71 @@ test('API 卡密编辑走专用接口，测试携带卡密标识及保留模板�
   await testCardAPI({ url: editor.url, method: 'POST', timeout_seconds: 10, headers_action: 'retain', params_action: 'replace', params: '{"order_id":"{order_id}"}', body: '{}', retry_enabled: true }, 3, { signal: controller.signal });
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/cards/test-api', expect.objectContaining({ method: 'POST' }));
   expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ card_id: 3, api_config: { url: editor.url, method: 'POST', timeout_seconds: 10, headers_action: 'retain', params_action: 'replace', params: { order_id: '{order_id}' }, body: {}, retry_enabled: true, content_type: 'application/json' } });
+});
+
+// 用例：校验售出记录与导出 adapter 的版本化路径、时间归一化与下载文件名解析。
+test('卡密售出记录与导出 adapter 使用版本化路径、归一化时间并解析下载文件名', async () => {
+  // fetchMock 依次返回售出记录分页、未售导出文件和已售导出文件。
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(jsonResponse({
+      success: true, total: 2, page: 2, page_size: 5, total_pages: 0,
+      data: [
+        { id: 2, card_id: 7, card_name: '组A', card_type: 'data', content: 'K1', status: 'sold', cookie_id: 'acc1', order_id: 'o1', item_id: 'i1', buyer_id: 'b1', created_at: 100, sold_at: 200 },
+        { id: 1, card_id: 7, card_name: '组A', card_type: 'data', content: 'K2', status: 'reserved', cookie_id: 'acc1', order_id: 'o2', item_id: 'i2', buyer_id: 'b2', created_at: 100, sold_at: 0 },
+      ],
+    }))
+    .mockResolvedValueOnce(new Response('K3\n', { status: 200, headers: { 'Content-Type': 'text/plain', 'Content-Disposition': "attachment; filename*=utf-8''%E7%BB%84A-%E6%9C%AA%E5%94%AE.txt" } }))
+    .mockResolvedValueOnce(new Response('csv', { status: 200, headers: { 'Content-Type': 'text/csv' } }));
+  stubContractFetch(fetchMock);
+
+  // page 是归一后的 UI 分页模型，总页数至少为 1，待核对记录回退使用扣库存时间。
+  const page = await getCardSaleRecords(7, { status: 'sold', search: ' o1 ', page: 2, pageSize: 5 });
+  expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/cards/7/sale-records?status=sold&search=o1&page=2&page_size=5');
+  expect(page.total).toBe(2);
+  expect(page.totalPages).toBe(1);
+  expect(page.records[0]).toMatchObject({ id: 2, content: 'K1', status: 'sold', orderId: 'o1', soldAtMs: 200_000 });
+  expect(page.records[1]).toMatchObject({ status: 'reserved', soldAtMs: 100_000 });
+
+  // unsold 是带中文文件名响应头的未售导出；sold 没有响应头，使用兜底文件名。
+  const unsold = await exportCard(7, 'unsold');
+  expect(fetchMock.mock.calls[1][0]).toBe('/api/v1/cards/7/export?scope=unsold');
+  expect(unsold.filename).toBe('组A-未售.txt');
+  expect(await unsold.blob.text()).toBe('K3\n');
+  // sold 保存已售范围导出的文件结果，用于断言文件名与内容类型。
+  const sold = await exportCard(7, 'sold');
+  expect(fetchMock.mock.calls[2][0]).toBe('/api/v1/cards/7/export?scope=sold');
+  expect(sold.filename).toBe('sold-cards.csv');
+
+  // 空筛选条件不应出现在查询串中。
+  fetchMock.mockResolvedValueOnce(jsonResponse({ success: true, total: 0, page: 1, page_size: 20, total_pages: 0, data: [] }));
+  await getCardSaleRecords(7, { status: '', search: '  ', page: 1, pageSize: 20 });
+  expect(fetchMock.mock.calls[3][0]).toBe('/api/v1/cards/7/sale-records?page=1&page_size=20');
+});
+
+// 用例：导出失败必须抛出统一 ApiError，不能返回空文件。
+test('卡密导出失败时抛出统一 ApiError 而不是返回空文件', async () => {
+  // errorBody 是统一错误 envelope；jsonResponse 固定返回 200，因此这里直接构造 400 响应。
+  const errorBody = JSON.stringify({ success: false, code: 'bad_request', message: '只有 data（批量卡密）类型支持追加卡密' });
+  stubContractFetch(vi.fn().mockResolvedValue(new Response(errorBody, { status: 400, headers: { 'content-type': 'application/json' } })));
+  await expect(exportCard(7, 'unsold')).rejects.toMatchObject({ status: 400 });
+});
+
+// 用例：订单已发卡密 adapter 使用版本化路径并把秒级时间归一为毫秒。
+test('getOrderDeliveredCards 使用版本化路径并把秒级时间归一为毫秒', /* 订单已发卡密 adapter 用例回调。 */ async () => {
+  // fetchMock 返回一条已售和一条待核对的已发卡密。
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+    success: true,
+    data: [
+      { id: 2, card_id: 7, card_name: '组A', card_type: 'data', content: 'K1', status: 'sold', cookie_id: 'acc1', order_id: 'o 1', item_id: 'i1', buyer_id: 'b1', created_at: 100, sold_at: 200 },
+      { id: 1, card_id: 7, card_name: '接口', card_type: 'api', content: 'K2', status: 'reserved', cookie_id: 'acc1', order_id: 'o 1', item_id: 'i1', buyer_id: 'b1', created_at: 100, sold_at: 0 },
+    ],
+  }));
+  stubContractFetch(fetchMock);
+  // cards 是归一后的 UI 模型。
+  const cards = await getOrderDeliveredCards('o 1');
+  expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/orders/o%201/delivered-cards');
+  expect(cards).toEqual([
+    { id: 2, content: 'K1', status: 'sold', cardName: '组A', deliveredAtMs: 200_000 },
+    { id: 1, content: 'K2', status: 'reserved', cardName: '接口', deliveredAtMs: 100_000 },
+  ]);
 });

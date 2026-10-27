@@ -81,6 +81,8 @@ type cardResponse struct {
 	SpecValue string `json:"spec_value"`
 	// UserID 是卡券所属用户标识，保留旧接口字段。
 	UserID int64 `json:"user_id,omitempty"`
+	// SoldCount 是该卡密组已确认售出的记录数，来自售出台账。
+	SoldCount int64 `json:"sold_count"`
 }
 
 // cardBatchResponse 是卡券批量创建接口的具名响应 DTO。

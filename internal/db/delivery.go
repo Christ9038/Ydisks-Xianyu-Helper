@@ -169,6 +169,7 @@ type Cards struct {
 
 // ConsumeBatchData 原子预留一条批量数据卡券（data 类型），返回内容。
 // 通过快照条件更新处理并发追加/消费；调用方发送失败时应调用 RestoreBatchData。
+// 注意：本方法不写售出台账，生产发货路径必须使用 ReserveBatchData；这里仅保留为无台账的底层库存原语。
 // ConsumeBatchData 封装Consume批次数据业务协调。
 func (c *Cards) ConsumeBatchData(ctx context.Context, cardID int64) (string, error) {
 	for // attempts 用于本次流程后续判断的尝试次数
@@ -213,6 +214,7 @@ func (c *Cards) ConsumeBatchData(ctx context.Context, cardID int64) (string, err
 
 // RestoreBatchData 把发送失败的预留卡密放回库存头部。恢复失败时宁可进入人工处理，
 // 也不能把一个已成功发送但响应不确定的卡密自动重复发给下一位买家。
+// 注意：本方法不撤销售出台账，台账内的预留必须使用 ReleaseBatchData。
 // RestoreBatchData 封装Restore批次数据业务协调。
 func (c *Cards) RestoreBatchData(ctx context.Context, cardID int64, content string) error {
 	content = strings.TrimSpace(content)

@@ -2528,6 +2528,139 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/cards/{card_id}/sale-records":
+    get:
+      operationId: getApiV1CardsBycard_idSaleRecords
+      summary: getApiV1CardsBycard_idSaleRecords
+      description: 分页读取卡密组的售出记录（含已发出的卡密明文），仅所属用户可读；响应禁止缓存。
+      parameters:
+        - name: card_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema: {type: string, enum: [reserved, sold]}
+        - name: search
+          in: query
+          required: false
+          description: 订单号精确匹配或卡密内容子串匹配。
+          schema: {type: string}
+        - name: page
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1}
+        - name: page_size
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1, maximum: 100}
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CardSaleRecordListResponse'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/cards/{card_id}/export":
+    get:
+      operationId: getApiV1CardsBycard_idExport
+      summary: getApiV1CardsBycard_idExport
+      description: 导出卡密。scope=unsold 导出 data 卡密组当前库存 TXT（一行一条）；scope=sold 导出售出记录 CSV（UTF-8 BOM）。文件含卡密明文，响应禁止缓存。
+      parameters:
+        - name: card_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: scope
+          in: query
+          required: true
+          schema: {type: string, enum: [unsold, sold]}
+      security: [{cookieAuth: []}]
+      x-contract-success-exception:
+        kind: binary
+      responses:
+        '200':
+          description: 导出文件
+          headers:
+            Content-Disposition:
+              description: attachment，包含按 RFC 2231 编码的文件名。
+              schema: {type: string}
+            Cache-Control:
+              description: 固定为 no-store。
+              schema: {type: string}
+          content:
+            text/plain:
+              schema:
+                type: string
+                format: binary
+            text/csv:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   "/api/v1/cards/{card_id}/details":
     get:
       operationId: getApiV1CardsBycard_idDetails
@@ -5332,6 +5465,55 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/orders/{order_id}/delivered-cards":
+    get:
+      operationId: getApiV1OrdersByorder_idDeliveredCards
+      summary: getApiV1OrdersByorder_idDeliveredCards
+      description: 返回订单自动发货时发出的卡密（含明文），仅订单所属用户可读；升级前的订单没有记录，返回空数组。响应禁止缓存。
+      parameters:
+        - name: order_id
+          in: path
+          required: true
+          schema:
+            type: string
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderDeliveredCardsResponse'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   "/api/v1/orders/{order_id}/refresh":
     post:
       operationId: postApiV1OrdersByorder_idRefresh
@@ -8095,6 +8277,42 @@ components:
         rows:
           type: array
           items: {$ref: '#/components/schemas/CardBatchResultResponse'}
+    CardSaleRecordResponse:
+      type: object
+      required: [id, card_id, card_name, card_type, content, status, cookie_id, order_id, item_id, buyer_id, created_at, sold_at]
+      properties:
+        id: {type: integer}
+        card_id: {type: integer}
+        card_name: {type: string}
+        card_type: {type: string}
+        content: {type: string, description: 实际发给买家的卡密正文或 API 返回内容。}
+        status: {type: string, enum: [reserved, sold], description: sold 为已确认售出，reserved 为已扣库存但发送结果待核对。}
+        cookie_id: {type: string}
+        order_id: {type: string}
+        item_id: {type: string}
+        buyer_id: {type: string}
+        created_at: {type: integer, description: 扣减库存时刻（Unix 秒）。}
+        sold_at: {type: integer, description: 确认售出时刻（Unix 秒），未确认为 0。}
+    CardSaleRecordListResponse:
+      type: object
+      required: [success, data, total, page, page_size, total_pages]
+      properties:
+        success: {type: boolean}
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/CardSaleRecordResponse'}
+        total: {type: integer}
+        page: {type: integer}
+        page_size: {type: integer}
+        total_pages: {type: integer}
+    OrderDeliveredCardsResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: {type: boolean}
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/CardSaleRecordResponse'}
     CardAppendResponse:
       type: object
       required: [success, added]
@@ -8128,6 +8346,7 @@ components:
         spec_name: {type: string}
         spec_value: {type: string}
         user_id: {type: integer}
+        sold_count: {type: integer, description: 该卡密组已确认售出的记录数。}
     APICardConfigMutation:
       type: object
       required: [url]

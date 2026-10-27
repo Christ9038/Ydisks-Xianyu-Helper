@@ -17,6 +17,7 @@ const orderListMocks = vi.hoisted(/* orderListMockFactory 创建订单页面共�
   manualShipOrder: vi.fn(),
   updateOrder: vi.fn(),
   deleteOrder: vi.fn(),
+  getOrderDeliveredCards: vi.fn(),
 }));
 
 vi.mock('../hooks', /* ordersHooksMockFactory 提供订单查询与导入 Hook 替身。 */ () => ({
@@ -46,6 +47,7 @@ vi.mock('../api', /* ordersApiMockFactory 提供订单页面动作 API 替身。
   manualShipOrder: orderListMocks.manualShipOrder,
   updateOrder: orderListMocks.updateOrder,
   deleteOrder: orderListMocks.deleteOrder,
+  getOrderDeliveredCards: orderListMocks.getOrderDeliveredCards,
 }));
 
 vi.mock('../components/OrderFilterBar', /* filterBarMockFactory 提供订单筛选栏替身。 */ () => {
@@ -98,6 +100,7 @@ describe('OrderList 页面组合行为', /* 当前回调验证订单筛选、编
     orderListMocks.manualShipOrder.mockResolvedValue({ results: [{ success: true, message: '发货成功' }] });
     orderListMocks.updateOrder.mockResolvedValue({ success: true });
     orderListMocks.deleteOrder.mockResolvedValue({ success: true });
+    orderListMocks.getOrderDeliveredCards.mockResolvedValue([]);
     vi.spyOn(window, 'alert').mockImplementation(/* alertImplementation 屏蔽订单页面提示。 */ () => undefined);
     vi.spyOn(window, 'confirm').mockReturnValue(true);
   });
@@ -131,6 +134,9 @@ describe('OrderList 页面组合行为', /* 当前回调验证订单筛选、编
     render(<OrderList />);
     fireEvent.click(screen.getByTitle('查看详情'));
     expect(screen.getByText('订单详情')).toBeTruthy();
+    // 打开详情时按订单号读取自动发货的卡密，并在没有记录时给出升级前订单的说明。
+    await waitFor(/* 等待已发卡密区块加载完成。 */ () => expect(screen.getByText(/暂无自动发货卡密记录/)).toBeTruthy());
+    expect(orderListMocks.getOrderDeliveredCards.mock.calls[0][0]).toBe('order-1');
     fireEvent.click(screen.getByText('关闭'));
     expect(screen.queryByText('订单详情')).toBeNull();
 

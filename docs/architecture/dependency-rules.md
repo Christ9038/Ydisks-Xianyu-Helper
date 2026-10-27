@@ -130,6 +130,8 @@ refactoring-master-plan.md 定义，本文不声明当前阶段或完成状态�
 
 **唯一已记录的例外（API 卡密编辑视图）**：经项目所有者明确批准，`GET /api/v1/cards/{card_id}/api-editor` 可以向卡密所属用户返回已保存的 API 请求模板（请求头、查询参数、正文，含第三方 API 密钥），用于查看和编辑。该例外仅限此一个接口，并且必须同时满足：登录、卡密归属与 `type=api` 校验；响应带 `Cache-Control: no-store`；普通列表、详情、日志、通知和错误信息不含模板值；界面中含凭证的输入默认遮罩；关闭弹窗或切换卡密后清空草稿。该例外不构成先例，其他接口返回已保存秘密仍须单独记录批准。
 
+**卡密售出台账（issue #99）**：`GET /api/v1/cards/{card_id}/sale-records`、`GET /api/v1/cards/{card_id}/export` 与 `GET /api/v1/orders/{order_id}/delivered-cards` 仅向卡密/订单所属用户返回已发出的卡密明文，暴露级别与已有的 `data_content` 一致；必须校验登录与归属，响应带 `Cache-Control: no-store`，卡密内容不得写入日志、通知或错误信息。`automation_runs.delivery_proof` 仍然不得进入任何 HTTP 响应。这不是通用先例，其他返回已存储秘密的接口仍需单独记录批准。
+
 ## 5. API 边界
 
 - 新 API 使用 `/api/v1`；

@@ -6,11 +6,18 @@ CardBatchResponse,
 	CardAPITestResult,
 	CardAPIConfigInput,
   CardAPIEditor,
+  CardExportFile,
+  CardExportScope,
+  CardSalePage,
+  CardSaleQuery,
+  CardSaleRecord,
 MutationIDResponse,OperationResponse
 } from './models';
 import { type RequestControlOptions } from '../../../shared/http/client';
 import { contractClient, contractMultipartBody, runContractRequest } from '../../../shared/api-contract/client';
 import { collectionFrom } from '../../../shared/http/contract';
+import { filenameFromContentDisposition } from '../../../shared/browser/download';
+import type { CardSaleRecordListTransport, CardSaleRecordTransport } from '../../../shared/api-contract/cards';
 export type * from './models';
 // Cards
 // normalizeCard 归一化卡密数据。
@@ -130,4 +137,50 @@ export const testCardAPI = async (data: CardAPIConfigInput, cardId?: number, opt
 		body: { card_id: cardId, api_config: apiConfigPayload(data) },
 		signal,
 	}), options);
+};
+
+// normalizeSaleRecord 把传输层售出记录转换为 UI 模型；时间统一换算为毫秒，待核对记录没有确认时间时回退为扣库存时间。
+const normalizeSaleRecord = (item: CardSaleRecordTransport): CardSaleRecord => ({
+  id: item.id,
+  content: item.content,
+  status: item.status === 'sold' ? 'sold' : 'reserved',
+  cardName: item.card_name,
+  cookieId: item.cookie_id,
+  orderId: item.order_id,
+  itemId: item.item_id,
+  buyerId: item.buyer_id,
+  soldAtMs: (item.sold_at || item.created_at) * 1000,
+});
+
+// getCardSaleRecords 分页读取卡密组的售出记录；调用方通过 signal 在切换卡密组或关闭弹窗时取消旧请求。
+export const getCardSaleRecords = async (cardId: number, query: CardSaleQuery, options?: RequestControlOptions): Promise<CardSalePage> => {
+  // response 是通过契约客户端读取的分页响应，查询参数为空时省略。
+  const response: CardSaleRecordListTransport = await runContractRequest(/* signal 绑定当前售出记录请求的生命周期。 */ signal => contractClient.GET('/api/v1/cards/{card_id}/sale-records', {
+    params: {
+      path: { card_id: String(cardId) },
+      query: { status: query.status || undefined, search: query.search.trim() || undefined, page: query.page, page_size: query.pageSize },
+    },
+    signal,
+  }), options);
+  return { records: response.data.map(normalizeSaleRecord), total: response.total, totalPages: Math.max(1, response.total_pages) };
+};
+
+// exportCard 下载卡密导出文件：unsold 为 data 卡密组当前库存 TXT，sold 为售出记录 CSV；文件名取自 Content-Disposition。
+export const exportCard = async (cardId: number, scope: CardExportScope, options?: RequestControlOptions): Promise<CardExportFile> => {
+  // disposition 保存成功响应的 Content-Disposition，用于还原服务端生成的文件名。
+  let disposition = '';
+  // blob 是以二进制方式读取的导出文件内容。
+  // 请求回调：signal 绑定当前导出请求的生命周期，取消时中止下载。
+  const blob = await runContractRequest<Blob>(/* 导出请求回调：signal 绑定当前导出请求的生命周期。 */ async signal => {
+    // result 是 parseAs=blob 的原始契约响应，二进制成功类型与生成类型的 string 不同，故在此处收窄。
+    const result = await contractClient.GET('/api/v1/cards/{card_id}/export', {
+      params: { path: { card_id: String(cardId) }, query: { scope } },
+      parseAs: 'blob',
+      signal,
+    });
+    disposition = result.response.headers.get('Content-Disposition') ?? '';
+    // data、error、response 是契约客户端返回的二进制正文、错误体与原始响应，用于读取 Content-Disposition。
+    return result as unknown as { /* data 是二进制正文。 */ data?: Blob; /* error 是契约错误体。 */ error?: unknown; /* response 是原始响应，用于读取响应头。 */ response: Response };
+  }, { timeoutMs: 120_000, ...options });
+  return { blob, filename: filenameFromContentDisposition(disposition, scope === 'sold' ? 'sold-cards.csv' : 'unsold-cards.txt') };
 };

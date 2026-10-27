@@ -5,3 +5,6 @@ import type { components } from './generated/schema';
 export type OrderTransport = components['schemas']['OrderDTO'];
 /** OrderRefreshTransport 表示生成的订单刷新结果。 */
 export type OrderRefreshTransport = components['schemas']['OrderRefreshResponse'];
+
+/** OrderDeliveredCardsTransport 表示生成的订单已发卡密响应。 */
+export type OrderDeliveredCardsTransport = components['schemas']['OrderDeliveredCardsResponse'];

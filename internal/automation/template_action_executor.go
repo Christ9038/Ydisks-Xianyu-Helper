@@ -26,6 +26,8 @@ type templateCardReservation struct {
 	cardID int64
 	// content 保存已经从批量库存取出的卡密正文。
 	content string
+	// recordID 是对应 reserved 售出台账标识；发送成功后确认为已售，确定未发送时随库存一起撤销。
+	recordID int64
 }
 
 // templateDeliveryState 保存模板动作跨消息复用的卡密绑定、正文和 API 取卡状态。
@@ -109,6 +111,7 @@ func (e *automationActionExecutor) sendTemplate(ctx context.Context, task Task, 
 			result.reviewProof.messages = append(result.reviewProof.messages, db.AutomationDeliveryMessage{Kind: "text", Content: text})
 			return result, uncertainAction(sendErr)
 		}
+		e.markReservationsSold(ctx, reservations)
 		result.sent++
 		result.proof.preparedUnits++
 		result.proof.tradeText = appendTradeText(result.proof.tradeText, text)
@@ -207,13 +210,13 @@ func (e *automationActionExecutor) loadTemplateBindingLines(ctx context.Context,
 		return lines, nil, false, false, false, false, nil
 	}
 	if binding.card.Type == "data" {
-		return e.loadTemplateBatchLines(ctx, binding, lines)
+		return e.loadTemplateBatchLines(ctx, task, binding, lines)
 	}
 	return e.loadTemplateAPILines(ctx, task, action, state, binding, lines)
 }
 
 // loadTemplateBatchLines 消费批量卡密并返回需要在当前消息失败时恢复的库存记录。
-func (e *automationActionExecutor) loadTemplateBatchLines(ctx context.Context, binding templateBindingCard, lines []string) ([]string, []templateCardReservation, bool, bool, bool, bool, error) {
+func (e *automationActionExecutor) loadTemplateBatchLines(ctx context.Context, task Task, binding templateBindingCard, lines []string) ([]string, []templateCardReservation, bool, bool, bool, bool, error) {
 	// reservations 保存当前变量已经消费的批量卡密。
 	reservations := make([]templateCardReservation, 0, binding.count)
 	for /* index 表示批量卡密消费的序号。 */ index := 0; index < binding.count; index++ {
@@ -224,13 +227,13 @@ func (e *automationActionExecutor) loadTemplateBatchLines(ctx context.Context, b
 		// unlock 保存当前卡密组的并发保护释放函数。
 		unlock := e.lockCard(binding.card.ID)
 		// content、consumeErr 保存本次批量卡密消费结果及错误。
-		content, consumeErr := e.store.Cards.ConsumeBatchData(ctx, binding.card.ID)
+		content, recordID, consumeErr := e.store.Cards.ReserveBatchData(ctx, binding.card.ID, e.saleMeta(ctx, task))
 		unlock()
 		if consumeErr != nil {
 			return lines, reservations, false, false, false, false, consumeErr
 		}
 		lines = append(lines, content)
-		reservations = append(reservations, templateCardReservation{cardID: binding.card.ID, content: content})
+		reservations = append(reservations, templateCardReservation{cardID: binding.card.ID, content: content, recordID: recordID})
 	}
 	return lines, reservations, false, false, false, false, nil
 }
@@ -260,6 +263,8 @@ func (e *automationActionExecutor) loadTemplateAPILines(ctx context.Context, tas
 		if strings.TrimSpace(fetched.Content) == "" {
 			return lines, nil, apiFetched, true, fetched.Dispatched, true, errors.New("API 卡发货响应没有可发送内容")
 		}
+		// API 取卡已产生外部副作用：先记待核对台账，运行成功收口时统一确认为已售，失败则保留给人工核对。
+		e.recordAPISale(ctx, task, binding.card.ID, fetched.Content, db.SaleStatusReserved)
 		lines = append(lines, fetched.Content)
 		apiFetched = true
 	}
@@ -276,7 +281,7 @@ func (e *automationActionExecutor) restoreTemplateReservations(ctx context.Conte
 		// unlock 保存当前卡密组的并发保护释放函数。
 		unlock := e.lockCard(entry.cardID)
 		// err 保存当前卡密正文恢复错误。
-		err := e.store.Cards.RestoreBatchData(ctx, entry.cardID, entry.content)
+		err := e.store.Cards.ReleaseBatchData(ctx, entry.cardID, entry.recordID, entry.content)
 		unlock()
 		if err != nil {
 			restoreErr = errors.Join(restoreErr, err)
@@ -301,4 +306,14 @@ func deliveryQuantity(task Task) int {
 		return 1
 	}
 	return quantity
+}
+
+// markReservationsSold 在包含这些批量卡密的模板消息确认发送后，把对应台账改为已售。
+func (e *automationActionExecutor) markReservationsSold(ctx context.Context, reservations []templateCardReservation) {
+	// ids 保存本条消息消费的台账标识。
+	ids := make([]int64, 0, len(reservations))
+	for /* reservation 是本条消息消费的一份批量卡密 */ _, reservation := range reservations {
+		ids = append(ids, reservation.recordID)
+	}
+	e.markSold(ctx, ids...)
 }

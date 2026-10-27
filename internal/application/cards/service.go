@@ -73,6 +73,8 @@ type Card struct {
 	SpecValue string
 	// UserID 是拥有该卡券组的本地用户标识。
 	UserID int64
+	// SoldCount 是该卡密组已确认售出的记录数，只在查询时由售出台账填充，写入时忽略。
+	SoldCount int64
 }
 
 // Draft 是创建或更新卡券组时允许提交的业务字段。
@@ -113,6 +115,8 @@ type Draft struct {
 	SpecValue string
 	// SpecValueSet 表示请求是否明确提交了规格值；未提交时更新应保留旧值。
 	SpecValueSet bool
+	// SoldCount 是该卡密组已确认售出的记录数，只在查询时由售出台账填充，写入时忽略。
+	SoldCount int64
 }
 
 // Repository 定义卡券 CRUD 用例所需的最小持久化能力。
@@ -135,6 +139,14 @@ type Repository interface {
 	Delete(ctx context.Context, cardID int64) error
 	// AppendData 向 data 类型卡券组追加逐行卡密，并返回新增行数。
 	AppendData(ctx context.Context, cardID int64, content string) (int, error)
+	// SaleCounts 返回用户每个卡密组已确认售出的记录数，键为卡密组标识。
+	SaleCounts(ctx context.Context, userID int64) (map[int64]int64, error)
+	// ListSaleRecords 按已规范化的条件分页读取售出记录，必须以 userID 隔离。
+	ListSaleRecords(ctx context.Context, userID int64, query SaleListQuery) (SalePage, error)
+	// AllSaleRecords 按售出先后返回卡密组的全部售出记录，供导出使用。
+	AllSaleRecords(ctx context.Context, userID, cardID int64) ([]SaleRecord, error)
+	// SaleRecordsByOrder 返回某账号某订单已发出的全部卡密，按发出顺序排列。
+	SaleRecordsByOrder(ctx context.Context, userID int64, cookieID, orderID string) ([]SaleRecord, error)
 }
 
 // Service 编排卡券输入校验、用户归属和 CRUD 持久化。
@@ -154,7 +166,20 @@ func (s *Service) List(ctx context.Context, userID int64) ([]Card, error) {
 	if err := s.validateUser(userID); err != nil {
 		return nil, err
 	}
-	return s.repository.ListForUser(ctx, userID)
+	// cards、err 保存用户的卡券组及读取错误。
+	cards, err := s.repository.ListForUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	// counts、countErr 保存每个卡密组已售数量及读取错误。
+	counts, countErr := s.repository.SaleCounts(ctx, userID)
+	if countErr != nil {
+		return nil, countErr
+	}
+	for /* index 是卡券组在列表中的位置 */ index := range cards {
+		cards[index].SoldCount = counts[cards[index].ID]
+	}
+	return cards, nil
 }
 
 // Get 查询 cardID 并校验其属于 userID；不存在、越权和仓储故障使用不同错误语义。
@@ -163,7 +188,18 @@ func (s *Service) Get(ctx context.Context, userID, cardID int64) (Card, error) {
 	if err := s.validateUser(userID); err != nil {
 		return Card{}, err
 	}
-	return s.ownedCard(ctx, userID, cardID)
+	// card、err 保存已通过归属校验的卡券组。
+	card, err := s.ownedCard(ctx, userID, cardID)
+	if err != nil {
+		return Card{}, err
+	}
+	// counts、countErr 保存已售数量及读取错误。
+	counts, countErr := s.repository.SaleCounts(ctx, userID)
+	if countErr != nil {
+		return Card{}, countErr
+	}
+	card.SoldCount = counts[card.ID]
+	return card, nil
 }
 
 // ExistsOwned 判断卡券组是否属于指定用户；基础设施错误与越权错误仍返回给调用方区分处理。

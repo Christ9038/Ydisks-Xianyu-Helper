@@ -12,7 +12,8 @@ const PAGE_CHUNK_BUDGETS: Record<string, number> = {
   AccountList: 70 * 1024,
   OrderList: 40 * 1024,
   // cURL 请求解析与安全导入能力随卡密页按路由加载，52 KiB 覆盖该完整交互而仍限制页面总下载量。
-  CardList: 52 * 1024,
+  // 卡密页新增库存记录弹窗（已售/未售记录、导出）与导出下载逻辑，实际约 59.3 KiB，60 KiB 预算容纳该功能并保留少量余量。
+  CardList: 60 * 1024,
   // ItemList 页面新增列表视图与规则筛选，实际约 65.05 KiB，66 KiB 预算容纳该功能并保留少量余量。
   ItemList: 66 * 1024,
   Settings: 30 * 1024,

@@ -133,6 +133,73 @@ func (r *CardsRepository) AppendData(ctx context.Context, cardID int64, content 
 	return r.store.Cards.AppendBatchData(ctx, cardID, content)
 }
 
+// SaleCounts 返回用户每个卡密组已确认售出的记录数。
+func (r *CardsRepository) SaleCounts(ctx context.Context, userID int64) (map[int64]int64, error) {
+	// err 保存仓储依赖校验错误，依赖缺失时直接拒绝请求。
+	if err := r.validate(); err != nil {
+		return nil, err
+	}
+	return r.store.Cards.SaleCounts(ctx, userID)
+}
+
+// ListSaleRecords 把应用层分页条件转换为台账查询并映射回应用模型。
+func (r *CardsRepository) ListSaleRecords(ctx context.Context, userID int64, query cardsapp.SaleListQuery) (cardsapp.SalePage, error) {
+	// err 保存仓储依赖校验错误，依赖缺失时直接拒绝请求。
+	if err := r.validate(); err != nil {
+		return cardsapp.SalePage{}, err
+	}
+	// page、err 保存数据库台账分页结果及错误。
+	page, err := r.store.Cards.ListSaleRecords(ctx, db.CardSaleQuery{
+		UserID: userID, CardID: query.CardID, Status: query.Status, Search: query.Search, Limit: query.Limit, Offset: query.Offset,
+	})
+	if err != nil {
+		return cardsapp.SalePage{}, err
+	}
+	return cardsapp.SalePage{Records: saleApplicationModels(page.Records), Total: page.Total}, nil
+}
+
+// AllSaleRecords 返回卡密组的全部台账，供导出使用。
+func (r *CardsRepository) AllSaleRecords(ctx context.Context, userID, cardID int64) ([]cardsapp.SaleRecord, error) {
+	// err 保存仓储依赖校验错误，依赖缺失时直接拒绝请求。
+	if err := r.validate(); err != nil {
+		return nil, err
+	}
+	// records、err 保存全部台账及错误。
+	records, err := r.store.Cards.AllSaleRecords(ctx, userID, cardID)
+	if err != nil {
+		return nil, err
+	}
+	return saleApplicationModels(records), nil
+}
+
+// SaleRecordsByOrder 返回某账号某订单已发出的卡密台账。
+func (r *CardsRepository) SaleRecordsByOrder(ctx context.Context, userID int64, cookieID, orderID string) ([]cardsapp.SaleRecord, error) {
+	// err 保存仓储依赖校验错误，依赖缺失时直接拒绝请求。
+	if err := r.validate(); err != nil {
+		return nil, err
+	}
+	// records、err 保存订单维度台账及错误。
+	records, err := r.store.Cards.ListSaleRecordsByOrder(ctx, userID, cookieID, orderID)
+	if err != nil {
+		return nil, err
+	}
+	return saleApplicationModels(records), nil
+}
+
+// saleApplicationModels 把数据库台账记录转换为不依赖数据库包的应用模型。
+func saleApplicationModels(records []db.CardSaleRecord) []cardsapp.SaleRecord {
+	// result 保存转换后的应用模型，空输入返回非 nil 空切片以便 JSON 编码为 []。
+	result := make([]cardsapp.SaleRecord, 0, len(records))
+	for /* record 是当前待转换的数据库台账 */ _, record := range records {
+		result = append(result, cardsapp.SaleRecord{
+			ID: record.ID, CardID: record.CardID, CardName: record.CardName, CardType: record.CardType, Content: record.Content,
+			Status: record.Status, CookieID: record.CookieID, OrderID: record.OrderID, ItemID: record.ItemID,
+			BuyerID: record.BuyerID, CreatedAt: record.CreatedAt, SoldAt: record.SoldAt,
+		})
+	}
+	return result
+}
+
 // validate 检查卡券适配器是否具备 Store 与 Cards 子仓储。
 func (r *CardsRepository) validate() error {
 	if r == nil || r.store == nil || r.store.Cards == nil {

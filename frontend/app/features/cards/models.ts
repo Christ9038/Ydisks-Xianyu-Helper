@@ -30,6 +30,8 @@ export interface Card {
   spec_name?: string;
   /** 规格值。 */
   spec_value?: string;
+  /** 已确认售出的卡密数量，来自服务端售出台账。 */
+  sold_count?: number;
 }
 
 /** API 卡券查询返回的脱敏摘要；请求头和参数永远不在此模型中。 */
@@ -175,4 +177,62 @@ export interface OperationResponse {
   message?: string;
   /** 操作完成后是否需要重新登录。 */
   requires_relogin?: boolean;
+}
+
+/** 售出记录状态：sold 为已确认发给买家，reserved 为已扣库存但发送结果待人工核对。 */
+export type CardSaleStatus = 'sold' | 'reserved';
+
+/** 由 adapter 归一后的卡密售出记录 UI 模型；content 为已发出的卡密明文，只在拥有者主动打开的弹窗内持有。 */
+export interface CardSaleRecord {
+  /** 售出记录主键。 */
+  id: number;
+  /** 已发出的卡密正文或 API 返回内容。 */
+  content: string;
+  /** 记录状态。 */
+  status: CardSaleStatus;
+  /** 售出时的卡密组名称快照。 */
+  cardName: string;
+  /** 订单所属闲鱼账号标识。 */
+  cookieId: string;
+  /** 平台订单号。 */
+  orderId: string;
+  /** 订单商品标识。 */
+  itemId: string;
+  /** 买家标识。 */
+  buyerId: string;
+  /** 确认售出的 Unix 毫秒时间；待核对记录回退为扣库存时间。 */
+  soldAtMs: number;
+}
+
+/** 售出记录分页查询条件。 */
+export interface CardSaleQuery {
+  /** 状态筛选，空表示全部。 */
+  status: CardSaleStatus | '';
+  /** 订单号或卡密内容搜索词。 */
+  search: string;
+  /** 从 1 开始的页码。 */
+  page: number;
+  /** 每页数量。 */
+  pageSize: number;
+}
+
+/** 一页售出记录及分页信息。 */
+export interface CardSalePage {
+  /** 当前页记录。 */
+  records: CardSaleRecord[];
+  /** 符合条件的总数。 */
+  total: number;
+  /** 总页数，至少为 1。 */
+  totalPages: number;
+}
+
+/** 导出范围：unsold 为当前库存 TXT，sold 为售出记录 CSV。 */
+export type CardExportScope = 'unsold' | 'sold';
+
+/** 导出接口返回的可下载文件。 */
+export interface CardExportFile {
+  /** 文件内容。 */
+  blob: Blob;
+  /** 服务端建议的文件名。 */
+  filename: string;
 }

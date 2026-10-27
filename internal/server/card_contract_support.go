@@ -49,7 +49,7 @@ func newCardResponse(card cardsapp.Card) cardResponse {
 		ID: card.ID, Name: card.Name, Type: card.Type, APIConfig: apiConfig,
 		TextContent: card.TextContent, DataContent: card.DataContent, ImageURL: card.ImageURL,
 		Description: card.Description, Enabled: card.Enabled, DelaySeconds: card.DelaySeconds,
-		IsMultiSpec: card.IsMultiSpec, SpecName: card.SpecName, SpecValue: card.SpecValue, UserID: card.UserID,
+		IsMultiSpec: card.IsMultiSpec, SpecName: card.SpecName, SpecValue: card.SpecValue, UserID: card.UserID, SoldCount: card.SoldCount,
 	}
 }
 

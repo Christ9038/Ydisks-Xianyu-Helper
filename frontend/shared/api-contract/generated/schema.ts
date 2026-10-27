@@ -665,6 +665,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/cards/{card_id}/sale-records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * getApiV1CardsBycard_idSaleRecords
+         * @description 分页读取卡密组的售出记录（含已发出的卡密明文），仅所属用户可读；响应禁止缓存。
+         */
+        get: operations["getApiV1CardsBycard_idSaleRecords"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cards/{card_id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * getApiV1CardsBycard_idExport
+         * @description 导出卡密。scope=unsold 导出 data 卡密组当前库存 TXT（一行一条）；scope=sold 导出售出记录 CSV（UTF-8 BOM）。文件含卡密明文，响应禁止缓存。
+         */
+        get: operations["getApiV1CardsBycard_idExport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/cards/{card_id}/details": {
         parameters: {
             query?: never;
@@ -1425,6 +1465,26 @@ export interface paths {
         post?: never;
         /** deleteApiV1OrdersByorder_id */
         delete: operations["deleteApiV1OrdersByorder_id"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/orders/{order_id}/delivered-cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * getApiV1OrdersByorder_idDeliveredCards
+         * @description 返回订单自动发货时发出的卡密（含明文），仅订单所属用户可读；升级前的订单没有记录，返回空数组。响应禁止缓存。
+         */
+        get: operations["getApiV1OrdersByorder_idDeliveredCards"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2571,6 +2631,39 @@ export interface components {
             failed: number;
             rows: components["schemas"]["CardBatchResultResponse"][];
         };
+        CardSaleRecordResponse: {
+            id: number;
+            card_id: number;
+            card_name: string;
+            card_type: string;
+            /** @description 实际发给买家的卡密正文或 API 返回内容。 */
+            content: string;
+            /**
+             * @description sold 为已确认售出，reserved 为已扣库存但发送结果待核对。
+             * @enum {string}
+             */
+            status: "reserved" | "sold";
+            cookie_id: string;
+            order_id: string;
+            item_id: string;
+            buyer_id: string;
+            /** @description 扣减库存时刻（Unix 秒）。 */
+            created_at: number;
+            /** @description 确认售出时刻（Unix 秒），未确认为 0。 */
+            sold_at: number;
+        };
+        CardSaleRecordListResponse: {
+            success: boolean;
+            data: components["schemas"]["CardSaleRecordResponse"][];
+            total: number;
+            page: number;
+            page_size: number;
+            total_pages: number;
+        };
+        OrderDeliveredCardsResponse: {
+            success: boolean;
+            data: components["schemas"]["CardSaleRecordResponse"][];
+        };
         CardAppendResponse: {
             success: boolean;
             added: number;
@@ -2595,6 +2688,8 @@ export interface components {
             spec_name: string;
             spec_value: string;
             user_id?: number;
+            /** @description 该卡密组已确认售出的记录数。 */
+            sold_count?: number;
         };
         APICardConfigMutation: {
             /** Format: uri */
@@ -7014,6 +7109,153 @@ export interface operations {
             };
         };
     };
+    getApiV1CardsBycard_idSaleRecords: {
+        parameters: {
+            query?: {
+                status?: "reserved" | "sold";
+                /** @description 订单号精确匹配或卡密内容子串匹配。 */
+                search?: string;
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path: {
+                card_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 成功 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardSaleRecordListResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getApiV1CardsBycard_idExport: {
+        parameters: {
+            query: {
+                scope: "unsold" | "sold";
+            };
+            header?: never;
+            path: {
+                card_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 导出文件 */
+            200: {
+                headers: {
+                    /** @description attachment，包含按 RFC 2231 编码的文件名。 */
+                    "Content-Disposition"?: string;
+                    /** @description 固定为 no-store。 */
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                    "text/csv": string;
+                };
+            };
+            /** @description 统一错误响应 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     getApiV1CardsBycard_idDetails: {
         parameters: {
             query?: never;
@@ -11159,6 +11401,73 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getApiV1OrdersByorder_idDeliveredCards: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 成功 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderDeliveredCardsResponse"];
                 };
             };
             /** @description 统一错误响应 */
