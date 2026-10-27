@@ -316,13 +316,16 @@ func (s *RefreshService) RefreshSingle(ctx context.Context, userID int64, orderI
 	// refreshCtx、cancel 限制单订单外部请求最长执行时间。
 	refreshCtx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	// unlockBeforeFetch 保存外部请求前释放凭证锁的动作。
+	// 外部请求耗时较长，先释放凭证锁，请求完成后再重新加锁复核。
 	unlock()
 	locked = false
 	// fetchResult、callErr 保存远端详情结果及错误。
 	fetchResult, callErr := s.runtime.FetchOrderDetail(refreshCtx, latest, orderID)
 	// unlockAfterFetch 保存外部请求完成后重新获取凭证锁的释放函数。
 	unlockAfterFetch := s.repository.LockCredentials(cookieID)
+	// runningCookie 保存锁内已成功提交、需在释放凭证锁后同步给运行时的 Cookie；
+	// 运行时同步会重新获取同一账号的不可重入凭证锁，绝不能在持锁期间调用。
+	runningCookie := ""
 	// latestAfterFetch、reloadErr 保存外部请求后的凭证视图及重读错误。
 	latestAfterFetch, reloadErr := s.repository.LoadCookiePlatformDetail(ctx, cookieID)
 	// credentialChanged 表示外部请求期间凭证快照是否发生变化。
@@ -333,19 +336,20 @@ func (s *RefreshService) RefreshSingle(ctx context.Context, userID int64, orderI
 		if persistErr != nil {
 			callErr = errors.Join(callErr, fmt.Errorf("保存订单详情响应 Cookie Jar: %w", persistErr))
 		} else if handled && valueChanged {
-			if value != "" {
-				s.runtime.UpdateRunningCookie(ctx, cookieID, value)
-			}
+			runningCookie = value
 		} else if !handled && callErr == nil && fetchResult.Detail != nil && fetchResult.Detail.UpdatedCookies != "" && fetchResult.Detail.UpdatedCookies != latest.Value {
 			// metadata 保存不含快照的 Cookie 元数据。
 			metadata := latest.MetadataJSON
 			// saveErr 保存扁平 Cookie 写入错误。
 			if saveErr := s.repository.UpdateRenewalCookie(ctx, cookieID, fetchResult.Detail.UpdatedCookies, metadata, time.Now().Unix()); saveErr == nil {
-				s.runtime.UpdateRunningCookie(ctx, cookieID, fetchResult.Detail.UpdatedCookies)
+				runningCookie = fetchResult.Detail.UpdatedCookies
 			}
 		}
 	}
 	unlockAfterFetch()
+	if runningCookie != "" {
+		s.runtime.UpdateRunningCookie(ctx, cookieID, runningCookie)
+	}
 	if credentialChanged {
 		return SingleRefreshResult{}, ErrRefreshCredentialChanged
 	}
