@@ -9,6 +9,7 @@ Card,
 DefaultReply,
 DefaultReplyResponse,
 Item,
+ItemGreetingRule,
 DeliveryTemplate,
 DeliveryTemplateBinding,
 KeywordTypedResponse,
@@ -635,3 +636,45 @@ export const deleteDefaultReply = async (cookieId: string): Promise<OperationRes
 export const clearDefaultReplyRecords = async (cookieId: string): Promise<OperationResponse> => {
 	return runContractRequest(/* signal 控制默认回复记录清理请求的取消和超时。 */ signal => contractClient.POST('/api/v1/default-replies/{cid}/clear-records', { params: { path: { cid: cookieId } }, body: {} as never, signal }));
 };
+
+// Item Greeting
+// normalizeItemGreeting 把服务端规则 DTO 归一为 UI 模型，缺失字段使用安全默认值。
+const normalizeItemGreeting = (raw: unknown): ItemGreetingRule => {
+  // dto 是待归一的原始规则对象。
+  const dto = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  return {
+    id: typeof dto.id === 'number' ? dto.id : 0,
+    cookie_id: typeof dto.cookie_id === 'string' ? dto.cookie_id : '',
+    name: typeof dto.name === 'string' ? dto.name : '',
+    enabled: dto.enabled === true,
+    reply_content: typeof dto.reply_content === 'string' ? dto.reply_content : '',
+    reply_image_url: typeof dto.reply_image_url === 'string' ? dto.reply_image_url : '',
+    item_ids: Array.isArray(dto.item_ids) ? dto.item_ids.filter(/* itemID 是服务端返回的商品标识。 */ (itemID): itemID is string => typeof itemID === 'string') : [],
+  };
+};
+
+// getItemGreetings 读取商品首次回复规则；accountID 为空时返回当前用户全部账号的规则。
+export const getItemGreetings = async (accountID?: string, options?: RequestControlOptions): Promise<ItemGreetingRule[]> => {
+  // response 保存规则列表接口的成功响应。
+  const response = await runContractRequest(/* signal 控制首次回复规则读取的取消和超时。 */ signal => contractClient.GET('/api/v1/reply-rules/greetings', { params: { query: { cookie_id: accountID || undefined } }, signal }), options) as unknown;
+  return collectionFrom<unknown>(response, ['data', 'items', 'rules']).map(normalizeItemGreeting);
+};
+
+// saveItemGreeting 创建（id 为 0）或更新商品首次回复规则，返回服务端确认的规则。
+export const saveItemGreeting = async (rule: ItemGreetingRule): Promise<ItemGreetingRule> => {
+  // body 是创建和更新共用的请求载荷。
+  const body = { cookie_id: rule.cookie_id, name: rule.name, enabled: rule.enabled, reply_content: rule.reply_content, reply_image_url: rule.reply_image_url, item_ids: rule.item_ids };
+  // response 保存写入接口返回的规则。
+  const response = rule.id
+    ? await runContractRequest(/* signal 控制首次回复规则更新请求的取消和超时。 */ signal => contractClient.PUT('/api/v1/reply-rules/greetings/{id}', { params: { path: { id: rule.id } }, body, signal }))
+    : await runContractRequest(/* signal 控制首次回复规则创建请求的取消和超时。 */ signal => contractClient.POST('/api/v1/reply-rules/greetings', { body, signal }));
+  return normalizeItemGreeting(response);
+};
+
+// deleteItemGreeting 删除商品首次回复规则。
+export const deleteItemGreeting = async (id: number): Promise<OperationResponse> =>
+  runContractRequest(/* signal 控制首次回复规则删除请求的取消和超时。 */ signal => contractClient.DELETE('/api/v1/reply-rules/greetings/{id}', { params: { path: { id } }, signal }));
+
+// clearItemGreetingRecords 清空账号的首次回复发送记录，使买家下次咨询时重新触发。
+export const clearItemGreetingRecords = async (cookieID: string): Promise<OperationResponse> =>
+  runContractRequest(/* signal 控制首次回复记录清理请求的取消和超时。 */ signal => contractClient.POST('/api/v1/reply-rules/greetings/clear-records/{cookie_id}', { params: { path: { cookie_id: cookieID } }, body: {} as never, signal }));

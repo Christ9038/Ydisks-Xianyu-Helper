@@ -23,6 +23,7 @@ import (
 	chatapp "xianyu-go/internal/application/chat"
 	defaultreplyapp "xianyu-go/internal/application/defaultreply"
 	deliveryapp "xianyu-go/internal/application/deliverytemplate"
+	itemgreetingapp "xianyu-go/internal/application/itemgreeting"
 	itemapp "xianyu-go/internal/application/items"
 	keywordsapp "xianyu-go/internal/application/keywords"
 	lifecycleapp "xianyu-go/internal/application/lifecycle"
@@ -126,6 +127,8 @@ type Services struct {
 	publishAutomationRules *automationapp.PublishRuleService
 	// defaultReplies 是默认回复配置与投递记录应用服务。
 	defaultReplies *defaultreplyapp.Service
+	// itemGreetings 是商品首次回复规则应用服务。
+	itemGreetings *itemgreetingapp.Service
 	// keywords 是关键词规则与指定商品回复应用服务。
 	keywords *keywordsapp.Service
 	// settings 是系统、用户和账号 AI 设置应用服务。
@@ -342,6 +345,7 @@ type TransportPorts struct {
 	APICardTester          cardsapp.APIRequestTester
 	PublishAutomationRules *automationapp.PublishRuleService
 	DefaultReplies         *defaultreplyapp.Service
+	ItemGreetings          *itemgreetingapp.Service
 	Keywords               *keywordsapp.Service
 	Settings               *settingsapp.Service
 	Admin                  *adminapp.Service
@@ -366,7 +370,7 @@ func (services *Services) TransportPorts() TransportPorts {
 		AccountSummaries: services.accountSummaries, AccountTasks: services.accountTasks, Chat: services.chat,
 		UncertainNotifications: services.uncertainNotifications, NotificationChannels: services.notificationChannels,
 		Analytics: services.analytics, AutomationIssues: services.automationIssues, AutomationRules: services.automationRules, DeliveryTemplates: services.deliveryTemplates,
-		Cards: services.cards, APICardTester: services.apiCardTester, PublishAutomationRules: services.publishAutomationRules, DefaultReplies: services.defaultReplies,
+		Cards: services.cards, APICardTester: services.apiCardTester, PublishAutomationRules: services.publishAutomationRules, DefaultReplies: services.defaultReplies, ItemGreetings: services.itemGreetings,
 		Keywords: services.keywords, Settings: services.settings, Admin: services.admin, RuntimeLogs: services.runtimeLogs,
 	}
 }
@@ -536,6 +540,7 @@ func New(dependencies Dependencies) (*Services, error) {
 		publishAutomationRules: dependencies.TransportApplications.PublishAutomationRules,
 		automationIssues:       dependencies.TransportApplications.AutomationIssues,
 		defaultReplies:         dependencies.TransportApplications.DefaultReplies,
+		itemGreetings:          dependencies.TransportApplications.ItemGreetings,
 		keywords:               dependencies.TransportApplications.Keywords,
 		settings:               dependencies.TransportApplications.Settings,
 		admin:                  dependencies.TransportApplications.Admin,

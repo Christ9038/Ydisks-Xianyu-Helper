@@ -32,7 +32,7 @@ import { cancelItemPublishBatch,createItem,deleteItem,deleteItemPublishBatch,get
 import { createNotificationChannel,deleteAccountNotifications,deleteMessageNotification,deleteNotificationChannel,getAccountBindings,getMessageNotifications,getNotificationChannel,getNotificationChannels,setAccountBindings,setMessageNotification,testNotificationChannel,updateNotificationChannel,updateSystemSettings as updateNotificationSystemSettings } from './notifications/api';
 import { OrderRefreshStillRunningError } from './orders/refreshErrors';
 import { cancelOrderRefreshJob,deleteOrder,getAdminStats,getOrderDeliveredCards,getOrderDetail,getOrders,manualShipOrder,syncOrders,syncSingleOrder,updateOrder } from './orders/api';
-import { clearDefaultReplyRecords,deleteDefaultReply,deleteReplyRule,deleteShippingRule,getAutomationIssues,getDefaultReplies,getDefaultReply,getReplyRules,getShippingRules,getShippingRulesPage,resolveAutomationRun,resolveDeferredAutomationTask,updateDefaultReply,updateReplyRule,updateShippingRule } from './rules/api';
+import { clearDefaultReplyRecords,clearItemGreetingRecords,deleteDefaultReply,deleteItemGreeting,getItemGreetings,saveItemGreeting,deleteReplyRule,deleteShippingRule,getAutomationIssues,getDefaultReplies,getDefaultReply,getReplyRules,getShippingRules,getShippingRulesPage,resolveAutomationRun,resolveDeferredAutomationTask,updateDefaultReply,updateReplyRule,updateShippingRule } from './rules/api';
 import { initializeAdmin,login,logout,verifySession } from './session/api';
 import { changePassword,fetchAIModels,getSystemSettings,updateLoginCredentials,updateSystemSettings } from './settings/api';
 import { getHealth } from './system/api';
@@ -975,6 +975,36 @@ test('默认回复 API 补齐空字段默认值', /* 当前回调验证默认回
   await expect(getDefaultReply('account-1')).resolves.toEqual({ cookie_id: 'account-1', enabled: false, reply_content: '', reply_once: false, reply_image_url: '' });
   await updateDefaultReply('account-1', {});
   expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ enabled: false, reply_content: '', reply_once: false, reply_image_url: '' });
+});
+
+test('商品首次回复 API 归一规则并使用版本化路径', /* 当前回调验证列表归一、创建、更新、删除和清理记录的请求形状。 */ async () => {
+  // fetchMock 依次响应列表、创建、更新、删除和清理请求。
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(jsonResponse([{ id: 3, cookie_id: 'a1', enabled: true, item_ids: ['i1', 5, 'i2'] }, null]))
+    .mockResolvedValueOnce(jsonResponse({ id: 4, cookie_id: 'a1', name: '新', enabled: true, reply_content: '你好', reply_image_url: '', item_ids: ['i1'] }))
+    .mockResolvedValueOnce(jsonResponse({ id: 4, cookie_id: 'a1', name: '新', enabled: false, reply_content: '你好', reply_image_url: '', item_ids: ['i1'] }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }));
+  stubContractFetch(fetchMock);
+  await expect(getItemGreetings('a1')).resolves.toEqual([
+    { id: 3, cookie_id: 'a1', name: '', enabled: true, reply_content: '', reply_image_url: '', item_ids: ['i1', 'i2'] },
+    { id: 0, cookie_id: '', name: '', enabled: false, reply_content: '', reply_image_url: '', item_ids: [] },
+  ]);
+  expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/reply-rules/greetings?cookie_id=a1');
+  // draft 是创建与更新共用的规则草稿。
+  const draft = { id: 0, cookie_id: 'a1', name: '新', enabled: true, reply_content: '你好', reply_image_url: '', item_ids: ['i1'] };
+  await expect(saveItemGreeting(draft)).resolves.toMatchObject({ id: 4 });
+  expect(fetchMock.mock.calls[1][0]).toBe('/api/v1/reply-rules/greetings');
+  expect(fetchMock.mock.calls[1][1].method).toBe('POST');
+  expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ cookie_id: 'a1', name: '新', enabled: true, reply_content: '你好', reply_image_url: '', item_ids: ['i1'] });
+  await expect(saveItemGreeting({ ...draft, id: 4, enabled: false })).resolves.toMatchObject({ enabled: false });
+  expect(fetchMock.mock.calls[2][0]).toBe('/api/v1/reply-rules/greetings/4');
+  expect(fetchMock.mock.calls[2][1].method).toBe('PUT');
+  await deleteItemGreeting(4);
+  expect(fetchMock.mock.calls[3][0]).toBe('/api/v1/reply-rules/greetings/4');
+  expect(fetchMock.mock.calls[3][1].method).toBe('DELETE');
+  await clearItemGreetingRecords('a1');
+  expect(fetchMock.mock.calls[4][0]).toBe('/api/v1/reply-rules/greetings/clear-records/a1');
 });
 
 test('updateReplyRule preserves keyword image metadata when saving text edits', async () => {

@@ -18,6 +18,13 @@ func (s *Server) mountVersionedReplyRoutes(r chi.Router) {
 		r.Put("/api/v1/reply-rules/items/{cookie_id}/{item_id}", s.setItemReply)
 		r.Delete("/api/v1/reply-rules/items/{cookie_id}/{item_id}", s.deleteItemReply)
 
+		// 商品首次回复：按规则增删改，发送记录按账号清理。
+		r.Get("/api/v1/reply-rules/greetings", s.listItemGreetings)
+		r.Post("/api/v1/reply-rules/greetings", s.createItemGreeting)
+		r.Put("/api/v1/reply-rules/greetings/{id}", s.updateItemGreeting)
+		r.Delete("/api/v1/reply-rules/greetings/{id}", s.deleteItemGreeting)
+		r.Post("/api/v1/reply-rules/greetings/clear-records/{cookie_id}", s.clearItemGreetingRecords)
+
 		// 关键词规则保留基础、商品和类型三种旧响应语义。
 		r.Get("/api/v1/reply-rules/{cid}", s.listKeywords)
 		r.Post("/api/v1/reply-rules/{cid}", s.addKeyword)

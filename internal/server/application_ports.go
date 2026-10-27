@@ -13,6 +13,7 @@ import (
 	chatapp "xianyu-go/internal/application/chat"
 	defaultreplyapp "xianyu-go/internal/application/defaultreply"
 	deliveryapp "xianyu-go/internal/application/deliverytemplate"
+	itemgreetingapp "xianyu-go/internal/application/itemgreeting"
 	itemapp "xianyu-go/internal/application/items"
 	keywordsapp "xianyu-go/internal/application/keywords"
 	logsapp "xianyu-go/internal/application/logs"
@@ -354,6 +355,15 @@ type DefaultRepliesPort interface {
 	ClearRecords(context.Context, int64, string) error
 }
 
+// ItemGreetingsPort 定义商品首次回复规则能力。
+type ItemGreetingsPort interface {
+	List(context.Context, int64, string) ([]itemgreetingapp.Rule, error)
+	Create(context.Context, int64, itemgreetingapp.Draft) (itemgreetingapp.Rule, error)
+	Update(context.Context, int64, int64, itemgreetingapp.Draft) (itemgreetingapp.Rule, error)
+	Delete(context.Context, int64, int64) error
+	ClearRecords(context.Context, int64, string) error
+}
+
 // KeywordsPort 定义关键词与指定商品回复能力。
 type KeywordsPort interface {
 	List(context.Context, int64, string) ([]keywordsapp.Keyword, error)
@@ -475,6 +485,8 @@ type ApplicationPorts struct {
 	publishAutomationRules PublishAutomationRulesPort
 	// defaultReplies 是默认回复用例。
 	defaultReplies DefaultRepliesPort
+	// itemGreetings 是商品首次回复规则用例。
+	itemGreetings ItemGreetingsPort
 	// keywords 是关键词回复用例。
 	keywords KeywordsPort
 	// settings 是系统设置用例。
@@ -527,6 +539,7 @@ type ApplicationPortsInput struct {
 	APIRequestTester       APIRequestTesterPort
 	PublishAutomationRules PublishAutomationRulesPort
 	DefaultReplies         DefaultRepliesPort
+	ItemGreetings          ItemGreetingsPort
 	Keywords               KeywordsPort
 	Settings               SettingsPort
 	Admin                  AdminPort
@@ -547,7 +560,7 @@ func NewApplicationPorts(input ApplicationPortsInput) *ApplicationPorts {
 		accountSummaries: input.AccountSummaries, accountTasks: input.AccountTasks, chat: input.Chat,
 		uncertainNotifications: input.UncertainNotifications, notificationChannels: input.NotificationChannels,
 		analytics: input.Analytics, automationIssues: input.AutomationIssues, automationRules: input.AutomationRules,
-		cards: input.Cards, deliveryTemplates: input.DeliveryTemplates, apiRequestTester: input.APIRequestTester, publishAutomationRules: input.PublishAutomationRules, defaultReplies: input.DefaultReplies,
+		cards: input.Cards, deliveryTemplates: input.DeliveryTemplates, apiRequestTester: input.APIRequestTester, publishAutomationRules: input.PublishAutomationRules, defaultReplies: input.DefaultReplies, itemGreetings: input.ItemGreetings,
 		keywords: input.Keywords, settings: input.Settings, admin: input.Admin, runtimeLogs: input.RuntimeLogs,
 	}
 }
@@ -576,7 +589,7 @@ func (ports *ApplicationPorts) validate() error {
 		{"account_tasks", ports.accountTasks}, {"chat", ports.chat}, {"uncertain_notifications", ports.uncertainNotifications},
 		{"notification_channels", ports.notificationChannels}, {"analytics", ports.analytics}, {"automation_issues", ports.automationIssues},
 		{"automation_rules", ports.automationRules}, {"cards", ports.cards}, {"publish_automation_rules", ports.publishAutomationRules},
-		{"default_replies", ports.defaultReplies}, {"keywords", ports.keywords}, {"settings", ports.settings}, {"admin", ports.admin},
+		{"default_replies", ports.defaultReplies}, {"item_greetings", ports.itemGreetings}, {"keywords", ports.keywords}, {"settings", ports.settings}, {"admin", ports.admin},
 		{"runtime_logs", ports.runtimeLogs},
 	}
 	// requiredPort 是当前必须在 Server 构造前绑定的应用 Port 名称。

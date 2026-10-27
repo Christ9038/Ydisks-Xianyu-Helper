@@ -55,7 +55,7 @@ const useRuleActionsHarness = () => {
   // selectedAccountId 保存测试中的当前账号。
   const [selectedAccountId, setSelectedAccountId] = useState('account-1');
   // activeTab 保存测试中的当前页签。
-  const [, setActiveTab] = useState<'automation' | 'reply' | 'default'>('automation');
+  const [, setActiveTab] = useState<'automation' | 'reply' | 'default' | 'greeting'>('automation');
   // items 保存测试中的商品参考数据。
   const [items] = useState<Item[]>([itemFixture]);
   // automationRules 保存外部联动写入的规则列表。

@@ -107,7 +107,7 @@ describe('useRulesData', /* 当前回调处理规则页参考数据、分页和�
     // setSelectedAccountId 是页签刷新所需的账号状态替身。
     const setSelectedAccountId = vi.fn();
     // activeTab 是当前规则页签，可在测试中切换。
-    let activeTab: 'automation' | 'reply' | 'default' = 'automation';
+    let activeTab: 'automation' | 'reply' | 'default' | 'greeting' = 'automation';
     // optionsFactory 根据当前页签生成 Hook 参数。
     const optionsFactory = () => ({ activeTab, selectedAccountId: 'account-1', automationTriggerFilter: 'order_paid' as const, automationStatusFilter: 'enabled' as const, debouncedAutomationSearch: '', automationPage: 1, automationPageSize: 5, setSelectedAccountId });
     issuesMock.mockRejectedValueOnce(new Error('异常接口不可用'));

@@ -28,7 +28,9 @@ type Store struct {
 	Keywords         *Keywords
 	DefaultReps      *DefaultReplies
 	ItemReps         *ItemReplies
-	AIReply          *AIReply
+	// ItemGreetings 保存商品首次回复规则与按会话去重的投递记录。
+	ItemGreetings *ItemGreetings
+	AIReply       *AIReply
 	// ItemAISettings 保存商品级 AI 启停覆盖与专属资料。
 	ItemAISettings *ItemAISettings
 	Notifications  *Notifications
@@ -93,6 +95,7 @@ func NewStore(db *sql.DB, dialect Dialect) *Store {
 		Keywords:          &Keywords{DB: db, Dialect: dialect},
 		DefaultReps:       &DefaultReplies{DB: db, Dialect: dialect},
 		ItemReps:          &ItemReplies{DB: db, Dialect: dialect},
+		ItemGreetings:     &ItemGreetings{DB: db, Dialect: dialect},
 		AIReply:           &AIReply{DB: db, Dialect: dialect, codec: codec},
 		ItemAISettings:    &ItemAISettings{DB: db, Dialect: dialect},
 		Notifications:     &Notifications{DB: db, Dialect: dialect, codec: codec},

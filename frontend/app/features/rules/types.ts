@@ -27,8 +27,8 @@ ShippingRule,
 ShippingVariant
 } from './api';
 
-// RulesTab 表示规则页面的三个业务页签。
-export type RulesTab = 'automation' | 'reply' | 'default';
+// RulesTab 表示规则页面的四个业务页签。
+export type RulesTab = 'automation' | 'reply' | 'default' | 'greeting';
 
 // RulesProps 描述规则页面从父级接收的联动参数。
 export interface RulesProps {

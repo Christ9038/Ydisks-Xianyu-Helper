@@ -7,6 +7,7 @@ ChevronRight,
 CircleDollarSign,
 Clock3,
 Edit,
+Gift,
 Layers3,
 MessageCircle,
 Plus,
@@ -25,6 +26,7 @@ import AllItemsConfirmation from '../components/AllItemsConfirmation';
 import { AutomationIssuePanel } from '../components/AutomationIssuePanel';
 import TemplateVariantEditor from '../components/TemplateVariantEditor';
 import ReplyRuleEditor from '../components/ReplyRuleEditor';
+import ItemGreetingPanel from '../components/ItemGreetingPanel';
 import SearchableSelect from '../../../../shared/ui/SearchableSelect';
 import { useRulesData } from '../hooks';
 import { filterAutomationIssues } from '../issueState';
@@ -242,6 +244,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             刷新
           </button>
+          {activeTab !== 'greeting' && (
           <button
             onClick={activeTab === 'automation' ? /* 当前回调处理用户交互或异步状态变化。 */ () => openNewAutomationRule('order_paid') : activeTab === 'reply' ? handleAddReplyRule : /* 当前回调处理用户交互或异步状态变化。 */ () => void openDefaultReplyModal()}
             disabled={!selectedAccountId}
@@ -250,6 +253,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
             <Plus className="w-4 h-4" />
             {primaryActionLabel}
           </button>
+          )}
         </div>
       </div>
 
@@ -258,6 +262,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
           { id: 'automation' as const, label: '交易自动化', icon: Zap },
           { id: 'reply' as const, label: '关键词回复', icon: MessageCircle },
           { id: 'default' as const, label: '账号默认回复', icon: Bot },
+          { id: 'greeting' as const, label: '商品首次回复', icon: Gift },
         ].map(/* 当前回调处理用户交互或异步状态变化。 */ tab => {
           // Icon 渲染Icon React 组件。
           const Icon = tab.icon;
@@ -665,6 +670,8 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
           </div>
         </section>
       )}
+
+      {activeTab === 'greeting' && <ItemGreetingPanel accountID={selectedAccountId} />}
 
       {showAutomationModal && editingAutomationRule && createPortal(
         <div className="modal-overlay">

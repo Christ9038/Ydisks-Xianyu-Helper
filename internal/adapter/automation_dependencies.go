@@ -61,6 +61,14 @@ func (d *AutomationDependencies) NewDefaultReplyRepository() *DefaultReplyReposi
 	return NewDefaultReplyRepository(d.store)
 }
 
+// NewItemGreetingRepository 创建商品首次回复规则与投递记录适配器。
+func (d *AutomationDependencies) NewItemGreetingRepository() *ItemGreetingRepository {
+	if d == nil {
+		return nil
+	}
+	return NewItemGreetingRepository(d.store)
+}
+
 // NewKeywordRepository 创建关键词和指定商品回复适配器。
 func (d *AutomationDependencies) NewKeywordRepository() *KeywordRepository {
 	if d == nil {
