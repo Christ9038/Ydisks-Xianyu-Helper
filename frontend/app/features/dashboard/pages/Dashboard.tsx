@@ -6,6 +6,7 @@ import { formatLocalDateTime } from '../../../../dateTime';
 import { OrderStatus } from '../api';
 import { DashboardTrendChart } from '../DashboardTrendChart';
 import { useDashboard } from '../hooks';
+import { PageHeader } from '../../../../shared/ui/PageHeader';
 
 // cssColor 状态颜色样式。
 const cssColor = (token: string, alpha?: number) => (
@@ -128,7 +129,7 @@ const Dashboard: React.FC = () => {
 
   if (loadError && (!stats || !analytics)) {
     return (
-      <div className="p-8 flex flex-col items-center gap-3 text-red-600">
+      <div className="min-w-0 space-y-8 animate-fade-in">
         <AlertCircle className="w-8 h-8" />
         <span>{loadError}</span>
         <button type="button" className="ios-btn-primary px-4 py-2 rounded-xl" onClick={refresh}>重新加载</button>
@@ -180,18 +181,14 @@ const Dashboard: React.FC = () => {
           <button type="button" className="font-bold underline" onClick={refresh}>重试</button>
         </div>
       )}
-      <div className="flex flex-col md:flex-row justify-between md:items-end gap-4">
-        <div>
-          <h2 className="text-4xl font-extrabold text-gray-900 tracking-tight">运营概览</h2>
-          <p className="text-gray-500 mt-2 text-base">欢迎回来，以下是闲鱼店铺的实时经营数据。</p>
-        </div>
+      <PageHeader title="运营概览" description="欢迎回来，以下是闲鱼店铺的实时经营数据。">
         <div className="flex items-center gap-3">
           <div className="text-sm font-bold text-gray-700 bg-white px-5 py-2.5 rounded-full shadow-sm border border-gray-100 flex items-center gap-2">
             <span className="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse"></span>
             系统正常运行
           </div>
         </div>
-      </div>
+      </PageHeader>
 
       {/* Time Range Selector */}
       <div className="flex flex-wrap gap-2 p-2 bg-gray-100/50 rounded-2xl">

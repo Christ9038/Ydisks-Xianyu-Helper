@@ -3,6 +3,7 @@ import React,{ useState } from 'react';
 import { Area,AreaChart,CartesianGrid,ResponsiveContainer,Tooltip,XAxis,YAxis } from 'recharts';
 import { TimeRange, validateCustomDateRange } from '../../../../dateRange';
 import { useSalesStats } from '../hooks';
+import { PageHeader } from '../../../../shared/ui/PageHeader';
 
 /** 读取设计系统颜色变量。 */
 const cssColor = (token: string, alpha?: number) => (
@@ -85,19 +86,14 @@ const SalesStats: React.FC = () => {
   }));
 
   return (
-    <div className="space-y-8 animate-fade-in">
+    <div className="min-w-0 space-y-8 animate-fade-in">
       {error && data && (
         <div className="flex items-center justify-between gap-3 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
           <span>{error}</span>
           <button type="button" className="font-bold underline" onClick={refresh}>重试</button>
         </div>
       )}
-      <div className="flex flex-col md:flex-row justify-between md:items-end gap-4">
-        <div>
-          <h2 className="text-4xl font-extrabold text-gray-900 tracking-tight">销售统计</h2>
-          <p className="text-gray-500 mt-2 text-base">按订单创建时间统计一段时间内的销售额、已收货款与退货货款。</p>
-        </div>
-      </div>
+      <PageHeader title="销售统计" description="按订单创建时间统计一段时间内的销售额、已收货款与退货货款。" />
 
       {/* 时间范围选择 */}
       <div className="flex flex-wrap gap-2 p-2 bg-gray-100/50 rounded-2xl">

@@ -17,6 +17,7 @@ import { useAccountsData } from '../hooks';
 import { useAccountQRCodeLogin } from '../qrLogin';
 import { useAccountSubmodules,type AccountModalType } from '../submoduleHooks';
 import type { AccountEditForm } from '../types';
+import { PageHeader } from '../../../../shared/ui/PageHeader';
 
 // AccountList 渲染账号列表组件。
 const AccountList: React.FC = () => {
@@ -179,12 +180,8 @@ const AccountList: React.FC = () => {
   });
 
   return (
-    <div className="space-y-8 animate-fade-in relative">
-      <div className="flex flex-col xl:flex-row xl:justify-between xl:items-end gap-4">
-        <div>
-          <h2 className="text-4xl font-extrabold text-gray-900 tracking-tight">账号管理</h2>
-          <p className="text-gray-500 mt-2 font-medium">管理您的闲鱼授权账号及设置。建议给账号填写备注，便于多账号区分。</p>
-        </div>
+    <div className="min-w-0 space-y-8 animate-fade-in">
+      <PageHeader title="账号管理" description="管理您的闲鱼授权账号及设置。建议给账号填写备注，便于多账号区分。">
         <div className="flex flex-col sm:flex-row gap-3">
           <input
             value={accountSearch}
@@ -200,7 +197,7 @@ const AccountList: React.FC = () => {
             扫码添加新账号
           </button>
         </div>
-      </div>
+      </PageHeader>
 
       <div className="rounded-2xl border border-blue-100 bg-blue-50 px-5 py-4 text-sm text-blue-900 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
         <div className="font-bold">当前显示 {filteredAccounts.length} / {accounts.length} 个账号</div>

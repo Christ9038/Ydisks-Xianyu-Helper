@@ -14,6 +14,7 @@ import {
   runtimeLogSourceLabel,
 } from '../models';
 import type { RuntimeLogEntry,RuntimeLogLevel,RuntimeLogSource } from '../types';
+import { PageHeader } from '../../../../shared/ui/PageHeader';
 
 /** RuntimeLogRowProps 描述单条运行日志行的渲染输入。 */
 interface RuntimeLogRowProps {
@@ -97,17 +98,8 @@ const RuntimeLogs: React.FC = () => {
   }, [followLatest, entryCount]);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4 pb-16">
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-100">
-            <ScrollText className="h-6 w-6 text-gray-600" />
-          </div>
-          <div>
-            <h2 className="text-3xl font-extrabold text-gray-900">运行日志</h2>
-            <p className="mt-1 text-sm font-medium text-gray-500">查看内部接口、闲鱼接口与后台子系统的最近运行日志</p>
-          </div>
-        </div>
+    <div className="min-w-0 space-y-8 animate-fade-in">
+      <PageHeader title="运行日志" description="查看内部接口、闲鱼接口与后台子系统的最近运行日志">
         <div className="flex items-center gap-2">
           {runtimeLogs.loading && <span className="text-xs font-bold text-slate-400" role="status">加载中</span>}
           <button
@@ -135,7 +127,7 @@ const RuntimeLogs: React.FC = () => {
             清屏
           </button>
         </div>
-      </div>
+      </PageHeader>
 
       <div className="ios-card rounded-xl bg-white p-4">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">

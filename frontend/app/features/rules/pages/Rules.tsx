@@ -33,6 +33,7 @@ import { filterAutomationIssues } from '../issueState';
 import { useRuleActions } from '../ruleActions';
 import type { AutomationTriggerType,ReplyRule,RulesProps,RulesTab } from '../types';
 import { accentClasses,accountLabel,actionSummary,adjustPriceTarget,buildReviewConfig,reviewLookbackHours,cardActionsForTrigger,isDeliveryCardReady,needsAllItemsConfirmation,statusPill,triggerMeta,triggerOrder,withAllItemsConfirmation } from '../utils';
+import { PageHeader } from '../../../../shared/ui/PageHeader';
 
 // Rules 是规则 feature 在旧页面目录下保留的兼容入口组件。
 const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHandled }) => {
@@ -218,11 +219,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
 
   return (
     <div className="min-w-0 space-y-8 animate-fade-in">
-      <div className="flex flex-col xl:flex-row justify-between xl:items-end gap-4">
-        <div>
-          <h2 className="text-4xl font-extrabold text-gray-900 tracking-tight">自动化规则</h2>
-          <p className="text-gray-500 mt-2 font-medium">系统通知卡片只进入自动化判断；买家消息进入关键词、默认或 AI 回复。</p>
-        </div>
+      <PageHeader title="自动化规则" description="系统通知卡片只进入自动化判断；买家消息进入关键词、默认或 AI 回复。">
         <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3">
           <select
             value={selectedAccountId}
@@ -255,7 +252,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
           </button>
           )}
         </div>
-      </div>
+      </PageHeader>
 
       <div className="flex flex-wrap gap-2 p-2 bg-gray-100/50 rounded-2xl">
         {[

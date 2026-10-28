@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useDeliveryTemplates } from '../hooks';
 import type { DeliveryTemplate, DeliveryTemplateDraft } from '../types';
+import { PageHeader } from '../../../../shared/ui/PageHeader';
 
 // emptyDraft 创建一份可直接编辑的模板草稿。
 const emptyDraft = (): DeliveryTemplateDraft => ({ name: '', enabled: true, messages: [{ content: '' }] });
@@ -103,16 +104,11 @@ const DeliveryTemplates: React.FC = () => {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="min-w-0 space-y-8 animate-fade-in">
       {requestError && <div role="alert" className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">{requestError}</div>}
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-xs font-black uppercase tracking-[0.24em] text-sky-600">Delivery templates</p>
-          <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-950">发货模板</h1>
-          <p className="mt-2 text-sm text-slate-500">把多条消息和卡密变量组合成可复用的自动化发货内容。</p>
-        </div>
+      <PageHeader title="发货模板" description="把多条消息和卡密变量组合成可复用的自动化发货内容。">
         <button type="button" onClick={openNewTemplate} className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800"><Plus className="h-4 w-4" />新建模板</button>
-      </header>
+      </PageHeader>
 
       <div className="grid gap-4 md:grid-cols-2">
         {templates.map(/* template 是当前列表中的发货模板。 */ template => (

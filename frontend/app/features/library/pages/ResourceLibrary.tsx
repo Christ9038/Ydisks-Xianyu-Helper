@@ -12,6 +12,7 @@ import { defaultImageFilters, imageUsage, isImageFilterActive, queryImages, type
 import { countHidden, selectionState, toggleAllVisible } from '../selection';
 import { defaultTemplateFilters, isTemplateFilterActive, queryTemplates, type TemplateFilters } from '../templateQuery';
 import type { LibraryImage, ProductTemplate } from '../types';
+import { PageHeader } from '../../../../shared/ui/PageHeader';
 
 /** imageSortOptions 是图片排序下拉的选项。 */
 const imageSortOptions = [
@@ -132,17 +133,13 @@ const ResourceLibrary: React.FC<ResourceLibraryProps> = ({ onBatchStarted }) => 
   };
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <header className="flex flex-col md:flex-row justify-between md:items-end gap-4">
-        <div>
-          <h2 className="text-4xl font-extrabold text-gray-900 tracking-tight">本地资源库</h2>
-          <p className="text-gray-500 mt-2 font-medium">保存常用商品模板与图片，一键把同款商品铺到多个账号。</p>
-        </div>
+    <div className="min-w-0 space-y-8 animate-fade-in">
+      <PageHeader title="本地资源库" description="保存常用商品模板与图片，一键把同款商品铺到多个账号。">
         <div className="flex gap-2" role="tablist" aria-label="资源库分类">
           <button type="button" role="tab" aria-selected={tab === 'templates'} onClick={/* 切换到商品模板。 */ () => setTab('templates')} className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold ${tab === 'templates' ? 'bg-gray-950 text-white' : 'ios-btn-secondary '}`}><Package className="h-4 w-4" />商品模板</button>
           <button type="button" role="tab" aria-selected={tab === 'images'} onClick={/* 切换到图片库。 */ () => setTab('images')} className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold ${tab === 'images' ? 'bg-gray-950 text-white' : 'ios-btn-secondary '}`}><ImageIcon className="h-4 w-4" />图片库</button>
         </div>
-      </header>
+      </PageHeader>
 
       {notice.text && <div role="status" className={`rounded-xl border px-4 py-3 text-sm ${notice.tone === 'warn' ? 'border-amber-100 bg-amber-50 text-amber-800' : 'border-emerald-100 bg-emerald-50 text-emerald-800'}`}>{notice.text}</div>}
 

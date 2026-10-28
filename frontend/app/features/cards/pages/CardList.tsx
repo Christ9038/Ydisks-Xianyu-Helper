@@ -9,6 +9,7 @@ import { BatchCardImportModal } from '../components/BatchCardImportModal';
 import { CardIcon } from '../components/CardIcon';
 import { CardStockDialog } from '../components/CardStockDialog';
 import { useCardBatchActions,useCardsData } from '../hooks';
+import { PageHeader } from '../../../../shared/ui/PageHeader';
 
 // CardList 渲染卡密列表组件。
 const CardList: React.FC = () => {
@@ -49,12 +50,8 @@ const CardList: React.FC = () => {
   const [stockCard, setStockCard] = React.useState<Card | null>(null);
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div className="flex flex-col md:flex-row justify-between md:items-end gap-4">
-        <div>
-          <h2 className="text-4xl font-extrabold text-gray-900 tracking-tight">卡密库存</h2>
-          <p className="text-gray-500 mt-2 font-medium">管理自动发货的卡密、链接或图片资源。</p>
-        </div>
+    <div className="min-w-0 space-y-8 animate-fade-in">
+      <PageHeader title="卡密库存" description="管理自动发货的卡密、链接或图片资源。">
         <div className="flex items-center gap-3">
           <button
             onClick={batchState.openBatchModal}
@@ -71,7 +68,7 @@ const CardList: React.FC = () => {
           添加新卡密
         </button>
         </div>
-      </div>
+      </PageHeader>
 
       <div className="ios-card rounded-xl overflow-hidden shadow-lg border-0 bg-white">
         <div className="flex flex-col gap-3 border-b border-gray-50 bg-surface-muted p-4 sm:flex-row sm:items-center sm:justify-between">

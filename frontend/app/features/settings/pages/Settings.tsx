@@ -6,7 +6,6 @@ Eye,EyeOff,
 LockKeyhole,
 RefreshCw,
 Save,
-Settings as SettingsIcon,
 ShieldCheck,
 Sparkles,
 UserRound,
@@ -16,6 +15,7 @@ import React from 'react';
 import { DEFAULT_AI_API_URL,LOG_LEVELS } from '../constants';
 import { useNotificationSoundPreference } from '../../../../shared/browser/notificationSound';
 import { useSettings } from '../hooks';
+import { PageHeader } from '../../../../shared/ui/PageHeader';
 
 // Settings 展示系统配置、AI 模型和登录凭据编辑页面。
 const Settings: React.FC = () => {
@@ -50,18 +50,8 @@ const Settings: React.FC = () => {
   const visibleAIModels = aiModels;
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8 animate-fade-in pb-24">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 bg-gray-100 rounded-2xl flex items-center justify-center">
-              <SettingsIcon className="w-6 h-6 text-gray-600" />
-          </div>
-          <div>
-              <h2 className="text-3xl font-extrabold text-gray-900">系统设置</h2>
-              <p className="text-gray-500 mt-1 text-sm font-medium">配置全局自动化规则与系统参数</p>
-          </div>
-        </div>
+    <div className="min-w-0 space-y-8 animate-fade-in">
+      <PageHeader title="系统设置" description="配置全局自动化规则与系统参数">
         <button
           onClick={loadSettings}
           className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-xl font-bold text-gray-700 flex items-center gap-2 transition-colors"
@@ -69,7 +59,7 @@ const Settings: React.FC = () => {
           <RefreshCw className="w-4 h-4" />
           刷新
         </button>
-      </div>
+      </PageHeader>
 
       {saveError && (
         <div className="flex items-center justify-between gap-3 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">

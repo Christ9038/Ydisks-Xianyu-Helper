@@ -17,6 +17,7 @@ import { useItemPublishBatch } from '../hooks';
 import { useItemActions } from '../itemActions';
 import { matchesRuleCoverageFilter,paginateItems,TRADE_AUTOMATION_TRIGGERS,type RuleCoverageFilter } from '../ruleCoverage';
 import type { ItemListProps } from '../types';
+import { PageHeader } from '../../../../shared/ui/PageHeader';
 
 // formatItemPrice 将商品价格转换为本地化展示文本。
 const formatItemPrice = (price?: string) => {
@@ -286,12 +287,8 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery, publishImagesE
   }, [itemAISettingsTarget]);
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div className="flex flex-col xl:flex-row xl:justify-between xl:items-center gap-4">
-        <div>
-          <h2 className="text-3xl font-bold text-gray-900">商品管理</h2>
-          <p className="text-gray-500 mt-2 text-sm">监控并管理所有账号下的闲鱼商品。</p>
-        </div>
+    <div className="min-w-0 space-y-8 animate-fade-in">
+      <PageHeader title="商品管理" description="监控并管理所有账号下的闲鱼商品。">
         <div className="flex flex-wrap items-end gap-3">
             <div className="flex min-w-[200px] flex-col gap-1.5">
               <label htmlFor="item-sync-account" className="px-1 text-[11px] font-extrabold tracking-wide text-gray-500">
@@ -351,7 +348,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery, publishImagesE
               </button>
             )}
         </div>
-      </div>
+      </PageHeader>
 
       <div className="flex flex-wrap items-end gap-3">
             <div className="flex min-w-[200px] flex-col gap-1.5">
