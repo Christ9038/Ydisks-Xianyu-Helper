@@ -56,13 +56,7 @@ func outgoingRequestID(ctx context.Context) string {
 
 // handleSyncExtra 处理服务端增量同步帧并在需要时回传确认，返回解码或发送错误。
 func (c *Conn) handleSyncExtra(ctx context.Context, msg map[string]any) error {
-	// body 用于本次流程后续判断的请求体
-	body, _ := msg["body"].(map[string]any)
-	// extra 用于本次流程后续判断的extra
-	extra, _ := body["syncExtraType"].(map[string]any)
-	// typeCode、ok 用于本次流程后续判断的类型Code、ok
-	typeCode, ok := responseCode(extra["type"])
-	if !ok || (typeCode != 1 && typeCode != 2) {
+	if !syncExtraNeedsRecovery(msg) {
 		return nil
 	}
 	// state、err 用于本次流程后续判断的state、err
@@ -84,6 +78,60 @@ func (c *Conn) handleSyncExtra(ctx context.Context, msg map[string]any) error {
 		return fmt.Errorf("ackDiff 返回异常: code=%d", code)
 	}
 	return nil
+}
+
+// syncExtraNeedsRecovery 判断 Push 是否携带需要 getState/ackDiff 恢复的 syncExtraType（类型 1 或 2）。
+func syncExtraNeedsRecovery(msg map[string]any) bool {
+	// body 是 Push 的请求体，缺失时按空对象处理。
+	body, _ := msg["body"].(map[string]any)
+	// extra 是请求体中的同步附加类型。
+	extra, _ := body["syncExtraType"].(map[string]any)
+	// typeCode、ok 是附加类型码及其是否可解析。
+	typeCode, ok := responseCode(extra["type"])
+	return ok && (typeCode == 1 || typeCode == 2)
+}
+
+// startSyncRecovery 在后台合并执行同步状态恢复，保证同一连接上最多只有一个恢复 goroutine。
+//
+// 生命周期：goroutine 由 bg 登记，owner 是 Conn；Context 取自 readCtx，Close 先置 syncClosed 拒绝新任务，
+// 再取消 readCtx 并 Wait，因此不会在关闭后遗留。并发契约：syncMu 保护 syncClosed、syncRunning、syncRerun。
+// 恢复进行中又收到新的需恢复 Push 时只记录一次补跑，当前一轮结束后再执行一次，避免并发重复 getState/ackDiff 又不丢事件。
+func (c *Conn) startSyncRecovery(msg map[string]any) {
+	if !syncExtraNeedsRecovery(msg) {
+		return
+	}
+	c.syncMu.Lock()
+	if c.syncClosed {
+		c.syncMu.Unlock()
+		return
+	}
+	if c.syncRunning {
+		c.syncRerun = true
+		c.syncMu.Unlock()
+		return
+	}
+	c.syncRunning = true
+	// Add 在持锁且连接未关闭时执行，保证不会与 Close 中的 Wait 并发。
+	c.bg.Add(1)
+	c.syncMu.Unlock()
+	go func() {
+		defer c.bg.Done()
+		for {
+			// err 是单轮同步恢复（getState/ackDiff）的错误；连接已关闭导致的取消不记录。
+			if err := c.handleSyncExtra(c.readCtx, msg); err != nil && c.readCtx.Err() == nil {
+				c.logger.Error("同步状态恢复失败", "err", err)
+			}
+			c.syncMu.Lock()
+			if c.syncRerun && !c.syncClosed && c.readCtx.Err() == nil {
+				c.syncRerun = false
+				c.syncMu.Unlock()
+				continue
+			}
+			c.syncRunning, c.syncRerun = false, false
+			c.syncMu.Unlock()
+			return
+		}
+	}()
 }
 
 // sendACK 回复 {"code":200, headers:<服务端完整 headers>}。
@@ -540,8 +588,15 @@ func stripGoofish(s string) string {
 }
 
 // Close 关闭连接。
+// 关闭后会等待同步恢复 goroutine 退出；它们使用 readCtx，取消后在有限时间内返回。可重复调用。
 func (c *Conn) Close() error {
 	c.ensureReadPump()
+	c.syncMu.Lock()
+	c.syncClosed = true
+	c.syncMu.Unlock()
 	c.readCancel()
-	return c.ws.Close(websocket.StatusNormalClosure, "bye")
+	// closeErr 是 WebSocket 关闭握手的结果。
+	closeErr := c.ws.Close(websocket.StatusNormalClosure, "bye")
+	c.bg.Wait()
+	return closeErr
 }

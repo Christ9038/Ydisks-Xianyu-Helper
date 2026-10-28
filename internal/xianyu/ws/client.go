@@ -69,6 +69,17 @@ type Conn struct {
 	pendingMu sync.Mutex
 	pending   map[string]chan map[string]any
 	pushes    chan incomingFrame
+
+	// syncMu 保护 syncClosed、syncRunning、syncRerun；持锁期间不得执行 I/O。
+	syncMu sync.Mutex
+	// syncClosed 为 true 后不再启动同步恢复 goroutine，由 Close 设置。
+	syncClosed bool
+	// syncRunning 表示已有同步恢复 goroutine 在运行。
+	syncRunning bool
+	// syncRerun 表示恢复进行中又收到新的需恢复 Push，当前轮结束后需补跑一次。
+	syncRerun bool
+	// bg 登记同步恢复 goroutine，Close 负责 Wait。
+	bg sync.WaitGroup
 }
 
 // incomingFrame 用于本次流程后续判断的incomingFrame
@@ -659,6 +670,9 @@ func (c *Conn) HeartbeatLoop(ctx context.Context, interval time.Duration) error 
 	c.ensureReadPump()
 	// heartbeatCtx、cancel 用于本次流程后续判断的heartbeatCtx、cancel
 	heartbeatCtx, cancel := context.WithCancel(ctx)
+	// heartbeatWG 登记本循环启动的心跳请求 goroutine；defer 后进先出，返回前先 cancel 再 Wait，保证不遗留。
+	var heartbeatWG sync.WaitGroup
+	defer heartbeatWG.Wait()
 	defer cancel()
 	// ticker 用于本次流程后续判断的ticker
 	ticker := time.NewTicker(interval)
@@ -676,7 +690,9 @@ func (c *Conn) HeartbeatLoop(ctx context.Context, interval time.Duration) error 
 			_ = c.Close()
 			return fmt.Errorf("心跳响应失败: %w", err)
 		case <-ticker.C:
+			heartbeatWG.Add(1)
 			go func() {
+				defer heartbeatWG.Done()
 				// err 用于本次流程后续判断的err
 				_, err := c.request(heartbeatCtx, "/!", map[string]any{}, nil, heartbeatResponseTimeout)
 				if err == nil || heartbeatCtx.Err() != nil {
@@ -729,12 +745,7 @@ func (c *Conn) ReceiveLoop(ctx context.Context, onMessage func(decrypted map[str
 		}
 		// 官网异步启动 sync state 恢复，并立即完成当前 Push handler；不能
 		// 为 getState/ackDiff 最多阻塞 Push ACK 60 秒。
-		go func(message map[string]any) {
-			if // err 用于本次流程后续判断的err
-			err := c.handleSyncExtra(c.readCtx, message); err != nil && c.readCtx.Err() == nil {
-				c.logger.Error("同步状态恢复失败", "err", err)
-			}
-		}(raw)
+		c.startSyncRecovery(raw)
 
 		// 同步包可在一个帧中携带多条卡片；必须逐条解码，但 ACK 仍按原始帧只发送一次。
 		syncPayloads, ok := extractSyncPayloads(raw)

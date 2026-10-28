@@ -106,8 +106,12 @@ func (c *ClientImpl) httpClient() *http.Client {
 func (c *ClientImpl) httpClientWithTimeout(defaultTimeout time.Duration) *http.Client {
 	// hc 用于本次流程后续判断的hc
 	hc := c.HTTPClient
+	// roundTripTimeout 是交给节流传输层的单次往返超时；内置客户端不再设置整体 Timeout，
+	// 否则账号级节流排队时间会被计入超时，排队中的请求会在尚未发出时失败。
+	roundTripTimeout := time.Duration(0)
 	if hc == nil {
-		hc = &http.Client{Timeout: defaultTimeout}
+		hc = &http.Client{}
+		roundTripTimeout = defaultTimeout
 	}
 	// clone 用于本次流程后续判断的clone
 	clone := *hc
@@ -116,7 +120,7 @@ func (c *ClientImpl) httpClientWithTimeout(defaultTimeout time.Duration) *http.C
 	if transport == nil {
 		transport = http.DefaultTransport
 	}
-	clone.Transport = c.pacedTransport(loggingTransport{base: transport, logger: c.Logger})
+	clone.Transport = c.pacedTransport(loggingTransport{base: transport, logger: c.Logger}, roundTripTimeout)
 	return &clone
 }
 

@@ -3,6 +3,7 @@ package mtop
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -272,5 +273,73 @@ func TestProductionNeverInjectsHTTPClient(t *testing.T) {
 		if walkErr != nil {
 			t.Fatal(walkErr)
 		}
+	}
+}
+
+// newBlockingPacer 构造等待固定时长的节拍器，用于模拟账号级排队；sleep 遵守 ctx 取消。
+func newBlockingPacer(wait time.Duration) *Pacer {
+	return &Pacer{
+		next:   map[string]time.Time{},
+		now:    time.Now,
+		jitter: func() time.Duration { return 0 },
+		sleep: func(ctx context.Context, d time.Duration) error {
+			return sleepContext(ctx, wait)
+		},
+	}
+}
+
+// TestPacingTransportQueueWaitDoesNotCountTowardTimeout 验证节流排队时间不计入往返超时：
+// 排队时间超过 timeout 时，请求在取得时隙后仍应正常发出并成功。
+func TestPacingTransportQueueWaitDoesNotCountTowardTimeout(t *testing.T) {
+	// transport 的往返超时短于排队等待，下层传输立即成功。
+	transport := pacingTransport{
+		base: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: 200, Body: http.NoBody, Request: r}, nil
+		}),
+		pacer:   newBlockingPacer(120 * time.Millisecond),
+		timeout: 40 * time.Millisecond,
+	}
+	// req 是发往平台域名的请求，不含 unb，落入共享匿名节拍键。
+	req, _ := http.NewRequest(http.MethodGet, "https://h5api.m.goofish.com/x", nil)
+	// resp、err 保存经节流传输发出的响应与错误。
+	resp, err := transport.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("排队等待不应触发往返超时: %v", err)
+	}
+	resp.Body.Close()
+}
+
+// TestPacingTransportRoundTripTimeout 验证取得时隙后的网络往返仍受 timeout 约束，并在响应体关闭前保持有效。
+func TestPacingTransportRoundTripTimeout(t *testing.T) {
+	// hung 模拟平台不返回响应：阻塞到请求 Context 结束。
+	hung := roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		<-r.Context().Done()
+		return nil, r.Context().Err()
+	})
+	// transport 无排队等待，往返超时为 30ms。
+	transport := pacingTransport{base: hung, pacer: newBlockingPacer(0), timeout: 30 * time.Millisecond}
+	// req 是发往平台域名的请求。
+	req, _ := http.NewRequest(http.MethodGet, "https://h5api.m.goofish.com/x", nil)
+	// err 保存挂起往返的超时错误。
+	if _, err := transport.RoundTrip(req); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("往返应因超时失败, got %v", err)
+	}
+	// reqCtx 记录下层传输收到的请求 Context，用于检查响应体关闭前后其是否仍有效。
+	var reqCtx context.Context
+	transport.base = roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		reqCtx = r.Context()
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("ok")), Request: r}, nil
+	})
+	// resp、err 保存正常往返的响应与错误。
+	resp, err := transport.RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reqCtx.Err() != nil {
+		t.Fatalf("响应体关闭前 Context 不应被取消: %v", reqCtx.Err())
+	}
+	resp.Body.Close()
+	if reqCtx.Err() == nil {
+		t.Fatal("响应体关闭后应释放往返 Context")
 	}
 }

@@ -2,6 +2,7 @@ package mtop
 
 import (
 	"context"
+	"io"
 	"math/rand/v2"
 	"net"
 	"net/http"
@@ -145,12 +146,48 @@ type pacingTransport struct {
 	base http.RoundTripper
 	// pacer 是账号级节拍器。
 	pacer *Pacer
+	// timeout 是单次网络往返（含读取响应体）的截止时间，从取得账号时隙之后才开始计时；为零表示不额外限制。
+	// 节流排队时间不能计入超时，否则同账号排队的请求会在尚未发出时就因超时失败。
+	timeout time.Duration
+}
+
+// cancelOnCloseBody 在响应体关闭时释放往返超时的 Context，保证调用方读完响应体之前截止时间仍然有效。
+type cancelOnCloseBody struct {
+	// ReadCloser 是下层响应体。
+	io.ReadCloser
+	// cancel 释放本次往返的超时 Context。
+	cancel context.CancelFunc
+}
+
+// Close 先关闭下层响应体，再释放超时 Context。
+func (b cancelOnCloseBody) Close() error {
+	// err 是关闭下层响应体的结果，原样返回给调用方。
+	err := b.ReadCloser.Close()
+	b.cancel()
+	return err
+}
+
+// roundTripWithTimeout 在 timeout 内发送请求；timeout 为零时原样发送。
+func (t pacingTransport) roundTripWithTimeout(req *http.Request) (*http.Response, error) {
+	if t.timeout <= 0 {
+		return t.base.RoundTrip(req)
+	}
+	// ctx、cancel 是只覆盖本次网络往返的超时 Context。
+	ctx, cancel := context.WithTimeout(req.Context(), t.timeout)
+	// resp、err 是下层传输的响应与错误；失败时没有响应体可延后释放，必须立即取消超时 Context。
+	resp, err := t.base.RoundTrip(req.WithContext(ctx))
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	resp.Body = cancelOnCloseBody{ReadCloser: resp.Body, cancel: cancel}
+	return resp, nil
 }
 
 // RoundTrip 先等待账号时隙再发送请求；等待被取消时请求不会发出。
 func (t pacingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if t.pacer == nil || (t.pacer.skipLoopback && isLoopbackHost(req.URL.Host)) {
-		return t.base.RoundTrip(req)
+		return t.roundTripWithTimeout(req)
 	}
 	// gap 默认使用交互式间隔，后台批量请求使用更长间隔。
 	gap := DefaultPacerGap
@@ -163,12 +200,13 @@ func (t pacingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if waitErr := t.pacer.Wait(req.Context(), pacerAccountKey(req.Header), gap); waitErr != nil {
 		return nil, waitErr
 	}
-	return t.base.RoundTrip(req)
+	return t.roundTripWithTimeout(req)
 }
 
 // pacedTransport 用账号级节拍器包装下层传输。
 // 显式注入 HTTPClient 表示调用方自带传输（仅限本地测试替身，由 TestProductionNeverInjectsHTTPClient 守护），此时不限速。
-func (c *ClientImpl) pacedTransport(logged http.RoundTripper) http.RoundTripper {
+// timeout 是单次网络往返的截止时间，仅在使用内置 HTTP 客户端时由传输层从取得时隙后计时。
+func (c *ClientImpl) pacedTransport(logged http.RoundTripper, timeout time.Duration) http.RoundTripper {
 	// pacer 是本客户端使用的账号级节拍器；生产客户端的所有出站请求必须先经过它。
 	pacer := c.Pacer
 	if pacer == nil && c.HTTPClient == nil {
@@ -177,5 +215,5 @@ func (c *ClientImpl) pacedTransport(logged http.RoundTripper) http.RoundTripper 
 	if pacer == nil {
 		return logged
 	}
-	return pacingTransport{base: logged, pacer: pacer}
+	return pacingTransport{base: logged, pacer: pacer, timeout: timeout}
 }

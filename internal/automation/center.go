@@ -637,20 +637,13 @@ func (c *Center) prepareTask(ctx context.Context, task Task) (Task, error) {
 	}); err != nil {
 		return task, fmt.Errorf("保存自动化准备阶段订单事实: %w", err)
 	}
-	// needsDetail 用于本次流程后续判断的needsDetail
-	needsDetail := task.TriggerType == TriggerOrderPaid
 	if // existing、err 用于本次流程后续判断的existing、err
 	existing, err := c.store.Orders.Get(ctx, task.OrderID); err == nil && existing != nil {
 		task = mergeOrderIntoTask(task, existing)
-		if needsDetail && (existing.Quantity == "" || existing.Amount == "") {
-			needsDetail = true
-		}
-		// 规则是否多规格由 action.config_json 决定；这里无法提前知道命中的 action，
-		// 因此交易类事件统一补齐规格，确保后续规格映射有事实依据。
-		if needsDetail && (existing.SpecName == "" || existing.SpecValue == "") {
-			needsDetail = true
-		}
 	}
+	// needsDetail 表示是否需要向平台补齐订单详情：只有付款发货且本地事实不齐全时才请求，
+	// 事实已齐全（WS 事件与本地订单合并后）则跳过，避免每次付款事件和每次续跑都多一次平台请求。
+	needsDetail := task.TriggerType == TriggerOrderPaid && !paidOrderFactsComplete(task)
 	// fetcher 是构造期固定的订单详情查询器；执行过程中不允许替换依赖。
 	fetcher := c.dependencies.fetcher
 	if !needsDetail || fetcher == nil {
@@ -704,6 +697,13 @@ func (c *Center) prepareTask(ctx context.Context, task Task) (Task, error) {
 		return task, fmt.Errorf("保存订单详情事实: %w", err)
 	}
 	return task, requireReliablePaidQuantity(task)
+}
+
+// paidOrderFactsComplete 判断付款发货所需的订单事实是否已齐全：可靠的正整数数量、金额和完整规格组合（规格名与规格值）。
+// 规则匹配与多规格发货必须依据完整事实，不得按部分规格猜测；任一缺失都必须向平台补齐。
+func paidOrderFactsComplete(task Task) bool {
+	return requireReliablePaidQuantity(task) == nil && strings.TrimSpace(task.Amount) != "" &&
+		strings.TrimSpace(task.SpecName) != "" && strings.TrimSpace(task.SpecValue) != ""
 }
 
 // executeAction 将具体动作委托给发货动作执行器。

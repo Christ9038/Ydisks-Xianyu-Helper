@@ -121,6 +121,8 @@ func (s *Scheduler) scanPendingShipDeliveriesWithContextAndLimit(ctx context.Con
 	afterOrderID := ""
 	// sweepStartedAt 是本轮完整扫描的起点；只有扫完全部候选页才会据此清除本轮没再出现的订单观测记录。
 	sweepStartedAt := time.Now().UTC()
+	// blockedAccounts 记录本轮已遇到风控、会话失效或 Token 耗尽的账号，其余订单留待下一轮，不再请求平台。
+	blockedAccounts := map[string]struct{}{}
 	for {
 		if ctx.Err() != nil {
 			s.center.logger.Warn("待发货兜底扫描达到本轮时间预算", "err", ctx.Err())
@@ -147,6 +149,10 @@ func (s *Scheduler) scanPendingShipDeliveriesWithContextAndLimit(ctx context.Con
 				return
 			}
 			afterOrderID = order.OrderID
+			// blocked 表示该订单所属账号本轮已被平台阻断，其订单不再发起请求。
+			if _, blocked := blockedAccounts[order.CookieID]; blocked {
+				continue
+			}
 			// catchupReady、waitReason 保存当前订单是否已越过实时事件优先窗口及未放行原因。
 			catchupReady, waitReason := pendingShipCatchupReady(order, s.observePendingShip(order.OrderID, time.Now().UTC()), time.Now().UTC(), s.pendingShipSettleWindowValue())
 			if !catchupReady {
@@ -189,6 +195,9 @@ func (s *Scheduler) scanPendingShipDeliveriesWithContextAndLimit(ctx context.Con
 			// err 保存兜底任务执行错误；失败只影响当前订单。
 			if err := s.center.HandleTask(taskCtx, task); err != nil {
 				s.center.logger.Warn("待发货兜底任务执行失败", "account", order.CookieID, "order_id", order.OrderID, "err", err)
+				if isPlatformBlockErr(err) {
+					blockedAccounts[order.CookieID] = struct{}{}
+				}
 			}
 			cancel()
 		}

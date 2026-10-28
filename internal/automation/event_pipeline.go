@@ -107,7 +107,8 @@ func (m ruleMatcher) match(ctx context.Context, task Task) ([]db.AutomationRule,
 		if err != nil {
 			return nil, err
 		}
-		if rule == nil || rule.SKUMigrationStatus != "ready" {
+		// 规则被管理员停用后，不得再按冻结计划继续执行外部动作；恢复链路 runRecoveryTasks 已有同样的停用检查。
+		if rule == nil || !rule.Enabled || rule.SKUMigrationStatus != "ready" {
 			return nil, nil
 		}
 		return []db.AutomationRule{*rule}, nil

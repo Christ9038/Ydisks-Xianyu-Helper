@@ -12,7 +12,14 @@ import (
 	"time"
 
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/xianyu/mtop"
 )
+
+// isPlatformBlockErr 判断 err 是否表示该账号当前不应再向平台发出请求：风控验证、登录会话失效或 MTOP Token 无法恢复。
+// 批量扫描遇到这类错误必须立即停止同账号的其余任务，不能依赖冷却后自动重放。
+func isPlatformBlockErr(err error) bool {
+	return err != nil && (mtop.IsRiskVerificationErr(err) || mtop.IsSessionExpiredErr(err) || mtop.IsMTopTokenExpiredErr(err))
+}
 
 // defaultReviewRequestScanInterval 用于本次流程后续判断的defaultReview请求ScanInterval
 const defaultReviewRequestScanInterval = time.Minute
@@ -295,6 +302,8 @@ func (s *Scheduler) scanPendingShipResumesWithContextAndLimit(ctx context.Contex
 	triggeredCount := 0
 	// afterOrderID 是逐页扫描的稳定游标，确保本轮有界。
 	afterOrderID := ""
+	// blockedAccounts 记录本轮已遇到风控、会话失效或 Token 耗尽的账号，其余运行留待下一轮，不再请求平台。
+	blockedAccounts := map[string]struct{}{}
 	for {
 		if ctx.Err() != nil {
 			s.center.logger.Warn("待发货续跑扫描达到本轮时间预算", "err", ctx.Err())
@@ -320,6 +329,10 @@ func (s *Scheduler) scanPendingShipResumesWithContextAndLimit(ctx context.Contex
 				return
 			}
 			afterOrderID = candidate.Order.OrderID
+			// blocked 表示该运行所属账号本轮已被平台阻断，其运行不再发起请求。
+			if _, blocked := blockedAccounts[candidate.Order.CookieID]; blocked {
+				continue
+			}
 			// allowed、allowErr 保存账号可用性检查结果。
 			allowed, allowErr := s.center.accountAutomationAllowed(ctx, candidate.Order.CookieID)
 			if allowErr != nil {
@@ -391,6 +404,9 @@ func (s *Scheduler) scanPendingShipResumesWithContextAndLimit(ctx context.Contex
 			if err := s.center.HandleTask(taskCtx, task); err != nil {
 				s.center.logger.Warn("待发货续跑任务执行失败",
 					"account", candidate.Order.CookieID, "order_id", candidate.Order.OrderID, "err", err)
+				if isPlatformBlockErr(err) {
+					blockedAccounts[candidate.Order.CookieID] = struct{}{}
+				}
 			}
 			cancel()
 		}
@@ -416,15 +432,6 @@ func (s *Scheduler) pendingShipScanMaxTasksValue() int {
 	return defaultPendingShipScanMaxTasks
 }
 
-// scanDeferredTasks 领取并重放已到期延迟动作；错误独立记录，避免影响分钟级扫描的调度节奏。
-func (s *Scheduler) scanDeferredTasks(ctx context.Context) {
-	// deferredErr 保存本轮延迟动作状态收口错误，必须记录以便管理员追踪人工核对任务。
-	deferredErr := s.runDeferredTasks(ctx)
-	if deferredErr != nil {
-		s.center.logger.Error("自动化延迟任务状态收口失败", "err", deferredErr)
-	}
-}
-
 // runRecoveryTasks 封装运行Recovery任务列表业务协调。
 func (s *Scheduler) runRecoveryTasks(ctx context.Context) error {
 	// resultErr 汇总本轮恢复任务的持久化错误，调用方可据此触发统一告警。
@@ -435,8 +442,14 @@ func (s *Scheduler) runRecoveryTasks(ctx context.Context) error {
 		s.center.logger.Warn("扫描失败自动化运行失败", "err", err)
 		return err
 	}
+	// blockedAccounts 记录本轮已遇到风控、会话失效或 Token 耗尽的账号；其余恢复运行留待下一轮，不再请求平台。
+	blockedAccounts := map[string]struct{}{}
 	// run 表示当前遍历过程中的运行
 	for _, run := range runs {
+		// blocked 表示该恢复运行所属账号本轮已被平台阻断，其运行留待下一轮。
+		if _, blocked := blockedAccounts[run.CookieID]; blocked {
+			continue
+		}
 		if run.ActionStarted {
 			// reason 用于本次流程后续判断的原因
 			reason := "进程在外部动作执行期间中断，发送结果未知，已禁止自动重放"
@@ -524,6 +537,9 @@ func (s *Scheduler) runRecoveryTasks(ctx context.Context) error {
 		task.Raw["automation_rule_id"] = run.RuleID
 		// executeErr 保存恢复运行本轮执行的最终结果，用于区分成功、延期和失败。
 		executeErr := s.center.executeRule(ctx, task, *rule)
+		if isPlatformBlockErr(executeErr) {
+			blockedAccounts[run.CookieID] = struct{}{}
+		}
 		switch {
 		case executeErr == nil:
 			s.center.logger.Info("自动化恢复任务执行成功", "run_id", run.ID, "account", task.AccountID, "order_id", task.OrderID)
@@ -571,92 +587,6 @@ func recoveryNeedsSender(task Task, rule db.AutomationRule, cursor int) bool {
 	default:
 		return false
 	}
-}
-
-// runDeferredTasks 封装运行Deferred任务列表业务协调。
-func (s *Scheduler) runDeferredTasks(ctx context.Context) error {
-	// resultErr 汇总延迟任务最终状态写入失败，避免领取成功后状态异常被静默吞掉。
-	var resultErr error
-	// tasks、err 用于本次流程后续判断的tasks、err
-	tasks, err := s.center.store.Automation.ClaimDueDeferredTasks(ctx, 100)
-	if err != nil {
-		s.center.logger.Warn("扫描暂停期间自动化事件失败", "err", err)
-		return err
-	}
-	// pending 表示当前遍历过程中的pending
-	for _, pending := range tasks {
-		// task 用于本次流程后续判断的任务
-		var task Task
-		if // err 用于本次流程后续判断的err
-		err := json.Unmarshal([]byte(pending.TaskJSON), &task); err != nil {
-			// failureReason 是写入重试状态和人工处理通知共用的解析失败原因。
-			failureReason := "解析任务失败: " + err.Error()
-			// finishErr 表示解析失败后写入延迟任务重试或死信状态时的错误。
-			finishErr := s.center.store.Automation.FinishDeferredTask(ctx, pending.ID, pending.ClaimVersion, false, failureReason)
-			if finishErr != nil {
-				s.center.logger.Error("保存解析失败的暂停事件状态失败", "task_id", pending.ID, "err", finishErr)
-				s.notifyDeferredTaskNeedsReview(ctx, pending, Task{AccountID: pending.CookieID, TriggerType: pending.TriggerType}, failureReason+"；保存任务状态失败："+finishErr.Error())
-				resultErr = errors.Join(
-					resultErr,
-					errAutomationNeedsReview,
-					fmt.Errorf("保存解析失败的暂停事件状态失败: %w", finishErr),
-				)
-			} else {
-				s.center.logger.Warn("暂停期间自动化事件重放失败", "task_id", pending.ID, "account", pending.CookieID, "err", err)
-				if pending.ClaimVersion >= 5 {
-					s.notifyDeferredTaskNeedsReview(ctx, pending, Task{AccountID: pending.CookieID, TriggerType: pending.TriggerType}, failureReason+"；已达到自动重试上限")
-				}
-			}
-			continue
-		}
-		if task.Raw == nil {
-			task.Raw = map[string]any{}
-		}
-		task.Raw["automation_deferred_replay"] = true
-		// deferredAgain、runErr 用于本次流程后续判断的deferredAgain、runErr
-		deferredAgain, runErr := s.center.handleTask(ctx, task)
-		if deferredAgain {
-			// handleTask 已按新的 paused_until 重置同一任务；当前 claim 不再删除。
-			s.center.logger.Info("暂停期间自动化事件重放再次延期", "task_id", pending.ID, "account", task.AccountID, "trigger", task.TriggerType)
-			continue
-		}
-		// finishErr 保存暂停事件重放终态的持久化错误；只有它成功后才记录重放成功或失败。
-		finishErr := s.center.store.Automation.FinishDeferredTask(ctx, pending.ID, pending.ClaimVersion, runErr == nil, errorString(runErr))
-		if finishErr != nil {
-			s.center.logger.Warn("保存暂停事件重放结果失败", "task_id", pending.ID, "err", finishErr)
-			s.notifyDeferredTaskNeedsReview(ctx, pending, task, "暂停事件重放后无法保存任务状态："+finishErr.Error())
-			resultErr = errors.Join(resultErr, errAutomationNeedsReview, runErr, fmt.Errorf("保存暂停事件重放结果失败: %w", finishErr))
-			continue
-		}
-		if runErr == nil {
-			s.center.logger.Info("暂停期间自动化事件重放成功", "task_id", pending.ID, "account", task.AccountID, "trigger", task.TriggerType)
-		} else {
-			s.center.logger.Warn("暂停期间自动化事件重放失败", "task_id", pending.ID, "account", task.AccountID, "trigger", task.TriggerType, "err", runErr)
-			if pending.ClaimVersion >= 5 {
-				s.notifyDeferredTaskNeedsReview(ctx, pending, task, "暂停事件连续重放失败并已达到自动重试上限："+runErr.Error())
-			}
-		}
-	}
-	return resultErr
-}
-
-// notifyDeferredTaskNeedsReview 为进入死信或无法安全收口的延期自动化任务发送一次人工处理通知。
-func (s *Scheduler) notifyDeferredTaskNeedsReview(ctx context.Context, pending db.DeferredAutomationTask, task Task, reason string) {
-	if s == nil || s.center == nil {
-		return
-	}
-	if task.AccountID == "" {
-		task.AccountID = pending.CookieID
-	}
-	if task.TriggerType == "" {
-		task.TriggerType = pending.TriggerType
-	}
-	// notificationKey 是同一延期任务共享的稳定人工处理通知键，重复扫描不会制造重复告警。
-	notificationKey := fmt.Sprintf("manual-intervention:deferred-task:%d", pending.ID)
-	// notifyCtx 保证任务状态写失败或原始重放预算取消后，告警仍有独立的短时入队预算。
-	notifyCtx, notifyCancel := newAutomationRunCompensationContext(ctx)
-	s.center.notifications.notifyManualIntervention(notifyCtx, task, "暂停自动化事件重放", reason, notificationKey)
-	notifyCancel()
 }
 
 // errorString 封装错误String业务协调。
