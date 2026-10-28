@@ -50,6 +50,10 @@ const transportPayload = {
       item_id: 'item-1',
       order_id: 'order-1',
       chat_id: 'chat-1',
+      caller: 'engine/reply.go:312',
+      func: 'engine.(*ReplyService).Handle',
+      route: '/api/v1/orders/{order_id}',
+      run_id: 'run-1',
       details: [{ key: 'http_status', value: '500' }],
     },
     {
@@ -94,6 +98,10 @@ describe('runtime logs API adapter', /* 运行日志 API 适配测试覆盖传�
     expect(entry.itemId).toBe('item-1');
     expect(entry.orderId).toBe('order-1');
     expect(entry.chatId).toBe('chat-1');
+    expect(entry.caller).toBe('engine/reply.go:312');
+    expect(entry.func).toBe('engine.(*ReplyService).Handle');
+    expect(entry.route).toBe('/api/v1/orders/{order_id}');
+    expect(entry.runId).toBe('run-1');
     expect(entry.details).toEqual([{ key: 'http_status', value: '500' }]);
   });
 
@@ -117,6 +125,10 @@ describe('runtime logs API adapter', /* 运行日志 API 适配测试覆盖传�
     expect(fallbackEntry.itemId).toBe('');
     expect(fallbackEntry.orderId).toBe('');
     expect(fallbackEntry.chatId).toBe('');
+    expect(fallbackEntry.caller).toBe('');
+    expect(fallbackEntry.func).toBe('');
+    expect(fallbackEntry.route).toBe('');
+    expect(fallbackEntry.runId).toBe('');
     expect(fallbackEntry.details).toEqual([]);
   });
 

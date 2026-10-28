@@ -27,6 +27,10 @@ func TestRuntimeLogSourceSnapshotConvertsEntries(t *testing.T) {
 			slog.String("item_id", "item-1"),
 			slog.String("order_id", "order-1"),
 			slog.String("chat_id", "chat-1"),
+			slog.String("caller", "server/server.go:260"),
+			slog.String("func", "server.(*Server).requestLogger"),
+			slog.String("route", "/api/v1/orders"),
+			slog.String("run_id", "run-1"),
 			slog.String("legacy_api", "true"),
 		})
 	buffer.Append(time.Unix(11, 0), slog.LevelError, "MTOP 响应失败",
@@ -57,6 +61,9 @@ func TestRuntimeLogSourceSnapshotConvertsEntries(t *testing.T) {
 	}
 	if httpRecord.AccountID != "acc-1" || httpRecord.ItemID != "item-1" || httpRecord.OrderID != "order-1" || httpRecord.ChatID != "chat-1" {
 		t.Fatalf("HTTP 记录业务标识异常: %+v", httpRecord)
+	}
+	if httpRecord.Caller != "server/server.go:260" || httpRecord.Func != "server.(*Server).requestLogger" || httpRecord.Route != "/api/v1/orders" || httpRecord.RunID != "run-1" {
+		t.Fatalf("HTTP 记录调用位置与关联字段异常: %+v", httpRecord)
 	}
 	if len(httpRecord.Details) != 1 || httpRecord.Details[0].Key != "legacy_api" {
 		t.Fatalf("未识别属性应进入 Details: %+v", httpRecord.Details)

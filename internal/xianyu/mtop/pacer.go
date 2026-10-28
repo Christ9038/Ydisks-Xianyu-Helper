@@ -3,6 +3,7 @@ package mtop
 import (
 	"context"
 	"io"
+	"log/slog"
 	"math/rand/v2"
 	"net"
 	"net/http"
@@ -24,6 +25,12 @@ const (
 
 // pacingContextKey 是上下文中标记“后台批量请求”的私有键，避免与其他包的键冲突。
 type pacingContextKey struct{}
+
+// pacerWaitContextKey 是请求上下文中保存节流排队时长的私有键，供日志传输层输出 wait 字段。
+type pacerWaitContextKey struct{}
+
+// pacerSlowWait 是节流排队超过后需要告警的时长：说明同一账号请求积压，调用方应检查是否存在扇出。
+const pacerSlowWait = 10 * time.Second
 
 // WithBackgroundPacing 标记 ctx 派生的 MTOP 请求属于后台批量任务，使用更长的账号级请求间隔。
 func WithBackgroundPacing(ctx context.Context) context.Context {
@@ -146,6 +153,10 @@ type pacingTransport struct {
 	base http.RoundTripper
 	// pacer 是账号级节拍器。
 	pacer *Pacer
+	// logger 用于输出节流排队过长告警；为空时使用进程默认日志器。
+	logger *slog.Logger
+	// slowWait 是触发排队过长告警的阈值；为零时使用 pacerSlowWait，仅测试需要覆盖。
+	slowWait time.Duration
 	// timeout 是单次网络往返（含读取响应体）的截止时间，从取得账号时隙之后才开始计时；为零表示不额外限制。
 	// 节流排队时间不能计入超时，否则同账号排队的请求会在尚未发出时就因超时失败。
 	timeout time.Duration
@@ -196,11 +207,28 @@ func (t pacingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if background {
 		gap = BackgroundPacerGap
 	}
+	// waitStarted 是开始等待账号时隙的时刻，用于计算排队时长。
+	waitStarted := time.Now()
 	// waitErr 是等待账号时隙时的取消错误，非空时请求不会发出。
 	if waitErr := t.pacer.Wait(req.Context(), pacerAccountKey(req.Header), gap); waitErr != nil {
 		return nil, waitErr
 	}
-	return t.roundTripWithTimeout(req)
+	// waited 是实际排队时长；记录进请求上下文后由日志传输层输出，避免在两层传输之间新增共享状态。
+	waited := time.Since(waitStarted)
+	// threshold 是实际生效的告警阈值。
+	threshold := t.slowWait
+	if threshold <= 0 {
+		threshold = pacerSlowWait
+	}
+	if waited > threshold {
+		// logger 是排队过长告警使用的日志器。
+		logger := t.logger
+		if logger == nil {
+			logger = slog.Default()
+		}
+		logger.LogAttrs(req.Context(), slog.LevelWarn, "MTOP 节流排队时间过长", slog.String("log_source", "mtop"), slog.String("path", req.URL.Path), slog.Duration("wait", waited.Round(time.Millisecond)), slog.Bool("background", background))
+	}
+	return t.roundTripWithTimeout(req.WithContext(context.WithValue(req.Context(), pacerWaitContextKey{}, waited)))
 }
 
 // pacedTransport 用账号级节拍器包装下层传输。
@@ -215,5 +243,5 @@ func (c *ClientImpl) pacedTransport(logged http.RoundTripper, timeout time.Durat
 	if pacer == nil {
 		return logged
 	}
-	return pacingTransport{base: logged, pacer: pacer, timeout: timeout}
+	return pacingTransport{base: logged, pacer: pacer, logger: c.Logger, timeout: timeout}
 }

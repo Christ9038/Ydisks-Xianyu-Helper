@@ -255,7 +255,7 @@ func (s *Scheduler) scan(ctx context.Context) {
 	pendingCancel()
 	// accountID、count 表示当前遍历过程中的账号ID、count
 	for accountID, count := range waitingForWS {
-		s.center.logger.Info("账号 WebSocket 尚未就绪，求评价任务等待下次扫描", "account", accountID, "orders", count)
+		s.center.logger.Debug("账号 WebSocket 尚未就绪，求评价任务等待下次扫描", "account", accountID, "orders", count)
 	}
 }
 

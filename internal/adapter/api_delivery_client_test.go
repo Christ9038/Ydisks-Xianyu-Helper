@@ -1,6 +1,7 @@
 package adapter
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 
 	cardsapp "xianyu-go/internal/application/cards"
 	"xianyu-go/internal/automation"
+	"xianyu-go/internal/logging"
 )
 
 // TestAPICardTesterReturnsResponseDiagnostics 验证测试请求返回状态码、JSON 顶层字段和响应路径提取结果。
@@ -371,5 +373,45 @@ func TestAPIDeliveryClientPreservesJSONNumbers(t *testing.T) {
 	})
 	if err != nil || result.Content != "9007199254740993" {
 		t.Fatalf("JSON 大整数被错误转换 result=%+v err=%v", result, err)
+	}
+}
+
+// TestAPIDeliveryClientLogsHostOnlyWithStatusAndDuration 验证 API 卡请求摘要只记录目标主机、状态与耗时，且不泄漏路径、查询或密钥；非 2xx 提升为 Warn。
+func TestAPIDeliveryClientLogsHostOnlyWithStatusAndDuration(t *testing.T) {
+	// status 是测试服务本次返回的状态码。
+	status := http.StatusOK
+	// server 是返回固定响应的本地测试服务。
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.WriteHeader(status)
+		_, _ = writer.Write([]byte(`{"code":"C"}`))
+	}))
+	defer server.Close()
+	// logs 收集日志文本；client 使用该日志器。
+	var logs bytes.Buffer
+	// client 是使用测试日志器的 API 发货客户端。
+	client := &apiDeliveryClient{logger: logging.NewLogger(&logs, "text")}
+	// fetch 对测试服务发起一次带路径密钥和查询密钥的请求。
+	fetch := func() {
+		_, _ = client.Fetch(context.Background(), automation.APICardRequest{
+			Config:     fmt.Sprintf(`{"url":%q,"method":"GET","timeout_seconds":10,"params":{"key":"secret-query"},"response_path":"code"}`, server.URL+"/path-secret"),
+			TriggerKey: "trigger-log", ActionID: 2, CardID: 3, UnitIndex: 1, TotalUnits: 1, AccountID: "account", OrderID: "order-1",
+		})
+	}
+	fetch()
+	status = http.StatusBadRequest
+	fetch()
+	// out 是写出的日志文本。
+	out := logs.String()
+	// want 是当前断言要求输出中出现的内容片段。
+	for _, want := range []string{"API 卡发货请求完成", "host=127.0.0.1", "status=200", "status=400", "level=WARN", "duration="} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("日志缺少 %q: %s", want, out)
+		}
+	}
+	// leaked 是不允许出现在日志中的敏感片段。
+	for _, leaked := range []string{"path-secret", "secret-query"} {
+		if strings.Contains(out, leaked) {
+			t.Fatalf("日志泄漏 %q: %s", leaked, out)
+		}
 	}
 }

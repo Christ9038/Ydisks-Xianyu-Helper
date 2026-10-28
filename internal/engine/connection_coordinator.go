@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
+	"xianyu-go/internal/logging"
 	"xianyu-go/internal/xianyu/mtop"
 	"xianyu-go/internal/xianyu/ws"
 )
@@ -32,6 +34,8 @@ func (c *connectionCoordinator) run(parent context.Context) error {
 	}
 	// ctx、cancel 保存当前 Run 派生的可取消运行上下文及其取消函数。
 	ctx, cancel := context.WithCancel(parent)
+	// 账号标识挂到运行 ctx：Token 获取、续期等下游 MTOP/WS 日志无需逐处传参即可按账号检索。
+	ctx = logging.With(ctx, slog.String("account", a.CookieID))
 	defer func() {
 		cancel()
 		// shutdownCtx、shutdownCancel 提供独立于 parent 取消状态的有限 Join 预算；

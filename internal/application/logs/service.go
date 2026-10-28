@@ -100,6 +100,14 @@ type Record struct {
 	OrderID string
 	// ChatID 是记录关联的会话标识；缺失时为空。
 	ChatID string
+	// Caller 是写出该记录的源码位置（相对 internal 的文件路径:行号）；缺失时为空。
+	Caller string
+	// Func 是写出该记录的包名.方法名；缺失时为空。
+	Func string
+	// Route 是 HTTP 请求匹配的路由模板；非 HTTP 来源为空。
+	Route string
+	// RunID 是记录关联的自动化运行标识；缺失时为空。
+	RunID string
 	// Details 是其余附加属性，数量与单值长度都由来源限制。
 	Details []Detail
 }

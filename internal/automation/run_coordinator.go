@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/logging"
 )
 
 // automationRunCompensationTimeout 限制动作取消后的状态补偿写入时间，避免安全收口无限等待数据库。
@@ -64,6 +65,16 @@ func (r automationRunCoordinator) executeRule(ctx context.Context, task Task, ru
 		return errors.New("自动化运行记录缺失，已停止执行外部动作")
 	}
 	task = preparedTask
+	// 把运行关联标识挂到 ctx：动作执行中的 MTOP 请求、发卡、通知等下游日志无需逐处传参即可按 run_id 串联。
+	ctx = logging.With(ctx,
+		slog.Int64("run_id", run.ID),
+		slog.String("account", task.AccountID),
+		slog.String("order_id", task.OrderID),
+		slog.String("trigger", string(task.TriggerType)),
+		slog.Int64("rule_id", rule.ID),
+	)
+	// runStarted 是本次运行开始执行动作的时刻，用于输出运行耗时。
+	runStarted := time.Now()
 	// status 是运行完成时写入数据库的结果状态。
 	status := "success"
 	// errMsg 是运行完成时记录的可重试或人工核对原因。
@@ -98,9 +109,14 @@ func (r automationRunCoordinator) executeRule(ctx context.Context, task Task, ru
 		if r.hasNotifier() {
 			r.notifyResult(finishCtx, task, run.ID, status, sent, errMsg)
 		}
-		if status == "success" {
-			r.logger.Info("自动化规则执行成功", "run_id", run.ID, "account", task.AccountID,
-				"order_id", task.OrderID, "trigger", task.TriggerType, "sent_count", sent)
+		// 运行终态摘要：成功为 Info，失败为 Warn，转人工核对为 Error；run_id 等关联字段来自 ctx。
+		switch status {
+		case "success":
+			r.logger.InfoContext(ctx, "自动化规则执行成功", "status", status, "sent_count", sent, "duration", time.Since(runStarted).Round(time.Millisecond))
+		case "needs_review":
+			r.logger.ErrorContext(ctx, "自动化规则转人工核对", "status", status, "sent_count", sent, "duration", time.Since(runStarted).Round(time.Millisecond), "reason", errMsg)
+		default:
+			r.logger.WarnContext(ctx, "自动化规则执行失败", "status", status, "sent_count", sent, "duration", time.Since(runStarted).Round(time.Millisecond), "reason", errMsg)
 		}
 	}()
 	// actions 是当前规则生成的完整动作计划。
@@ -126,6 +142,7 @@ func (r automationRunCoordinator) executeRule(ctx context.Context, task Task, ru
 			r.notifyResult(notifyCtx, task, run.ID, "needs_review", sent, actionErr.Error())
 			notifyCancel()
 		}
+		r.logger.ErrorContext(ctx, "自动化规则转人工核对", "status", "needs_review", "sent_count", sent, "duration", time.Since(runStarted).Round(time.Millisecond), "reason", actionErr.Error())
 		return actionErr
 	}
 	if actionErr != nil {
@@ -149,6 +166,7 @@ func (r automationRunCoordinator) executeRule(ctx context.Context, task Task, ru
 				r.notifyResult(notifyCtx, task, run.ID, "needs_review", sent, reason)
 				notifyCancel()
 			}
+			r.logger.ErrorContext(ctx, "自动化规则转人工核对", "status", "needs_review", "sent_count", sent, "duration", time.Since(runStarted).Round(time.Millisecond), "reason", reason)
 			return fmt.Errorf("%w: %v", errAutomationNeedsReview, actionErr)
 		}
 		status, errMsg = "failed", actionErr.Error()
@@ -179,6 +197,7 @@ func (r automationRunCoordinator) executeRule(ctx context.Context, task Task, ru
 				r.notifyResult(notifyCtx, task, run.ID, "needs_review", sent, reason)
 				notifyCancel()
 			}
+			r.logger.ErrorContext(ctx, "自动化规则转人工核对", "status", "needs_review", "sent_count", sent, "duration", time.Since(runStarted).Round(time.Millisecond), "reason", reason)
 			return fmt.Errorf("%w: %v", errAutomationNeedsReview, incrementErr)
 		}
 	}

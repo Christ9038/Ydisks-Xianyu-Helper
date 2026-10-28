@@ -21,6 +21,7 @@ import (
 	cardsapp "xianyu-go/internal/application/cards"
 	"xianyu-go/internal/automation"
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/logsafe"
 	"xianyu-go/internal/netguard"
 )
 
@@ -319,17 +320,29 @@ func (c *apiDeliveryClient) doAPIRequest(ctx context.Context, config cardsapp.AP
 	}
 	// response、err 保存远端响应及网络调用错误。
 	client := c.httpClient()
+	// started 是请求发出时刻；host 只记录目标主机，不记录路径、查询和正文，避免第三方密钥进入日志。
+	started := time.Now()
+	// host 是远端 API 的主机，仅用于日志定位目标服务。
+	host := request.URL.Host
 	// response、err 保存远端响应及网络调用错误。
 	response, err := client.Do(request)
 	if err != nil {
 		if ctx.Err() != nil {
 			return automation.APICardResult{}, ctx.Err()
 		}
+		if c.logger != nil {
+			c.logger.WarnContext(ctx, "API 卡发货请求网络失败", "host", host, "method", config.Method, "attempt", attempt, "duration", time.Since(started).Round(time.Millisecond), "err", logsafe.ExternalError(err))
+		}
 		return automation.APICardResult{Dispatched: true}, &apiDeliveryRetryableError{kind: "network", err: err}
 	}
 	defer response.Body.Close()
 	if c.logger != nil {
-		c.logger.Info("API 卡发货请求完成", "method", config.Method, "attempt", attempt, "status", response.StatusCode)
+		// level 在远端返回非 2xx 时提升为 Warn，便于从日志直接发现第三方接口异常。
+		level := slog.LevelInfo
+		if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+			level = slog.LevelWarn
+		}
+		c.logger.Log(ctx, level, "API 卡发货请求完成", "host", host, "method", config.Method, "attempt", attempt, "status", response.StatusCode, "duration", time.Since(started).Round(time.Millisecond))
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		// readErr 保存受限读取暂时性错误，不读取响应正文到日志。

@@ -63,6 +63,14 @@ type runtimeLogEntryDTO struct {
 	OrderID string `json:"order_id,omitempty"`
 	// ChatID 是记录关联的会话标识；缺失时省略。
 	ChatID string `json:"chat_id,omitempty"`
+	// Caller 是写出该记录的源码位置（文件路径:行号）；缺失时省略。
+	Caller string `json:"caller,omitempty"`
+	// Func 是写出该记录的包名.方法名；缺失时省略。
+	Func string `json:"func,omitempty"`
+	// Route 是 HTTP 请求匹配的路由模板；缺失时省略。
+	Route string `json:"route,omitempty"`
+	// RunID 是记录关联的自动化运行标识；缺失时省略。
+	RunID string `json:"run_id,omitempty"`
 	// Details 是其余附加属性；没有时省略。
 	Details []runtimeLogDetailDTO `json:"details,omitempty"`
 }
@@ -221,6 +229,10 @@ func newRuntimeLogEntryDTO(record logsapp.Record) runtimeLogEntryDTO {
 		ItemID:     record.ItemID,
 		OrderID:    record.OrderID,
 		ChatID:     record.ChatID,
+		Caller:     record.Caller,
+		Func:       record.Func,
+		Route:      record.Route,
+		RunID:      record.RunID,
 	}
 	if len(record.Details) == 0 {
 		return entry

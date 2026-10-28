@@ -139,10 +139,22 @@ func (r *ReplyService) Handle(ctx context.Context, m ChatMessage) error {
 	r.handleItemGreeting(ctx, m)
 	// res 用于本次流程后续判断的响应
 	res := r.resolve(ctx, m)
-	if res == nil || res.Skip {
+	if res == nil {
+		r.logger.DebugContext(ctx, "自动回复未命中任何规则，不回复")
 		return nil
 	}
-	return r.deliver(ctx, m, res)
+	if res.Skip {
+		r.logger.DebugContext(ctx, "自动回复命中空回复规则，不发送", "reply_source", res.Source)
+		return nil
+	}
+	// started 是投递开始时刻，用于输出一条消息一行的回复决策摘要耗时。
+	started := time.Now()
+	// err 是本次回复投递失败的原因，非空时不输出成功摘要。
+	if err := r.deliver(ctx, m, res); err != nil {
+		return err
+	}
+	r.logger.InfoContext(ctx, "自动回复已发送", "reply_source", res.Source, "duration", time.Since(started).Round(time.Millisecond))
+	return nil
 }
 
 // handleItemGreeting 在会话首条命中商品规则的消息上发送一次商品首次回复。
@@ -157,7 +169,7 @@ func (r *ReplyService) handleItemGreeting(ctx context.Context, m ChatMessage) {
 		return
 	}
 	if err != nil {
-		r.logger.Error("读取商品首次回复规则失败", "err", err)
+		r.logger.ErrorContext(ctx, "读取商品首次回复规则失败", "err", err)
 		return
 	}
 	// res 保存首次回复内容，使用商品首次回复专属的一次性记录。
@@ -173,7 +185,7 @@ func (r *ReplyService) handleItemGreeting(ctx context.Context, m ChatMessage) {
 	}
 	// deliverErr 保存首次回复投递错误，仅记录日志不阻断后续回复。
 	if deliverErr := r.deliver(ctx, m, res); deliverErr != nil {
-		r.logger.Error("商品首次回复发送失败", "err", deliverErr)
+		r.logger.ErrorContext(ctx, "商品首次回复发送失败", "err", deliverErr)
 	}
 }
 
@@ -239,7 +251,7 @@ func (r *ReplyService) handleWithDelivery(ctx context.Context, m ChatMessage, re
 		}
 	}
 	if sendErr != nil {
-		r.logger.Error("通过聊天应用发送回复失败", "err", sendErr)
+		r.logger.ErrorContext(ctx, "通过聊天应用发送回复失败", "err", sendErr)
 		if sent.Uncertain {
 			r.markReplyUncertain(ctx, res, m, sendErr)
 			return sendErr
@@ -298,7 +310,7 @@ func (r *ReplyService) markReplyUncertain(ctx context.Context, res *ReplyResult,
 		defer cancel()
 		// persistErr 保存未知投递结果隔离失败，便于运维发现无法持久化的人工核对状态。
 		if persistErr := r.records(res).MarkRecordUncertain(persistCtx, r.cookieID, m.ChatID, cause.Error()); persistErr != nil {
-			r.logger.Error("隔离未知默认回复结果失败", "err", persistErr)
+			r.logger.ErrorContext(ctx, "隔离未知默认回复结果失败", "err", persistErr)
 		}
 	}
 }
@@ -309,7 +321,7 @@ func (r *ReplyService) resolve(ctx context.Context, m ChatMessage) *ReplyResult 
 	if r.api != nil {
 		if // res、err 用于本次流程后续判断的res、err
 		res, err := r.api.Reply(ctx, m); err != nil {
-			r.logger.Error("API 回复失败", "err", err)
+			r.logger.ErrorContext(ctx, "API 回复失败", "err", err)
 		} else if res != nil {
 			res.Source = "API"
 			return res
@@ -325,7 +337,7 @@ func (r *ReplyService) resolve(ctx context.Context, m ChatMessage) *ReplyResult 
 	if r.ai != nil {
 		if // res、err 用于本次流程后续判断的res、err
 		res, err := r.ai.Reply(ctx, m); err != nil {
-			r.logger.Error("AI 回复失败", "err", err)
+			r.logger.ErrorContext(ctx, "AI 回复失败", "err", err)
 		} else if res != nil {
 			res.Source = "AI"
 			return res
@@ -523,7 +535,7 @@ func (r *ReplyService) itemGreetingTriggered(ctx context.Context, m ChatMessage)
 	// triggered、err 保存会话是否已触发商品首次回复及读取错误。
 	triggered, err := r.store.ItemGreetings.HasRecord(ctx, r.cookieID, m.ChatID)
 	if err != nil {
-		r.logger.Error("读取商品首次回复记录失败", "err", err)
+		r.logger.ErrorContext(ctx, "读取商品首次回复记录失败", "err", err)
 		return false
 	}
 	return triggered

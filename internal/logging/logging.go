@@ -23,7 +23,7 @@ func init() {
 // NewLogger 封装NewLogger业务协调。
 func NewLogger(w io.Writer, format string) *slog.Logger {
 	// opts 用于本次流程后续判断的opts
-	opts := &slog.HandlerOptions{Level: &Level}
+	opts := &slog.HandlerOptions{Level: levelFloor{}}
 	// handler 保存底层格式化处理器，并在写出前统一清理日志属性中的敏感数据。
 	var handler slog.Handler
 	if strings.EqualFold(strings.TrimSpace(format), "json") {
@@ -31,8 +31,9 @@ func NewLogger(w io.Writer, format string) *slog.Logger {
 	} else {
 		handler = slog.NewTextHandler(w, opts)
 	}
+	// 处理器链自外向内：模块等级裁剪 -> 重复抑制 -> 脱敏（含调用位置与 ctx 关联属性）-> 运行时缓冲 -> 格式化。
 	// 脱敏处理器位于缓冲处理器之外，保证写入运行时缓冲的属性已完成凭证清理。
-	return slog.New(newRedactingHandler(&runtimeBufferHandler{next: handler}))
+	return slog.New(newLevelHandler(newDedupHandler(newRedactingHandler(&runtimeBufferHandler{next: handler}), nil)))
 }
 
 // redactingHandler 在底层 slog 处理器前统一移除日志中的平台凭证和诊断秘密。
@@ -62,10 +63,29 @@ func (h *redactingHandler) Handle(ctx context.Context, record slog.Record) error
 	sanitized := slog.NewRecord(record.Time, record.Level, logsafe.Text(record.Message), record.PC)
 	// attrs 保存经过递归清理的记录属性。
 	attrs := make([]slog.Attr, 0, record.NumAttrs())
+	// present 记录单条日志已显式携带的键，ctx 关联属性与调用位置不得覆盖它们。
+	present := make(map[string]struct{}, record.NumAttrs())
 	record.Attrs(func(attr slog.Attr) bool {
 		attrs = append(attrs, redactAttr(attr))
+		present[attr.Key] = struct{}{}
 		return true
 	})
+	// ctxAttr 是 ctx 上挂载的 request_id、run_id、account 等关联属性，同样经过脱敏。
+	for _, ctxAttr := range AttrsFrom(ctx) {
+		// exists 表示该键已由记录显式携带，ctx 属性或调用位置不得覆盖它。
+		if _, exists := present[ctxAttr.Key]; exists {
+			continue
+		}
+		attrs = append(attrs, redactAttr(ctxAttr))
+		present[ctxAttr.Key] = struct{}{}
+	}
+	// callerAttr 是由记录 PC 解析的文件行号与方法名，调用方显式传入同名键时保持其值。
+	for _, callerAttr := range callerAttrs(record.PC) {
+		// exists 表示该键已由记录显式携带，ctx 属性或调用位置不得覆盖它。
+		if _, exists := present[callerAttr.Key]; !exists {
+			attrs = append(attrs, callerAttr)
+		}
+	}
 	sanitized.AddAttrs(attrs...)
 	return h.next.Handle(ctx, sanitized)
 }
@@ -153,14 +173,20 @@ func sensitiveAttrKey(key string) bool {
 }
 
 // SetLevel updates the process-wide log level.
-// SetLevel 设置Level。
+// raw 支持单个等级（info）或带模块覆盖的写法（info,mtop=debug,ws=warn）。
+// SetLevel 设置Level；配置非法时不修改任何现有等级。
 func SetLevel(raw string) error {
-	// lv、err 用于本次流程后续判断的lv、err
-	lv, err := ParseLevel(raw)
+	// global、modules 是解析出的全局等级与模块覆盖等级。
+	global, modules, err := ParseLevelSpec(raw)
 	if err != nil {
 		return err
 	}
-	Level.Set(lv)
+	Level.Set(global)
+	if len(modules) == 0 {
+		moduleLevels.Store(nil)
+		return nil
+	}
+	moduleLevels.Store(&modules)
 	return nil
 }
 

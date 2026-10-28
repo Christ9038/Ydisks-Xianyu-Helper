@@ -494,13 +494,13 @@ func (a *Adapter) OnPasswordLoginRefresh(ctx context.Context, cookieID string) b
 	}
 	if // ok、remain、reason 用于本次流程后续判断的ok、remain、reason
 	ok, remain, reason := cooldown.PasswordLoginAllowed(cookieID, engine.PasswordLoginMinGap); !ok {
-		a.logger.Warn("协议续期冷却中", "account", cookieID, "remain", remain.Round(time.Second))
+		a.logger.Debug("协议续期冷却中", "account", cookieID, "remain", remain.Round(time.Second))
 		a.recordPasswordLogin(ctx, cookieID, 0, "skipped_cooldown", reason, fmt.Sprintf("协议续期冷却中，还需等待 %s", remain.Round(time.Second)))
 		return false
 	}
 	// primary 标识当前调用是否负责执行协议续期；后到调用方只等待其结果。
 	if primary := a.beginPasswordRenewalResult(cookieID); !primary {
-		a.logger.Warn("协议续期已在处理中，等待当前结果", "account", cookieID)
+		a.logger.Debug("协议续期已在处理中，等待当前结果", "account", cookieID)
 		return a.waitPasswordRenewalResult(ctx, cookieID)
 	}
 	// sharedRenewed 保存首次调用的最终恢复结果，并在所有返回路径唤醒等待者。
@@ -524,7 +524,7 @@ func (a *Adapter) OnPasswordLoginRefresh(ctx context.Context, cookieID string) b
 	sharedRenewed = renewed
 	if !accepted {
 		if errors.Is(renewErr, accountapp.ErrCredentialRefreshInFlight) {
-			a.logger.Warn("协议续期已在处理中", "account", cookieID)
+			a.logger.Debug("协议续期已在处理中", "account", cookieID)
 			return false
 		}
 		a.logger.Warn("协议续期协调器不可用", "account", cookieID, "err", renewErr)

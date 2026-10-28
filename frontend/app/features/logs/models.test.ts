@@ -35,6 +35,10 @@ const buildEntry = (/* overrides 是需要覆盖的日志字段。 */ overrides:
   itemId: '',
   orderId: '',
   chatId: '',
+  caller: '',
+  func: '',
+  route: '',
+  runId: '',
   details: [],
   ...overrides,
 });
@@ -79,10 +83,10 @@ describe('运行日志展示模型', /* 当前测试组验证等级来源归一�
     const items = runtimeLogContextItems(buildEntry({
       method: 'POST', path: '/api/v1/orders', status: 500, durationMs: 120,
       category: 'system', ret: 'FAIL_SYS_TIMEOUT', accountId: 'acc-1', itemId: 'item-1',
-      orderId: 'order-1', chatId: 'chat-1', requestId: 'req-1',
+      orderId: 'order-1', chatId: 'chat-1', requestId: 'req-1', route: '/api/v1/orders', runId: 'run-1',
     }));
-    expect(items.map(/* item 是一个键值标签。 */ item => item.label)).toEqual(['请求', '状态', '耗时', '失败分类', '平台返回', '账号', '商品', '订单', '会话', '请求标识']);
-    expect(items[2].value).toBe('120ms');
+    expect(items.map(/* item 是一个键值标签。 */ item => item.label)).toEqual(['请求', '路由', '状态', '耗时', '失败分类', '平台返回', '账号', '商品', '订单', '会话', '运行', '请求标识']);
+    expect(items[3].value).toBe('120ms');
   });
 
   test('过滤条件签名随任一条件变化', /* 当前回调验证条件签名驱动日志流重置。 */ () => {

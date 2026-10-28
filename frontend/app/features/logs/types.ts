@@ -50,6 +50,14 @@ export interface RuntimeLogEntry {
   orderId: string;
   /** chatId 是记录关联的会话标识；缺失时为空字符串。 */
   chatId: string;
+  /** caller 是写出该日志的源码位置（相对 internal 的文件路径:行号）；缺失时为空字符串。 */
+  caller: string;
+  /** func 是写出该日志的包名.方法名；缺失时为空字符串。 */
+  func: string;
+  /** route 是 HTTP 请求匹配的路由模板；缺失时为空字符串。 */
+  route: string;
+  /** runId 是记录关联的自动化运行标识；缺失时为空字符串。 */
+  runId: string;
   /** details 是未升为具名字段的其余附加属性。 */
   details: RuntimeLogDetail[];
 }

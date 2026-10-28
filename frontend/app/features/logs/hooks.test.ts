@@ -34,6 +34,10 @@ const buildEntry = (/* seq 是记录序号，同时作为增量游标断言值�
   itemId: '',
   orderId: '',
   chatId: '',
+  caller: '',
+  func: '',
+  route: '',
+  runId: '',
   details: [],
 });
 

@@ -114,6 +114,7 @@ export const runtimeLogContextItems = (entry: RuntimeLogEntry): RuntimeLogContex
   // items 保存按固定顺序生成的标签集合。
   const items: RuntimeLogContextItem[] = [];
   if (entry.method && entry.path) items.push({ label: '请求', value: `${entry.method} ${entry.path}` });
+  if (entry.route) items.push({ label: '路由', value: entry.route });
   if (entry.status > 0) items.push({ label: '状态', value: String(entry.status) });
   if (entry.durationMs > 0) items.push({ label: '耗时', value: `${entry.durationMs}ms` });
   if (entry.category) items.push({ label: '失败分类', value: entry.category });
@@ -122,6 +123,7 @@ export const runtimeLogContextItems = (entry: RuntimeLogEntry): RuntimeLogContex
   if (entry.itemId) items.push({ label: '商品', value: entry.itemId });
   if (entry.orderId) items.push({ label: '订单', value: entry.orderId });
   if (entry.chatId) items.push({ label: '会话', value: entry.chatId });
+  if (entry.runId) items.push({ label: '运行', value: entry.runId });
   if (entry.requestId) items.push({ label: '请求标识', value: entry.requestId });
   return items;
 };

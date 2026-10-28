@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"xianyu-go/internal/automation"
+	"xianyu-go/internal/logging"
 )
 
 // messageDispatcher 负责 WebSocket 消息的事实解析、去重、防抖、出站回显观察和并发投递。
@@ -168,6 +169,8 @@ func (d *messageDispatcher) handleMessage(decrypted map[string]any) {
 
 // handleMessageContext 将系统事件和聊天消息分别交给对应业务链。
 func (d *messageDispatcher) handleMessageContext(ctx context.Context, decrypted map[string]any) {
+	// 每条消息的处理链都带账号标识，系统事件分支再补充订单与触发类型，聊天分支由回复链补充 chat_id。
+	ctx = logging.With(ctx, slog.String("account", d.cookieID))
 	// observedAt 在分类和防抖之前固定消息的本地接纳顺序，后续数据库写入延迟不会改变它与删除动作的先后关系。
 	observedAt := time.Now().UTC().UnixMilli()
 	// receipt、ok 保存解析出的平台已读回执及是否命中已读事件格式。
@@ -179,7 +182,7 @@ func (d *messageDispatcher) handleMessageContext(ctx context.Context, decrypted 
 			if reader, supported := handler.(MessageReadHandler); supported {
 				// err 保存回执持久化错误；失败不应中断 WebSocket 接收循环。
 				if err := reader.HandleMessageRead(ctx, receipt); err != nil {
-					d.logger.Warn("处理聊天已读回执失败", "err", err, "message_id", receipt.MessageID)
+					d.logger.WarnContext(ctx, "处理聊天已读回执失败", "err", err, "message_id", receipt.MessageID)
 				}
 			}
 		}
@@ -187,11 +190,12 @@ func (d *messageDispatcher) handleMessageContext(ctx context.Context, decrypted 
 	}
 	// 系统卡片和平台通知优先进入自动化中心，永远不进入 AI 回复范围。
 	if task := automation.ExtractTaskFromWS(d.cookieID, d.currentCookie(), decrypted); task != nil {
+		ctx = logging.With(ctx, slog.String("order_id", task.OrderID), slog.String("trigger", task.TriggerType))
 		if // handler 用于本次流程后续判断的handler
 		handler := d.currentHandler(); handler != nil {
 			if // err 用于本次流程后续判断的err
 			err := handler.HandleSystemEvent(ctx, *task); err != nil {
-				d.logger.Error("处理系统自动化事件失败", "err", err, "trigger", task.TriggerType)
+				d.logger.ErrorContext(ctx, "处理系统自动化事件失败", "err", err)
 			}
 		}
 		return
@@ -207,7 +211,7 @@ func (d *messageDispatcher) handleMessageContext(ctx context.Context, decrypted 
 			if observer, supported := handler.(outgoingChatHandler); supported {
 				// err 保存自身回显持久化或实时发布失败；失败不应影响 WebSocket 接收循环或误触发自动回复。
 				if err := observer.HandleOutgoingChatMessage(ctx, *ownEcho); err != nil {
-					d.logger.Warn("处理官方客户端出站消息回显失败", "err", err, "chat_id", ownEcho.ChatID)
+					d.logger.WarnContext(ctx, "处理官方客户端出站消息回显失败", "err", err, "chat_id", ownEcho.ChatID)
 				}
 			}
 		}
@@ -322,18 +326,20 @@ func (d *messageDispatcher) scheduleDebouncedReply(chat ChatMessage) {
 			return
 		}
 		defer finish()
+		// 防抖回复链路的日志统一带账号与会话，回复决策与发送失败无需再逐条补参。
+		ctx = logging.With(ctx, slog.String("account", d.cookieID), slog.String("chat_id", lastMessage.ChatID), slog.String("item_id", lastMessage.ItemID))
 		if // handler 用于本次流程后续判断的handler
 		handler := d.currentHandler(); handler != nil {
 			if // err 用于本次流程后续判断的err
 			err := handler.HandleChatMessage(ctx, lastMessage); err != nil {
-				d.logger.Error("处理聊天消息失败", "err", err, "chat_id", chat.ChatID)
+				d.logger.ErrorContext(ctx, "处理聊天消息失败", "err", err)
 				return
 			}
 		}
 		if d.reply != nil && d.canAutoReply(ctx, lastMessage) {
 			if // err 用于本次流程后续判断的err
 			err := d.reply.Handle(ctx, lastMessage); err != nil {
-				d.logger.Error("处理自动回复失败", "err", err, "chat_id", chat.ChatID)
+				d.logger.ErrorContext(ctx, "处理自动回复失败", "err", err)
 			}
 		}
 	})

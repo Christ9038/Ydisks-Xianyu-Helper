@@ -177,7 +177,7 @@ func (s *Server) setSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	// level 是待应用的日志级别；ok 表示请求是否更新日志级别。
 	if level, ok := values["log_level"]; ok {
-		_ = logging.SetLevel(level)
+		s.applyLogLevel(r, level)
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
@@ -209,7 +209,8 @@ func validateSystemSettingValues(values map[string]string) error {
 	// level 是待校验的日志级别；ok 表示普通设置中包含该字段。
 	if level, ok := values["log_level"]; ok {
 		// err 是日志级别解析错误。
-		_, err := logging.ParseLevel(level)
+		// 支持“info,mtop=debug”形式的模块等级覆盖。
+		_, _, err := logging.ParseLevelSpec(level)
 		if err != nil {
 			return err
 		}
@@ -295,7 +296,7 @@ func (s *Server) setSetting(w http.ResponseWriter, r *http.Request) {
 	}
 	if key == "log_level" {
 		// err 表示单项日志级别校验错误。
-		if _, err := logging.ParseLevel(req.Value); err != nil {
+		if _, _, err := logging.ParseLevelSpec(req.Value); err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -316,7 +317,7 @@ func (s *Server) setSetting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if key == "log_level" {
-		_ = logging.SetLevel(req.Value)
+		s.applyLogLevel(r, req.Value)
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
@@ -579,4 +580,22 @@ func (s *Server) setUserSetting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
+}
+
+// applyLogLevel 在设置保存成功后应用新的日志等级配置，并留下一条含新旧值的审计日志。
+// level 已通过 ParseLevelSpec 校验；审计日志在切换之前按旧等级输出，避免新等级把这条记录自己过滤掉。
+// 应用失败时保留现有等级（SetLevel 不会产生部分结果）。
+func (s *Server) applyLogLevel(r *http.Request, level string) {
+	// previous 是变更前的全局日志等级文本，仅用于审计。
+	previous := logging.Level.Level().String()
+	// err 是日志等级配置的解析错误，非空时拒绝应用。
+	if _, _, err := logging.ParseLevelSpec(level); err != nil {
+		s.Logger.WarnContext(r.Context(), "应用日志等级失败，保留现有等级", "level", level, "err", err)
+		return
+	}
+	s.Logger.InfoContext(r.Context(), "日志等级即将更新", "from", previous, "to", level)
+	// err 是应用等级配置的失败原因；SetLevel 失败时不会产生部分结果。
+	if err := logging.SetLevel(level); err != nil {
+		s.Logger.WarnContext(r.Context(), "应用日志等级失败，保留现有等级", "level", level, "err", err)
+	}
 }

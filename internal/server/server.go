@@ -214,46 +214,6 @@ func (s *Server) authMiddleware(h http.Handler) http.Handler {
 	return s.Auth.Middleware(auth.RequireAuth(h))
 }
 
-// requestLogger 记录请求完成状态、耗时和 chi request_id。
-func (s *Server) requestLogger(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// 运行日志查询接口自身的轮询请求不写入日志，避免前端刷新日志时产生自我刷屏。
-		if r.URL.Path == runtimeLogsPath {
-			next.ServeHTTP(w, r)
-			return
-		}
-		// start 用于本次流程后续判断的开始
-		start := time.Now()
-		// ww 用于本次流程后续判断的ww
-		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
-		next.ServeHTTP(ww, r)
-		// status 用于本次流程后续判断的状态
-		status := ww.Status()
-		if status == 0 {
-			status = http.StatusOK
-		}
-
-		// level 用于本次流程后续判断的level
-		level := slog.LevelDebug
-		if status >= 500 {
-			level = slog.LevelError
-		} else if status >= 400 {
-			level = slog.LevelWarn
-		}
-		s.Logger.LogAttrs(r.Context(), level, "HTTP 请求完成",
-			slog.String("method", r.Method),
-			slog.String("path", r.URL.Path),
-			slog.Int("status", status),
-			slog.Int("bytes", ww.BytesWritten()),
-			slog.Duration("duration", time.Since(start)),
-			slog.String("request_id", middleware.GetReqID(r.Context())),
-			slog.String("remote", r.RemoteAddr),
-			slog.Bool("legacy_api", isLegacyAPIRequest(r.Method, r.URL.Path)),
-			slog.String("log_source", "http"),
-		)
-	})
-}
-
 const (
 	// legacyAPISunsetDate 是历史 API 的标准 HTTP-date 退场时间；实际删除仍须满足兼容矩阵中的观测窗口。
 	legacyAPISunsetDate = "Thu, 31 Dec 2026 23:59:59 GMT"

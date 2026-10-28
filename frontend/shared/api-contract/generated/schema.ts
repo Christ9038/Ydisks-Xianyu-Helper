@@ -3660,6 +3660,10 @@ export interface components {
             item_id?: string;
             order_id?: string;
             chat_id?: string;
+            caller?: string;
+            func?: string;
+            route?: string;
+            run_id?: string;
             details?: components["schemas"]["RuntimeLogDetail"][];
         };
         RuntimeLogPageResponse: {

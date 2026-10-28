@@ -110,6 +110,14 @@ func newRuntimeLogRecord(entry logging.RuntimeEntry) logsapp.Record {
 			record.OrderID = runtimeLogAttrText(attr.Value)
 		case "chat_id":
 			record.ChatID = runtimeLogAttrText(attr.Value)
+		case logging.CallerKey:
+			record.Caller = runtimeLogAttrText(attr.Value)
+		case logging.FuncKey:
+			record.Func = runtimeLogAttrText(attr.Value)
+		case "route":
+			record.Route = runtimeLogAttrText(attr.Value)
+		case "run_id":
+			record.RunID = runtimeLogAttrText(attr.Value)
 		default:
 			if len(record.Details) < maxRuntimeLogDetails {
 				record.Details = append(record.Details, logsapp.Detail{Key: attr.Key, Value: runtimeLogAttrText(attr.Value)})

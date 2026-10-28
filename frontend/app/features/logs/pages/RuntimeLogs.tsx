@@ -61,6 +61,11 @@ const RuntimeLogRow: React.FC<RuntimeLogRowProps> = ({ entry }) => {
           ))}
         </div>
       )}
+      {entry.caller && (
+        <div className="mt-1 truncate font-mono text-[11px] text-slate-400" title={entry.func ? `${entry.caller} · ${entry.func}` : entry.caller}>
+          {entry.func ? `${entry.caller} · ${entry.func}` : entry.caller}
+        </div>
+      )}
       {entry.error && <div className="mt-1.5 break-all font-mono text-[11px] text-red-600">{entry.error}</div>}
       {expanded && (
         <dl className="mt-2 space-y-1 rounded-lg bg-slate-50 p-2 text-[11px]">

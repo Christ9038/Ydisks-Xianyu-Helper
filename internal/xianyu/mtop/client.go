@@ -124,54 +124,6 @@ func (c *ClientImpl) httpClientWithTimeout(defaultTimeout time.Duration) *http.C
 	return &clone
 }
 
-// logInfo 记录不包含 Cookie、签名和响应正文的 MTOP 诊断信息；未注入日志器时沿用进程默认日志器。
-func (c *ClientImpl) logInfo(message string, args ...any) {
-	// logger 保存当前客户端实际使用的安全日志器。
-	logger := c.Logger
-	if logger == nil {
-		logger = slog.Default()
-	}
-	logger.Info(message, append([]any{"log_source", "mtop"}, args...)...)
-}
-
-// loggingTransport 用于本次流程后续判断的loggingTransport
-type loggingTransport struct {
-	base   http.RoundTripper
-	logger *slog.Logger
-}
-
-// RoundTrip 封装RoundTrip业务协调。
-func (t loggingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	// logger 用于本次流程后续判断的logger
-	logger := t.logger
-	if logger == nil {
-		logger = slog.Default()
-	}
-	// started 用于本次流程后续判断的started
-	started := time.Now()
-	logger.Debug("MTOP 请求开始", "log_source", "mtop", "method", req.Method, "path", req.URL.Path)
-	// resp、err 用于本次流程后续判断的resp、err
-	resp, err := t.base.RoundTrip(req)
-	// attrs 用于本次流程后续判断的attrs
-	attrs := []any{"log_source", "mtop", "method", req.Method, "path", req.URL.Path, "duration", time.Since(started).Round(time.Millisecond)}
-	if err != nil {
-		if errors.Is(err, context.Canceled) {
-			logger.Debug("MTOP 请求取消", append(attrs, "err", err)...)
-		} else {
-			logger.Warn("MTOP 请求失败", append(attrs, "err", err)...)
-		}
-		return nil, err
-	}
-	// responseAttrs 用于本次流程后续判断的响应Attrs
-	responseAttrs := append(attrs, "status", resp.StatusCode, "content_length", resp.ContentLength)
-	if resp.StatusCode >= http.StatusBadRequest {
-		logger.Warn("MTOP HTTP 响应异常", responseAttrs...)
-	} else {
-		logger.Debug("MTOP 响应收到", responseAttrs...)
-	}
-	return resp, nil
-}
-
 // NewClient 构造纯 Go HTTP 的 MTOP 客户端。Chromium 只用于读取本机指纹
 // 和处理滑块，不能成为登录、续期、token 或 WebSocket 的传输层。
 // NewClient 封装NewClient业务协调。

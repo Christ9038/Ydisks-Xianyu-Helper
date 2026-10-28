@@ -14,6 +14,7 @@ import (
 	"net/http"
 
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/logging"
 )
 
 // CookieName 是会话 Cookie 名。
@@ -125,6 +126,10 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 		}
 		// ctx 用于本次流程后续判断的ctx
 		ctx := WithSession(r.Context(), sess)
+		if sess != nil {
+			// 下游日志通过 context 自动携带 user_id，便于按操作者检索。
+			ctx = logging.With(ctx, slog.Int64("user_id", sess.UserID))
+		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

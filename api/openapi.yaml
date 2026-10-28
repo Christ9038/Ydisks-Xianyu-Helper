@@ -10161,6 +10161,14 @@ components:
           type: string
         chat_id:
           type: string
+        caller:
+          type: string
+        func:
+          type: string
+        route:
+          type: string
+        run_id:
+          type: string
         details:
           type: array
           items:
