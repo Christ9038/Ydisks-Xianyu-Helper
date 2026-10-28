@@ -66,3 +66,20 @@ In Automation → Keyword Replies, select an account, add a rule, and save. Keyw
 - **Reply:** enter text or an image URL.
 
 Default replies are the last level of the current production chain: keyword reply first, AI reply second, and default reply last. By default AI handles bargaining only; when the account’s AI mode is Full Service, it also answers ordinary consultation, shipping, and after-sales messages that no keyword rule matched. A product can also force AI on or off (see [Product Management](Product-Management)). If AI is disabled, lacks an API key, does not apply to the message, has no usable result, or fails, the system continues to the default reply. A default reply may contain text, an image URL, and “reply only once per conversation”. A product-specific default reply takes precedence over the account default. The external API extension point, if later wired, takes precedence over keyword replies.
+
+## Item first-reply (greeting)
+
+Rules page → **Item first reply** tab. When a buyer first inquires about a selected item, the system sends one preset text (and optional image URL) automatically.
+
+- A rule has a name, enabled switch, reply text, optional image URL and one or more items of the account. Within one account **an item can belong to only one rule** (a conflict is rejected).
+- Text may use `{send_user_name}`, `{send_user_id}`, `{send_message}` and `{item_id}`.
+- It is sent once per buyer conversation and item; sent records can be cleared. If it fails, only a log line is written and the normal reply chain continues. For a conversation that already received it, the account default reply set to "reply once" yields to it.
+
+## Rule log
+
+Rules page → **Rule log** tab is an append-only audit of automation behaviour, so you can see whether a delivery happened, what was sent and why something was skipped.
+
+- Filter by status (success, failed, queued, running, skipped, pending manual, cancelled), trigger type and order ID; open an order's **run timeline**.
+- Events cover skipping, queueing, run start, action success/failure, final state, free-group result and dead-lettered deferred tasks. Only summaries are stored, never card or message bodies; delivered cards are masked and loaded only on demand.
+- Events older than 90 days are cleaned daily.
+- Runs that need manual attention are listed in the "automation tasks needing manual handling" panel and trigger the separate **Manual intervention required** notification category; enable it in the channel's event filter (existing automation categories keep working).

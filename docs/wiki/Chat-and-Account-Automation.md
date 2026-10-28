@@ -65,3 +65,9 @@ Automatic Reviews/Daily Refresh handles account-level tasks. Automation handles 
 - delivery templates, which are limited to paid delivery and review gifts.
 
 Official system messages are for platform-event recognition only and should not be configured as ordinary buyer keyword triggers.
+
+## Quick replies and buyer notes
+
+- **Quick replies:** saved per account (up to 50). Click one in the chat side panel to send it through the normal reliable-send path; your unsent draft is kept. Add or delete them from the same panel (deleting asks for confirmation).
+- **Buyer notes:** when chatting with a confirmed buyer, the chat header shows the note (or "Add user note"). Click it to open a dialog to read and edit the full note. The entry is hidden when the other party is a seller.
+- **Unread alert:** a global unread indicator and browser-title flashing notify you of new messages; browser notifications play a sound by default, switchable under System Settings → Basic Settings.

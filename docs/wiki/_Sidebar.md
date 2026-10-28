@@ -14,3 +14,8 @@
 - [AI, Notifications and Operations](AI-Notifications-and-Operations) · [中文](AI、通知与运维.zh-CN)
 - [System and AI](System-and-AI) · [中文](系统设置.zh-CN)
 - [Accounts, Inventory and Products](Accounts-Inventory-and-Products) · [中文](账号、库存与商品.zh-CN)
+- [Resource Library](Resource-Library) · [中文](资源库.zh-CN)
+- [Sales Statistics](Sales-Statistics) · [中文](销售统计.zh-CN)
+- [Runtime Logs](Runtime-Logs) · [中文](运行日志.zh-CN)
+- [FAQ](FAQ) · [中文](常见问题.zh-CN)
+- [Risk-Control Troubleshooting](Risk-Control-Troubleshooting) · [中文](风控处理.zh-CN)

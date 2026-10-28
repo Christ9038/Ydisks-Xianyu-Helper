@@ -37,3 +37,13 @@ Common order variables include order ID, product ID, buyer ID, account ID, quant
 - Changing the delay affects future deliveries only.
 - Before deleting, confirm that no automation rule or bulk-listing task references the group.
 - Before launch, check that the group is enabled, inventory is sufficient, and card values contain no unintended spaces or blank lines.
+
+## Sales ledger (sold / unsold)
+
+Open a card stock's **Inventory records** dialog (batch-data and API cards):
+
+- **Unsold** tab: remaining cards (preview shows the first part only) and **Export unsold TXT**, one card per line, ready to import again.
+- **Sold** tab: every card sent, with status, order ID and time; filter by status and search by order ID or card text; **export sold CSV**.
+- Status **sold** means the send was confirmed. **Pending check** (`reserved`) means the send result was uncertain and needs manual verification; do not resend blindly.
+- Stock deduction and the ledger entry are written in one transaction. Cards sent before the ledger existed are not listed.
+- Records are visible only to the owning user. The cards sent for one order can also be viewed in Orders (see [Orders](Orders)).

@@ -28,3 +28,7 @@ If you are unsure whether a card was already sent, inspect chat history, invento
 ## Edit and delete
 
 Edit Order can correct status, buyer ID, paid amount, shipping information, and product title. Order IDs cannot be changed in the page. Before deleting, confirm the record is not needed by automation, statistics, or after-sales handling.
+
+## Delivered cards
+
+Order details include a **Delivered cards** section listing the cards sent for that order (from the card sales ledger). Content is read on demand and returned with `no-store` caching; only the owner can see it. Orders sent before the ledger existed show nothing. See [Card Inventory](Card-Inventory).

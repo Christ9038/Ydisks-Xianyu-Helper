@@ -40,6 +40,11 @@ Windows registers the `YdisksXianyuHelper` service. macOS provides Apple Silicon
 - [AI, Notifications and Operations](AI-Notifications-and-Operations)
 - [System and AI](System-and-AI)
 - [Accounts, Inventory and Products](Accounts-Inventory-and-Products)
+- [Resource Library](Resource-Library)
+- [Sales Statistics](Sales-Statistics) (admin)
+- [Runtime Logs](Runtime-Logs) (admin)
+- [FAQ](FAQ)
+- [Risk-Control Troubleshooting](Risk-Control-Troubleshooting) — Cookie flagged by Xianyu? Start here.
 
 ## Essential security rules
 
