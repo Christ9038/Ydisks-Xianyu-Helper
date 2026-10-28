@@ -63,6 +63,8 @@ const ResourceLibrary = lazy(/* ResourceLibrary 页面按路由激活时加载�
 const Settings = lazy(/* Settings 页面按路由激活时加载。 */ () => import('../features/settings/pages/Settings'));
 // Rules 是按需加载的自动化规则页面，避免首屏载入规则编辑器代码。
 const Rules = lazy(/* Rules 页面按路由激活时加载。 */ () => import('../features/rules/pages/Rules'));
+// AutomationAuditPanel 是规则日志面板，仅在规则页打开“规则日志”页签时才下载，避免撑大规则页分片。
+const AutomationAuditPanel = lazy(/* 规则日志面板随规则页签按需加载。 */ () => import('../features/rules/components/AutomationAuditPanel'));
 // DeliveryTemplates 是按需加载的发货模板管理页面。
 const DeliveryTemplates = lazy(/* DeliveryTemplates 页面按路由激活时加载。 */ () => import('../features/delivery-templates/pages/DeliveryTemplates'));
 // Notifications 是按需加载的通知页面，避免首屏载入通知配置代码。
@@ -126,6 +128,7 @@ export const AppContent: React.FC<AppContentProps> = ({
       case 'rules': return <Rules
         initialDeliveryTarget={deliveryRuleTarget}
         onDeliveryTargetHandled={onDeliveryTargetHandled}
+        auditPanel={AutomationAuditPanel}
       />;
       case 'delivery-templates': return <DeliveryTemplates />;
       case 'library': return <ResourceLibrary onBatchStarted={onNavigateToItems} />;

@@ -13,13 +13,14 @@ MessageCircle,
 Plus,
 RefreshCw,
 Save,
+ScrollText,
 Search,
 SlidersHorizontal,
 Trash2,
 X,
 Zap,
 } from 'lucide-react';
-import React,{ useEffect,useMemo,useState } from 'react';
+import React,{ Suspense,useEffect,useMemo,useState } from 'react';
 import { createPortal } from 'react-dom';
 import Toast from '../components/Toast';
 import AllItemsConfirmation from '../components/AllItemsConfirmation';
@@ -36,7 +37,7 @@ import { accentClasses,accountLabel,actionSummary,adjustPriceTarget,buildReviewC
 import { PageHeader } from '../../../../shared/ui/PageHeader';
 
 // Rules 是规则 feature 在旧页面目录下保留的兼容入口组件。
-const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHandled }) => {
+const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHandled, auditPanel: AuditPanel }) => {
   // [activeTab, 解构得到当前 Hook 返回的状态和操作函数。
   const [activeTab, setActiveTab] = useState<RulesTab>('automation');
   // [selectedAccountId, 解构得到当前 Hook 返回的状态和操作函数。
@@ -209,6 +210,13 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
     return itemIDs.map(/* 当前回调把商品标识还原为可读标题。 */ (itemID: string) => itemTitleIndex.get(itemID) || itemID);
   };
 
+  // auditAccountLabel 把规则日志中的账号标识转换为账号展示名，未知账号回退为原标识。
+  const auditAccountLabel = (cookieId: string): string => {
+    // account 是与日志账号标识匹配的账号摘要。
+    const account = accounts.find(/* candidate 是当前比较的账号摘要。 */ candidate => candidate.id === cookieId);
+    return account ? accountLabel(account) : cookieId;
+  };
+
   // primaryActionLabel 主操作按钮文案。
   const primaryActionLabel = activeTab === 'automation'
     ? '新建自动化'
@@ -241,7 +249,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             刷新
           </button>
-          {activeTab !== 'greeting' && (
+          {activeTab !== 'greeting' && activeTab !== 'logs' && (
           <button
             onClick={activeTab === 'automation' ? /* 当前回调处理用户交互或异步状态变化。 */ () => openNewAutomationRule('order_paid') : activeTab === 'reply' ? handleAddReplyRule : /* 当前回调处理用户交互或异步状态变化。 */ () => void openDefaultReplyModal()}
             disabled={!selectedAccountId}
@@ -260,6 +268,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
           { id: 'reply' as const, label: '关键词回复', icon: MessageCircle },
           { id: 'default' as const, label: '账号默认回复', icon: Bot },
           { id: 'greeting' as const, label: '商品首次回复', icon: Gift },
+          { id: 'logs' as const, label: '规则日志', icon: ScrollText },
         ].map(/* 当前回调处理用户交互或异步状态变化。 */ tab => {
           // Icon 渲染Icon React 组件。
           const Icon = tab.icon;
@@ -669,6 +678,16 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
       )}
 
       {activeTab === 'greeting' && <ItemGreetingPanel accountID={selectedAccountId} />}
+
+      {activeTab === 'logs' && (
+        AuditPanel ? (
+          <Suspense fallback={<div className="text-center py-20 text-gray-400">加载中…</div>}>
+            <AuditPanel key={selectedAccountId} accountId={selectedAccountId} accountLabel={auditAccountLabel} />
+          </Suspense>
+        ) : (
+          <div className="text-center py-20 text-gray-400">规则日志暂不可用</div>
+        )
+      )}
 
       {showAutomationModal && editingAutomationRule && createPortal(
         <div className="modal-overlay">

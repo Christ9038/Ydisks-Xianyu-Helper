@@ -21,6 +21,7 @@ func (s *Server) mountVersionedAutomationRoutes(r chi.Router) {
 		r.Put("/api/v1/delivery-templates/{template_id}", s.updateDeliveryTemplate)
 		r.Delete("/api/v1/delivery-templates/{template_id}", s.deleteDeliveryTemplate)
 		r.Get("/api/v1/automation-issues", s.listAutomationIssues)
+		r.Get("/api/v1/automation-audit-events", s.listAutomationAuditEvents)
 		r.Post("/api/v1/automation-runs/{run_id}/resolve", s.resolveAutomationRun)
 		r.Post("/api/v1/automation-pending-tasks/{task_id}/resolve", s.resolveDeferredAutomationTask)
 	})

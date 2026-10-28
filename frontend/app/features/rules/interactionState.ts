@@ -28,5 +28,5 @@ export const isCurrentRequest = (requestGeneration: number, currentGeneration: n
   requestGeneration === currentGeneration && requestKey === currentKey;
 
 // selectRulesTab 处理页签切换，保证未知值不会污染当前页签状态。
-export const selectRulesTab = (tab: string): 'automation' | 'reply' | 'default' | 'greeting' =>
-  tab === 'reply' || tab === 'default' || tab === 'greeting' ? tab : 'automation';
+export const selectRulesTab = (tab: string): 'automation' | 'reply' | 'default' | 'greeting' | 'logs' =>
+  tab === 'reply' || tab === 'default' || tab === 'greeting' || tab === 'logs' ? tab : 'automation';

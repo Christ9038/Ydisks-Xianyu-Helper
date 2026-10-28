@@ -122,6 +122,7 @@ func (s *Scheduler) notifyDeferredTaskNeedsReview(ctx context.Context, pending d
 	if task.TriggerType == "" {
 		task.TriggerType = pending.TriggerType
 	}
+	s.center.audit.record(ctx, task, auditEvent{eventType: auditEventDeadLetter, status: db.AuditStatusNeedsReview, summary: "延期自动化任务转人工处理", reason: reason})
 	// notificationKey 是同一延期任务共享的稳定人工处理通知键，重复扫描不会制造重复告警。
 	notificationKey := fmt.Sprintf("manual-intervention:deferred-task:%d", pending.ID)
 	// notifyCtx 保证任务状态写失败或原始重放预算取消后，告警仍有独立的短时入队预算。

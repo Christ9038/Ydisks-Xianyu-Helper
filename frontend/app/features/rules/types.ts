@@ -1,4 +1,4 @@
-import type { Dispatch,ElementType,SetStateAction } from 'react';
+import type { ComponentType,Dispatch,ElementType,SetStateAction } from 'react';
 import type {
 AccountDetail,
   AutomationAction,
@@ -27,8 +27,8 @@ ShippingRule,
 ShippingVariant
 } from './api';
 
-// RulesTab 表示规则页面的四个业务页签。
-export type RulesTab = 'automation' | 'reply' | 'default' | 'greeting';
+// RulesTab 表示规则页面的五个业务页签：交易自动化、关键词回复、账号默认回复、商品首次回复和规则日志。
+export type RulesTab = 'automation' | 'reply' | 'default' | 'greeting' | 'logs';
 
 // RulesProps 描述规则页面从父级接收的联动参数。
 export interface RulesProps {
@@ -43,6 +43,17 @@ export interface RulesProps {
   };
   // onDeliveryTargetHandled 表示页面完成外部跳转处理后的回调。
   onDeliveryTargetHandled?: () => void;
+  // auditPanel 是应用壳按需注入的规则日志面板；缺省时“规则日志”页签只显示不可用提示。
+  // 面板体积较大，由应用壳懒加载后注入，避免规则页分片超出体积预算。
+  auditPanel?: ComponentType<AutomationAuditPanelProps>;
+}
+
+// AutomationAuditPanelProps 描述规则日志面板的外部输入；rules 页面只依赖该最小结构，不静态引用面板实现。
+export interface AutomationAuditPanelProps {
+  // accountId 是页面顶部选中的账号，为空表示全部账号；变化时调用方应通过 key 重新挂载。
+  accountId: string;
+  // accountLabel 把账号标识转换为展示名称。
+  accountLabel: (cookieId: string) => string;
 }
 
 // DefaultReplyForm 表示账号默认回复弹窗的可编辑字段。

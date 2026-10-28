@@ -56,6 +56,8 @@ type TransportApplicationServices struct {
 	Analytics *analyticsapp.Service
 	// AutomationIssues 提供自动化异常查询和人工处理用例。
 	AutomationIssues *automationapp.IssueService
+	// AutomationAudit 提供规则日志（自动化行为审计）分页查询用例。
+	AutomationAudit *automationapp.AuditService
 	// AutomationRules 提供自动化规则校验、分页和持久化用例。
 	AutomationRules *automationapp.RuleService
 	// DeliveryTemplates 提供发货模板 CRUD 用例。
@@ -107,6 +109,7 @@ func NewTransportApplicationServices(options TransportApplicationServiceOptions)
 		NotificationChannels:   notificationsapp.NewChannelService(options.MiscDependencies.NewNotificationChannelRepository(), options.ChannelSender),
 		Analytics:              analyticsapp.NewService(options.MiscDependencies.NewAnalyticsRepository()),
 		AutomationIssues:       automationapp.NewIssueService(automationRepository),
+		AutomationAudit:        automationapp.NewAuditService(automationRepository),
 		AutomationRules:        automationapp.NewRuleService(automationRepository, automationRepository),
 		DeliveryTemplates:      deliveryapp.NewService(options.AutomationDependencies.NewDeliveryTemplateRepository()),
 		Cards:                  cardsapp.NewService(options.MiscDependencies.NewCardsRepository()),
@@ -129,7 +132,7 @@ func (services *TransportApplicationServices) Validate() error {
 	if services == nil {
 		return fmt.Errorf("transport 应用服务集合不能为空")
 	}
-	if services.Settings == nil || services.Admin == nil || services.AccountTasks == nil || services.UncertainNotifications == nil || services.NotificationChannels == nil || services.Analytics == nil || services.AutomationIssues == nil || services.AutomationRules == nil || services.DeliveryTemplates == nil || services.Cards == nil || services.APICardTester == nil || services.PublishAutomationRules == nil || services.DefaultReplies == nil || services.ItemGreetings == nil || services.Keywords == nil || services.RuntimeLogs == nil {
+	if services.Settings == nil || services.Admin == nil || services.AccountTasks == nil || services.UncertainNotifications == nil || services.NotificationChannels == nil || services.Analytics == nil || services.AutomationIssues == nil || services.AutomationAudit == nil || services.AutomationRules == nil || services.DeliveryTemplates == nil || services.Cards == nil || services.APICardTester == nil || services.PublishAutomationRules == nil || services.DefaultReplies == nil || services.ItemGreetings == nil || services.Keywords == nil || services.RuntimeLogs == nil {
 		return fmt.Errorf("transport 应用服务集合存在未装配服务")
 	}
 	return nil

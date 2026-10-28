@@ -116,6 +116,8 @@ type Services struct {
 	analytics *analyticsapp.Service
 	// automationIssues 是自动化异常查询与人工处理应用服务。
 	automationIssues *automationapp.IssueService
+	// automationAudit 是规则日志（自动化行为审计）分页查询应用服务。
+	automationAudit *automationapp.AuditService
 	// automationRules 是自动化规则校验、分页和持久化应用服务。
 	automationRules *automationapp.RuleService
 	// deliveryTemplates 是发货模板 CRUD 应用服务。
@@ -341,6 +343,7 @@ type TransportPorts struct {
 	NotificationChannels        *notificationsapp.ChannelService
 	Analytics                   *analyticsapp.Service
 	AutomationIssues            *automationapp.IssueService
+	AutomationAudit             *automationapp.AuditService
 	AutomationRules             *automationapp.RuleService
 	DeliveryTemplates           *deliveryapp.Service
 	Cards                       *cardsapp.Service
@@ -374,7 +377,7 @@ func (services *Services) TransportPorts() TransportPorts {
 		AccountLongLogin: services.accountLongLogin, AccountSettings: services.accountSettings, AccountRuntime: services.accountRuntime,
 		AccountSummaries: services.accountSummaries, AccountTasks: services.accountTasks, Chat: services.chat,
 		UncertainNotifications: services.uncertainNotifications, NotificationChannels: services.notificationChannels,
-		Analytics: services.analytics, AutomationIssues: services.automationIssues, AutomationRules: services.automationRules, DeliveryTemplates: services.deliveryTemplates,
+		Analytics: services.analytics, AutomationIssues: services.automationIssues, AutomationAudit: services.automationAudit, AutomationRules: services.automationRules, DeliveryTemplates: services.deliveryTemplates,
 		Cards: services.cards, APICardTester: services.apiCardTester, PublishAutomationRules: services.publishAutomationRules, DefaultReplies: services.defaultReplies, ItemGreetings: services.itemGreetings, Library: services.library,
 		Keywords: services.keywords, Settings: services.settings, Admin: services.admin, RuntimeLogs: services.runtimeLogs,
 	}
@@ -545,6 +548,7 @@ func New(dependencies Dependencies) (*Services, error) {
 		apiCardTester:          dependencies.TransportApplications.APICardTester,
 		publishAutomationRules: dependencies.TransportApplications.PublishAutomationRules,
 		automationIssues:       dependencies.TransportApplications.AutomationIssues,
+		automationAudit:        dependencies.TransportApplications.AutomationAudit,
 		defaultReplies:         dependencies.TransportApplications.DefaultReplies,
 		itemGreetings:          dependencies.TransportApplications.ItemGreetings,
 		keywords:               dependencies.TransportApplications.Keywords,

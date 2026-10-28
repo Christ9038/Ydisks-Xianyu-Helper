@@ -21,8 +21,10 @@ ShippingRule
 } from './models';
 import { type RequestControlOptions } from '../../../shared/http/client';
 import { contractClient, runContractRequest } from '../../../shared/api-contract/client';
+import type { AutomationAuditEventListTransport,AutomationAuditEventTransport } from '../../../shared/api-contract/automation';
 import { collectionFrom,objectFrom } from '../../../shared/http/contract';
 export type * from './models';
+import type { AuditDeliveredCard,AutomationAuditEvent,AutomationAuditPage,AutomationAuditQuery } from './auditModels';
 
 /** 发货模板创建和更新请求体。 */
 interface DeliveryTemplateWritePayload {
@@ -678,3 +680,56 @@ export const deleteItemGreeting = async (id: number): Promise<OperationResponse>
 // clearItemGreetingRecords 清空账号的首次回复发送记录，使买家下次咨询时重新触发。
 export const clearItemGreetingRecords = async (cookieID: string): Promise<OperationResponse> =>
   runContractRequest(/* signal 控制首次回复记录清理请求的取消和超时。 */ signal => contractClient.POST('/api/v1/reply-rules/greetings/clear-records/{cookie_id}', { params: { path: { cookie_id: cookieID } }, body: {} as never, signal }));
+
+// normalizeAuditEvent 把传输层事件转换为 UI 模型；秒级时间换算为毫秒。
+const normalizeAuditEvent = (item: AutomationAuditEventTransport): AutomationAuditEvent => ({
+  id: item.id,
+  cookieId: item.cookie_id,
+  orderId: item.order_id,
+  itemId: item.item_id,
+  ruleId: item.rule_id,
+  runId: item.run_id,
+  triggerType: item.trigger_type,
+  source: item.source,
+  eventType: item.event_type,
+  status: item.status,
+  actionType: item.action_type,
+  summary: item.summary,
+  reason: item.reason,
+  createdAtMs: item.created_at * 1000,
+});
+
+// getAutomationAuditEvents 分页读取规则日志；调用方通过 signal 在筛选变化或卸载时取消旧请求。
+export const getAutomationAuditEvents = async (query: AutomationAuditQuery, options?: RequestControlOptions): Promise<AutomationAuditPage> => {
+  // response 是通过契约客户端读取的分页响应，空筛选项省略。
+  const response: AutomationAuditEventListTransport = await runContractRequest(/* signal 绑定当前规则日志请求的生命周期。 */ signal => contractClient.GET('/api/v1/automation-audit-events', {
+    params: {
+      query: {
+        cookie_id: query.cookieId || undefined,
+        status: query.status || undefined,
+        trigger_type: query.triggerType || undefined,
+        search: query.search.trim() || undefined,
+        run_id: query.runId > 0 ? query.runId : undefined,
+        page: query.page,
+        page_size: query.pageSize,
+      },
+    },
+    signal,
+  }), options);
+  return { events: response.data.map(normalizeAuditEvent), total: response.total, totalPages: Math.max(1, response.total_pages) };
+};
+
+// getAuditOrderDeliveredCards 按需读取订单已发出的卡密正文；只在用户主动点击查看时调用，升级前的订单返回空数组。
+export const getAuditOrderDeliveredCards = async (orderId: string, options?: RequestControlOptions): Promise<AuditDeliveredCard[]> => {
+  // result 是订单已发卡密响应，明文只存在于本次请求结果中。
+  const result = await runContractRequest(/* signal 绑定当前查看操作的生命周期。 */ signal => contractClient.GET('/api/v1/orders/{order_id}/delivered-cards', {
+    params: { path: { order_id: orderId } },
+    signal,
+  }), options);
+  return result.data.map(/* item 是一条传输层售出记录。 */ item => ({
+    id: item.id,
+    cardName: item.card_name,
+    content: item.content,
+    deliveredAtMs: (item.sold_at || item.created_at) * 1000,
+  }));
+};

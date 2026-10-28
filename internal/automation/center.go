@@ -114,9 +114,11 @@ type Center struct {
 	notifications deliveryNotifier
 	// taskRunner 协调账号任务执行、凭证阻断和账号状态门禁。
 	taskRunner accountTaskCoordinator
-	store      *db.Store
-	senders    SenderProvider
-	logger     *slog.Logger
+	// audit 把跳过、排队、动作结果和终态追加到自动化审计表，写入失败不影响自动化结果。
+	audit   auditRecorder
+	store   *db.Store
+	senders SenderProvider
+	logger  *slog.Logger
 	// dependencies 拥有生产构造时固定的外部依赖快照，运行期间不可替换。
 	dependencies centerDependencies
 }
@@ -181,6 +183,7 @@ func NewWithDependencies(store *db.Store, senders SenderProvider, logger *slog.L
 		},
 		logger: logger.With("subsys", "automation"),
 	}
+	center.audit = newAuditRecorder(store, center.logger)
 	if // recoverer、ok 保存订单详情查询器提供的凭证恢复能力及类型判断结果
 	recoverer, ok := center.dependencies.fetcher.(CredentialRecoverer); ok {
 		center.dependencies.recoverer = recoverer
@@ -224,6 +227,7 @@ func NewWithDependencies(store *db.Store, senders SenderProvider, logger *slog.L
 		store:                    store,
 		planner:                  center.planner,
 		logger:                   center.logger,
+		audit:                    center.audit,
 		prepareTask:              center.prepareTask,
 		actionDelaySeconds:       center.actionDelaySeconds,
 		accountAutomationAllowed: center.accountAutomationAllowed,
@@ -309,11 +313,13 @@ func (c *Center) handleTask(ctx context.Context, task Task) (bool, error) {
 			if c.logger != nil {
 				c.logger.Info("未知角色发货事件已保存，等待本地卖家事实", "account", task.AccountID, "order_id", task.OrderID, "trigger", task.TriggerType, "reason", rejectReason)
 			}
+			c.audit.queued(ctx, task, 0, 0, "等待本地卖家事实后再判断买卖方向："+rejectReason)
 			return true, nil
 		}
 		if c.logger != nil {
 			c.logger.Info("未知角色发货事件未通过本地卖家核验，未执行外部动作", "account", task.AccountID, "order_id", task.OrderID, "trigger", task.TriggerType, "reason", rejectReason)
 		}
+		c.audit.skipped(ctx, task, "未通过本地卖家核验："+rejectReason)
 		return false, nil
 	}
 	if unknownRoleTask && c.logger != nil {
@@ -348,6 +354,7 @@ func (c *Center) handleTask(ctx context.Context, task Task) (bool, error) {
 			return false, err
 		}
 		c.logger.Info("账号已暂停，自动化事件已持久化等待恢复", "account", task.AccountID, "trigger", task.TriggerType, "due_at", until)
+		c.audit.queued(ctx, task, 0, 0, "账号已暂停，恢复后继续执行")
 		return true, nil
 	}
 	// enabled、err 用于本次流程后续判断的enabled、err
@@ -357,6 +364,7 @@ func (c *Center) handleTask(ctx context.Context, task Task) (bool, error) {
 	}
 	if !enabled {
 		c.logger.Info("账号已停用，记录事件事实但不执行自动化", "account", task.AccountID, "trigger", task.TriggerType)
+		c.audit.skipped(ctx, task, "账号已停用")
 		return false, nil
 	}
 	if task.TriggerType == TriggerBargainPending {
@@ -374,6 +382,7 @@ func (c *Center) handleTask(ctx context.Context, task Task) (bool, error) {
 		}
 		if !autoDelivery {
 			c.logger.Info("账号未开启自动发货，跳过付款自动发货", "account", task.AccountID, "order_id", task.OrderID)
+			c.audit.skipped(ctx, task, "账号未开启自动发货")
 			return false, nil
 		}
 	}
@@ -388,6 +397,7 @@ func (c *Center) handleTask(ctx context.Context, task Task) (bool, error) {
 	}
 	if len(rules) == 0 {
 		c.logger.Warn("未匹配商品规则或已确认的账号通用规则，未执行自动化", "trigger", task.TriggerType, "order_id", task.OrderID, "item_id", task.ItemID)
+		c.audit.skipped(ctx, task, "未匹配到启用的商品规则或已确认的账号通用规则")
 		return false, nil
 	}
 	// firstErr 用于本次流程后续判断的firstErr
@@ -407,6 +417,7 @@ func (c *Center) handleTask(ctx context.Context, task Task) (bool, error) {
 				}
 				c.logger.Warn("自动化前置处理失败，任务已持久化等待恢复", "account", task.AccountID,
 					"order_id", task.OrderID, "trigger", task.TriggerType, "retry_at", dueAt, "err", err)
+				c.audit.queued(ctx, task, 0, rule.ID, "前置处理失败，约 1 分钟后重试："+prepErr.Error())
 				return true, nil
 			}
 			if errors.Is(err, errAutomationDeferred) {
@@ -419,80 +430,6 @@ func (c *Center) handleTask(ctx context.Context, task Task) (bool, error) {
 		}
 	}
 	return false, firstErr
-}
-
-// handleBargainPending 处理砍价“待刀成”WS 阶段：仅按独立账号开关调用免拼，绝不匹配发卡或确认发货规则。
-func (c *Center) handleBargainPending(ctx context.Context, task Task) (bool, error) {
-	if task.Source != "ws" {
-		c.logger.Warn("拒绝非 WebSocket 的免拼阶段任务", "source", task.Source, "account", task.AccountID, "order_id", task.OrderID)
-		return false, nil
-	}
-	// autoBargain、settingsErr 保存独立自动免拼开关和读取错误。
-	autoBargain, settingsErr := c.store.Cookies.GetAutoBargain(ctx, task.AccountID)
-	if settingsErr != nil {
-		return false, fmt.Errorf("读取自动免拼设置: %w", settingsErr)
-	}
-	if !autoBargain {
-		c.logger.Info("账号未启用自动免拼，跳过待刀成阶段", "account", task.AccountID, "order_id", task.OrderID)
-		return false, nil
-	}
-	if task.OrderID == "" {
-		return false, fmt.Errorf("免拼阶段缺少订单ID")
-	}
-	// claimed、claimErr 保存本次 WS 是否取得免拼阶段唯一执行权。
-	claimed, claimErr := c.store.Automation.ClaimBargainFreeShipping(ctx, task.OrderID, task.AccountID)
-	if claimErr != nil {
-		return false, fmt.Errorf("领取免拼阶段执行权: %w", claimErr)
-	}
-	if !claimed {
-		c.logger.Info("免拼阶段已有其他任务处理，跳过重复事件", "account", task.AccountID, "order_id", task.OrderID)
-		return false, nil
-	}
-	c.logger.Info("开始执行自动免拼", "account", task.AccountID, "order_id", task.OrderID, "trigger", task.TriggerType)
-	// actionErr 保存独立免拼接口的执行结果。
-	actionErr := c.actions.freeShipBargain(ctx, task)
-	// status 保存可重试的明确失败、需要人工核对的未知结果或成功终态。
-	status := "succeeded"
-	if actionErr != nil {
-		// uncertain 用于识别可能已被平台执行、因而不能自动再次提交的免拼结果。
-		var uncertain *uncertainActionError
-		if errors.As(actionErr, &uncertain) {
-			status = "needs_review"
-		} else {
-			status = "failed"
-		}
-		c.logger.Warn("自动免拼失败，已保存阶段状态", "account", task.AccountID, "order_id", task.OrderID, "status", status, "err", actionErr)
-	} else {
-		c.logger.Info("自动免拼成功，等待成功小刀消息后发卡", "account", task.AccountID, "order_id", task.OrderID)
-	}
-	// finishErr 保存免拼阶段终态写入错误，避免远端成功后丢失兜底资格。
-	if finishErr := c.store.Automation.FinishBargainFreeShipping(ctx, task.OrderID, task.AccountID, status); finishErr != nil {
-		// reviewReason 说明阶段收口失败后为何不能再次自动免拼。
-		reviewReason := "免拼请求已经执行，但本地阶段状态保存失败，禁止自动重试，请核对平台订单状态：" + finishErr.Error()
-		if actionErr != nil {
-			reviewReason = "免拼请求结果和本地阶段状态均无法确认，禁止自动重试，请核对平台订单状态：" + errors.Join(actionErr, finishErr).Error()
-		}
-		// notifyCtx 保证原始请求取消后，人工处理通知仍有独立的短时入队预算。
-		notifyCtx, notifyCancel := newAutomationRunCompensationContext(ctx)
-		c.notifications.notifyManualIntervention(notifyCtx, task, "二人小刀免拼", reviewReason, bargainManualInterventionKey(task))
-		notifyCancel()
-		if actionErr != nil {
-			return false, errors.Join(actionErr, fmt.Errorf("收口免拼阶段: %w", finishErr))
-		}
-		return false, uncertainAction(fmt.Errorf("闲鱼已免拼，但本地阶段保存失败: %w", finishErr))
-	}
-	if status == "needs_review" {
-		// notifyCtx 保证免拼结果不确定时的人工处理通知不受平台调用上下文取消影响。
-		notifyCtx, notifyCancel := newAutomationRunCompensationContext(ctx)
-		c.notifications.notifyManualIntervention(notifyCtx, task, "二人小刀免拼", actionErr.Error(), bargainManualInterventionKey(task))
-		notifyCancel()
-	}
-	return false, actionErr
-}
-
-// bargainManualInterventionKey 返回同一账号、订单、免拼阶段共享的通知幂等键，重复 WS 不会制造重复告警。
-func bargainManualInterventionKey(task Task) string {
-	return fmt.Sprintf("manual-intervention:bargain-free-shipping:%s:%s", task.AccountID, task.OrderID)
 }
 
 // taskAutomationRunID 封装任务自动化运行ID业务协调。

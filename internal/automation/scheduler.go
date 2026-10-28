@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"xianyu-go/internal/db"
@@ -95,6 +96,8 @@ type Scheduler struct {
 	pendingShipSettleWindow time.Duration
 	// pendingShipScanMaxTasks 限制每条待发货扫描单轮实际触发的任务数；零值使用生产默认值。
 	pendingShipScanMaxTasks int
+	// auditPrunedAt 是上次清理过期审计事件的 Unix 秒，仅由调度循环读写，零值表示尚未清理。
+	auditPrunedAt atomic.Int64
 }
 
 // NewScheduler 构造计划任务调度器。
@@ -169,6 +172,7 @@ func (s *Scheduler) WaitContext(ctx context.Context) error {
 
 // scan 封装scan业务协调。
 func (s *Scheduler) scan(ctx context.Context) {
+	s.pruneAuditEvents(ctx)
 	s.center.scanAccountTasks(ctx)
 	if // recovered、err 用于本次流程后续判断的recovered、err
 	recovered, err := s.center.store.Automation.RecoverDefinitelyUnsentReviewRuns(ctx); err != nil {

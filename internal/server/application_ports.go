@@ -293,6 +293,11 @@ type AutomationIssuesPort interface {
 	ResolveDeferredIssue(context.Context, int64, int64, string) error
 }
 
+// AutomationAuditPort 定义规则日志（自动化行为审计）的分页查询能力。
+type AutomationAuditPort interface {
+	ListEvents(context.Context, int64, automationapp.AuditListInput) (automationapp.AuditPage, error)
+}
+
 // AutomationRulesPort 定义自动化规则的查询、规范化和写入能力。
 type AutomationRulesPort interface {
 	ListForUser(context.Context, int64) ([]automationapp.Rule, error)
@@ -488,6 +493,8 @@ type ApplicationPorts struct {
 	analytics AnalyticsPort
 	// automationIssues 是自动化异常用例。
 	automationIssues AutomationIssuesPort
+	// automationAudit 是规则日志查询用例。
+	automationAudit AutomationAuditPort
 	// automationRules 是自动化规则用例。
 	automationRules AutomationRulesPort
 	// deliveryTemplates 是发货模板管理用例。
@@ -548,6 +555,7 @@ type ApplicationPortsInput struct {
 	NotificationChannels        NotificationChannelsPort
 	Analytics                   AnalyticsPort
 	AutomationIssues            AutomationIssuesPort
+	AutomationAudit             AutomationAuditPort
 	AutomationRules             AutomationRulesPort
 	DeliveryTemplates           DeliveryTemplatesPort
 	Cards                       CardsPort
@@ -577,7 +585,7 @@ func NewApplicationPorts(input ApplicationPortsInput) *ApplicationPorts {
 		accountLongLogin: input.AccountLongLogin, accountSettings: input.AccountSettings, accountRuntime: input.AccountRuntime,
 		accountSummaries: input.AccountSummaries, accountTasks: input.AccountTasks, chat: input.Chat,
 		uncertainNotifications: input.UncertainNotifications, notificationChannels: input.NotificationChannels,
-		analytics: input.Analytics, automationIssues: input.AutomationIssues, automationRules: input.AutomationRules,
+		analytics: input.Analytics, automationIssues: input.AutomationIssues, automationAudit: input.AutomationAudit, automationRules: input.AutomationRules,
 		cards: input.Cards, deliveryTemplates: input.DeliveryTemplates, apiRequestTester: input.APIRequestTester, publishAutomationRules: input.PublishAutomationRules, defaultReplies: input.DefaultReplies, itemGreetings: input.ItemGreetings, library: input.Library,
 		keywords: input.Keywords, settings: input.Settings, admin: input.Admin, runtimeLogs: input.RuntimeLogs,
 	}
@@ -605,7 +613,7 @@ func (ports *ApplicationPorts) validate() error {
 		{"account_delete", ports.accountDelete}, {"account_profile", ports.accountProfile}, {"account_long_login", ports.accountLongLogin},
 		{"account_settings", ports.accountSettings}, {"account_runtime", ports.accountRuntime}, {"account_summaries", ports.accountSummaries},
 		{"account_tasks", ports.accountTasks}, {"chat", ports.chat}, {"uncertain_notifications", ports.uncertainNotifications},
-		{"notification_channels", ports.notificationChannels}, {"analytics", ports.analytics}, {"automation_issues", ports.automationIssues},
+		{"notification_channels", ports.notificationChannels}, {"analytics", ports.analytics}, {"automation_issues", ports.automationIssues}, {"automation_audit", ports.automationAudit},
 		{"automation_rules", ports.automationRules}, {"cards", ports.cards}, {"publish_automation_rules", ports.publishAutomationRules},
 		{"default_replies", ports.defaultReplies}, {"item_greetings", ports.itemGreetings}, {"library", ports.library}, {"keywords", ports.keywords}, {"settings", ports.settings}, {"admin", ports.admin},
 		{"runtime_logs", ports.runtimeLogs},
@@ -685,6 +693,11 @@ func (server *Server) accountTaskApplication() AccountTasksPort {
 // automationIssuesApplication 返回自动化异常用例。
 func (server *Server) automationIssuesApplication() AutomationIssuesPort {
 	return server.applicationServiceSet().automationIssues
+}
+
+// automationAuditApplication 返回规则日志查询用例。
+func (server *Server) automationAuditApplication() AutomationAuditPort {
+	return server.applicationServiceSet().automationAudit
 }
 
 // automationRulesApplication 返回自动化规则用例。

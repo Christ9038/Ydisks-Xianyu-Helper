@@ -1623,6 +1623,80 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/automation-audit-events":
+    get:
+      operationId: getApiV1AutomationAuditEvents
+      summary: getApiV1AutomationAuditEvents
+      description: 分页读取当前用户的自动化行为审计事件（规则日志），含跳过、排队、动作结果与终态；摘要不含卡密或消息正文。
+      parameters:
+        - name: cookie_id
+          in: query
+          required: false
+          schema: {type: string}
+        - name: status
+          in: query
+          required: false
+          schema: {type: string, enum: [queued, running, success, failed, skipped, needs_review, canceled]}
+        - name: trigger_type
+          in: query
+          required: false
+          schema: {type: string}
+        - name: run_id
+          in: query
+          required: false
+          description: 大于零时返回该运行的时间线（按时间正序）。
+          schema: {type: integer, minimum: 1}
+        - name: search
+          in: query
+          required: false
+          description: 订单号子串匹配。
+          schema: {type: string}
+        - name: page
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1}
+        - name: page_size
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1, maximum: 100}
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AutomationAuditEventListResponse'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   "/api/v1/automation-issues":
     get:
       operationId: getApiV1AutomationIssues
@@ -8403,6 +8477,36 @@ components:
         error_message: {type: string}
         attempt_count: {type: integer}
         updated_at: {type: string}
+    AutomationAuditEventResponse:
+      type: object
+      required: [id, cookie_id, order_id, item_id, rule_id, run_id, trigger_type, source, event_type, status, action_type, summary, reason, created_at]
+      properties:
+        id: {type: integer}
+        cookie_id: {type: string}
+        order_id: {type: string}
+        item_id: {type: string}
+        rule_id: {type: integer}
+        run_id: {type: integer}
+        trigger_type: {type: string}
+        source: {type: string}
+        event_type: {type: string}
+        status: {type: string}
+        action_type: {type: string}
+        summary: {type: string}
+        reason: {type: string}
+        created_at: {type: integer}
+    AutomationAuditEventListResponse:
+      type: object
+      required: [success, data, total, page, page_size, total_pages]
+      properties:
+        success: {type: boolean}
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/AutomationAuditEventResponse'}
+        total: {type: integer}
+        page: {type: integer}
+        page_size: {type: integer}
+        total_pages: {type: integer}
     AutomationIssuesResponse:
       type: object
       required: [runs, pending_tasks]

@@ -215,7 +215,7 @@ func ServerDependencies(services *composition.Services, base HTTPDependencies, s
 			AccountLongLogin: ports.AccountLongLogin, AccountSettings: ports.AccountSettings, AccountRuntime: ports.AccountRuntime,
 			AccountSummaries: ports.AccountSummaries, AccountTasks: ports.AccountTasks, Chat: ports.Chat,
 			UncertainNotifications: ports.UncertainNotifications, NotificationChannels: ports.NotificationChannels,
-			Analytics: ports.Analytics, AutomationIssues: ports.AutomationIssues, AutomationRules: ports.AutomationRules, DeliveryTemplates: ports.DeliveryTemplates,
+			Analytics: ports.Analytics, AutomationIssues: ports.AutomationIssues, AutomationAudit: ports.AutomationAudit, AutomationRules: ports.AutomationRules, DeliveryTemplates: ports.DeliveryTemplates,
 			Cards: ports.Cards, APIRequestTester: ports.APICardTester, PublishAutomationRules: ports.PublishAutomationRules, DefaultReplies: ports.DefaultReplies, ItemGreetings: ports.ItemGreetings, Library: ports.Library,
 			Keywords: ports.Keywords, Settings: ports.Settings, Admin: ports.Admin, RuntimeLogs: ports.RuntimeLogs,
 		}),

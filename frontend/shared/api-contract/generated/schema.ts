@@ -453,6 +453,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/automation-audit-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * getApiV1AutomationAuditEvents
+         * @description 分页读取当前用户的自动化行为审计事件（规则日志），含跳过、排队、动作结果与终态；摘要不含卡密或消息正文。
+         */
+        get: operations["getApiV1AutomationAuditEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/automation-issues": {
         parameters: {
             query?: never;
@@ -2328,6 +2348,30 @@ export interface components {
             error_message: string;
             attempt_count: number;
             updated_at: string;
+        };
+        AutomationAuditEventResponse: {
+            id: number;
+            cookie_id: string;
+            order_id: string;
+            item_id: string;
+            rule_id: number;
+            run_id: number;
+            trigger_type: string;
+            source: string;
+            event_type: string;
+            status: string;
+            action_type: string;
+            summary: string;
+            reason: string;
+            created_at: number;
+        };
+        AutomationAuditEventListResponse: {
+            success: boolean;
+            data: components["schemas"]["AutomationAuditEventResponse"][];
+            total: number;
+            page: number;
+            page_size: number;
+            total_pages: number;
         };
         AutomationIssuesResponse: {
             runs: components["schemas"]["AutomationRunIssue"][];
@@ -6018,6 +6062,81 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SalesStatsResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getApiV1AutomationAuditEvents: {
+        parameters: {
+            query?: {
+                cookie_id?: string;
+                status?: "queued" | "running" | "success" | "failed" | "skipped" | "needs_review" | "canceled";
+                trigger_type?: string;
+                /** @description 大于零时返回该运行的时间线（按时间正序）。 */
+                run_id?: number;
+                /** @description 订单号子串匹配。 */
+                search?: string;
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 成功 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutomationAuditEventListResponse"];
                 };
             };
             /** @description 统一错误响应 */
