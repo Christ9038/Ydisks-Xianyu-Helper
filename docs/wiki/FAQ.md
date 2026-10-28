@@ -1,77 +1,78 @@
-# FAQ (Q&A from Issues)
+# FAQ
 
 [中文](常见问题.zh-CN) | English
 
-Consultation-type questions collected from the issue tracker, grouped by topic. For Cookie / risk-control problems see [Risk-Control Troubleshooting](Risk-Control-Troubleshooting). Issue numbers are given in parentheses. "Fixed in vX" means upgrade to that version or later.
+If your account is risk-controlled or QR login keeps saying "security verification required", go straight to [What to do when your account is risk-controlled](Risk-Control-Troubleshooting). Everything else people commonly ask is below.
 
-## Installation, upgrade and accounts
+## Installing and upgrading
 
-**Q: Which one is the administrator account? I forgot the password.**
-The username is `admin`. The first-run page asks you to set and confirm the password. To reset: `go run ./cmd/server -init-admin -db <database path> -admin-password '<new password>'`; Docker Compose users set `XIANYU_ADMIN_PASSWORD` (#70).
+**Which account is the administrator? I forgot the password.**
+The username is always `admin`; the password is the one you set the first time you opened the console. To reset it from the command line:
+`go run ./cmd/server -init-admin -db <database path> -admin-password 'new password'`. Docker users just change `XIANYU_ADMIN_PASSWORD`.
 
-**Q: How do I upgrade a Docker deployment? Is my data kept?**
-Pull the new image, delete the old container and recreate it with the same parameters (with Compose: `docker compose pull && docker compose up -d`; with Portainer: pull the image and *Recreate*). Data lives in the mounted volume/database, so it is kept as long as you reuse the same volume and `XIANYU_DATA_KEY` (#59).
+**How do I upgrade Docker? Will I lose data?**
+No. Pull the latest image, remove the old container and create it again with the same parameters. With Compose run `docker compose pull && docker compose up -d`; with Portainer pull the image and click Recreate. As long as you keep the same data volume and `XIANYU_DATA_KEY`, your accounts and orders stay. Note that redeploying without pulling a new image just runs the old version again.
 
-**Q: Where should I deploy it?**
-At home on a NAS / soft router / home server with Docker. Data-center IPs are easier to flag (#100).
+**Where should I run it?**
+At home if you can: a NAS or a soft router with Docker. Cloud and data-center IPs are easy for Xianyu's risk control to flag.
 
-**Q: Can I use MySQL? Is there a WeChat group?**
-MySQL and PostgreSQL are supported besides SQLite (see [Deployment and Database](Deployment-and-Database)). There is only a Telegram group, no WeChat group (#27).
+**Can I use MySQL?**
+Yes. Besides SQLite, MySQL and PostgreSQL are supported; see [Deployment and Database](Deployment-and-Database). The community group is on Telegram only, there is no WeChat group.
 
-**Q: The macOS installer fails.**
-The package may be unsigned. Open *System Settings → Privacy & Security* and allow the blocked installer, then install again. When reporting, include macOS version, chip (arm64/Intel), package file name and the full error text (#58).
+**The macOS installer won't install.**
+An unsigned installer gets blocked by the system. Open *System Settings → Privacy & Security*, find the blocked item and click "Open Anyway", then install again. If it still fails, when reporting include your macOS version, chip (Apple silicon or Intel), the installer file name and the full error.
 
-**Q: The Windows installer says "Windows service registration failed" when updating.**
-The issue has no confirmed resolution yet. Try running the installer as administrator with the old `YdisksXianyuHelper` service stopped, and if it still fails, open an issue with the full error text (#26).
+**Updating on Windows says "Windows service registration failed".**
+We have no confirmed cause yet. Try running the installer as administrator after stopping the old `YdisksXianyuHelper` service; if it still fails, open an issue with the full error.
 
-**Q: Notification test says "access to non-public address denied".**
-The built-in safety policy blocks webhook targets that resolve to private IPs. With a proxy using fake-IP DNS (e.g. mihomo), add your notification server's domain to the fake-ip filter (#9).
+**The notification test says "access to non-public address denied".**
+For safety the program refuses notification URLs that resolve to a private IP. The usual cause is a proxy in fake-ip mode (mihomo, for example) answering your notification server's domain with a private address. Add that domain to the proxy's fake-ip filter.
 
-**Q: The browser notification says "permission denied", or has no sound.**
-Allow notifications for the site in the browser's site settings (browsers generally require HTTPS or `localhost`). The notification sound switch is under *System Settings → Basic Settings* (#78, #95).
+**Browser notifications say "permission denied", or play no sound.**
+Allow notifications for this address in the browser's site settings (browsers generally require HTTPS or `localhost`). The sound switch is under *System Settings → Basic Settings*.
 
-**Q: How does the program receive and send messages? Does it use the official API?**
-It follows the official web version's protocol (WebSocket + MTOP), not a headless browser polling pages (#17).
+**How does it send and receive messages? The official API?**
+It follows Xianyu's own web version protocol (WebSocket plus the MTOP interfaces). It does not drive a headless browser to scrape pages.
 
-## Products, inventory and delivery
+## Products, cards and delivery
 
-**Q: I can't delete a card stock, saving an API card's headers shows nothing when reopened.**
-Stored API-card secrets are deliberately not echoed back to the page for security; re-enter them when editing (#60). Deleting a card stock that was bound to a deleted rule was fixed in v1.0.8 (#31).
+**I saved an API card's headers, but they are gone when I reopen it.**
+That is on purpose. API cards can contain third-party keys, so they are never shown on the page again; just type them in again when editing.
 
-**Q: Multi-spec products never match auto delivery.**
-Rules must match the *complete* SKU combination of the order. Matching of multi-spec rules was fixed in v1.0.6 (#16). Quantity display was fixed in v1.0.7 (#24).
+**A multi-spec product never matches auto delivery.**
+The rule has to match the order's **complete spec combination**; the program never guesses from a partial match. Upgrade to a recent version and check that every spec combination has a rule.
 
-**Q: The "automatic rules" account dropdown is empty.**
-Improved in v1.0.6; make sure you have created a card stock and the account is enabled (#20).
+**I can't pick an account in the automation rules.**
+Make sure a card stock exists and the account is enabled.
 
-**Q: Can I deliver from a card dealer's API?**
-Yes, since v1.0.5 an API card/auto-delivery source is supported (#12, #15).
+**Can I connect a card dealer's API for automatic delivery?**
+Yes. Choose the API type in Card Inventory and fill in the request template.
 
-**Q: Haggle ("小刀") orders are not delivered / need "free group" (免拼).**
-Since v1.0.13 "Auto free-group" is a separate switch in Account Management. The order is: waiting-for-haggle message → free-group (if enabled) → only after the "haggle succeeded, awaiting shipment" message does delivery happen, then optional shipping confirmation (#49).
+**Two-person haggle orders are never delivered, I need free-group (免拼).**
+Free-group is a separate switch in Account Management. The flow: when the "waiting for haggle to complete" message arrives, free-group runs once if it is enabled; the card is sent only after the "haggle succeeded, awaiting shipment" message arrives; after the card is sent, shipping is confirmed according to the "auto confirm shipment" switch. Without free-group the account simply waits for the "awaiting shipment" stage before sending the card.
 
-**Q: Why was a ¥0 service/appointment order not delivered?**
-Paid auto-delivery has an amount gate (#104) so ¥0 orders do not receive cards.
+**Why was a ¥0 appointment/service order not delivered?**
+By design: paid auto delivery checks the deal amount, and ¥0 orders never receive a card, to avoid mistaken delivery.
 
-**Q: Publishing fails with `INVALID_MAP_LOCATION`.**
-Physical goods require a location; virtual goods usually do not. Newer versions let you choose the shipping region when publishing (#1).
+**Publishing fails with "the system cannot locate your administrative area".**
+Physical goods need a location; virtual goods usually don't. Newer versions let you choose the shipping region when publishing.
 
-**Q: What is the manual order import template?**
-It is a historical leftover; use order sync instead (#36).
+**Where do I download the "import orders" spreadsheet template?**
+There isn't one; it is a leftover feature. Just use "Sync orders".
 
-**Q: Default reply also triggers when I am the buyer.**
-Account default replies apply to the account's chats; limit them via rules where possible (#37 is open for improvement).
+**The account's default reply also fires when I am the buyer.**
+Default replies apply per account and can't tell roles apart yet. Use keyword rules to narrow the scope.
 
 ## Reviews and AI
 
-**Q: Auto-review stopped working.**
-Known causes already fixed: confirm-receipt notices parsed the stage code as the order number (#76, #81, #83), and a 200-order candidate window filled with already reviewed orders (#96). Upgrade to the latest version. Orders older than 30 days cannot be reviewed on the platform (#42).
+**Auto review suddenly stopped working.**
+Upgrade first. Two bugs were fixed: the order number in the "received" notice was parsed wrongly, and the review candidate list only looked at the first 200 orders, so once those were all reviewed new orders could never get in. Also, Xianyu itself no longer accepts reviews for orders older than 30 days.
 
-**Q: Enabling the "ask for review when overdue" rule sent ~100 messages at once.**
-Fixed: the review-request rule now has a lookback window ("only orders shipped within the last N hours"); older orders are never messaged when you re-enable the rule (#86). See [Automated Delivery and Replies](Automated-Delivery-and-Replies).
+**After re-enabling the "ask for review" rule it messaged a pile of old orders.**
+Fixed. The rule now has "only orders shipped within the last N hours"; older orders are left alone. See [Automated Delivery and Replies](Automated-Delivery-and-Replies).
 
-**Q: AI reply does nothing / model test succeeds but no replies.**
-Use an OpenAI-compatible base URL that ends with `/v1`, and run the AI model test (v1.0.13+). Currently AI reply is for automatic haggling answers only, not general questions (#50).
+**AI reply does nothing even though the model test succeeds.**
+Check three things: the API URL must be OpenAI-compatible, usually ending in `/v1`; run "Test connection" in AI settings; and AI replies mainly handle haggling, so for other questions switch the account's AI mode to "full customer service".
 
-**Q: Can I get notified when a buyer sends "talk to a human"?**
-Buyer-message pushes still come from the Xianyu app; keyword notification is not implemented (#34).
+**Can I get notified when a buyer sends something like "talk to a human"?**
+Not at the moment. Buyer message alerts still come from the Xianyu app's own push; there is no keyword notification in this program.

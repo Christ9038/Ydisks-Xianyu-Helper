@@ -1,70 +1,71 @@
-# Risk-Control Troubleshooting (Q&A)
+# What to do when your account is risk-controlled
 
 [中文](风控处理.zh-CN) | English
 
-This page collects the most frequent consultation threads in the issue tracker about Xianyu (Goofish) risk control ("风控"), such as *"Xianyu requires security verification, please scan the QR code again"*, *"API renewal updated the credential, reconnecting…"* or `PERMISSION_EXCEPTION`. It is based on Issues #32, #48, #53, #64, #77, #92, #93 and #100.
+If an account card shows "Xianyu requires security verification, please scan the QR code again", or "API renewal updated the credential, reconnecting…", or order sync fails with `PERMISSION_EXCEPTION`, it is almost always the same thing: **Xianyu has flagged that account's login credential (the Cookie) as risky.**
 
-> Risk control is a **platform-side** decision about the Cookie / IP / device, not a defect of this program. The program cannot bypass face verification or slider checks for you; it can only keep its own request rate low and let you hand it a Cookie that has already passed verification.
+That is the platform's decision, not a bug. The program cannot do face or slider verification for you. What you can do is pass the verification in a browser yourself, then hand the program the Cookie that has passed.
 
-## Why does re-scanning the QR code not help?
+## Why re-scanning the QR code does not help
 
-**Q: I scanned the QR code many times and always get "Xianyu requires security verification". Why?**
+While the account is flagged, every new QR login gives you a new Cookie that **carries the same risk flag**. Scanning again changes nothing, so stop re-scanning and use the steps below.
 
-While the account is flagged, every new QR login returns a *new* Cookie that **carries the same risk flag**. Scanning again just produces another flagged Cookie. You must first clear the flag in a real browser, then give the cleared Cookie to the system.
+## Step by step (Chrome / Edge)
 
-## Recommended recovery procedure
+**Step 1 – Sign in to the Xianyu web version and pass verification**
 
-**Q: How do I recover an account whose Cookie is risk-controlled?**
+1. On a computer, open [goofish.com](https://www.goofish.com) and sign in with the flagged account.
+2. Open the **Messages** page. If a slider, face or SMS check appears, complete it.
+3. Use a computer on the **same network (same exit IP)** as the program if you can. If the program runs on a home NAS but you verify over mobile data or a VPN, the changed IP may trigger verification again.
 
-1. Open the Xianyu web version (`goofish.com`) in a desktop browser **on the same network that the program uses** and sign in with that account.
-2. Open the **Messages** page. If a slider, face or SMS verification appears, complete it. (If nothing appears, see the next question.)
-3. Open the browser developer tools → **Network** panel, refresh the Messages page, and search for `token` in the request list.
-4. Click that `token` request and copy the **request header `Cookie`** (the Cookie *sent with the request*, not a Cookie shown on some other tab or in the Application panel).
-5. In the management console go to **Account Management → Edit account**, paste the Cookie, save, and confirm the account turns online.
-6. Do not re-scan the QR code afterwards; wait until the account is stable.
+**Step 2 – Find the `token` request in developer tools**
 
-Never paste your Cookie into an issue, chat or screenshot.
+1. On the Messages page press `F12` (on Mac `Option + Command + I`) and open the **Network** tab.
+2. Tick "Disable cache".
+3. Type `token` in the filter box.
+4. **Press `F5` to reload** while the panel is open, otherwise the requests are not recorded.
+5. Several rows appear. Click the one named like `1.0/?jsv=2.7.2&appKe...`. The row starting with `auth?token=...` is *not* the one.
 
-## Troubleshooting checklist
+**Step 3 – Copy the Cookie from the request headers**
 
-**Q: I pasted the Cookie and it still fails / the saved Cookie disappears after login fails.**
+1. Click that request and choose **Headers** on the right.
+2. Scroll to the **Request Headers** section and find the **Cookie** line.
+3. Copy the **whole value**. It is a long string separated by semicolons (`xxx=...; xxx=...; ...`) that usually contains fields such as `unb=` and `_m_h5_tk=`. Right-click the line and choose "Copy value", or double-click the value, select all and copy.
 
-The system discards a Cookie that the platform still rejects. Check, in order:
+> The Cookie you need is the one **sent with this request** (Request Headers). It is not the Cookie shown in the Application/Storage panel, and not the `set-cookie` in the response headers. Copying from the wrong place is the most common reason this fails.
 
-- Did the web page really pass verification? Reported successes (Issue #92) often involved a slider appearing on the *second* attempt; if the web page never asked for verification, the Cookie was probably copied before the flag was triggered.
-- Did you copy the Cookie of the **`token` request** and not just any Cookie?
-- Is the browser's network the same as the server's network? A VPN, proxy switch or different region changes the IP and re-triggers verification (Issue #48: the Cookie stopped working within five minutes after switching VPN).
-- Do not copy a Cookie while the web page is itself showing a verification page.
-- Retry after a few hours. In Issue #93 the account recovered by itself hours later, and a user reported that restarting the container sometimes recovers a flagged account.
+**Step 4 – Paste it into the system**
 
-**Q: The log says "WS Token is about to expire, rotating proactively" and it never recovers.**
+When an account needs verification its card shows a **"Paste verified Cookie" button** (粘贴无风控 Cookie). Click it to open the edit window. You can also go to Account Management → Edit account, paste the Cookie into the Cookie field and save.
 
-It means the Cookie in use is not a freshly verified one. Redo the procedure above using the Cookie from a request made right after passing verification (Issue #92).
+Wait a moment; when the account turns online it is recovered.
 
-**Q: Order sync fails with `PERMISSION_EXCEPTION::无权限访问` ("no permission").**
+## Pasted it and still fails? Check these
 
-The order-detail interface of that Cookie is flagged (Issue #53). Sign in to the official site, open **My Xianyu** and click into a product/order to trigger and pass verification, paste the resulting Cookie back into the account, then sync again. Upgrade to v1.0.13 or later.
+- **Did the web version really ask for verification?** If it never did, you may have copied the Cookie too early. Reload the Messages page a few times until verification shows up, pass it, then copy again. Some people only succeeded on the second copy, after a slider appeared on the web page.
+- **Right place?** It must be Request Headers → Cookie of the `token` request.
+- **Same network?** Toggling a VPN, switching proxy nodes or changing networks changes your IP and can invalidate the verification you just passed.
+- **"WS Token is about to expire, rotating" and never recovers:** the Cookie in use is not a freshly verified one. Repeat the steps and copy right after passing verification.
+- **The pasted Cookie disappears after saving:** the platform still rejects it and the system discarded it. Pass verification again and re-copy.
+- **Wait a few hours.** Some accounts recovered by themselves hours later, and some people report that restarting the container helped. Neither is guaranteed.
 
-**Q: "API renewal updated the credential, reconnecting" keeps repeating.**
+## Order sync shows PERMISSION_EXCEPTION
 
-That is the protocol-level renewal path. It usually means the credential is still flagged; follow the recovery procedure. Versions 1.0.11 renewed too aggressively; 1.0.12 lowered the frequency — make sure you run a recent version.
+It means the order-detail interface of this Cookie is flagged. On the web version go to "My Xianyu", open any product or order and pass any verification it shows. Then copy the Cookie again as above, paste it back into the account and re-run the sync. Upgrading to a recent version is also recommended.
 
-## Prevention
+## How to avoid it
 
-**Q: Where should I deploy to avoid risk control?**
+- **Run it at home:** a NAS, soft router or an always-on home PC with Docker. Data-center and cloud IPs (including Hong Kong servers) are easy for the platform to recognise.
+- **Keep your exit IP stable:** do not keep switching VPN or proxy nodes.
+- **Do not use `-no-browser`:** verification and order-detail fallbacks need Chromium. Only turn the browser off if Chromium genuinely cannot be installed.
+- **Run each account in one place only:** never sign the same account in on several machines.
+- The program itself throttles requests to Xianyu (at least 2 seconds between requests per account, 5 seconds for background batches) and stops a batch immediately when risk control appears.
 
-At home: a NAS, soft router or home server with Docker. Data-center / cloud IPs (including Hong Kong VPS) are easy for the platform to recognise (Issue #100). Keep the exit IP stable; do not switch VPN/proxy nodes frequently.
+## Common misunderstandings
 
-**Q: Can I run with `-no-browser`?**
+- "The API is broken": usually it is your network. Log lines such as `wsarecv ... forcibly closed` or `server misbehaving` mean this machine's network or DNS cannot reach Xianyu. Fix the network/DNS; the interface itself is fine.
+- "A short network drop leaves the account offline forever": no. Newer versions reconnect after 5 s, 15 s, 30 s, 60 s and then every 2 minutes, and only stop when Xianyu explicitly rejects the login.
 
-Not recommended. Browser-backed verification and order-detail fallbacks need Chromium; disable it only if Chromium is genuinely unavailable (Issues #48, #77).
+Never send your Cookie to anyone, paste it in a group chat or post it in an issue. It is equivalent to the account's login.
 
-**Q: Does the program flood the platform with requests?**
-
-No. All MTOP requests go through a per-account throttler (≥2 s between requests, ≥5 s for background batches), and batch jobs stop immediately when risk control is detected. Do not run several copies against the same account or share one account across machines.
-
-**Q: A transient network error happened, will the account stay offline?**
-
-Dial failures are retried with back-off (5 s, 15 s, 30 s, 60 s, then every 120 s) and only an explicit platform rejection ends the account loop (Issue #80, fixed after v1.0.13). Network errors like `wsarecv ... forcibly closed` or `server misbehaving` (Issues #7, #32) are local network/DNS problems, not API failures.
-
-See also: [Account Management](Account-Management), [FAQ](FAQ), [Deployment and Database](Deployment-and-Database).
+More answers in the [FAQ](FAQ). To check whether a failure is risk control, open [Runtime Logs](Runtime-Logs), set the source to Xianyu API and search `RGV587`.
