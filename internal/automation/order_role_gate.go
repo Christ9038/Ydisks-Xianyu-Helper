@@ -167,6 +167,33 @@ func paidDeliveryBlockedReason(order *db.Order) string {
 	}
 }
 
+// reasonOrderAmountNotPositive 表示订单成交金额为 0、负数或无法识别；服务类预约单没有真实物流订单，不得自动发货。
+const reasonOrderAmountNotPositive = "order_amount_not_positive"
+
+// reasonOrderAmountMissing 表示订单详情补全后仍没有成交金额；金额无法证明为正数时同样不得自动发货。
+const reasonOrderAmountMissing = "order_amount_missing"
+
+// paidAmountBlockedReason 判断付款发货订单的成交金额是否允许自动发货，返回空字符串表示金额为严格正数。
+// raw 是订单事实中的金额文本（可带 ¥ 前缀与千位分隔符），按十进制字符串解析以避免浮点误差；
+// 空金额返回 reasonOrderAmountMissing，由调用方决定是否已完成详情补全；零金额与非法金额返回 reasonOrderAmountNotPositive。
+func paidAmountBlockedReason(raw string) string {
+	// normalized、valid 保存规范化后的十进制金额文本及其格式是否合法。
+	normalized, valid := db.NormalizeOrderAmount(raw)
+	if !valid {
+		return reasonOrderAmountNotPositive
+	}
+	if normalized == "" {
+		return reasonOrderAmountMissing
+	}
+	// digit 逐字符检查金额是否含有 1-9 的有效数字；全为 0 与小数点即为零金额。
+	for _, digit := range normalized {
+		if digit >= '1' && digit <= '9' {
+			return ""
+		}
+	}
+	return reasonOrderAmountNotPositive
+}
+
 // roleVerificationRetryable 判断拒绝原因是否可能因订单或商品同步完成而恢复；身份冲突和已结束订单不应反复重放。
 // missing_order_id 不可重试：延期快照不会因重放而获得订单号（不允许按会话猜订单），反复重放只会耗尽次数并对已由待发货扫描
 // 处理的订单发出误报；缺订单号的付款事件直接丢弃，订单同步后的丢消息兜底由待发货扫描负责。

@@ -46,6 +46,8 @@ type automationRunCoordinator struct {
 	hasNotifier func() bool
 	// notifyResult 将运行结果转换为用户可见的、按运行终态幂等的通知。
 	notifyResult func(context.Context, Task, int64, string, int, string)
+	// orderDetailAvailable 判断是否配置了订单详情查询器；为 nil 或返回 false 时金额缺失无从补全，不据此拦截发货。
+	orderDetailAvailable func() bool
 }
 
 // executeRule 创建或恢复一次自动化运行，并统一处理运行成功、失败、延期和人工核对结果；resultErr 返回动作执行或结果收口错误。
@@ -207,9 +209,20 @@ func (r automationRunCoordinator) prepareRuleRun(ctx context.Context, task Task,
 			blockedReason = paidDeliveryBlockedReason(order)
 		}
 	}
+	// amountBlocked 表示拦截来自成交金额门禁：服务预约单等 ¥0 订单仍是待发货状态，必须与订单状态拦截区分处理。
+	amountBlocked := false
+	if blockedReason == "" && preparedTask.TriggerType == TriggerOrderPaid && preparedTask.OrderID != "" {
+		// 金额取准备阶段合并本地订单与平台详情后的事实；详情补全后仍缺失或不为正数时一律不发货。
+		blockedReason = paidAmountBlockedReason(preparedTask.Amount)
+		if blockedReason == reasonOrderAmountMissing && (r.orderDetailAvailable == nil || !r.orderDetailAvailable()) {
+			// 没有详情查询器时无法补全金额，保持原有行为；有查询器却补全后仍无金额，则按无法证明为正数处理。
+			blockedReason = ""
+		}
+		amountBlocked = blockedReason != ""
+	}
 	if blockedReason != "" && taskAutomationRunID(preparedTask) == 0 {
-		// 迟到的付款事件或延期重放遇到已结束订单时只记录，不创建运行也不触发任何外部动作。
-		r.logger.Info("订单已不再待发货，跳过付款自动发货", "account", preparedTask.AccountID, "order_id", preparedTask.OrderID, "reason", blockedReason, "source", preparedTask.Source)
+		// 迟到的付款事件、延期重放或零金额订单只记录，不创建运行也不触发任何外部动作。
+		r.logger.Info("订单不满足付款自动发货条件，跳过", "amount_blocked", amountBlocked, "account", preparedTask.AccountID, "order_id", preparedTask.OrderID, "reason", blockedReason, "source", preparedTask.Source)
 		return preparedTask, nil, true, nil
 	}
 	// triggerKey 是用于幂等创建运行的稳定事件键，缺失时安全跳过外部动作。
@@ -228,6 +241,16 @@ func (r automationRunCoordinator) prepareRuleRun(ctx context.Context, task Task,
 			return Task{}, nil, false, getErr
 		}
 		if existingRun.Status != "running" || existingRun.RuleID != rule.ID {
+			return preparedTask, nil, true, nil
+		}
+		if amountBlocked && existingRun.SentCount == 0 && existingRun.ActionCursor == 0 && !existingRun.ActionStarted {
+			// 零金额订单仍是待发货状态，条件取消不会生效；尚无外部副作用的运行直接以取消终态收口，且不发送人工通知。
+			cancelReason := "订单金额不是正数（" + blockedReason + "），不自动发货"
+			// finishErr 保存零进度运行收口为取消状态的错误；失败时延期重试，不放行外部动作。
+			if finishErr := r.store.Automation.FinishRun(ctx, existingRun.ID, existingRun.AttemptCount, "canceled", 0, cancelReason); finishErr != nil {
+				return Task{}, nil, false, &preparationError{err: fmt.Errorf("取消零金额付款运行: %w", finishErr)}
+			}
+			r.logger.Info("订单金额不是正数，取消尚未执行动作的付款运行", "run_id", existingRun.ID, "account", preparedTask.AccountID, "order_id", preparedTask.OrderID, "reason", blockedReason)
 			return preparedTask, nil, true, nil
 		}
 		if blockedReason != "" && existingRun.SentCount == 0 && existingRun.ActionCursor == 0 && !existingRun.ActionStarted {
@@ -255,6 +278,9 @@ func (r automationRunCoordinator) prepareRuleRun(ctx context.Context, task Task,
 			// 已有发货进度的运行遇到订单取消、退款或部分发货时，剩余的发卡、模板与确认发货都不应再执行；
 			// 已发出的内容需要人工核对，因此停止自动重放并发送独立的人工处理通知。
 			reason := "订单状态为 " + blockedReason + "，付款发货已有进度，已停止自动重放，请人工核对"
+			if amountBlocked {
+				reason = "订单金额不是正数（" + blockedReason + "），付款发货已有进度，已停止自动重放，请人工核对"
+			}
 			// quarantineCtx 保证人工核对状态在请求取消后仍能落库。
 			quarantineCtx, quarantineCancel := newAutomationRunCompensationContext(ctx)
 			// quarantineErr 保存人工核对状态写入错误；失败时延期重试，不放行外部动作。

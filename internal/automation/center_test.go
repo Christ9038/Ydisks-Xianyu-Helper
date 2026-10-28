@@ -1335,7 +1335,7 @@ func TestCenterOrderPaidDoesNotConfirmWhenNoCardSpecMatches(t *testing.T) {
 	sender := &testSender{}
 	// center 用于本次流程后续判断的center
 	center := NewWithDependencies(store, testSenderProvider{sender: sender}, nil, CenterDependencies{
-		OrderDetailFetcher: testFetcher{detail: &OrderDetail{SpecName: "套餐", SpecValue: "90天", Quantity: "1"}},
+		OrderDetailFetcher: testFetcher{detail: &OrderDetail{SpecName: "套餐", SpecValue: "90天", Quantity: "1", Amount: "9.90"}},
 	})
 
 	err = center.HandleTask(ctx, Task{
@@ -2164,7 +2164,7 @@ func newManualDeliveryFixture(t *testing.T, orderID string) (context.Context, *d
 	// center 是待验证的自动化中心。
 	center := NewWithDependencies(store, testSenderProvider{sender: sender}, nil, CenterDependencies{
 		MTop:               mtopMock,
-		OrderDetailFetcher: testFetcher{detail: &OrderDetail{Quantity: "1", OrderStatus: "pending_ship"}},
+		OrderDetailFetcher: testFetcher{detail: &OrderDetail{Quantity: "1", Amount: "9.90", OrderStatus: "pending_ship"}},
 	})
 	// order 保存夹具使用的订单输入。
 	order := &db.Order{OrderID: orderID, CookieID: "cid", ItemID: "manual-item", BuyerID: "buyer", ChatID: "chat"}

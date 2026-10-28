@@ -232,6 +232,7 @@ func NewWithDependencies(store *db.Store, senders SenderProvider, logger *slog.L
 		executeAction:            center.executeActionWithProof,
 		hasNotifier:              func() bool { return center.dependencies.notifier != nil },
 		notifyResult:             center.notifyResult,
+		orderDetailAvailable:     func() bool { return center.dependencies.fetcher != nil },
 	}
 	return center
 }
