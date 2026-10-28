@@ -207,3 +207,46 @@ func TestSyncErrorNilAndUnwrap(t *testing.T) {
 		t.Fatalf("empty sync error text=%q unwrap=%v", emptyError.Error(), emptyError.Unwrap())
 	}
 }
+
+// TestSyncServiceBoundsPagingParameters 验证未指定或超限的分页参数被收敛到有界值，避免无上限平台请求。
+func TestSyncServiceBoundsPagingParameters(t *testing.T) {
+	// cases 保存输入分页参数与期望的收敛结果。
+	cases := []struct {
+		// name 是测试场景名称。
+		name string
+		// in 是客户端提供的页大小和页数上限。
+		inSize, inPages int
+		// wantSize 和 wantPages 是期望传给基础设施的值。
+		wantSize, wantPages int
+	}{
+		{"zero-values", 0, 0, DefaultSyncPageSize, DefaultSyncMaxPages},
+		{"negative-values", -5, -1, DefaultSyncPageSize, DefaultSyncMaxPages},
+		{"oversized", 100000, 100000, MaxSyncPageSize, MaxSyncMaxPages},
+		{"within-bounds", 10, 3, 10, 3},
+	}
+	// tc 是当前场景。
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// repository 记录实际下发的查询。
+			repository := &syncRepositoryFake{owned: true}
+			// service 是被测应用服务。
+			service := NewSyncService(repository)
+			// query 是携带客户端分页参数的查询。
+			query := SyncQuery{UserID: 7, CookieID: "acc1", PageSize: tc.inSize, MaxPages: tc.inPages}
+			// err 保存全量同步调用的错误。
+			if _, err := service.SyncAll(context.Background(), query); err != nil {
+				t.Fatal(err)
+			}
+			if repository.allQuery.PageSize != tc.wantSize || repository.allQuery.MaxPages != tc.wantPages {
+				t.Fatalf("all query=%+v", repository.allQuery)
+			}
+			// err 保存分页同步调用的错误。
+			if _, err := service.SyncPage(context.Background(), query); err != nil {
+				t.Fatal(err)
+			}
+			if repository.pageQuery.PageSize != tc.wantSize {
+				t.Fatalf("page query=%+v", repository.pageQuery)
+			}
+		})
+	}
+}

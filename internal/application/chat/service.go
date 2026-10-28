@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -263,6 +264,10 @@ type Service struct {
 	itemCatalog ChatItemCatalog
 	// sessionOperations 按账号和会话串行化人工发送与本地删除，不影响不同会话或后台自动化。
 	sessionOperations *sessionOperationGate
+	// identityFailureMu 保护 identityFailures；只做内存读写，不得在持有期间发起平台 I/O。
+	identityFailureMu sync.Mutex
+	// identityFailures 记录“账号+会话”最近一次身份查询失败时间，冷却期内不再重试，防止聊天页轮询放大为批量平台请求。
+	identityFailures map[string]time.Time
 }
 
 // New 创建聊天历史应用服务；空端口会导致构造结果不可用。
@@ -578,11 +583,12 @@ func (s *Service) ResolveSessionIdentity(ctx context.Context, session Session) (
 	}
 	// resolveErr 保存平台身份查询失败，供 HTTP 层决定是否触发会话恢复。
 	var resolveErr error
-	if session.PeerUserID != "1400" && s.identityResolver != nil {
+	if s.needsIdentityLookup(session) {
 		// identity 和 err 保存平台适配器返回的非敏感身份及调用错误。
 		identity, err := s.identityResolver.Resolve(ctx, session.AccountID, session.ChatID)
 		if err != nil {
 			resolveErr = err
+			s.markIdentityFailure(session)
 		} else {
 			// name 是去除空白后的平台对端名称。
 			if name := strings.TrimSpace(identity.PeerName); name != "" {
@@ -600,6 +606,48 @@ func (s *Service) ResolveSessionIdentity(ctx context.Context, session Session) (
 		_ = repository.UpdateSessionIdentity(ctx, session.AccountID, session.ChatID, session.PeerUserID, session.PeerName, session.PeerAvatar)
 	}
 	return session, resolveErr
+}
+
+// identityFailureCooldown 是单个会话身份查询失败后的静默期；期间打开或轮询该会话不会再次请求平台。
+const identityFailureCooldown = 10 * time.Minute
+
+// identityFailureKey 生成失败冷却表使用的“账号+会话”键。
+func identityFailureKey(session Session) string {
+	return session.AccountID + "\x00" + session.ChatID
+}
+
+// needsIdentityLookup 判断会话是否需要向平台补全身份：官方会话、昵称头像已完整、
+// 或仍处于失败冷却期的会话都不查询，使一次页面操作最多产生一次有界的平台请求。
+func (s *Service) needsIdentityLookup(session Session) bool {
+	if s.identityResolver == nil || session.PeerUserID == "1400" {
+		return false
+	}
+	if strings.TrimSpace(session.PeerName) != "" && strings.TrimSpace(session.PeerAvatar) != "" {
+		return false
+	}
+	s.identityFailureMu.Lock()
+	defer s.identityFailureMu.Unlock()
+	// failedAt 和 failed 保存该会话最近一次失败时间及其是否存在。
+	failedAt, failed := s.identityFailures[identityFailureKey(session)]
+	return !failed || time.Since(failedAt) >= identityFailureCooldown
+}
+
+// markIdentityFailure 记录会话身份查询失败时间，并顺带清理已过期条目以限制内存增长。
+func (s *Service) markIdentityFailure(session Session) {
+	s.identityFailureMu.Lock()
+	defer s.identityFailureMu.Unlock()
+	if s.identityFailures == nil {
+		s.identityFailures = make(map[string]time.Time)
+	}
+	// now 是本次失败记录时间，同时作为过期条目清理的基准。
+	now := time.Now()
+	// key 和 failedAt 是失败冷却表的会话键与最近失败时间。
+	for key, failedAt := range s.identityFailures {
+		if now.Sub(failedAt) >= identityFailureCooldown {
+			delete(s.identityFailures, key)
+		}
+	}
+	s.identityFailures[identityFailureKey(session)] = now
 }
 
 // maxIdentityLookupsPerRefresh 是一次列表刷新最多向平台查询的联系人身份数；

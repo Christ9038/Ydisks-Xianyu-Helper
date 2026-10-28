@@ -59,9 +59,9 @@ type SyncQuery struct {
 	CookieID string
 	// PageNumber 是分页同步请求的平台页码；全量同步忽略该字段。
 	PageNumber int
-	// PageSize 是平台单页大小；非正值由适配器使用默认值。
+	// PageSize 是平台单页大小；应用服务会把非正值补为默认值并截断到硬上限。
 	PageSize int
-	// MaxPages 是全量同步允许读取的最大页数；非正值表示不设上限。
+	// MaxPages 是全量同步允许读取的最大页数；应用服务会把非正值补为默认值并截断到硬上限。
 	MaxPages int
 }
 
@@ -110,6 +110,32 @@ func NewSyncService(repository SyncRepository) *SyncService {
 	return &SyncService{repository: repository}
 }
 
+const (
+	// DefaultSyncPageSize 是未指定单页大小时使用的平台页大小。
+	DefaultSyncPageSize = 20
+	// MaxSyncPageSize 是单页大小硬上限，防止客户端用极小页放大请求数。
+	MaxSyncPageSize = 50
+	// DefaultSyncMaxPages 是全量同步未指定页数上限时的默认页数。
+	DefaultSyncMaxPages = 50
+	// MaxSyncMaxPages 是全量同步页数硬上限；一次用户操作的 MTOP 请求数不得超过该值。
+	MaxSyncMaxPages = 100
+)
+
+// boundSyncQuery 将客户端提供的分页参数收敛到硬上限内，保证一次同步的平台请求数有界。
+func boundSyncQuery(query SyncQuery) SyncQuery {
+	if query.PageSize <= 0 {
+		query.PageSize = DefaultSyncPageSize
+	} else if query.PageSize > MaxSyncPageSize {
+		query.PageSize = MaxSyncPageSize
+	}
+	if query.MaxPages <= 0 {
+		query.MaxPages = DefaultSyncMaxPages
+	} else if query.MaxPages > MaxSyncMaxPages {
+		query.MaxPages = MaxSyncMaxPages
+	}
+	return query
+}
+
 // SyncAll 校验用户输入后执行商品全集同步。
 func (s *SyncService) SyncAll(ctx context.Context, query SyncQuery) (SyncAllResult, error) {
 	if query.UserID <= 0 {
@@ -129,7 +155,7 @@ func (s *SyncService) SyncAll(ctx context.Context, query SyncQuery) (SyncAllResu
 	if !owned {
 		return SyncAllResult{}, ErrSyncNotOwned
 	}
-	return s.repository.SyncAll(ctx, query)
+	return s.repository.SyncAll(ctx, boundSyncQuery(query))
 }
 
 // SyncPage 校验用户输入后执行指定页商品同步。
@@ -151,5 +177,5 @@ func (s *SyncService) SyncPage(ctx context.Context, query SyncQuery) (SyncPageRe
 	if !owned {
 		return SyncPageResult{}, ErrSyncNotOwned
 	}
-	return s.repository.SyncPage(ctx, query)
+	return s.repository.SyncPage(ctx, boundSyncQuery(query))
 }
