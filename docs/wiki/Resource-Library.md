@@ -11,6 +11,8 @@ The **Resource Library** (`/app/library`, sidebar entry below Online Chat) store
 - Search by file name, preview a larger image, and delete single or multiple images.
 - A badge shows how many templates reference an image. The single-product publish dialog can also pick images from this library.
 
+Image sorting: newest, oldest, file name A→Z / Z→A, size large→small / small→large. Use "Reset filters" to clear them; images still referenced by a product template cannot be deleted.
+
 ## Product templates
 
 A template holds everything needed to publish a product:
@@ -19,6 +21,8 @@ A template holds everything needed to publish a product:
 - Up to **9 main images** (first one is the cover; reorder with the arrows) and optional images for each spec value.
 - Multi-spec configuration (SKU combinations with price and stock).
 - **Post-publish automation:** paid-delivery rules (card stock or delivery template, one per full spec combination), review-gift rules and review-request settings (hours after shipment, maximum sends, delay seconds, message). Multi-spec products must configure every spec combination.
+
+The template list supports search and sorting (recently updated, oldest updated, name A→Z, price low→high / high→low, stock high→low), "select all results", and bulk delete. Postage supports free shipping, by distance, fixed postage and no shipping needed.
 
 ## Publishing templates to accounts
 

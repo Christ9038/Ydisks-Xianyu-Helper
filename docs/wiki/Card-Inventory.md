@@ -25,6 +25,10 @@
 - For an existing batch-inventory group, click Batch Import, choose the target group, and append inventory.
 - Check the success and failed-row counts after import. Do not import the same batch twice.
 
+## Batch-create card groups
+
+In the import dialog switch to "Batch create card groups" and upload a table: one group per row with headers `名称,类型,内容,描述,启用,延迟秒,多规格,规格名,规格值` (Chinese headers exactly as shown; download the template first). Check the success and failed rows afterwards; fix failed rows and retry without re-importing rows that already succeeded. The card group ID needed by bulk-listing tables can be copied from the card list.
+
 ## API cards
 
 API cards are suitable for external code-delivery systems that issue a code per order. You can paste a cURL command to fill in the request, and an existing card can be reopened for editing and tested without retyping its secrets. When idempotent retry is enabled, `{idempotency_key}` must appear in a header, query parameter, or body that is actually sent; otherwise saving is rejected and delivery makes only one request. Test the endpoint with non-sensitive data and confirm the response shape before enabling production automation. Request headers, parameters, and keys are sensitive; do not expose them in screenshots or chat.

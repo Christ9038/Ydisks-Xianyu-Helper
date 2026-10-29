@@ -14,6 +14,13 @@ Chat supports:
 - Sender labels for the other party and the account owner, with corresponding avatars. Conversations and live messages are isolated between accounts.
 - Real-time events through `/api/v1/chat/ws`. After refresh or reconnect, history API data and the local database remain authoritative; the UI does not rely only on messages received while a WebSocket was open.
 
+### Conversation actions
+
+- **Send item**: pick an item card (switch between the buyer's items and your account's items, with search) and send it straight into the chat.
+- **Message status**: your messages show sending, failed (with retry), sent-unread and read by the other side.
+- **Delete conversation**: clears the chat messages with that buyer from this machine and hides the conversation. Orders, automation and AI memory are untouched, and the conversation reappears when the buyer writes again.
+- The search box finds users, items or message text; paste or choose images to send (up to 10 MB).
+
 ### Official-message recognition
 
 Transaction cards and platform notices must not be handled as ordinary buyer messages. The current protocol metadata rules are:

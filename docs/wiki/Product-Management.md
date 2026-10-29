@@ -27,6 +27,10 @@ Add Product creates a local association for a product that already exists on Xia
 
 Single-specification products use one total inventory value. Multi-specification inventory is the sum of combination inventory. After publishing, associate paid-delivery, review-gift, or review-reminder rules in Automation.
 
+### Postage mode
+
+A single listing offers four modes: **free shipping**, **by distance**, **fixed postage** (enter the amount) and **no shipping needed** (typical for virtual goods). Product templates and bulk listing support the same modes; see [Bulk Listing](Bulk-Listing) for the table values.
+
 ## Edit and delete
 
 - Edit on a product card changes title, price, category, or description.

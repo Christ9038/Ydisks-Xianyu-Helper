@@ -26,6 +26,17 @@ In Edit Account, Processing Pause Duration (minutes) temporarily stops order han
 
 Automatic Shipping Confirmation only marks the Xianyu order as shipped; it does not prove that a card was sent. Complete automatic delivery still requires the product, automation rule, and inventory to be configured correctly.
 
+## AI settings and bargaining policy
+
+Open **AI Settings** on the account card:
+
+- **Work mode**: "Bargain only" calls AI only when bargaining intent is detected and keeps the default reply otherwise; "Full service" lets AI handle product questions, delivery, after-sales and bargaining when no keyword matched (add shop rules such as delivery times). Keyword replies always take priority over AI.
+- **Bargaining policy**: maximum discount percentage, maximum discount amount, and maximum bargaining rounds (1–10). 0 for percentage or amount means no discount is allowed. Bargaining messages are always bound by these limits.
+- **Apply AI quotes automatically**: when AI has made a clear quote and the buyer places the order **within 30 minutes**, the unpaid order is repriced to that quote. While this is on, the fixed "unpaid order auto price change" rule cannot be enabled at the same time.
+- Individual products can override the account AI settings ("Product AI service" in the product list).
+
+Model URL and key are configured in [System and AI](System-and-AI). The "login password / password-login refresh" controls in the account edit dialog are a retired compatibility entry: the server's password-login endpoint is disabled. When a login expires, scan the QR code again; for risk control see [Risk-Control Troubleshooting](Risk-Control-Troubleshooting).
+
 ## Bind notification channels
 
 1. Create and test a channel in Notification Settings.

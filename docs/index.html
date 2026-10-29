@@ -1034,6 +1034,38 @@
           <p class="feature-card-desc">原生支持 SQLite、MySQL 与 PostgreSQL，嵌入 Goose 自动迁移机制。敏感 Cookie 与 Token 采用 AES-256-GCM 高强度加密。</p>
         </div>
 
+
+        <!-- Cards 10-14 -->
+        <div class="feature-card">
+          <div class="feature-icon-box">🔪</div>
+          <h3 class="feature-card-title">砍价订单与免拼</h3>
+          <p class="feature-card-desc">严格按 WebSocket 阶段执行：“待刀成”只免拼，“待发货”才发卡，发卡成功后才确认发货；兜底扫描不抢跑，失败运行重放前重新核对订单事实。</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon-box">🧰</div>
+          <h3 class="feature-card-title">本地资源库</h3>
+          <p class="feature-card-desc">图片库与商品模板集中管理，支持多规格和发货模板，模板×账号预检后复用批量铺货发布，并提供搜索、筛选与批量操作。</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon-box">📈</div>
+          <h3 class="feature-card-title">销售统计与运行日志</h3>
+          <p class="feature-card-desc">管理员可查看自定义日期范围的销售统计，并在线检索服务端运行日志（按等级、来源、关键词筛选），敏感值已脱敏。</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon-box">🧾</div>
+          <h3 class="feature-card-title">规则日志与卡密台账</h3>
+          <p class="feature-card-desc">记录每条自动化规则的触发与结果以便审计；卡密支持已售/未售区分、售出记录导出与订单已发卡密查看。</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon-box">🐢</div>
+          <h3 class="feature-card-title">源头限频的防风控</h3>
+          <p class="feature-card-desc">所有 MTOP 请求按账号节流，批量任务有单次上限，遇风控立即终止本批次，避免高频访问触发平台风控。</p>
+        </div>
+
       </div>
     </div>
   </section>
@@ -1262,6 +1294,46 @@
           </div>
         </div>
 
+        <div class="faq-item">
+          <div class="faq-question" onclick="toggleFaq(this)">
+            <span>如何升级到新版本？数据会丢吗？</span>
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          </div>
+          <div class="faq-answer">
+            Docker 部署执行 <code>docker compose pull &amp;&amp; docker compose up -d</code> 即可，数据库和上传目录保存在数据卷中，沿用原来的 <code>XIANYU_DATA_KEY</code> 就不会丢失。桌面安装包直接运行新版安装器覆盖安装。侧边栏底部会显示当前运行版本与提交号。
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question" onclick="toggleFaq(this)">
+            <span>砍价（二人小刀）订单怎么自动发货？</span>
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          </div>
+          <div class="faq-answer">
+            “自动免拼”是账号上的独立开关：收到“待刀成”消息时按开关免拼，收到“我已成功小刀，待发货”消息后才发卡，发卡成功后再按“自动确认发货”开关确认发货。详见 <a href="https://github.com/Christ9038/Ydisks-Xianyu-Helper/wiki/砍价订单与自动发货流程.zh-CN" target="_blank" rel="noopener">砍价订单与自动发货流程</a>。
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question" onclick="toggleFaq(this)">
+            <span>账号被风控、Cookie 失效怎么办？</span>
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          </div>
+          <div class="faq-answer">
+            重新扫码往往无效，需要在已通过验证的浏览器中复制无风控的 Cookie 并粘贴到账号管理。步骤见 <a href="https://github.com/Christ9038/Ydisks-Xianyu-Helper/wiki/风控处理.zh-CN" target="_blank" rel="noopener">风控处理</a>；平时请保持低频操作，参见 <a href="https://github.com/Christ9038/Ydisks-Xianyu-Helper/wiki/请求频率与风控设计.zh-CN" target="_blank" rel="noopener">请求频率与风控设计</a>。
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question" onclick="toggleFaq(this)">
+            <span>有哪些命令行参数和环境变量可以配置？</span>
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          </div>
+          <div class="faq-answer">
+            包括 <code>-db-url</code>、<code>-addr</code>、<code>-secure</code>、<code>-no-browser</code>、<code>-init-admin</code> 以及 <code>DATABASE_URL</code>、<code>XIANYU_DATA_KEY</code>、<code>XIANYU_UPLOAD_DIR</code>、<code>LOG_LEVEL</code> 等，完整列表见 <a href="https://github.com/Christ9038/Ydisks-Xianyu-Helper/wiki/配置参考.zh-CN" target="_blank" rel="noopener">配置参考</a>。
+          </div>
+        </div>
+
       </div>
     </div>
   </section>
@@ -1281,6 +1353,10 @@
           <ul class="footer-links">
             <li><a href="https://github.com/Christ9038/Ydisks-Xianyu-Helper/wiki" target="_blank" rel="noopener">GitHub Wiki 操作手册</a></li>
             <li><a href="https://github.com/Christ9038/Ydisks-Xianyu-Helper/blob/main/docs/%E6%89%B9%E9%87%8F%E9%93%BA%E8%B4%A7%E4%BD%BF%E7%94%A8%E6%96%87%E6%A1%A3.md" target="_blank" rel="noopener">批量铺货使用文档</a></li>
+            <li><a href="https://github.com/Christ9038/Ydisks-Xianyu-Helper/wiki/砍价订单与自动发货流程.zh-CN" target="_blank" rel="noopener">砍价订单与自动发货流程</a></li>
+            <li><a href="https://github.com/Christ9038/Ydisks-Xianyu-Helper/wiki/请求频率与风控设计.zh-CN" target="_blank" rel="noopener">请求频率与风控设计</a></li>
+            <li><a href="https://github.com/Christ9038/Ydisks-Xianyu-Helper/wiki/配置参考.zh-CN" target="_blank" rel="noopener">配置参考</a></li>
+            <li><a href="https://github.com/Christ9038/Ydisks-Xianyu-Helper/wiki/常见问题.zh-CN" target="_blank" rel="noopener">常见问题</a></li>
             <li><a href="https://github.com/Christ9038/Ydisks-Xianyu-Helper/blob/main/docs/slider-captcha-frozen-spec.md" target="_blank" rel="noopener">滑块风控规范</a></li>
           </ul>
         </div>

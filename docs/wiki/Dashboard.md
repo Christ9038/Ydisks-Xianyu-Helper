@@ -16,6 +16,8 @@ Dashboard shows the current operating overview. It does not modify orders, inven
 
 Included orders are pending shipment, shipped, and completed orders with valid amounts. Order details can be searched by order ID, product, or buyer.
 
+The revenue trend uses an area chart when there are more than 2 data points and bars otherwise; "item order share" and "item amount (TOP5)" are shown too. Order-detail search only covers already loaded rows. A custom date range takes effect only after you click Apply; failed validation just shows a hint and keeps the current range.
+
 ## Daily checks
 
 - If the number of active accounts drops, check login state and risk-control notices in Account Management.
