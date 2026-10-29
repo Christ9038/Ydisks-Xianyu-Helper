@@ -1,0 +1,1769 @@
+openapi: 3.0.3
+info:
+  title: 闲鱼 MTOP H5 接口文档（Ydisks 闲鱼助手实际调用面）
+  version: 1.0.0
+  description: |
+    本文档整理 Ydisks 闲鱼助手**实际调用**的全部闲鱼 / 淘系 MTOP H5 网关接口，内容来自 `internal/xianyu/mtop`
+    与 `internal/xianyu/qrlogin` 的请求构造与响应解析代码，并非平台官方文档。
+
+    > 这是**平台上游接口**的逆向整理，不是本项目对外提供的 HTTP API。项目自身 `/api/v1/**` 的唯一契约是
+    > `api/openapi.yaml`，两者互不替代。响应 Schema 只列出代码实际读取的字段，其余字段一律视为"平台可能返回、
+    > 本项目不使用"（`additionalProperties: true`）。
+
+    ## 统一调用约定
+
+    所有 MTOP 接口：
+
+    - 主机 `https://h5api.m.goofish.com`，路径 `/h5/{api}/{version}/`，方法 **POST**。
+    - 业务参数是一段 JSON，序列化后放入 `application/x-www-form-urlencoded` 表单的 `data` 字段
+      （本文档用 `encoding.data.contentType: application/json` 表示该字段内容是 JSON）。
+    - 网关参数（`jsv`、`appKey`、`t`、`sign`、`v`、`type`、`api` 等）放在 URL query。
+    - 鉴权依赖整串登录 Cookie（至少含 `unb`、`_m_h5_tk`）；响应会通过 `Set-Cookie` 轮换 `_m_h5_tk`，
+      客户端必须合并回本地凭证。
+
+    ### 签名算法
+
+    ```
+    sign = MD5( token + "&" + t + "&" + appKey + "&" + data )
+    ```
+
+    - `token`：Cookie `_m_h5_tk` 的值取第一个 `_` 之前的部分。
+    - `t`：Unix 毫秒时间戳字符串，与 query 中的 `t` 一致。
+    - `appKey`：固定 `34839810`。
+    - `data`：表单 `data` 字段**未做 URL 编码**的原始 JSON 文本；签名只覆盖这四项，**与 URL query 其余参数无关**。
+
+    唯一例外：令牌接口请求体中的 `appKey` 是 WebSocket 注册用的 `444e9908a51d1cb236a27862abc769c9`，
+    与签名 appKey 不同，见 `/h5/mtop.taobao.idlemessage.pc.login.token/1.0/`。
+
+    ### 响应信封与 `ret` 判定
+
+    HTTP 200 的响应体统一为 `{"ret": [...], "data": {...}}`。**成功只能由 `ret` 判定**：
+
+    | 类别 | `ret` 特征（不区分大小写的子串匹配） | 项目内处理 |
+    | --- | --- | --- |
+    | 成功 | 含 `SUCCESS::调用成功`（仅令牌接口放宽为含 `SUCCESS` 即可） | 正常解析 `data` |
+    | 签名 Token 过期 | `FAIL_SYS_TOKEN_EXOIRED`（平台拼写）、`FAIL_SYS_TOKEN_EXPIRED`、`FAIL_SYS_TOKEN_EMPTY` | 取响应 `Set-Cookie` 的新 `_m_h5_tk` 重签重试，必要时调用令牌接口 |
+    | Session 失效 | 含 `SESSION_EXPIRED`、`SID_INVALID`、`AUTH_REJECT`、`NEED_LOGIN`、`Session过期`、`会话过期` | 立即停止重试，转账号级凭证恢复 / 重新扫码 |
+    | 风控 | 含 `FAIL_SYS_USER_VALIDATE`、`RGV587`、`punish`、`captcha`、`x5secdata` | 立即终止整个批次，不得自动重放 |
+    | 业务拒绝 | 含 `FAIL_BIZ_` 前缀 | 终态业务结果，不重试 |
+    | 其他 | 其余 `FAIL_SYS_*` 等 | 按暂时性系统错误处理 |
+
+    非 2xx 的 HTTP 状态一律视为失败；若 `ret` 带 `FAIL_BIZ_` 业务码，确认发货 / 免拼接口仍按业务结果返回。
+    响应体上限 8 MiB。
+
+    ### 请求频率约束（防风控，不可放宽）
+
+    - 所有请求经账号级节流器：同账号请求起点间隔 **≥ 2 秒 + 0~1 秒随机抖动**；后台批量任务
+      （订单详情补全、评价、擦亮等）标记后台节流，间隔 **≥ 5 秒**。
+    - 一次用户操作或一次调度扫描最多对应一次（或极少量、有上限的）平台请求；禁止"列表 × 每项一次请求"的扇出。
+    - 遇到风控 / Session 过期 / Token 耗尽必须立即终止当前批次。
+    - 签名 Token 过期的重试：确认发货 / 免拼 / 改价 / 聊天商品 / 订单列表最多 4 次尝试（含首次），
+      间隔 1 秒；令牌接口最多 5 次；账号任务接口最多 3 次；订单详情最多 2 次。
+
+    ### 通用请求头
+
+    `accept: application/json`、`content-type: application/x-www-form-urlencoded`、
+    `origin: https://www.goofish.com`、`referer`（各接口不同，见下）、`cookie`，以及浏览器指纹类头
+    （`user-agent`、`sec-ch-ua*`、`sec-fetch-*`、`accept-language` 等）。
+  contact:
+    name: Ydisks 闲鱼助手
+    url: https://github.com/Ydisks/Ydisks-Xianyu-Helper
+servers:
+  - url: https://h5api.m.goofish.com
+    description: 闲鱼 MTOP H5 网关（生产）
+tags:
+  - name: 凭证与登录态
+    description: 令牌、登录态检测、二维码登录辅助。
+  - name: 订单与发货
+    description: 订单详情、已售订单、确认发货、免拼、改价。
+  - name: 商品
+    description: 商品列表、聊天内商品搜索、擦亮。
+  - name: 发布
+    description: 类目推荐、图片上传、商品发布。
+  - name: 评价
+    description: 待评价订单与买家评价。
+  - name: 账号与会话
+    description: 账号资料、会话对端用户。
+paths:
+  /h5/mtop.taobao.idlemessage.pc.login.token/1.0/:
+    post:
+      tags: [凭证与登录态]
+      operationId: loginToken
+      summary: 获取 IM accessToken（mtop.taobao.idlemessage.pc.login.token）
+      description: |
+        用 Cookie 换取 WebSocket `/reg` 注册所需的 `accessToken`。请求体里的 `deviceId` 必须与随后 WS `/reg` 的
+        `headers.did` 完全一致，否则 `/reg` 返回 `device id or appkey is not equal`。
+        `deviceId` 缺省时由 `unb` 派生；Cookie 缺少 `unb` 时无法构造请求。
+
+        遇到签名 Token 过期按官网 lib-mtop 2.7.3 流程最多请求 5 次（含首次），每次吸收响应 Cookie 后重签；
+        第 5 次仍失败会清除 `_m_h5_c`、`_m_h5_tk`、`_m_h5_tk_enc` 三个 Cookie。
+        `ret` 不含 `SUCCESS` 且 `data.url` 非空时，`data.url` 是风控验证链接，供滑块 / 人脸验证使用。
+
+        Referer: '`https://www.goofish.com/im`。'
+      parameters:
+        - $ref: '#/components/parameters/Jsv'
+        - $ref: '#/components/parameters/AppKey'
+        - $ref: '#/components/parameters/Timestamp'
+        - $ref: '#/components/parameters/Sign'
+        - $ref: '#/components/parameters/AccountSite'
+        - $ref: '#/components/parameters/DataType'
+        - $ref: '#/components/parameters/Timeout20000'
+        - $ref: '#/components/parameters/SessionOptionAutoLoginOnly'
+        - { name: v, in: query, required: true, schema: { type: string, enum: ['1.0'] } }
+        - { name: type, in: query, required: true, schema: { type: string, enum: [originaljson] } }
+        - { name: api, in: query, required: true, schema: { type: string, enum: [mtop.taobao.idlemessage.pc.login.token] } }
+        - { name: needLoginPC, in: query, required: true, schema: { type: string, enum: ['false'] } }
+        - { name: showErrorToast, in: query, required: true, schema: { type: string, enum: ['false'] } }
+        - { name: needLogin, in: query, required: true, schema: { type: string, enum: ['false'] } }
+        - { name: ecode, in: query, required: true, schema: { type: string, enum: ['0'] } }
+        - name: dangerouslySetWindvaneParams
+          in: query
+          required: true
+          description: 固定值 `[object Object]`（已是单次编码，原样拼接，不再二次编码）。
+          schema: { type: string, enum: ['%5Bobject%20Object%5D'] }
+        - { name: spm_cnt, in: query, required: true, schema: { type: string, enum: [a21ybx.im.0.0] } }
+        - { name: spm_pre, in: query, required: true, description: 固定为空串。, schema: { type: string, enum: [''] } }
+        - { name: log_id, in: query, required: true, description: 固定为空串。, schema: { type: string, enum: [''] } }
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data:
+                  $ref: '#/components/schemas/LoginTokenRequestData'
+            encoding:
+              data: { contentType: application/json }
+      responses:
+        '200':
+          description: 业务结果以 `ret` 判定。
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/MtopEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/LoginTokenResponseData' }
+        default: { $ref: '#/components/responses/GatewayError' }
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: 账号级节流，间隔 ≥2s + 抖动；Token 过期最多 5 次尝试。
+
+  /h5/mtop.taobao.idlemessage.pc.loginuser.get/1.0/:
+    post:
+      tags: [凭证与登录态]
+      operationId: loginUserGet
+      summary: 轻量登录态检测（mtop.taobao.idlemessage.pc.loginuser.get）
+      description: |
+        请求体恒为 `{}`。用于确认 Session 是否仍有效，不返回业务数据。项目把 `ret` 归类为：
+        `success`（含 SUCCESS）、`token_refreshed`（TOKEN_EMPTY 且响应已下发新 `_m_h5_tk`）、
+        `token_empty`、`session_expired`、`risk_required`、`failed`。
+        风控时 `data.url` 为验证链接。Referer: `https://www.goofish.com/im`。
+      parameters:
+        - $ref: '#/components/parameters/Jsv'
+        - $ref: '#/components/parameters/AppKey'
+        - $ref: '#/components/parameters/Timestamp'
+        - $ref: '#/components/parameters/Sign'
+        - $ref: '#/components/parameters/AccountSite'
+        - $ref: '#/components/parameters/DataType'
+        - $ref: '#/components/parameters/Timeout20000'
+        - $ref: '#/components/parameters/SessionOptionAutoLoginOnly'
+        - { name: v, in: query, required: true, schema: { type: string, enum: ['1.0'] } }
+        - { name: type, in: query, required: true, schema: { type: string, enum: [originaljson] } }
+        - { name: api, in: query, required: true, schema: { type: string, enum: [mtop.taobao.idlemessage.pc.loginuser.get] } }
+        - { name: spm_cnt, in: query, required: true, schema: { type: string, enum: [a21ybx.im.0.0] } }
+        - { name: spm_pre, in: query, required: true, schema: { type: string, enum: [a21ybx.item.want.1.12523da6waCtUp] } }
+        - { name: log_id, in: query, required: true, schema: { type: string, enum: [12523da6waCtUp] } }
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data: { $ref: '#/components/schemas/EmptyRequestData' }
+            encoding:
+              data: { contentType: application/json }
+      responses:
+        '200':
+          description: 业务结果以 `ret` 判定。
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/MtopEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        additionalProperties: true
+                        properties:
+                          url:
+                            type: string
+                            description: 风控时的安全验证链接。
+        default: { $ref: '#/components/responses/GatewayError' }
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: 账号级节流；仅在 TOKEN_EMPTY 时额外调用一次令牌接口后重查一次。
+
+  /h5/mtop.gaia.nodejs.gaia.idle.data.gw.v2.index.get/1.0/:
+    post:
+      tags: [凭证与登录态]
+      operationId: gaiaIndexGet
+      summary: 扫码登录后获取 _m_h5_tk（mtop.gaia.nodejs.gaia.idle.data.gw.v2.index.get）
+      description: |
+        仅用于二维码登录收尾：为新会话换取 `_m_h5_tk` 签名 Cookie。**业务参数放在 query 的 `data` 中，请求体为空**，
+        响应内容被丢弃，项目只关心响应 `Set-Cookie`。该调用不带 `accountSite`、`sessionOption`，
+        也不经 `mtop.Client`（位于 `internal/xianyu/qrlogin`）。
+
+        签名 `token` 取会话 Cookie `_m_h5_tk` 的 `_` 前半段，算法同顶部"签名算法"。
+      parameters:
+        - $ref: '#/components/parameters/Jsv'
+        - $ref: '#/components/parameters/AppKey'
+        - $ref: '#/components/parameters/Timestamp'
+        - $ref: '#/components/parameters/Sign'
+        - $ref: '#/components/parameters/DataType'
+        - $ref: '#/components/parameters/Timeout20000'
+        - { name: v, in: query, required: true, schema: { type: string, enum: ['1.0'] } }
+        - { name: type, in: query, required: true, schema: { type: string, enum: [originaljson] } }
+        - { name: api, in: query, required: true, schema: { type: string, enum: [mtop.gaia.nodejs.gaia.idle.data.gw.v2.index.get] } }
+        - name: data
+          in: query
+          required: true
+          description: 固定 JSON 文本 `{"bizScene":"home"}`，参与签名。
+          schema: { type: string, enum: ['{"bizScene":"home"}'] }
+      responses:
+        '200':
+          description: 响应体不被解析，仅吸收 `Set-Cookie`。
+          headers:
+            Set-Cookie:
+              description: 下发 `_m_h5_tk`、`_m_h5_tk_enc` 等签名 Cookie。
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MtopEnvelope' }
+        default: { $ref: '#/components/responses/GatewayError' }
+      security: [{ cookieAuth: [] }]
+
+  /h5/mtop.idle.web.user.page.nav/1.0/:
+    post:
+      tags: [账号与会话]
+      operationId: userPageNav
+      summary: 当前登录账号资料（mtop.idle.web.user.page.nav）
+      description: '请求体恒为 `{}`。读取昵称与头像。Referer: `https://www.goofish.com/`。'
+      parameters:
+        - $ref: '#/components/parameters/Jsv'
+        - $ref: '#/components/parameters/AppKey'
+        - $ref: '#/components/parameters/Timestamp'
+        - $ref: '#/components/parameters/Sign'
+        - $ref: '#/components/parameters/AccountSite'
+        - $ref: '#/components/parameters/DataType'
+        - $ref: '#/components/parameters/Timeout20000'
+        - $ref: '#/components/parameters/SessionOptionAutoLoginOnly'
+        - { name: v, in: query, required: true, schema: { type: string, enum: ['1.0'] } }
+        - { name: type, in: query, required: true, schema: { type: string, enum: [originaljson] } }
+        - { name: api, in: query, required: true, schema: { type: string, enum: [mtop.idle.web.user.page.nav] } }
+        - { name: ecode, in: query, required: true, schema: { type: string, enum: ['0'] } }
+        - { name: spm_cnt, in: query, required: true, schema: { type: string, enum: [a21ybx.home.0.0] } }
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data: { $ref: '#/components/schemas/EmptyRequestData' }
+            encoding:
+              data: { contentType: application/json }
+      responses:
+        '200':
+          description: 业务结果以 `ret` 判定。
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/MtopEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/UserPageNavData' }
+        default: { $ref: '#/components/responses/GatewayError' }
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: 一次用户操作一次请求。
+
+  /h5/mtop.taobao.idlemessage.pc.user.query/4.0/:
+    post:
+      tags: [账号与会话]
+      operationId: chatUserQuery
+      summary: 会话对端用户信息（mtop.taobao.idlemessage.pc.user.query）
+      description: |
+        按**会话 ID**（不是用户 ID）查询会话对端的昵称与头像。Referer / Origin 为 `https://www.goofish.com/`。
+        该接口与账号任务接口共用同一请求实现（最多 3 次尝试，Token 过期时重签）。
+      parameters:
+        - $ref: '#/components/parameters/Jsv'
+        - $ref: '#/components/parameters/AppKey'
+        - $ref: '#/components/parameters/Timestamp'
+        - $ref: '#/components/parameters/Sign'
+        - $ref: '#/components/parameters/AccountSite'
+        - $ref: '#/components/parameters/DataType'
+        - $ref: '#/components/parameters/Timeout20000'
+        - $ref: '#/components/parameters/SessionOptionAutoLoginOnly'
+        - { name: v, in: query, required: true, schema: { type: string, enum: ['4.0'] } }
+        - { name: type, in: query, required: true, schema: { type: string, enum: [originaljson] } }
+        - { name: api, in: query, required: true, schema: { type: string, enum: [mtop.taobao.idlemessage.pc.user.query] } }
+        - { name: spm_cnt, in: query, required: true, schema: { type: string, enum: [a21ybx.im.0.0] } }
+        - { name: spm_pre, in: query, required: true, schema: { type: string, enum: [a21ybx.home.sidebar.2.4c053da6MpVe1m] } }
+        - { name: log_id, in: query, required: true, schema: { type: string, enum: [4c053da6MpVe1m] } }
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data: { $ref: '#/components/schemas/ChatUserQueryRequestData' }
+            encoding:
+              data: { contentType: application/json }
+      responses:
+        '200':
+          description: 业务结果以 `ret` 判定；成功但缺少 `data.userInfo` 视为异常。
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/MtopEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/ChatUserQueryData' }
+        default: { $ref: '#/components/responses/GatewayError' }
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: 一次用户操作一次请求。
+
+  /h5/mtop.idle.web.trade.order.detail/1.0/:
+    post:
+      tags: [订单与发货]
+      operationId: orderDetail
+      summary: 卖家订单详情（mtop.idle.web.trade.order.detail）
+      description: |
+        按订单号读取成交金额、数量、订单状态与成交规格，供自动发货的金额门禁与多规格匹配使用。
+        Referer: '`https://www.goofish.com/order-detail?orderId={orderId}&role=seller`。'
+
+        响应 `data` 的容器类型和层级随账号、订单状态与页面版本变化，项目**递归扫描**整个 `data`
+        （含二次编码为 JSON 文本的字符串，最大深度 12）并提取：
+
+        - `utArgs.orderStatus` → 订单状态（取第一个非空）；
+        - 任意 `itemInfo` 节点或带 SKU 字段的节点 → `buyAmount`（数量）与成交规格；
+        - `priceInfo.amount.value` → 成交金额（取第一个非空）。
+
+        平台未返回 `buyAmount` 时数量保持为空，**绝不默认成 1**。成交金额 `0`（如服务预约单）由自动发货的金额门禁拦截。
+        规格字段兼容多种键名（见 `OrderDetailItemInfo`），多维规格以中文分号 `；` 连接。
+        该接口由订单详情协调器额外限速，严于通用节流。
+      parameters:
+        - $ref: '#/components/parameters/Jsv'
+        - $ref: '#/components/parameters/AppKey'
+        - $ref: '#/components/parameters/Timestamp'
+        - $ref: '#/components/parameters/Sign'
+        - $ref: '#/components/parameters/AccountSite'
+        - $ref: '#/components/parameters/DataType'
+        - $ref: '#/components/parameters/Timeout20000'
+        - $ref: '#/components/parameters/SessionOptionAutoLoginOnly'
+        - { name: v, in: query, required: true, schema: { type: string, enum: ['1.0'] } }
+        - { name: type, in: query, required: true, schema: { type: string, enum: [originaljson] } }
+        - { name: api, in: query, required: true, schema: { type: string, enum: [mtop.idle.web.trade.order.detail] } }
+        - $ref: '#/components/parameters/ValueTypeString'
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data: { $ref: '#/components/schemas/OrderDetailRequestData' }
+            encoding:
+              data: { contentType: application/json }
+      responses:
+        '200':
+          description: 业务结果以 `ret` 判定。
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/MtopEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/OrderDetailData' }
+        default: { $ref: '#/components/responses/GatewayError' }
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: 后台批量使用后台节流（≥5s）；Token 过期最多 2 次请求；风控 / Session 失效立即上抛。
+
+  /h5/mtop.taobao.idle.trade.merchant.sold.get/1.0/:
+    post:
+      tags: [订单与发货]
+      operationId: soldOrdersGet
+      summary: 卖家已售订单列表（mtop.taobao.idle.trade.merchant.sold.get）
+      description: |
+        闲鱼卖家工作台的已售订单分页列表。**与其他接口不同**：`type=json`（非 `originaljson`），
+        且必须带 `valueType=string`、`idle_site_biz_code: COMMONPRO` 请求头，
+        `Origin: https://seller.goofish.com`，
+        `Referer: https://seller.goofish.com/?site=COMMONPRO#/seller-trade/order-manage`。
+
+        响应严格校验：`data.module.items` 缺失或非数组、`nextPage` 缺失或非布尔兼容值、
+        `nextPage=true` 却为空页、任一条目缺少 `commonData.orderId`，均使**整页失败**（分页不完整不得静默通过）。
+        Cookie 中缺少 `_m_h5_tk` 时直接按 Token 过期处理。
+      parameters:
+        - $ref: '#/components/parameters/Jsv'
+        - $ref: '#/components/parameters/AppKey'
+        - $ref: '#/components/parameters/Timestamp'
+        - $ref: '#/components/parameters/Sign'
+        - $ref: '#/components/parameters/AccountSite'
+        - $ref: '#/components/parameters/DataType'
+        - $ref: '#/components/parameters/Timeout20000'
+        - $ref: '#/components/parameters/SessionOptionAutoLoginOnly'
+        - { name: v, in: query, required: true, schema: { type: string, enum: ['1.0'] } }
+        - { name: type, in: query, required: true, schema: { type: string, enum: [json] } }
+        - { name: api, in: query, required: true, schema: { type: string, enum: [mtop.taobao.idle.trade.merchant.sold.get] } }
+        - $ref: '#/components/parameters/ValueTypeString'
+        - { name: spm_cnt, in: query, required: true, schema: { type: string, enum: [a21107h.42831410.0.0] } }
+        - name: idle_site_biz_code
+          in: header
+          required: true
+          schema: { type: string, enum: [COMMONPRO] }
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data: { $ref: '#/components/schemas/SoldOrdersRequestData' }
+            encoding:
+              data: { contentType: application/json }
+      responses:
+        '200':
+          description: 业务结果以 `ret` 判定。
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/MtopEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/SoldOrdersData' }
+        default: { $ref: '#/components/responses/GatewayError' }
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: 每页一次请求；翻页必须有页数硬上限，遇风控立即终止后续页。
+
+  /h5/mtop.taobao.idle.logistic.consign.dummy/1.0/:
+    post:
+      tags: [订单与发货]
+      operationId: consignDummy
+      summary: 虚拟商品确认发货（mtop.taobao.idle.logistic.consign.dummy）
+      description: |
+        对虚拟商品订单执行"确认发货"，可同时携带已发给买家的文本 / 图片凭证。
+        成功判定：`ret` 含 `SUCCESS::调用成功`。`FAIL_BIZ_*` 业务拒绝是确定结果，不重试也不当作异常。
+
+        **业务顺序（不可变）**：必须在发卡 / 发货模板成功**之后**，并按账号"自动确认发货"开关调用；
+        砍价订单也只走本接口，不得改调免拼接口代替确认发货。Referer: `https://www.goofish.com/`。
+      parameters:
+        - $ref: '#/components/parameters/Jsv'
+        - $ref: '#/components/parameters/AppKey'
+        - $ref: '#/components/parameters/Timestamp'
+        - $ref: '#/components/parameters/Sign'
+        - $ref: '#/components/parameters/AccountSite'
+        - $ref: '#/components/parameters/DataType'
+        - $ref: '#/components/parameters/Timeout20000'
+        - $ref: '#/components/parameters/SessionOptionAutoLoginOnly'
+        - { name: v, in: query, required: true, schema: { type: string, enum: ['1.0'] } }
+        - { name: type, in: query, required: true, schema: { type: string, enum: [originaljson] } }
+        - { name: api, in: query, required: true, schema: { type: string, enum: [mtop.taobao.idle.logistic.consign.dummy] } }
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data: { $ref: '#/components/schemas/ConsignRequestData' }
+            encoding:
+              data: { contentType: application/json }
+      responses:
+        '200':
+          description: 业务结果以 `ret` 判定，无需解析 `data`。
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MtopEnvelope' }
+        default: { $ref: '#/components/responses/GatewayError' }
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: 一次订单一次请求；Token 过期最多 4 次尝试，间隔 1s。
+
+  /h5/mtop.idle.groupon.activity.seller.freeshipping/1.0/:
+    post:
+      tags: [订单与发货]
+      operationId: grouponFreeShipping
+      summary: 砍价订单免拼（mtop.idle.groupon.activity.seller.freeshipping）
+      description: |
+        砍价订单"待刀成"阶段的免拼操作，属于团购活动业务域，**不是**确认发货的替代。
+
+        **业务顺序（不可变）**：仅在收到 WebSocket 系统消息"我已小刀，待刀成"且账号"自动免拼"开关开启时调用，
+        且此阶段严禁发卡 / 发货 / 确认发货；定时兜底任务绝不得调用本接口。
+        `itemId`、`buyerId` 必须是无符号数字，非数字会在发请求前被拒绝。
+
+        成功判定：`ret` 含 `SUCCESS::调用成功`。`ret` 以 `GROUPON_INSTANCE_QUERY_ERROR` 开头表示团购实例尚未同步，
+        项目等待 1 秒后原样重试（共最多 4 次），耗尽后按系统错误处理。Referer: `https://www.goofish.com/`。
+      parameters:
+        - $ref: '#/components/parameters/Jsv'
+        - $ref: '#/components/parameters/AppKey'
+        - $ref: '#/components/parameters/Timestamp'
+        - $ref: '#/components/parameters/Sign'
+        - $ref: '#/components/parameters/AccountSite'
+        - $ref: '#/components/parameters/DataType'
+        - $ref: '#/components/parameters/Timeout20000'
+        - $ref: '#/components/parameters/SessionOptionAutoLoginOnly'
+        - { name: v, in: query, required: true, schema: { type: string, enum: ['1.0'] } }
+        - { name: type, in: query, required: true, schema: { type: string, enum: [originaljson] } }
+        - { name: api, in: query, required: true, schema: { type: string, enum: [mtop.idle.groupon.activity.seller.freeshipping] } }
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data: { $ref: '#/components/schemas/FreeShippingRequestData' }
+            encoding:
+              data: { contentType: application/json }
+      responses:
+        '200':
+          description: 业务结果以 `ret` 判定，无需解析 `data`。
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MtopEnvelope' }
+        default: { $ref: '#/components/responses/GatewayError' }
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: 每个"待刀成"消息至多触发一次免拼；Token 过期 / 团购实例未同步合计最多 4 次尝试。
+
+  /h5/mtop.taobao.idle.trade.user.adjust.price/1.0/:
+    post:
+      tags: [订单与发货]
+      operationId: adjustPrice
+      summary: 待付款订单改价（mtop.taobao.idle.trade.user.adjust.price）
+      description: |
+        卖家对**买家尚未付款**的订单修改总价。业务成功要求 `ret` 含 `SUCCESS::调用成功` **且** `data.success=true`，
+        二者缺一即视为未成功。`newTransportFee` 固定 `"0"`（免运费）。Referer: `https://www.goofish.com/`。
+      parameters:
+        - $ref: '#/components/parameters/Jsv'
+        - $ref: '#/components/parameters/AppKey'
+        - $ref: '#/components/parameters/Timestamp'
+        - $ref: '#/components/parameters/Sign'
+        - $ref: '#/components/parameters/AccountSite'
+        - $ref: '#/components/parameters/DataType'
+        - $ref: '#/components/parameters/Timeout20000'
+        - $ref: '#/components/parameters/SessionOptionAutoLoginOnly'
+        - { name: v, in: query, required: true, schema: { type: string, enum: ['1.0'] } }
+        - { name: type, in: query, required: true, schema: { type: string, enum: [originaljson] } }
+        - { name: api, in: query, required: true, schema: { type: string, enum: [mtop.taobao.idle.trade.user.adjust.price] } }
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data: { $ref: '#/components/schemas/AdjustPriceRequestData' }
+            encoding:
+              data: { contentType: application/json }
+      responses:
+        '200':
+          description: 业务结果以 `ret` 与 `data.success` 共同判定。
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/MtopEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        additionalProperties: true
+                        properties:
+                          success:
+                            type: boolean
+                            description: 平台业务成功标志。
+        default: { $ref: '#/components/responses/GatewayError' }
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: 一次订单一次请求；Token 过期最多 4 次尝试。
+
+  /h5/mtop.idle.web.xyh.item.list/1.0/:
+    post:
+      tags: [商品]
+      operationId: itemList
+      summary: 卖家在售商品列表（mtop.idle.web.xyh.item.list）
+      description: |
+        分页读取"在售"分组商品。`userId` 取自 Cookie `unb`，缺失则无法请求。
+
+        **协议约束（不可改写）**：账号没有在售商品时，成功响应**可能省略 `cardList` 字段**。
+        缺少 `cardList` **不是异常也不是不完整响应**，必须按空商品列表处理并允许全量同步正常完成。
+        只有平台明确返回了 `cardList` 但类型不是数组（含显式 `null` / 对象）才按异常处理。
+
+        解析规则：`itemId` 取 `detailParams.itemId`，缺失时取 `cardData.id`；以 `auto_` 开头的平台占位卡被过滤；
+        `detailParams.isSKU` 为真表示多规格。分页总量从 `totalCount | total_count | total` 与
+        `pageCount | page_count | totalPages | total_pages` 中取第一个正数。Referer: `https://www.goofish.com/`。
+      parameters:
+        - $ref: '#/components/parameters/Jsv'
+        - $ref: '#/components/parameters/AppKey'
+        - $ref: '#/components/parameters/Timestamp'
+        - $ref: '#/components/parameters/Sign'
+        - $ref: '#/components/parameters/AccountSite'
+        - $ref: '#/components/parameters/DataType'
+        - $ref: '#/components/parameters/Timeout20000'
+        - $ref: '#/components/parameters/SessionOptionAutoLoginOnly'
+        - { name: v, in: query, required: true, schema: { type: string, enum: ['1.0'] } }
+        - { name: type, in: query, required: true, schema: { type: string, enum: [originaljson] } }
+        - { name: api, in: query, required: true, schema: { type: string, enum: [mtop.idle.web.xyh.item.list] } }
+        - { name: spm_cnt, in: query, required: true, schema: { type: string, enum: [a21ybx.im.0.0] } }
+        - { name: spm_pre, in: query, required: true, schema: { type: string, enum: [a21ybx.collection.menu.1.272b5141NafCNK] } }
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data: { $ref: '#/components/schemas/ItemListRequestData' }
+            encoding:
+              data: { contentType: application/json }
+      responses:
+        '200':
+          description: 业务结果以 `ret` 判定。
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/MtopEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/ItemListData' }
+        default: { $ref: '#/components/responses/GatewayError' }
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: 全量同步必须设置 maxPages 硬上限，页间隔 ≥1s，遇风控立即终止。
+
+  /h5/mtop.taobao.idlemessage.pc.tool.item.search/1.0/:
+    post:
+      tags: [商品]
+      operationId: chatItemSearch
+      summary: 个人会话内商品查询（mtop.taobao.idlemessage.pc.tool.item.search）
+      description: |
+        在某个会话中查询对方（`other`）或当前账号（`own`）的在售商品，页大小固定 20。
+        仅保留同时具备 `itemId`、`title`、`absoluteMajorPicture`、`reservePrice` 的商品；
+        协议相对主图地址（`//...`）会补全为 `https:`。Referer: `https://www.goofish.com/im`。
+      parameters:
+        - $ref: '#/components/parameters/Jsv'
+        - $ref: '#/components/parameters/AppKey'
+        - $ref: '#/components/parameters/Timestamp'
+        - $ref: '#/components/parameters/Sign'
+        - $ref: '#/components/parameters/AccountSite'
+        - $ref: '#/components/parameters/DataType'
+        - $ref: '#/components/parameters/Timeout20000'
+        - $ref: '#/components/parameters/SessionOptionAutoLoginOnly'
+        - { name: v, in: query, required: true, schema: { type: string, enum: ['1.0'] } }
+        - { name: type, in: query, required: true, schema: { type: string, enum: [originaljson] } }
+        - { name: api, in: query, required: true, schema: { type: string, enum: [mtop.taobao.idlemessage.pc.tool.item.search] } }
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data: { $ref: '#/components/schemas/ChatItemSearchRequestData' }
+            encoding:
+              data: { contentType: application/json }
+      responses:
+        '200':
+          description: 业务结果以 `ret` 判定。
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/MtopEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/ChatItemSearchData' }
+        default: { $ref: '#/components/responses/GatewayError' }
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: 一次用户翻页一次请求；Token 过期最多 4 次尝试。
+
+  /h5/mtop.taobao.idle.item.polish/2.0/:
+    post:
+      tags: [商品]
+      operationId: itemPolish
+      summary: 擦亮商品·主接口（mtop.taobao.idle.item.polish）
+      description: |
+        擦亮单个商品。**后台批量任务**，必须标记后台节流（≥5s），遇风控 / Session 失效立即终止整批。
+        主接口失败（非"今天已擦亮"、非风控 / Session 失效）时改调备用接口
+        `/h5/mtop.idle.item.polish/1.0/`。以下情形视为成功："商品今天已经擦亮"类重复擦亮码
+        （`IDLEITEM_POLISH_AGAIN`、`POLISH_DUPLICATE`、文案含"已经擦亮"/"一天只能擦亮一次"）。
+        Referer / Origin: `https://www.goofish.com/`。
+      parameters:
+        - $ref: '#/components/parameters/Jsv'
+        - $ref: '#/components/parameters/AppKey'
+        - $ref: '#/components/parameters/Timestamp'
+        - $ref: '#/components/parameters/Sign'
+        - $ref: '#/components/parameters/AccountSite'
+        - $ref: '#/components/parameters/DataType'
+        - $ref: '#/components/parameters/Timeout20000'
+        - $ref: '#/components/parameters/SessionOptionAutoLoginOnly'
+        - { name: v, in: query, required: true, schema: { type: string, enum: ['2.0'] } }
+        - { name: type, in: query, required: true, schema: { type: string, enum: [originaljson] } }
+        - { name: api, in: query, required: true, schema: { type: string, enum: [mtop.taobao.idle.item.polish] } }
+        - { name: spm_cnt, in: query, required: true, schema: { type: string, enum: [a21ybx.item.0.0] } }
+        - { name: spm_pre, in: query, required: true, schema: { type: string, enum: [a21ybx.personal.feeds.1.42f86ac21eZ9zd] } }
+        - { name: log_id, in: query, required: true, schema: { type: string, enum: [42f86ac21eZ9zd] } }
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data: { $ref: '#/components/schemas/PolishRequestData' }
+            encoding:
+              data: { contentType: application/json }
+      responses:
+        '200':
+          description: 业务结果以 `ret` 判定，无需解析 `data`。
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MtopEnvelope' }
+        default: { $ref: '#/components/responses/GatewayError' }
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: 后台节流 ≥5s；每个商品最多主 + 备各一次；Token 过期最多 3 次尝试。
+
+  /h5/mtop.idle.item.polish/1.0/:
+    post:
+      tags: [商品]
+      operationId: itemPolishBackup
+      summary: 擦亮商品·备用接口（mtop.idle.item.polish）
+      description: 仅在主擦亮接口失败后调用，请求体与语义同主接口。其余约束见 `itemPolish`。
+      parameters:
+        - $ref: '#/components/parameters/Jsv'
+        - $ref: '#/components/parameters/AppKey'
+        - $ref: '#/components/parameters/Timestamp'
+        - $ref: '#/components/parameters/Sign'
+        - $ref: '#/components/parameters/AccountSite'
+        - $ref: '#/components/parameters/DataType'
+        - $ref: '#/components/parameters/Timeout20000'
+        - $ref: '#/components/parameters/SessionOptionAutoLoginOnly'
+        - { name: v, in: query, required: true, schema: { type: string, enum: ['1.0'] } }
+        - { name: type, in: query, required: true, schema: { type: string, enum: [originaljson] } }
+        - { name: api, in: query, required: true, schema: { type: string, enum: [mtop.idle.item.polish] } }
+        - { name: spm_cnt, in: query, required: true, schema: { type: string, enum: [a21ybx.item.0.0] } }
+        - { name: spm_pre, in: query, required: true, schema: { type: string, enum: [a21ybx.personal.feeds.1.42f86ac21eZ9zd] } }
+        - { name: log_id, in: query, required: true, schema: { type: string, enum: [42f86ac21eZ9zd] } }
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data: { $ref: '#/components/schemas/PolishRequestData' }
+            encoding:
+              data: { contentType: application/json }
+      responses:
+        '200':
+          description: 业务结果以 `ret` 判定，无需解析 `data`。
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MtopEnvelope' }
+        default: { $ref: '#/components/responses/GatewayError' }
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: 后台节流 ≥5s。
+
+  /h5/mtop.taobao.idle.merchant.rate.list/1.0/:
+    post:
+      tags: [评价]
+      operationId: merchantRateList
+      summary: 待评价订单列表（mtop.taobao.idle.merchant.rate.list）
+      description: |
+        查询卖家待评价订单（`sellerRateStatus="5"`）。**与多数接口不同**：`type=json` 且带 `valueType=string`。
+        订单号在条目内按 `tradeId | trade_id | orderId | orderNo | order_no` 递归查找，
+        商品号按 `itemId | item_id` 查找，按订单号去重。
+        Referer / Origin: `https://seller.goofish.com/`。
+      parameters:
+        - $ref: '#/components/parameters/Jsv'
+        - $ref: '#/components/parameters/AppKey'
+        - $ref: '#/components/parameters/Timestamp'
+        - $ref: '#/components/parameters/Sign'
+        - $ref: '#/components/parameters/AccountSite'
+        - $ref: '#/components/parameters/DataType'
+        - $ref: '#/components/parameters/Timeout20000'
+        - $ref: '#/components/parameters/SessionOptionAutoLoginOnly'
+        - { name: v, in: query, required: true, schema: { type: string, enum: ['1.0'] } }
+        - { name: type, in: query, required: true, schema: { type: string, enum: [json] } }
+        - { name: api, in: query, required: true, schema: { type: string, enum: [mtop.taobao.idle.merchant.rate.list] } }
+        - $ref: '#/components/parameters/ValueTypeString'
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data: { $ref: '#/components/schemas/RateListRequestData' }
+            encoding:
+              data: { contentType: application/json }
+      responses:
+        '200':
+          description: 业务结果以 `ret` 判定。
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/MtopEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/RateListData' }
+        default: { $ref: '#/components/responses/GatewayError' }
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: 后台节流 ≥5s；单次请求最多 100 行（默认 50）。
+
+  /h5/mtop.taobao.idle.rate.create/4.0/:
+    post:
+      tags: [评价]
+      operationId: rateCreate
+      summary: 评价买家（mtop.taobao.idle.rate.create）
+      description: |
+        对已完成订单给买家好评。`feedback` 为空时项目使用"不错的买家，交易愉快"。
+        以下 `FAIL_BIZ_BAD_REQUEST` 子类是**确定的业务拒绝**，批处理据此跳过该订单而非重试：
+        订单超出 30 天不允许评价、已经评价过、当前订单不能评价。
+        Referer / Origin: `https://www.goofish.com/`。
+      parameters:
+        - $ref: '#/components/parameters/Jsv'
+        - $ref: '#/components/parameters/AppKey'
+        - $ref: '#/components/parameters/Timestamp'
+        - $ref: '#/components/parameters/Sign'
+        - $ref: '#/components/parameters/AccountSite'
+        - $ref: '#/components/parameters/DataType'
+        - $ref: '#/components/parameters/Timeout20000'
+        - $ref: '#/components/parameters/SessionOptionAutoLoginOnly'
+        - { name: v, in: query, required: true, schema: { type: string, enum: ['4.0'] } }
+        - { name: type, in: query, required: true, schema: { type: string, enum: [originaljson] } }
+        - { name: api, in: query, required: true, schema: { type: string, enum: [mtop.taobao.idle.rate.create] } }
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data: { $ref: '#/components/schemas/RateCreateRequestData' }
+            encoding:
+              data: { contentType: application/json }
+      responses:
+        '200':
+          description: 业务结果以 `ret` 判定，无需解析 `data`。
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MtopEnvelope' }
+        default: { $ref: '#/components/responses/GatewayError' }
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: 后台节流 ≥5s；批量评价遇风控立即终止整批。
+
+  /h5/mtop.taobao.idle.kgraph.property.recommend/2.0/:
+    post:
+      tags: [发布]
+      operationId: kgraphPropertyRecommend
+      summary: 发布类目推荐（mtop.taobao.idle.kgraph.property.recommend）
+      description: |
+        按标题 / 描述 / 图片推荐商品类目。成功响应的 `data.categoryPredictResult` 必须同时具备
+        `catId`、`catName`、`channelCatId`，否则尝试从 `data.cardList` 中 `propertyId="-10000"` 且 `isClicked`
+        的分类卡补全；仍无效则判为"类目无法识别"，调用方回退到默认虚拟类目
+        （`catId=50023914`、`catName=电子资料`、`channelCatId=202036301`）。
+        Referer: '`https://www.goofish.com/`。'
+      parameters:
+        - $ref: '#/components/parameters/Jsv'
+        - $ref: '#/components/parameters/AppKey'
+        - $ref: '#/components/parameters/Timestamp'
+        - $ref: '#/components/parameters/Sign'
+        - $ref: '#/components/parameters/AccountSite'
+        - $ref: '#/components/parameters/DataType'
+        - $ref: '#/components/parameters/Timeout20000'
+        - $ref: '#/components/parameters/SessionOptionAutoLoginOnly'
+        - { name: v, in: query, required: true, schema: { type: string, enum: ['2.0'] } }
+        - { name: type, in: query, required: true, schema: { type: string, enum: [originaljson] } }
+        - { name: api, in: query, required: true, schema: { type: string, enum: [mtop.taobao.idle.kgraph.property.recommend] } }
+        - { name: spm_cnt, in: query, required: true, schema: { type: string, enum: [a21ybx.publish.0.0] } }
+        - { name: spm_pre, in: query, required: true, schema: { type: string, enum: [a21ybx.item.sidebar.1.67321598K9Vgx8] } }
+        - { name: log_id, in: query, required: true, schema: { type: string, enum: [67321598K9Vgx8] } }
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data: { $ref: '#/components/schemas/RecommendRequestData' }
+            encoding:
+              data: { contentType: application/json }
+      responses:
+        '200':
+          description: 业务结果以 `ret` 判定。
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/MtopEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/RecommendData' }
+        default: { $ref: '#/components/responses/GatewayError' }
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: 每次发布一次请求。
+
+  /h5/mtop.idle.pc.idleitem.publish/1.0/:
+    post:
+      tags: [发布]
+      operationId: idleItemPublish
+      summary: 发布商品（mtop.idle.pc.idleitem.publish）
+      description: |
+        发布单规格或多规格商品。多规格时 `itemPriceDTO` 不含 `priceInCent`（价格由 `itemSkuList` 逐行给出），
+        并附带 `itemProperties`、`itemSkuList`，有规格图时附带 `propertyImageList`。规格约束（由项目在请求前校验）：
+        规格类型最多 2 个、每个至少 2 个规格值、组合数 ≤1500、SKU 价格 / 库存 >0。
+        实物商品必须带 `itemAddrDTO`（发货地）；虚拟商品可省略。
+
+        项目对失败的分类：含 token / login / session 关键字 → `auth_expired`；同时包含"库存/数量/quantity/stock"
+        与"权限/未开通/不支持/permission/forbidden"关键字 → `stock_permission_missing`；其余 → `publish_failed`。
+        成功后 `itemId` 在 `data` 中按 `itemId | item_id | id | itemID` 深度查找，商品链接为
+        `https://www.goofish.com/item?id={itemId}`。Referer: `https://www.goofish.com/`。
+      parameters:
+        - $ref: '#/components/parameters/Jsv'
+        - $ref: '#/components/parameters/AppKey'
+        - $ref: '#/components/parameters/Timestamp'
+        - $ref: '#/components/parameters/Sign'
+        - $ref: '#/components/parameters/AccountSite'
+        - $ref: '#/components/parameters/DataType'
+        - $ref: '#/components/parameters/Timeout20000'
+        - $ref: '#/components/parameters/SessionOptionAutoLoginOnly'
+        - { name: v, in: query, required: true, schema: { type: string, enum: ['1.0'] } }
+        - { name: type, in: query, required: true, schema: { type: string, enum: [originaljson] } }
+        - { name: api, in: query, required: true, schema: { type: string, enum: [mtop.idle.pc.idleitem.publish] } }
+        - { name: spm_cnt, in: query, required: true, schema: { type: string, enum: [a21ybx.publish.0.0] } }
+        - { name: spm_pre, in: query, required: true, schema: { type: string, enum: [a21ybx.home.sidebar.1.46413da6EPl7v5] } }
+        - { name: log_id, in: query, required: true, schema: { type: string, enum: [46413da6EPl7v5] } }
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data: { $ref: '#/components/schemas/PublishRequestData' }
+            encoding:
+              data: { contentType: application/json }
+      responses:
+        '200':
+          description: 业务结果以 `ret` 判定。
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/MtopEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        additionalProperties: true
+                        description: 含新商品 ID，键名不固定，见接口说明。
+        default: { $ref: '#/components/responses/GatewayError' }
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: 一次发布一次请求；批量发布必须由调用方限制数量并在风控时终止。
+
+  /api/upload.api:
+    servers:
+      - url: https://stream-upload.goofish.com
+        description: 闲鱼图片上传网关（非 h5api 主机，不使用 MTOP 签名）
+    post:
+      tags: [发布]
+      operationId: streamUploadImage
+      summary: 上传商品 / 聊天图片（stream-upload.goofish.com/api/upload.api）
+      description: |
+        **不是 MTOP 接口**，但与发布、聊天发图共用 Cookie 与同一节流 / 日志传输层，故一并整理。
+        multipart 表单字段 `file` 为图片；不使用 MTOP 签名，也不带 `content-type: x-www-form-urlencoded`。
+        成功响应的图片地址取 `object.url`，缺失时依次回退 `data.url`、顶层 `url`；
+        宽高取 `object.pix`（形如 `800x600`），缺失时项目用图片自身尺寸，仍缺失则默认 800×800。
+        HTTP 非 2xx 视为失败。Referer: `https://www.goofish.com/`。
+      parameters:
+        - { name: floderId, in: query, required: true, description: 平台字段拼写即 `floderId`（非 folderId）。, schema: { type: string, enum: ['0'] } }
+        - { name: appkey, in: query, required: true, schema: { type: string, enum: [xy_chat] } }
+        - { name: _input_charset, in: query, required: true, schema: { type: string, enum: [utf-8] } }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: 图片二进制。
+      responses:
+        '200':
+          description: 上传结果。
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UploadImageResponse' }
+        default:
+          description: 非 2xx 状态视为上传失败。
+      security: [{ cookieAuth: [] }]
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: header
+      name: Cookie
+      description: |
+        整串登录 Cookie（至少含 `unb`、`_m_h5_tk`）。Cookie 属于敏感凭证，不得写入日志、通知或测试输出。
+        签名只取其中 `_m_h5_tk` 的前半段（`_` 之前）。
+
+  parameters:
+    Jsv:
+      name: jsv
+      in: query
+      required: true
+      description: MTOP JS SDK 版本，固定 `2.7.2`。
+      schema: { type: string, enum: ['2.7.2'] }
+    AppKey:
+      name: appKey
+      in: query
+      required: true
+      description: 签名用 appKey，固定 `34839810`（与 WS 注册 appKey 不同）。
+      schema: { type: string, enum: ['34839810'] }
+    Timestamp:
+      name: t
+      in: query
+      required: true
+      description: Unix 毫秒时间戳字符串，须与签名输入一致。
+      schema: { type: string, pattern: '^[0-9]{13}$', example: '1767225600000' }
+    Sign:
+      name: sign
+      in: query
+      required: true
+      description: '`MD5(token&t&appKey&data)` 的 32 位小写十六进制，见文档顶部"签名算法"。'
+      schema: { type: string, pattern: '^[0-9a-f]{32}$' }
+    AccountSite:
+      name: accountSite
+      in: query
+      required: true
+      schema: { type: string, enum: [xianyu] }
+    DataType:
+      name: dataType
+      in: query
+      required: true
+      schema: { type: string, enum: [json] }
+    Timeout20000:
+      name: timeout
+      in: query
+      required: true
+      description: 网关超时毫秒数，固定 `20000`。
+      schema: { type: string, enum: ['20000'] }
+    SessionOptionAutoLoginOnly:
+      name: sessionOption
+      in: query
+      required: true
+      schema: { type: string, enum: [AutoLoginOnly] }
+    ValueTypeString:
+      name: valueType
+      in: query
+      required: true
+      description: 要求平台把 `data` 以字符串形式返回。
+      schema: { type: string, enum: [string] }
+
+  responses:
+    GatewayError:
+      description: |
+        非 2xx 的网关 / HTTP 失败。响应体仍可能是带 `ret` 的 JSON 信封；若 `ret` 含 `FAIL_BIZ_`，
+        确认发货与免拼接口按终态业务结果处理，其余按 HTTP 错误处理。
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/MtopEnvelope' }
+
+  schemas:
+    MtopEnvelope:
+      type: object
+      description: MTOP 统一响应信封。项目只读取 `ret` 与 `data`。
+      required: [ret]
+      properties:
+        ret:
+          type: array
+          description: 业务结果码列表，形如 `SUCCESS::调用成功` 或 `FAIL_SYS_TOKEN_EXOIRED::令牌过期`。
+          items: { type: string }
+          example: ['SUCCESS::调用成功']
+        data:
+          type: object
+          description: 业务数据；失败时可能缺失或为空对象。
+          additionalProperties: true
+      additionalProperties: true
+
+    EmptyRequestData:
+      type: object
+      description: 请求体恒为 `{}`。
+      maxProperties: 0
+      example: {}
+
+    LoginTokenRequestData:
+      type: object
+      required: [appKey, deviceId]
+      properties:
+        appKey:
+          type: string
+          description: WebSocket 注册用 appKey（与签名 appKey 不同），固定值。
+          enum: [444e9908a51d1cb236a27862abc769c9]
+        deviceId:
+          type: string
+          description: 设备 ID，必须与 WS `/reg` 的 `headers.did` 一致；缺省时由 Cookie `unb` 派生。
+      additionalProperties: false
+
+    LoginTokenResponseData:
+      type: object
+      additionalProperties: true
+      properties:
+        accessToken:
+          type: string
+          description: 用于 WS `/reg` 注册的令牌；`ret` 含 SUCCESS 但该值为空会被判为异常。
+        accessTokenExpiredTime:
+          description: 过期时间，形态不固定，项目归一为 Unix 秒。
+          oneOf:
+            - type: string
+              description: RFC3339 时间串、数字串（Unix 秒 / 毫秒）或相对时长。
+            - type: number
+              description: Unix 秒、Unix 毫秒，或小于 1,000,000 的相对秒数 / 毫秒数。
+        url:
+          type: string
+          description: '`ret` 非 SUCCESS 时的风控验证链接。'
+
+    UserPageNavData:
+      type: object
+      additionalProperties: true
+      properties:
+        module:
+          type: object
+          additionalProperties: true
+          properties:
+            base:
+              type: object
+              additionalProperties: true
+              properties:
+                displayName: { type: string, description: 昵称；为空时回退 `displayNick`。 }
+                displayNick: { type: string }
+                avatar: { type: string, description: 头像地址。 }
+
+    ChatUserQueryRequestData:
+      type: object
+      required: [type, sessionType, sessionId, isOwner]
+      properties:
+        type: { type: integer, enum: [0] }
+        sessionType: { type: integer, enum: [1] }
+        sessionId: { type: string, description: 会话 ID（不是用户 ID）。 }
+        isOwner: { type: boolean, enum: [false] }
+      additionalProperties: false
+
+    ChatUserQueryData:
+      type: object
+      additionalProperties: true
+      properties:
+        userInfo:
+          type: object
+          additionalProperties: true
+          properties:
+            fishNick: { type: string, description: 闲鱼昵称；为空时回退 `nick`。 }
+            nick: { type: string }
+            logo: { type: string, description: 头像地址。 }
+
+    OrderDetailRequestData:
+      type: object
+      required: [tid]
+      properties:
+        tid: { type: string, description: 闲鱼订单号。 }
+      additionalProperties: false
+
+    OrderDetailData:
+      type: object
+      description: |
+        结构随页面版本变化，项目递归扫描。下面仅列出会被读取的节点，它们可出现在任意层级；
+        也可能以二次编码的 JSON 字符串形式出现。
+      additionalProperties: true
+      properties:
+        utArgs:
+          type: object
+          additionalProperties: true
+          properties:
+            orderStatus: { type: string, description: 平台订单状态码，取第一个非空值。 }
+        priceInfo:
+          type: object
+          additionalProperties: true
+          properties:
+            amount:
+              type: object
+              additionalProperties: true
+              properties:
+                value: { type: string, description: 成交金额文本，取第一个非空值。 }
+        itemInfo:
+          $ref: '#/components/schemas/OrderDetailItemInfo'
+
+    OrderDetailItemInfo:
+      type: object
+      description: |
+        订单商品节点。数量字段为 `buyAmount`；规格有以下几种互相兼容的形态，同时存在时保留维度最多的完整结果：
+
+        1. 成对字段：`specName`/`specValue`、`spec_name`/`spec_value`、`skuName`/`skuValue`、
+           `sku_name`/`sku_value`、`propName`/`propValue`、`propertyName`/`propertyValue`；
+        2. 组合文本：`skuText`、`sku_text`、`specText`、`spec_text`、`skuDesc`、`skuDescText`，
+           形如 `颜色:红色；尺码:L`（名值分隔符 `:`、`：`、`=`，维度分隔符 `；` `;` `,` `|` 换行）；
+        3. 结构化数组：`skuProperties`、`sku_properties`、`skuProps`、`sku_props`、`specProperties`、`spec_props`、
+           `skuInfo`、`sku_info`、`specInfo`、`spec_info`、`sku`，元素含 `name|specName|spec_name|propName|propertyName`
+           与 `value|specValue|spec_value|propValue|propertyValue|text`；
+        4. 上述 `skuInfo` 等字段还可以是嵌套对象或文本。
+
+        多维规格的名称与值均以中文分号 `；` 连接且顺序一一对应。
+      additionalProperties: true
+      properties:
+        buyAmount:
+          oneOf: [{ type: string }, { type: integer }]
+          description: 购买数量；缺失时调用方不得默认为 1。
+        specName: { type: string }
+        specValue: { type: string }
+        skuText: { type: string }
+        skuProperties:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            properties:
+              name: { type: string }
+              value: { type: string }
+
+    SoldOrdersRequestData:
+      type: object
+      required: [pageNumber, rowsPerPage, orderIds, queryCode, orderSearchParam]
+      properties:
+        pageNumber: { type: integer, minimum: 1, default: 1 }
+        rowsPerPage:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 30
+          description: 超出 1~100 时项目回落为 30。
+        orderIds: { type: string, enum: [''], description: 固定空串（不按订单号过滤）。 }
+        queryCode: { type: string, enum: [ALL] }
+        orderSearchParam:
+          type: string
+          enum: ['{}']
+          description: 固定为 JSON 文本 `{}`（字符串，不是对象）。
+      additionalProperties: false
+
+    SoldOrdersData:
+      type: object
+      additionalProperties: true
+      properties:
+        module:
+          type: object
+          required: [items, nextPage]
+          additionalProperties: true
+          properties:
+            items:
+              type: array
+              description: 缺失或非数组使整页失败。
+              items: { $ref: '#/components/schemas/SoldOrderRow' }
+            nextPage:
+              description: 是否还有下一页；接受布尔、`0/1`、`true/false/yes/no/1/0` 字符串，其他形态使整页失败。
+              oneOf:
+                - { type: boolean }
+                - { type: integer, enum: [0, 1] }
+                - { type: string }
+            totalCount:
+              oneOf: [{ type: integer }, { type: string }]
+
+    SoldOrderRow:
+      type: object
+      additionalProperties: true
+      properties:
+        commonData:
+          type: object
+          additionalProperties: true
+          description: 缺少 `orderId` 的条目使整页解析失败。
+          required: [orderId]
+          properties:
+            orderId: { type: string }
+            itemId: { type: string }
+            orderStatus:
+              type: string
+              description: |
+                平台中文状态，项目归一为：待付款 / 处理中→processing；待发货 / 已付款→pending_ship；已发货→shipped；
+                交易成功 / 已完成→completed；交易关闭 / 已关闭 / 退款关闭 / 退款成功 / 已退款→cancelled；
+                退款中→refunding；其余→unknown。`inRefund=true` 时恒为 refunding。
+            inRefund: { type: boolean }
+            orderCreateTime:
+              type: string
+              description: |
+                创建时间；亦兼容 `order_create_time`、`createTime`、`create_time`、`gmtCreate`、`gmt_create`、`orderTime`、`order_time`，
+                也可能位于 `orderInfo`、`orderVO`、`tradeInfo` 子对象内。项目归一为 UTC 的 `YYYY-MM-DD HH:MM:SS`：
+                数字串按 Unix 秒（13 位以上为毫秒）解析，无时区文本按东八区解析。
+        buyerInfoVO:
+          type: object
+          additionalProperties: true
+          properties:
+            buyerId: { type: string }
+            name: { type: string, description: 亦兼容 `receiverName`。 }
+            phone: { type: string, description: 亦兼容 `receiverPhone`。 }
+            address: { type: string, description: 亦兼容 `receiverAddress`。 }
+            city: { type: string, description: 亦兼容 `receiverCity`。 }
+        priceVO:
+          type: object
+          additionalProperties: true
+          properties:
+            totalPrice: { type: string, description: 金额，依次回退 `confirmFee`、`auctionPrice`。 }
+            buyNum: { type: string, description: 数量，亦兼容 `quantity`；缺失或 `0` 时项目取 `1`。 }
+        rightVO:
+          type: object
+          additionalProperties: true
+          properties:
+            btnList:
+              type: array
+              description: 卖家可用操作按钮；存在 `tradeAction=SKIP_PIN` 的按钮表示砍价订单。
+              items:
+                type: object
+                additionalProperties: true
+                properties:
+                  tradeAction: { type: string }
+
+    ConsignRequestData:
+      type: object
+      required: [orderId, tradeText, picList, newUnconsign]
+      properties:
+        orderId: { type: string, description: 平台订单号。 }
+        tradeText: { type: string, description: 买家实际收到的文本发货凭证；无则空串。 }
+        picList:
+          type: array
+          description: 买家实际收到的图片发货凭证地址；无则空数组（不是 null）。
+          items: { type: string }
+        newUnconsign: { type: boolean, enum: [true], description: 按虚拟商品确认发货处理。 }
+      additionalProperties: false
+
+    FreeShippingRequestData:
+      type: object
+      required: [bizOrderId, itemId, buyerId]
+      properties:
+        bizOrderId: { type: string, description: 砍价订单业务订单号。 }
+        itemId: { type: integer, format: uint64, description: 砍价活动对应的数字商品 ID。 }
+        buyerId: { type: integer, format: uint64, description: 参与砍价的数字买家 ID。 }
+      additionalProperties: false
+
+    AdjustPriceRequestData:
+      type: object
+      required: [modifyFee, newTransportFee, orderId]
+      properties:
+        modifyFee: { type: integer, format: int64, description: 改价后的订单总价，单位为分。 }
+        newTransportFee: { type: string, enum: ['0'], description: 运费，固定免运费。 }
+        orderId: { type: string, description: 待付款订单号。 }
+      additionalProperties: false
+
+    ItemListRequestData:
+      type: object
+      required: [needGroupInfo, pageNumber, pageSize, groupName, groupId, defaultGroup, userId]
+      properties:
+        needGroupInfo: { type: boolean, enum: [false] }
+        pageNumber: { type: integer, minimum: 1, default: 1 }
+        pageSize: { type: integer, minimum: 1, default: 20 }
+        groupName: { type: string, enum: [在售] }
+        groupId: { type: string, enum: ['58877261'], description: "\"在售\"分组的固定 ID。" }
+        defaultGroup: { type: boolean, enum: [true] }
+        userId: { type: string, description: 取自 Cookie `unb`。 }
+      additionalProperties: false
+
+    ItemListData:
+      type: object
+      description: |
+        **`cardList` 可以缺省**：账号没有在售商品时成功响应可能不带该字段，应按空列表处理。
+      additionalProperties: true
+      properties:
+        cardList:
+          type: array
+          description: 商品卡片；省略表示空页，显式返回时必须是数组。
+          items:
+            type: object
+            additionalProperties: true
+            properties:
+              cardType: { type: integer }
+              cardData:
+                type: object
+                additionalProperties: true
+                properties:
+                  id: { type: string, description: 商品 ID 回退值；`auto_` 前缀为平台占位卡，会被过滤。 }
+                  title: { type: string }
+                  detailUrl: { type: string }
+                  categoryId: { type: string }
+                  auctionType: { type: string }
+                  itemStatus: { type: integer }
+                  priceInfo:
+                    type: object
+                    additionalProperties: true
+                    properties:
+                      price: { type: string }
+                      preText: { type: string, description: 价格前缀文本（如 ¥）。 }
+                  picInfo:
+                    type: object
+                    additionalProperties: true
+                    properties:
+                      picUrl: { type: string }
+                  detailParams:
+                    type: object
+                    additionalProperties: true
+                    properties:
+                      itemId: { type: string }
+                      isSKU:
+                        description: 真值表示多规格商品；缺失或 false 为单规格。
+                        oneOf: [{ type: boolean }, { type: string }, { type: integer }]
+                  trackParams: { type: object, additionalProperties: true }
+                  itemLabelDataVO: { type: object, additionalProperties: true }
+        totalCount:
+          description: 总条数；亦可能以 `total_count`、`total` 返回，取第一个正数。
+          oneOf: [{ type: integer }, { type: string }]
+        pageCount:
+          description: 总页数；亦可能以 `page_count`、`totalPages`、`total_pages` 返回，取第一个正数。
+          oneOf: [{ type: integer }, { type: string }]
+
+    ChatItemSearchRequestData:
+      type: object
+      required: [sessionId, pageSize, pageNumber, searchItemRole, queryWord]
+      properties:
+        sessionId: { type: string, description: 会话 ID。 }
+        pageSize: { type: integer, enum: [20] }
+        pageNumber: { type: integer, minimum: 1 }
+        searchItemRole:
+          type: string
+          enum: [other, own]
+          description: '`other` 查询对方商品，`own` 查询当前账号商品。'
+        queryWord: { type: string, description: 搜索关键词，可为空串。 }
+      additionalProperties: false
+
+    ChatItemSearchData:
+      type: object
+      additionalProperties: true
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            properties:
+              itemId: { type: string }
+              title: { type: string }
+              absoluteMajorPicture: { type: string, description: 主图，可能是协议相对地址 `//...`。 }
+              reservePrice: { type: string }
+              desc: { type: string }
+        nextPage:
+          description: 是否还有下一页，接受布尔兼容值。
+          oneOf: [{ type: boolean }, { type: integer }, { type: string }]
+
+    PolishRequestData:
+      type: object
+      required: [itemId]
+      properties:
+        itemId: { type: string }
+      additionalProperties: false
+
+    RateListRequestData:
+      type: object
+      required: [pageNumber, rowsPerPage, queryType, rateSearchParam]
+      properties:
+        pageNumber: { type: integer, minimum: 1, default: 1 }
+        rowsPerPage: { type: integer, minimum: 1, maximum: 100, default: 50, description: 超出 1~100 时项目回落为 50。 }
+        queryType: { type: string, enum: [ORDER] }
+        rateSearchParam:
+          type: object
+          required: [sellerRateStatus]
+          properties:
+            sellerRateStatus: { type: string, enum: ['5'], description: 待评价状态。 }
+          additionalProperties: false
+      additionalProperties: false
+
+    RateListData:
+      type: object
+      additionalProperties: true
+      properties:
+        module:
+          type: object
+          additionalProperties: true
+          properties:
+            items:
+              type: array
+              description: 订单号与商品号在每个条目内递归查找，键名见接口说明。
+              items:
+                type: object
+                additionalProperties: true
+
+    RateCreateRequestData:
+      type: object
+      required: [tradeId, rate, feedback, createOrAppend]
+      properties:
+        tradeId: { type: string, description: 订单号。 }
+        rate: { type: integer, enum: [1], description: 1 表示好评。 }
+        feedback: { type: string, description: 评价文本；空时项目使用"不错的买家，交易愉快"。 }
+        createOrAppend: { type: integer, enum: [0], description: 0 表示新建评价。 }
+      additionalProperties: false
+
+    RecommendRequestData:
+      type: object
+      required: [title, lockCpv, multiSKU, publishScene, scene, description, uniqueCode]
+      properties:
+        title: { type: string }
+        lockCpv: { type: boolean, enum: [false] }
+        multiSKU: { type: boolean, enum: [false] }
+        publishScene: { type: string, enum: [mainPublish] }
+        scene: { type: string, enum: [newPublishChoice] }
+        description: { type: string }
+        uniqueCode: { type: string, description: 微秒时间戳。 }
+        imageInfos:
+          type: array
+          description: 仅在有图片时携带，首张为主图。
+          items: { $ref: '#/components/schemas/PublishImageInfo' }
+      additionalProperties: false
+
+    RecommendData:
+      type: object
+      additionalProperties: true
+      properties:
+        categoryPredictResult: { $ref: '#/components/schemas/PublishCategoryDTO' }
+        cardList:
+          type: array
+          description: 分类卡列表，`categoryPredictResult` 无效时的回退来源。
+          items:
+            type: object
+            additionalProperties: true
+            properties:
+              cardData:
+                type: object
+                additionalProperties: true
+                properties:
+                  propertyId: { type: string }
+                  propertyName: { type: string }
+                  valuesList:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+                      properties:
+                        catId: { type: string }
+                        catName: { type: string }
+                        channelCatId: { type: string }
+                        tbCatId: { type: string }
+                        isClicked:
+                          description: 是否被推荐选中，接受布尔、`1`、`true`。
+                          oneOf: [{ type: boolean }, { type: string }, { type: integer }]
+
+    PublishCategoryDTO:
+      type: object
+      additionalProperties: true
+      properties:
+        catId: { type: string }
+        catName: { type: string }
+        channelCatId: { type: string }
+        tbCatId: { type: string }
+
+    PublishImageInfo:
+      type: object
+      required: [extraInfo, isQrCode, url, heightSize, widthSize, major, type, status]
+      properties:
+        extraInfo:
+          type: object
+          properties:
+            isH: { type: string, enum: ['false'] }
+            isT: { type: string, enum: ['false'] }
+            raw: { type: string, enum: ['false'] }
+        isQrCode: { type: boolean, enum: [false] }
+        url: { type: string, description: 图片上传接口返回的地址。 }
+        heightSize: { type: integer }
+        widthSize: { type: integer }
+        major: { type: boolean, description: 是否主图，仅第一张为 true。 }
+        type: { type: integer, enum: [0] }
+        status: { type: string, enum: [done] }
+
+    PublishRequestData:
+      type: object
+      required: [freebies, itemTypeStr, quantity, simpleItem, imageInfoDOList, itemTextDTO, itemLabelExtList, itemPriceDTO, userRightsProtocols, itemPostFeeDTO, defaultPrice, itemCatDTO, uniqueCode, sourceId, bizcode, publishScene]
+      properties:
+        freebies: { type: boolean, enum: [false] }
+        itemTypeStr: { type: string, enum: [b] }
+        quantity: { type: string, description: 库存数量的十进制字符串。 }
+        simpleItem: { type: string, enum: ['true'], description: 字符串而非布尔。 }
+        imageInfoDOList:
+          type: array
+          items: { $ref: '#/components/schemas/PublishImageInfo' }
+        itemTextDTO:
+          type: object
+          required: [desc, title, titleDescSeparate]
+          properties:
+            desc: { type: string }
+            title: { type: string }
+            titleDescSeparate: { type: boolean, enum: [false] }
+        itemLabelExtList:
+          type: array
+          description: 由类目推荐里被选中的标签生成。
+          items:
+            type: object
+            additionalProperties: true
+            properties:
+              channelCateName: { type: string }
+              channelCateId: { type: string }
+              tbCatId: { type: string }
+              labelType: { type: string, enum: [common] }
+              propertyName: { type: string }
+              propertyId: { type: string }
+              isUserClick: { type: string, enum: ['1'] }
+              from: { type: string, enum: [newPublishChoice] }
+              labelFrom: { type: string, enum: [newPublish] }
+              text: { type: string }
+              properties: { type: string, description: '`{propertyId}##{propertyName}:{channelCatId}##{catName}`。' }
+        itemPriceDTO:
+          type: object
+          description: 多规格时省略 `priceInCent`。
+          properties:
+            priceInCent: { type: string, description: 售价，单位为分的十进制字符串。 }
+            origPriceInCent: { type: string, description: 原价，单位为分；仅 >0 时携带。 }
+        userRightsProtocols:
+          type: array
+          items:
+            type: object
+            properties:
+              enable: { type: boolean, enum: [false] }
+              serviceCode: { type: string, enum: [SKILL_PLAY_NO_MIND] }
+        itemPostFeeDTO: { $ref: '#/components/schemas/PostFeeDTO' }
+        defaultPrice: { type: boolean, enum: [false] }
+        itemCatDTO: { $ref: '#/components/schemas/PublishCategoryDTO' }
+        uniqueCode: { type: string, description: 微秒时间戳。 }
+        sourceId: { type: string, enum: [pcMainPublish] }
+        bizcode: { type: string, enum: [pcMainPublish] }
+        publishScene: { type: string, enum: [pcMainPublish] }
+        itemProperties:
+          type: array
+          description: 仅多规格商品携带。
+          items:
+            type: object
+            properties:
+              propertyName: { type: string }
+              supportImage: { type: boolean }
+              propertyValues:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    propertyValue: { type: string }
+                    propertyValueImg: { $ref: '#/components/schemas/PropertyValueImage' }
+        itemSkuList:
+          type: array
+          description: 仅多规格商品携带，长度必须等于规格值组合数。
+          items:
+            type: object
+            properties:
+              priceInCent: { type: string }
+              quantity: { type: integer }
+              propertyList:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    propertyText: { type: string }
+                    valueText: { type: string }
+        propertyImageList:
+          type: array
+          description: 仅多规格且存在规格图时携带。
+          items:
+            type: object
+            properties:
+              property:
+                type: object
+                properties:
+                  propertyText: { type: string }
+                  valueText: { type: string }
+              url: { type: string }
+        itemAddrDTO:
+          type: object
+          description: 发货地；实物商品必填，虚拟商品可省略。
+          properties:
+            area: { type: string }
+            city: { type: string }
+            divisionId: { type: string }
+            gps: { type: string, description: '`纬度,经度`。' }
+            poiId: { type: string }
+            poiName: { type: string }
+            prov: { type: string }
+      additionalProperties: false
+
+    PropertyValueImage:
+      type: object
+      properties:
+        url: { type: string }
+        thumbnail: { type: string }
+        status: { type: string, enum: [done] }
+        major: { type: boolean, enum: [false] }
+        widthSize: { type: integer }
+        heightSize: { type: integer }
+        type: { type: integer, enum: [0] }
+        extraInfo: { type: object, additionalProperties: true }
+        isQrCode: { type: boolean, enum: [false] }
+        labels: { type: array, items: {} }
+        templateIndex: { type: string, enum: ['0'] }
+
+    PostFeeDTO:
+      type: object
+      description: |
+        运费模式映射：`free`（默认）→ `canFreeShipping=true, supportFreight=true`；
+        `distance` → `supportFreight=true, templateId="-100"`；
+        `fixed` → `supportFreight=true, postPriceInCent, templateId="0"`；
+        `none` → `templateId="0"`（不支持运费）。
+      required: [canFreeShipping, supportFreight, onlyTakeSelf]
+      properties:
+        canFreeShipping: { type: boolean }
+        supportFreight: { type: boolean }
+        onlyTakeSelf: { type: boolean, enum: [false] }
+        templateId: { type: string }
+        postPriceInCent: { type: string, description: 固定运费，单位为分。 }
+
+    UploadImageResponse:
+      type: object
+      additionalProperties: true
+      description: 图片地址按 `object.url` → `data.url` → `url` 的顺序取第一个非空。
+      properties:
+        object:
+          type: object
+          additionalProperties: true
+          properties:
+            url: { type: string }
+            pix: { type: string, description: '宽高，形如 `800x600`。', pattern: '^[0-9]+x[0-9]+$' }
+        data:
+          type: object
+          additionalProperties: true
+          properties:
+            url: { type: string }
+        url: { type: string }
+
