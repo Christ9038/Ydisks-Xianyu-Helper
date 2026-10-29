@@ -400,7 +400,9 @@ func (e *automationActionExecutor) adjustOrderPriceAttempt(ctx context.Context, 
 		return failure
 	}
 	if len(persistenceErrs) > 0 {
-		return uncertainAction(fmt.Errorf("闲鱼已完成订单改价，但响应凭证保存失败: %w", errors.Join(persistenceErrs...)))
+		// 平台已明确返回改价成功，响应 Cookie 未写回只影响本地凭证，不改变已完成的改价；
+		// 判为结果未知会让运行进入人工核对，却无任何订单侧风险。
+		e.logger.Warn("订单改价已成功，但响应 Cookie 未写回，按成功处理", "account", task.AccountID, "order_id", task.OrderID, "err", errors.Join(persistenceErrs...))
 	}
 	return nil
 }

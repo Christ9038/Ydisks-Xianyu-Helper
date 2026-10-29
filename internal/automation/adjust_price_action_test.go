@@ -404,7 +404,8 @@ func TestAdjustOrderPriceRecoversExpiredSessionOnce(t *testing.T) {
 	}
 }
 
-// TestAdjustOrderPriceDoesNotOverwriteConcurrentCookie 验证改价旧响应返回的 Cookie 不会覆盖外部调用期间并发写入的新凭证。
+// TestAdjustOrderPriceDoesNotOverwriteConcurrentCookie 验证改价旧响应返回的 Cookie 不会覆盖外部调用期间并发写入的新凭证，
+// 且平台已明确改价成功时该写回冲突不改变动作结果（成功、不进入人工核对）。
 func TestAdjustOrderPriceDoesNotOverwriteConcurrentCookie(t *testing.T) {
 	// store、cleanup 保存测试数据库及其清理函数。
 	store, cleanup := newAutomationTestStore(t)
@@ -455,8 +456,8 @@ func TestAdjustOrderPriceDoesNotOverwriteConcurrentCookie(t *testing.T) {
 	close(release)
 	// outcome 保存异步改价完成后的外部结果和错误。
 	outcome := <-result
-	if outcome.sent != 0 || outcome.err == nil || !strings.Contains(outcome.err.Error(), "并发更新冲突") {
-		t.Fatalf("sent=%d err=%v", outcome.sent, outcome.err)
+	if outcome.sent != 1 || outcome.err != nil {
+		t.Fatalf("改价成功后凭证并发冲突不应影响动作结果: sent=%d err=%v", outcome.sent, outcome.err)
 	}
 	// detail、detailErr 分别保存最终凭证运行视图和读取错误。
 	detail, detailErr := store.Cookies.GetDetails(ctx, "cid")

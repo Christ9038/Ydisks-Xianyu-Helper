@@ -221,3 +221,75 @@ func seedAutomationOrder(orderID string, bargain bool) *db.Order {
 	}
 	return &db.Order{OrderID: orderID, IsBargain: bargainValue}
 }
+
+// raceFreeShipMTop 在免拼请求进行期间模拟凭证续期并发写入，随后返回平台成功与带变更的响应 Cookie，
+// 复现“免拼已成功但旧响应 Cookie 因并发更新被跳过写回”的窗口。
+type raceFreeShipMTop struct {
+	// fakeMTop 提供其余 MTOP 能力的内存替身。
+	*fakeMTop
+	// store 用于在免拼调用期间写入并发更新的新凭证。
+	store *db.Store
+	// latestCookie 是并发写入的新 Cookie，旧响应不得覆盖它。
+	latestCookie string
+}
+
+// FreeShippingContext 先写入新凭证再返回平台免拼成功，使响应 Cookie 写回时指纹已变化。
+func (r *raceFreeShipMTop) FreeShippingContext(_ context.Context, cookieStr, _, _, _ string) (bool, []string, string, error) {
+	// err 保存并发凭证写入错误。
+	if err := r.store.Cookies.UpdateRenewalCookie(context.Background(), "cid", r.latestCookie, "", 1700000000); err != nil {
+		return false, nil, "", err
+	}
+	return true, []string{"SUCCESS::调用成功"}, cookieStr + " stale=1;", nil
+}
+
+// TestBargainPendingCredentialConflictAfterFreeShippingSucceeds 验证平台免拼已成功时，响应 Cookie 因凭证并发更新被跳过写回
+// 不再被判为结果未知：阶段记为 succeeded、不进入 needs_review，新凭证不被旧响应覆盖，兜底候选资格保留。
+func TestBargainPendingCredentialConflictAfterFreeShippingSucceeds(t *testing.T) {
+	// store、cleanup 保存隔离的自动化数据库及资源释放函数。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// ctx 保存测试共用的无取消上下文。
+	ctx := context.Background()
+	// admin、adminErr 保存账号所属管理员和读取错误。
+	admin, adminErr := store.Users.GetByUsername(ctx, "admin")
+	if adminErr != nil {
+		t.Fatal(adminErr)
+	}
+	// enabled 是显式开启的独立自动免拼开关。
+	enabled := true
+	// settingsErr 保存自动免拼开关写入错误。
+	if _, settingsErr := store.Cookies.UpdateSettings(ctx, "cid", db.AccountSettingsUpdate{UserID: admin.ID, AutoBargain: &enabled}); settingsErr != nil {
+		t.Fatal(settingsErr)
+	}
+	// client 在免拼调用期间并发写入新凭证。
+	client := &raceFreeShipMTop{fakeMTop: &fakeMTop{}, store: store, latestCookie: "unb=123; _m_h5_tk=tk_latest;"}
+	// center 是注入上述替身的自动化中心。
+	center := NewWithDependencies(store, nil, nil, CenterDependencies{MTop: client})
+	// handleErr 保存待刀成 WS 任务的执行错误。
+	handleErr := center.HandleTask(ctx, Task{Source: "ws", AccountID: "cid", OrderRole: OrderRoleSeller, TriggerType: TriggerBargainPending, OrderID: "bargain-cred-race", ItemID: "10001", BuyerID: "20002", ChatID: "chat", IsBargain: true})
+	if handleErr != nil {
+		t.Fatalf("免拼已成功时凭证并发冲突不应使阶段失败: %v", handleErr)
+	}
+	// stageStatus 保存免拼阶段表终态。
+	var stageStatus string
+	// scanErr 保存阶段状态读取错误。
+	if scanErr := store.DB.QueryRowContext(ctx, `SELECT status FROM bargain_free_shipping_stages WHERE order_id=? AND cookie_id=?`, "bargain-cred-race", "cid").Scan(&stageStatus); scanErr != nil {
+		t.Fatal(scanErr)
+	}
+	if stageStatus != "succeeded" {
+		t.Fatalf("阶段状态 = %q，期望 succeeded（不得进入 needs_review）", stageStatus)
+	}
+	// detail、detailErr 保存最终凭证，断言旧响应未覆盖并发写入的新凭证。
+	detail, detailErr := store.Cookies.GetDetails(ctx, "cid")
+	if detailErr != nil {
+		t.Fatal(detailErr)
+	}
+	if detail.Value != client.latestCookie {
+		t.Fatalf("旧响应覆盖了并发写入的新凭证: %q", detail.Value)
+	}
+	// runIssues、taskIssues 保存人工处理面板数据，免拼成功后不应出现待人工项。
+	runIssues, taskIssues, issuesErr := store.Automation.ListIssues(ctx, admin.ID)
+	if issuesErr != nil || len(runIssues) != 0 || len(taskIssues) != 0 {
+		t.Fatalf("不应出现待人工项: runs=%d tasks=%d err=%v", len(runIssues), len(taskIssues), issuesErr)
+	}
+}

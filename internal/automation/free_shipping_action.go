@@ -76,7 +76,9 @@ func (e *automationActionExecutor) freeShipBargainAttempt(ctx context.Context, t
 		return failure
 	}
 	if len(cookiePersistence.errors) > 0 {
-		return uncertainAction(fmt.Errorf("闲鱼已免拼，但响应凭证保存失败: %w", errors.Join(cookiePersistence.errors...)))
+		// 平台已明确返回免拼成功，响应 Cookie 未写回（含凭证被并发更新而跳过旧响应）只影响本地凭证，
+		// 不改变已完成的平台动作；若判为结果未知会让阶段停在 needs_review，既不可重试也无法被后续兜底推进。
+		e.logger.Warn("免拼已成功，但响应 Cookie 未写回，按成功处理", "account", task.AccountID, "order_id", task.OrderID, "err", errors.Join(cookiePersistence.errors...))
 	}
 	return nil
 }

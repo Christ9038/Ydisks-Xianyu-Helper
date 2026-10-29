@@ -227,18 +227,15 @@ func TestFreeShipBargainGapBranches(t *testing.T) {
 			t.Fatalf("err=%v", err)
 		}
 	})
-	t.Run("免拼成功但响应凭证保存失败视为不确定", func(t *testing.T) {
+	t.Run("免拼成功但响应凭证保存失败仍按成功处理", func(t *testing.T) {
 		// client 返回成功和新 Cookie。
 		client := &fakeMTop{freeShippingOK: true, freeShippingRet: []string{"SUCCESS::ok"}, freeShippingUpdated: "unb=123; _m_h5_tk=new2;"}
 		// center、store 保存夹具。
 		center, store := newBargainGapCenter(t, client, CenterDependencies{})
 		execGapSQL(t, store, cookieAbort)
-		// err 保存免拼结果。
-		err := center.actions.freeShipBargain(ctx, task)
-		// uncertain 用于识别不确定错误。
-		var uncertain *uncertainActionError
-		if !errors.As(err, &uncertain) {
-			t.Fatalf("err=%v", err)
+		// err 保存免拼结果；平台已明确免拼成功，本地 Cookie 写回失败不得改变动作结果。
+		if err := center.actions.freeShipBargain(ctx, task); err != nil {
+			t.Fatalf("免拼成功后 Cookie 写回失败不应使动作失败或不确定: %v", err)
 		}
 	})
 }

@@ -257,16 +257,13 @@ func TestAdjustOrderPriceAttemptGapBranches(t *testing.T) {
 			t.Fatalf("err=%v", attemptErr)
 		}
 	})
-	t.Run("改价成功但响应凭证保存失败", func(t *testing.T) {
+	t.Run("改价成功但响应凭证保存失败仍按成功处理", func(t *testing.T) {
 		// center、store 保存中心与数据库。
 		center, store, _ := newCenter(t, &fakeMTop{adjustOk: true, adjustRet: []string{"SUCCESS::ok"}, adjustUpdated: "unb=123; _m_h5_tk=n2;"}, nil)
 		execGapSQL(t, store, cookieAbort)
-		// attemptErr 必须标记为不确定。
-		attemptErr := center.actions.adjustOrderPriceAttempt(ctx, task, 100, true)
-		// uncertain 用于识别不确定错误。
-		var uncertain *uncertainActionError
-		if !errors.As(attemptErr, &uncertain) {
-			t.Fatalf("err=%v", attemptErr)
+		// attemptErr 平台已明确改价成功，本地 Cookie 写回失败不得改变动作结果。
+		if attemptErr := center.actions.adjustOrderPriceAttempt(ctx, task, 100, true); attemptErr != nil {
+			t.Fatalf("改价成功后 Cookie 写回失败不应使动作失败或不确定: %v", attemptErr)
 		}
 	})
 }
