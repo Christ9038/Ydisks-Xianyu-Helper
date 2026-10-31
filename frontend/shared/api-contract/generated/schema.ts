@@ -3359,13 +3359,18 @@ export interface components {
             type: "ready";
             at: number;
         };
+        ChatPongEvent: {
+            /** @enum {string} */
+            type: "pong";
+            at: number;
+        };
         ChatEvent: {
             /** @enum {string} */
             type: "message.created" | "message.updated";
             message?: components["schemas"]["ChatMessage"];
             session?: components["schemas"]["ChatSession"];
         };
-        ChatWebSocketEvent: components["schemas"]["ChatReadyEvent"] | components["schemas"]["ChatEvent"];
+        ChatWebSocketEvent: components["schemas"]["ChatReadyEvent"] | components["schemas"]["ChatPongEvent"] | components["schemas"]["ChatEvent"];
         ChatMessageRequest: {
             account_id: string;
             chat_id: string;

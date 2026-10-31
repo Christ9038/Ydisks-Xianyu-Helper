@@ -274,6 +274,37 @@ func TestChatWebSocketEventFilteringAndSessionRevocation(t *testing.T) {
 		}
 	})
 
+	t.Run("heartbeat ping gets pong", func(t *testing.T) {
+		// port 不产生任何事件，连接保持空闲。
+		port := &chatGapPort{chatHandlerCoveragePort: &chatHandlerCoveragePort{}, events: make(chan chatapp.Event), ownedAccount: "acc1"}
+		// header、stop、url 分别是握手请求头、清理函数和测试服务地址。
+		url, header, stop := chatGapWebSocketServer(t, port, &chatGapAuth{})
+		defer stop()
+		// ctx 控制客户端读写。
+		ctx, cancel := context.WithTimeout(context.Background(), ctxTimeout)
+		defer cancel()
+		// conn 是客户端连接。
+		conn, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{HTTPHeader: header})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
+		// frame 保存服务端帧。
+		var frame map[string]any
+		if err = wsjson.Read(ctx, conn, &frame); err != nil || frame["type"] != "ready" {
+			t.Fatalf("ready=%v err=%v", frame, err)
+		}
+		// 非心跳帧（非 JSON、其他类型）被忽略，只有 ping 得到 pong。
+		for _, payload := range []string{"not-json", `{"type":"noop"}`, `{"type":"ping"}`} {
+			if err = conn.Write(ctx, websocket.MessageText, []byte(payload)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err = wsjson.Read(ctx, conn, &frame); err != nil || frame["type"] != "pong" {
+			t.Fatalf("pong=%v err=%v", frame, err)
+		}
+	})
+
 	// failure 描述会话校验在第几次调用开始失败及期望关闭码。
 	failures := []struct {
 		// name 是子场景名称。

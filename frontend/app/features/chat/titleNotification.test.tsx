@@ -5,7 +5,7 @@ import type { ChatMessage } from './api';
 import { getAccountDetails,getChatSessionPage } from './api';
 import { publishChatUnreadStatus } from './liveEvents';
 import { showBrowserNotification } from '../../../shared/browser/browserNotifications';
-import { formatChatBrowserNotification,formatChatNewMessageTitle,useChatTitleNotification,useChatTitleNotifier } from './titleNotification';
+import { CHAT_HEARTBEAT_INTERVAL_MS,CHAT_HEARTBEAT_TIMEOUT_MS,formatChatBrowserNotification,formatChatNewMessageTitle,useChatTitleNotification,useChatTitleNotifier } from './titleNotification';
 
 vi.mock('./api', /* chatApiMockFactory 提供标题通知初始化未读状态读取的确定性 API 替身。 */ () => ({
   getAccountDetails: vi.fn(),
@@ -42,6 +42,24 @@ let latestSocket: {
   // onerror 是通知连接异常回调。
   onerror: (() => void) | null;
 } | null = null;
+
+// HeartbeatSocketDouble 是心跳测试使用的可控 WebSocket 替身形状。
+interface HeartbeatSocketDouble {
+  // readyState 是连接状态，1 表示 OPEN。
+  readyState: number;
+  // send 记录客户端发送的心跳帧。
+  send: ReturnType<typeof vi.fn>;
+  // close 记录主动关闭调用。
+  close: ReturnType<typeof vi.fn>;
+  // onopen 是连接建立回调。
+  onopen: (() => void) | null;
+  // onmessage 是服务端帧回调，data 是帧文本。
+  onmessage: ((event: { /* data 保存服务端推送的 JSON 文本。 */ data: string }) => void) | null;
+  // onclose 是连接关闭回调，携带关闭码与原因。
+  onclose: ((event: { /* code 是 WebSocket 关闭码。 */ code: number; /* reason 是关闭原因文本。 */ reason: string }) => void) | null;
+  // onerror 是连接异常回调。
+  onerror: (() => void) | null;
+}
 
 describe('chat title notification', /* 当前测试组验证后台实时消息的浏览器标题提示行为。 */ () => {
   beforeEach(/* 当前回调重置标题和时间，隔离浏览器全局状态。 */ () => {
@@ -179,6 +197,50 @@ describe('chat title notification', /* 当前测试组验证后台实时消息�
     hook.unmount();
     expect(latestSocket?.close).toHaveBeenCalledTimes(1);
   });
+
+  test('通知连接按间隔发送 ping，服务端长时间静默时主动断开重连，卸载后停止心跳', /* 当前回调验证 WebSocket 应用层保活与死连接检测。 */ () => {
+    // sockets 按创建顺序保存每次连接的可控替身。
+    const sockets: HeartbeatSocketDouble[] = [];
+    // websocketFactory 创建带 readyState 与 send 的连接替身，并暴露 OPEN 常量。
+    const websocketFactory = Object.assign(
+      vi.fn(
+        // websocketConstructor 创建处于 OPEN 状态的连接对象。
+        function websocketConstructor() {
+          // socket 是本次连接替身。
+          const socket: HeartbeatSocketDouble = { readyState: 1, send: vi.fn(), close: vi.fn(), onopen: null, onmessage: null, onclose: null, onerror: null };
+          sockets.push(socket);
+          return socket;
+        },
+      ),
+      { OPEN: 1 },
+    );
+    vi.stubGlobal('WebSocket', websocketFactory);
+    // hook 是认证应用壳中全局标题通知连接的渲染结果。
+    const hook = renderHook(/* 挂载全局通知 Hook。 */ () => useChatTitleNotification());
+    act(/* 模拟连接建立成功并启动心跳。 */ () => sockets[0].onopen?.());
+    act(/* 推进一个心跳间隔。 */ () => { vi.advanceTimersByTime(CHAT_HEARTBEAT_INTERVAL_MS); });
+    expect(sockets[0].send).toHaveBeenCalledWith(JSON.stringify({ type: 'ping' }));
+    // 收到 pong 视为服务端存活，随后的 ping 不会触发断开。
+    act(/* 模拟服务端回复 pong。 */ () => sockets[0].onmessage?.({ data: JSON.stringify({ type: 'pong', at: 1 }) }));
+    act(/* 再推进一个心跳间隔。 */ () => { vi.advanceTimersByTime(CHAT_HEARTBEAT_INTERVAL_MS); });
+    expect(sockets[0].send).toHaveBeenCalledTimes(2);
+    expect(sockets[0].close).not.toHaveBeenCalled();
+    // 服务端静默超过超时阈值后，下一次心跳主动关闭连接。
+    act(/* 推进超过静默超时的时间。 */ () => { vi.advanceTimersByTime(CHAT_HEARTBEAT_TIMEOUT_MS + CHAT_HEARTBEAT_INTERVAL_MS); });
+    expect(sockets[0].close).toHaveBeenCalled();
+    // 连接关闭后心跳停止，并按退避策略重连。
+    act(/* 模拟连接被关闭。 */ () => sockets[0].onclose?.({ code: 1006, reason: '' }));
+    // sentBeforeIdle 是关闭后旧连接已发送的 ping 数量，之后不应再增加。
+    const sentBeforeIdle = sockets[0].send.mock.calls.length;
+    act(/* 推进一个心跳间隔并触发重连。 */ () => { vi.advanceTimersByTime(CHAT_HEARTBEAT_INTERVAL_MS); });
+    expect(sockets[0].send.mock.calls.length).toBe(sentBeforeIdle);
+    expect(sockets.length).toBe(2);
+    // 卸载后新连接的心跳也被清除。
+    act(/* 模拟新连接建立成功。 */ () => sockets[1].onopen?.());
+    hook.unmount();
+    act(/* 卸载后推进两个心跳间隔。 */ () => { vi.advanceTimersByTime(CHAT_HEARTBEAT_INTERVAL_MS * 2); });
+    expect(sockets[1].send).not.toHaveBeenCalled();
+  } /* 测试回调结束。 */);
 
   test('应用壳启动时会根据已有未读会话点亮聊天红点', /* 当前回调验证红点不只依赖当前浏览器会话期间的新 WebSocket 消息。 */ async () => {
     // unreadSession 保存服务端返回的一条历史未读会话。

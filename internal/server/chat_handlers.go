@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -558,10 +559,19 @@ func (s *Server) chatWebSocket(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer readerWG.Done()
 		for {
-			if // readErr 用于本次流程后续判断的readErr
-			_, _, readErr := conn.Read(ctx); readErr != nil {
+			// messageType、payload、readErr 分别是客户端帧类型、帧内容和读取错误。
+			messageType, payload, readErr := conn.Read(ctx)
+			if readErr != nil {
 				cancel()
 				return
+			}
+			// 客户端心跳帧由读取 goroutine 立即回复 pong，使空闲连接在两个方向上都有流量，避免被中间代理按空闲超时断开；
+			// coder/websocket 的 Write 并发安全，因此可与下方事件循环同时写帧。
+			if messageType == websocket.MessageText && isChatHeartbeatPing(payload) {
+				if wsjson.Write(ctx, conn, map[string]any{"type": "pong", "at": time.Now().UTC().UnixMilli()}) != nil {
+					cancel()
+					return
+				}
 			}
 		}
 	}()
@@ -642,6 +652,16 @@ func (s *Server) chatWebSocket(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+// isChatHeartbeatPing 判断客户端文本帧是否为 {"type":"ping"} 心跳；非 JSON 或其他类型一律忽略。
+// payload 是客户端发送的原始文本帧内容，长度已受 SetReadLimit 限制。
+func isChatHeartbeatPing(payload []byte) bool {
+	// frame 保存解析出的帧类型字段。
+	var frame struct {
+		Type string `json:"type"`
+	}
+	return json.Unmarshal(payload, &frame) == nil && frame.Type == "ping"
 }
 
 // ownsAccount 封装owns账号业务协调。

@@ -138,6 +138,11 @@ export const useChatTitleNotifier = (): ChatTitleNotifierResult => {
 /** ChatTitleNotificationResult 描述应用壳向侧边栏提供的聊天新消息标记控制。 */
 export type ChatTitleNotificationResult = Pick<ChatTitleNotifierResult, 'hasUnreadChatMessage'>;
 
+/** CHAT_HEARTBEAT_INTERVAL_MS 是客户端发送心跳 ping 的间隔，需明显短于常见反向代理的空闲超时（通常 60 秒起）。 */
+export const CHAT_HEARTBEAT_INTERVAL_MS = 25_000;
+/** CHAT_HEARTBEAT_TIMEOUT_MS 是收到任意服务端帧的最长静默时间；超过后判定连接已死并主动关闭触发重连。 */
+export const CHAT_HEARTBEAT_TIMEOUT_MS = 70_000;
+
 /** useChatTitleNotification 在认证应用壳内维持全局聊天 WebSocket，并把普通入站消息转为标题提醒。 */
 export const useChatTitleNotification = (): ChatTitleNotificationResult => {
   // titleNotifier 保存标题和侧边栏红点状态；其消息处理函数保持稳定，重连 effect 不会因计数更新而重建 WebSocket。
@@ -154,6 +159,15 @@ export const useChatTitleNotification = (): ChatTitleNotificationResult => {
     let retryCount = 0;
     // socket 保存本轮通知连接；卸载时由该 Hook 关闭。
     let socket: WebSocket | null = null;
+    // heartbeatTimer 保存当前连接的心跳定时器；每次连接关闭都会清除，避免旧连接继续发送。
+    let heartbeatTimer = 0;
+    // lastFrameAt 保存最近一次收到服务端任意帧的时间戳（毫秒），用于检测静默死连接。
+    let lastFrameAt = 0;
+    /** stopHeartbeat 清除当前连接的心跳定时器。 */
+    const stopHeartbeat = (): void => {
+      window.clearInterval(heartbeatTimer);
+      heartbeatTimer = 0;
+    };
     /** connect 建立认证 Cookie 自动携带的通知连接，并在异常关闭后安排有限退避重连。 */
     const connect = (): void => {
       if (disposed) return;
@@ -164,8 +178,20 @@ export const useChatTitleNotification = (): ChatTitleNotificationResult => {
       socket.onopen = /* 当前回调在连接成功后重置后续异常关闭的退避次数并通知聊天页。 */ () => {
         retryCount = 0;
         publishChatConnectionState('online');
+        lastFrameAt = Date.now();
+        stopHeartbeat();
+        // 定期发送应用层 ping（浏览器 API 无法发送协议层 ping），服务端回复 pong 让空闲连接双向有流量。
+        heartbeatTimer = window.setInterval(/* 当前回调在连接已打开时发送 ping，并在服务端长时间无响应时主动断开重连。 */ () => {
+          if (socket?.readyState !== WebSocket.OPEN) return;
+          if (Date.now() - lastFrameAt > CHAT_HEARTBEAT_TIMEOUT_MS) {
+            socket.close();
+            return;
+          }
+          socket.send(JSON.stringify({ type: 'ping' }));
+        }, CHAT_HEARTBEAT_INTERVAL_MS);
       };
       socket.onmessage = /* 当前回调只解析服务端广播的聊天消息，损坏帧不影响后续连接。 */ event => {
+        lastFrameAt = Date.now();
         try {
           // payload 保存服务端推送的 JSON 对象。
           const payload = JSON.parse(event.data) as {
@@ -183,6 +209,7 @@ export const useChatTitleNotification = (): ChatTitleNotificationResult => {
         }
       };
       socket.onclose = /* 当前回调在连接非主动关闭时区分认证撤销与普通网络断开。 */ event => {
+        stopHeartbeat();
         if (disposed) return;
         if (event.code === 1008 && event.reason === 'session_invalid') {
           // authLogoutEvent 通知认证壳停止使用失效会话并清理管理登录。
@@ -200,6 +227,7 @@ export const useChatTitleNotification = (): ChatTitleNotificationResult => {
     connect();
     return /* 当前清理函数停止待执行重连并关闭当前连接，确保应用壳注销后不保留后台通知任务。 */ () => {
       disposed = true;
+      stopHeartbeat();
       window.clearTimeout(reconnectTimer);
       socket?.close();
       publishChatConnectionState('offline');

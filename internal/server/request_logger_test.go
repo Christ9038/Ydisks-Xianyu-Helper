@@ -37,6 +37,7 @@ func TestHTTPLogLevelRules(t *testing.T) {
 		{"参数错误", http.MethodPost, "/api/v1/cards", 400, time.Millisecond, slog.LevelWarn, false},
 		{"服务端错误", http.MethodGet, "/api/v1/orders", 500, time.Millisecond, slog.LevelError, false},
 		{"慢读请求", http.MethodGet, "/api/v1/orders", 200, 4 * time.Second, slog.LevelWarn, true},
+		{"WebSocket 长连接", http.MethodGet, "/api/v1/chat/ws", 101, 90 * time.Second, slog.LevelDebug, false},
 		{"慢服务端错误", http.MethodGet, "/api/v1/orders", 502, 4 * time.Second, slog.LevelError, true},
 	}
 	// tc 是当前用例。

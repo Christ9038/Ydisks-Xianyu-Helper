@@ -9851,6 +9851,12 @@ components:
       properties:
         type: {type: string, enum: [ready]}
         at: {type: integer}
+    ChatPongEvent:
+      type: object
+      required: [type, at]
+      properties:
+        type: {type: string, enum: [pong]}
+        at: {type: integer}
     ChatEvent:
       type: object
       required: [type]
@@ -9861,6 +9867,7 @@ components:
     ChatWebSocketEvent:
       anyOf:
         - $ref: '#/components/schemas/ChatReadyEvent'
+        - $ref: '#/components/schemas/ChatPongEvent'
         - $ref: '#/components/schemas/ChatEvent'
     ChatMessageRequest:
       type: object

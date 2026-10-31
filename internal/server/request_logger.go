@@ -18,9 +18,9 @@ const slowRequestThreshold = 3 * time.Second
 // httpLogLevel 根据请求方法、路径、响应状态和耗时决定“HTTP 请求完成”日志等级，并返回是否为慢请求。
 // 规则：5xx 为 Error；401/404 为 Debug（探测与过期会话属常态）；其余 4xx 为 Warn；
 // 成功的写操作（POST/PUT/PATCH/DELETE）为 Info 以保留操作审计；成功的读操作、健康检查与前端静态资源为 Debug；
-// 耗时超过 slowRequestThreshold 时至少提升为 Warn。
+// 耗时超过 slowRequestThreshold 时至少提升为 Warn；101 协议切换（WebSocket）是长连接，其耗时是连接存活时长而非处理耗时，不判定为慢请求。
 func httpLogLevel(method, path string, status int, duration time.Duration) (level slog.Level, slow bool) {
-	slow = duration > slowRequestThreshold
+	slow = status != http.StatusSwitchingProtocols && duration > slowRequestThreshold
 	switch {
 	case status >= 500:
 		return slog.LevelError, slow
