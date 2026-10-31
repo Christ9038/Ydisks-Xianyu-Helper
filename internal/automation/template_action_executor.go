@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"xianyu-go/internal/db"
@@ -66,6 +67,25 @@ func (e *automationActionExecutor) sendTemplate(ctx context.Context, task Task, 
 		// executionErr 在加载下一条模板变量之前复核执行权，防止旧动作继续消费卡密。
 		if executionErr := checkRunExecution(ctx); executionErr != nil {
 			return result, executionErr
+		}
+
+		// 图片库图片消息：整条消息就是图片令牌，没有变量也不预留卡密，按“发送成功才计数”处理。
+		if imageID, isImage := deliverytemplate.ImageID(message); isImage {
+			// imageMessage 保存该图片在发货凭证中的消息记录，补发时据此重新读取图片库。
+			imageMessage := db.AutomationDeliveryMessage{Kind: "library_image", Content: strconv.FormatInt(imageID, 10)}
+			// sendErr 保存发送图片库图片的失败原因，用于判定是否确定未发送。
+			if sendErr := e.sendLibraryImage(ctx, task, imageID, 0); sendErr != nil {
+				if errors.Is(sendErr, ErrMessageNotSent) {
+					return result, sendErr
+				}
+				result.reviewProof.unknownUnits++
+				result.reviewProof.messages = append(result.reviewProof.messages, imageMessage)
+				return result, uncertainAction(sendErr)
+			}
+			result.sent++
+			result.proof.preparedUnits++
+			result.proof.messages = append(result.proof.messages, imageMessage)
+			continue
 		}
 
 		// reservations 保存当前消息首次加载变量时消费的批量卡密。

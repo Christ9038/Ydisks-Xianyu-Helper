@@ -22,6 +22,8 @@ type ItemGreetingRule struct {
 	ReplyContent string
 	// ReplyImageURL 是首次回复图片地址，可为空。
 	ReplyImageURL string
+	// ReplyLibraryImageID 是图片库图片主键；与 ReplyImageURL 互斥，0 表示未使用图片库。
+	ReplyLibraryImageID int64
 	// ItemIDs 是规则覆盖的商品标识，同一账号内不会与其他规则重复。
 	ItemIDs []string
 }
@@ -63,7 +65,7 @@ func (g *ItemGreetings) ListForUser(ctx context.Context, userID int64) ([]ItemGr
 func (g *ItemGreetings) list(ctx context.Context, condition string, arg any) ([]ItemGreetingRule, error) {
 	// rows、err 保存规则查询结果。
 	rows, err := g.DB.QueryContext(ctx,
-		`SELECT r.id, r.cookie_id, r.name, r.enabled, r.reply_content, r.reply_image_url
+		`SELECT r.id, r.cookie_id, r.name, r.enabled, r.reply_content, r.reply_image_url, r.library_image_id
 		 FROM item_greeting_rules r `+condition+` ORDER BY r.id ASC`, arg)
 	if err != nil {
 		return nil, err
@@ -77,7 +79,7 @@ func (g *ItemGreetings) list(ctx context.Context, condition string, arg any) ([]
 		// enabled 保存数据库整型启用开关，非 0 表示启用。
 		var enabled int
 		// scanErr 保存当前行扫描错误。
-		if scanErr := rows.Scan(&rule.ID, &rule.CookieID, &rule.Name, &enabled, &rule.ReplyContent, &rule.ReplyImageURL); scanErr != nil {
+		if scanErr := rows.Scan(&rule.ID, &rule.CookieID, &rule.Name, &enabled, &rule.ReplyContent, &rule.ReplyImageURL, &rule.ReplyLibraryImageID); scanErr != nil {
 			return nil, scanErr
 		}
 		rule.Enabled = enabled != 0
@@ -149,9 +151,9 @@ func (g *ItemGreetings) Create(ctx context.Context, rule ItemGreetingRule) (int6
 	}
 	// id 保存新规则主键。
 	id, err := insertReturningID(ctx, tx, g.Dialect,
-		`INSERT INTO item_greeting_rules (cookie_id, name, enabled, reply_content, reply_image_url)
-		 VALUES (?,?,?,?,?)`,
-		rule.CookieID, rule.Name, boolToInt(rule.Enabled), rule.ReplyContent, rule.ReplyImageURL)
+		`INSERT INTO item_greeting_rules (cookie_id, name, enabled, reply_content, reply_image_url, library_image_id)
+		 VALUES (?,?,?,?,?,?)`,
+		rule.CookieID, rule.Name, boolToInt(rule.Enabled), rule.ReplyContent, rule.ReplyImageURL, rule.ReplyLibraryImageID)
 	if err != nil {
 		return 0, err
 	}
@@ -176,9 +178,9 @@ func (g *ItemGreetings) Update(ctx context.Context, rule ItemGreetingRule) error
 	}
 	// res 保存规则更新结果，用于识别不存在的规则。
 	res, err := tx.ExecContext(ctx,
-		`UPDATE item_greeting_rules SET name=?, enabled=?, reply_content=?, reply_image_url=?, updated_at=CURRENT_TIMESTAMP
+		`UPDATE item_greeting_rules SET name=?, enabled=?, reply_content=?, reply_image_url=?, library_image_id=?, updated_at=CURRENT_TIMESTAMP
 		 WHERE id=? AND cookie_id=?`,
-		rule.Name, boolToInt(rule.Enabled), rule.ReplyContent, rule.ReplyImageURL, rule.ID, rule.CookieID)
+		rule.Name, boolToInt(rule.Enabled), rule.ReplyContent, rule.ReplyImageURL, rule.ReplyLibraryImageID, rule.ID, rule.CookieID)
 	if err != nil {
 		return err
 	}
@@ -267,10 +269,10 @@ func (g *ItemGreetings) FindEnabledForItem(ctx context.Context, cookieID, itemID
 	var enabled int
 	// err 保存 QueryRowContext 的返回错误，非空时按该分支处理。
 	err := g.DB.QueryRowContext(ctx,
-		`SELECT r.id, r.cookie_id, r.name, r.enabled, r.reply_content, r.reply_image_url
+		`SELECT r.id, r.cookie_id, r.name, r.enabled, r.reply_content, r.reply_image_url, r.library_image_id
 		 FROM item_greeting_rule_items i JOIN item_greeting_rules r ON r.id=i.rule_id
 		 WHERE i.cookie_id=? AND i.item_id=? AND r.enabled<>0`, cookieID, itemID).
-		Scan(&rule.ID, &rule.CookieID, &rule.Name, &enabled, &rule.ReplyContent, &rule.ReplyImageURL)
+		Scan(&rule.ID, &rule.CookieID, &rule.Name, &enabled, &rule.ReplyContent, &rule.ReplyImageURL, &rule.ReplyLibraryImageID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}

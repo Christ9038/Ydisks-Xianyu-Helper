@@ -159,7 +159,7 @@ func (r chatRepository) ListQuickReplies(ctx context.Context, accountID string) 
 	replies := make([]chatapp.QuickReply, 0, len(rows))
 	// row 表示当前待转换的快捷回复持久化记录。
 	for _, row := range rows {
-		replies = append(replies, chatapp.QuickReply{ID: row.ID, AccountID: row.CookieID, Content: row.Content, CreatedAt: row.CreatedAt})
+		replies = append(replies, chatapp.QuickReply{ID: row.ID, AccountID: row.CookieID, Content: row.Content, LibraryImageID: row.LibraryImageID, CreatedAt: row.CreatedAt})
 	}
 	return replies, nil
 }
@@ -175,6 +175,27 @@ func (r chatRepository) CreateQuickReply(ctx context.Context, accountID, content
 		return chatapp.QuickReply{}, createErr
 	}
 	return chatapp.QuickReply{ID: row.ID, AccountID: row.CookieID, Content: row.Content, CreatedAt: row.CreatedAt}, nil
+}
+
+// CreateQuickReplyWithImage 写入文字或图片快捷回复；图片必须属于账号所有者，否则返回 ErrQuickReplyImageNotFound。
+func (r chatRepository) CreateQuickReplyWithImage(ctx context.Context, accountID, content string, libraryImageID int64) (chatapp.QuickReply, error) {
+	// owned、ownedErr 保存图片归属检查结果。
+	owned, ownedErr := libraryImageOwnedByAccount(ctx, r.store, accountID, libraryImageID)
+	if ownedErr != nil {
+		return chatapp.QuickReply{}, ownedErr
+	}
+	if !owned {
+		return chatapp.QuickReply{}, chatapp.ErrQuickReplyImageNotFound
+	}
+	// row 和 createErr 保存数据库写入结果及可能的数量上限错误。
+	row, createErr := r.store.Chats.CreateQuickReplyWithImage(ctx, accountID, content, libraryImageID)
+	if errors.Is(createErr, db.ErrChatQuickReplyLimitReached) {
+		return chatapp.QuickReply{}, chatapp.ErrQuickReplyLimitReached
+	}
+	if createErr != nil {
+		return chatapp.QuickReply{}, createErr
+	}
+	return chatapp.QuickReply{ID: row.ID, AccountID: row.CookieID, Content: row.Content, LibraryImageID: row.LibraryImageID, CreatedAt: row.CreatedAt}, nil
 }
 
 // DeleteQuickReply 删除账号下指定快捷回复并返回是否命中记录。

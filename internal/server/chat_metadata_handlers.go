@@ -18,8 +18,10 @@ type chatQuickReplyResponse struct {
 	ID int64 `json:"id"`
 	// AccountID 是快捷回复所属账号标识。
 	AccountID string `json:"account_id"`
-	// Content 是发送到聊天会话的文本模板。
+	// Content 是发送到聊天会话的文本模板；图片快捷回复为空。
 	Content string `json:"content"`
+	// LibraryImageID 是图片快捷回复引用的图片库图片主键；0 或省略表示文字快捷回复。
+	LibraryImageID int64 `json:"library_image_id,omitempty"`
 	// CreatedAt 是快捷回复创建的 Unix 秒时间戳。
 	CreatedAt int64 `json:"created_at"`
 }
@@ -34,8 +36,10 @@ type chatQuickReplyListResponse struct {
 type chatQuickReplyCreateRequest struct {
 	// AccountID 是当前用户拥有的目标账号标识。
 	AccountID string `json:"account_id"`
-	// Content 是待保存的人工快捷回复正文。
+	// Content 是待保存的人工快捷回复正文；创建图片快捷回复时必须为空。
 	Content string `json:"content"`
+	// LibraryImageID 是图片快捷回复引用的图片库图片主键；与 content 二选一。
+	LibraryImageID int64 `json:"library_image_id,omitempty"`
 }
 
 // chatBuyerNoteResponse 是按账号和买家 ID 隔离的完整备注响应 DTO。
@@ -85,7 +89,7 @@ func (s *Server) createChatQuickReply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// reply 和 createErr 保存创建后的快捷回复及应用层校验错误。
-	reply, createErr := s.chatApplication().CreateQuickReply(r.Context(), session.UserID, request.AccountID, request.Content)
+	reply, createErr := s.chatApplication().CreateQuickReplyWithImage(r.Context(), session.UserID, request.AccountID, request.Content, request.LibraryImageID)
 	if createErr != nil {
 		writeChatMetadataError(w, createErr)
 		return
@@ -152,7 +156,7 @@ func (s *Server) saveChatBuyerNote(w http.ResponseWriter, r *http.Request) {
 
 // newChatQuickReplyResponse 将应用层快捷回复转换为稳定 HTTP DTO。
 func newChatQuickReplyResponse(reply chatapp.QuickReply) chatQuickReplyResponse {
-	return chatQuickReplyResponse{ID: reply.ID, AccountID: reply.AccountID, Content: reply.Content, CreatedAt: reply.CreatedAt}
+	return chatQuickReplyResponse{ID: reply.ID, AccountID: reply.AccountID, Content: reply.Content, LibraryImageID: reply.LibraryImageID, CreatedAt: reply.CreatedAt}
 }
 
 // newChatQuickReplyListResponse 批量转换快捷回复，避免传输层序列化应用层模型。
@@ -176,6 +180,8 @@ func writeChatMetadataError(w http.ResponseWriter, operationErr error) {
 	switch {
 	case errors.Is(operationErr, chatapp.ErrInvalidInput):
 		writeErr(w, http.StatusBadRequest, "账号、买家或内容无效")
+	case errors.Is(operationErr, chatapp.ErrQuickReplyImageNotFound):
+		writeErr(w, http.StatusBadRequest, "图片库图片不存在")
 	case errors.Is(operationErr, chatapp.ErrMetadataForbidden):
 		writeErr(w, http.StatusForbidden, "无权访问该账号")
 	case errors.Is(operationErr, chatapp.ErrQuickReplyLimitReached):

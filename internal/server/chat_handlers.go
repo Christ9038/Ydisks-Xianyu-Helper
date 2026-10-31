@@ -202,22 +202,80 @@ func (s *Server) sendChatImage(w http.ResponseWriter, r *http.Request) {
 	// sent、err 用于本次流程后续判断的sent、err
 	sent, err := s.chatApplication().SendImage(r.Context(), chatapp.ImageInput{Session: session, Filename: header.Filename, ContentType: contentType, Data: data})
 	if err != nil {
-		if errors.Is(err, chatapp.ErrUnavailable) {
-			writeErr(w, http.StatusServiceUnavailable, "图片上传服务未启用")
-		} else if errors.Is(err, chatapp.ErrOffline) {
-			writeErr(w, http.StatusConflict, "账号当前离线，无法发送图片")
-		} else if errors.Is(err, chatapp.ErrSendUncertain) {
-			writeErrDetails(w, http.StatusBadGateway, "chat_image_send_uncertain", "图片发送结果待确认，请先到闲鱼核对，避免重复发送", "", map[string]any{"outgoing_message": newChatMessageDTOFromApplication(sent)})
-		} else if errors.Is(err, chatapp.ErrSend) {
-			writeErrDetails(w, http.StatusBadGateway, "chat_image_send_failed", "图片发送失败，请重试", "", map[string]any{"outgoing_message": newChatMessageDTOFromApplication(sent)})
-		} else if errors.Is(err, chatapp.ErrStatusSave) {
-			writeChatStatusSaveError(w, sent)
-		} else {
-			writeErr(w, http.StatusInternalServerError, "保存待发送图片失败")
-		}
+		writeChatImageSendError(w, err, sent)
 		return
 	}
 	writeJSON(w, http.StatusCreated, chatMessageEnvelope{Message: newChatMessageDTOFromApplication(sent)})
+}
+
+// chatLibraryImageRequest 是发送图片库图片的具名请求 DTO；字节由服务端按账号所有者从图片库读取，不经过浏览器。
+type chatLibraryImageRequest struct {
+	// AccountID 是当前用户拥有的发送账号标识。
+	AccountID string `json:"account_id"`
+	// ChatID 是目标聊天会话标识。
+	ChatID string `json:"chat_id"`
+	// PeerUserID 是图片接收方的平台用户标识。
+	PeerUserID string `json:"peer_user_id"`
+	// LibraryImageID 是待发送的图片库图片主键。
+	LibraryImageID int64 `json:"library_image_id"`
+	// PeerName 是会话对方展示名，用于本地会话摘要补全。
+	PeerName string `json:"peer_name,omitempty"`
+	// PeerAvatarURL 是会话对方头像地址，用于本地会话摘要补全。
+	PeerAvatarURL string `json:"peer_avatar_url,omitempty"`
+	// ItemID 是会话关联商品标识。
+	ItemID string `json:"item_id,omitempty"`
+	// ItemTitle 是会话关联商品标题。
+	ItemTitle string `json:"item_title,omitempty"`
+}
+
+// sendChatLibraryImage 发送图片库图片：服务端读取字节后复用与手动上传相同的上传、真实宽高和状态收口链路。
+func (s *Server) sendChatLibraryImage(w http.ResponseWriter, r *http.Request) {
+	// request、decodeErr 保存请求体及其解析错误。
+	var request chatLibraryImageRequest
+	// decodeErr 保存请求体解码失败原因，非空时返回 400。
+	if decodeErr := decodeJSON(r, &request); decodeErr != nil {
+		writeErr(w, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+	// accountID、chatID、peerUserID 保存去除空白后的会话定位。
+	accountID, chatID, peerUserID := strings.TrimSpace(request.AccountID), strings.TrimSpace(request.ChatID), strings.TrimSpace(request.PeerUserID)
+	if !s.ownsAccount(r, accountID) {
+		writeErr(w, http.StatusForbidden, "无权操作该账号")
+		return
+	}
+	if chatID == "" || peerUserID == "" || request.LibraryImageID <= 0 {
+		writeErr(w, http.StatusBadRequest, "会话、对方用户和图片不能为空")
+		return
+	}
+	// session 保存已完成账号归属校验的应用层会话摘要。
+	session := chatapp.Session{AccountID: accountID, ChatID: chatID, PeerUserID: peerUserID,
+		PeerName: request.PeerName, PeerAvatar: request.PeerAvatarURL, ItemID: request.ItemID, ItemTitle: request.ItemTitle}
+	// sent、err 保存发送结果及错误。
+	sent, err := s.chatApplication().SendLibraryImage(r.Context(), chatapp.LibraryImageInput{Session: session, ImageID: request.LibraryImageID})
+	if err != nil {
+		writeChatImageSendError(w, err, sent)
+		return
+	}
+	writeJSON(w, http.StatusCreated, chatMessageEnvelope{Message: newChatMessageDTOFromApplication(sent)})
+}
+
+// writeChatImageSendError 把图片发送用例错误映射为统一错误信封；手动上传与图片库发送共用，保证状态码与错误码一致。
+func writeChatImageSendError(w http.ResponseWriter, err error, sent *chatapp.Message) {
+	if errors.Is(err, chatapp.ErrUnavailable) {
+		writeErr(w, http.StatusServiceUnavailable, "图片上传服务未启用")
+	} else if errors.Is(err, chatapp.ErrOffline) {
+		writeErr(w, http.StatusConflict, "账号当前离线，无法发送图片")
+	} else if errors.Is(err, chatapp.ErrSendInvalidInput) {
+		writeErr(w, http.StatusBadRequest, "图片或会话参数无效")
+	} else if errors.Is(err, chatapp.ErrSendUncertain) {
+		writeErrDetails(w, http.StatusBadGateway, "chat_image_send_uncertain", "图片发送结果待确认，请先到闲鱼核对，避免重复发送", "", map[string]any{"outgoing_message": newChatMessageDTOFromApplication(sent)})
+	} else if errors.Is(err, chatapp.ErrSend) {
+		writeErrDetails(w, http.StatusBadGateway, "chat_image_send_failed", "图片发送失败，请重试", "", map[string]any{"outgoing_message": newChatMessageDTOFromApplication(sent)})
+	} else if errors.Is(err, chatapp.ErrStatusSave) {
+		writeChatStatusSaveError(w, sent)
+	} else {
+		writeErr(w, http.StatusInternalServerError, "保存待发送图片失败")
+	}
 }
 
 // listChatMessages 封装list聊天消息列表业务协调。

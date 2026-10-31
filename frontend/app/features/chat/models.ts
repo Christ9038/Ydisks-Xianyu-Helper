@@ -165,8 +165,10 @@ export interface ChatQuickReply {
   id: number;
   /** 快捷回复所属的闲鱼账号标识。 */
   account_id: string;
-  /** 用户点击发送时提交到当前会话的文本模板。 */
+  /** 用户点击发送时提交到当前会话的文本模板；图片快捷回复为空串。 */
   content: string;
+  /** 图片快捷回复引用的图片库图片主键；0 表示文字快捷回复。 */
+  library_image_id: number;
   /** 快捷回复创建的 Unix 秒时间戳。 */
   created_at: number;
 }

@@ -41,6 +41,8 @@ type keywordBatchItem struct {
 	Type string `json:"type"`
 	// ImageURL 是图片回复地址。
 	ImageURL string `json:"image_url"`
+	// LibraryImageID 是图片库图片主键；与 image_url 互斥，0 或省略表示未使用图片库。
+	LibraryImageID int64 `json:"library_image_id,omitempty"`
 }
 
 // keywordBatchRequest 是关键词批量替换或单项创建请求 DTO。
@@ -61,6 +63,8 @@ type keywordBatchRequest struct {
 	Type string `json:"type"`
 	// ImageURL 是单项创建的图片回复地址。
 	ImageURL string `json:"image_url"`
+	// LibraryImageID 是单项创建引用的图片库图片主键；与 image_url 互斥，0 或省略表示未使用图片库。
+	LibraryImageID int64 `json:"library_image_id,omitempty"`
 	// Keywords 是批量替换项；为空指针表示请求使用单项模式。
 	Keywords *[]keywordBatchItem `json:"keywords"`
 }
@@ -83,6 +87,8 @@ type keywordUpdateRequest struct {
 	Type string `json:"type"`
 	// ImageURL 是图片回复地址。
 	ImageURL string `json:"image_url"`
+	// LibraryImageID 是图片库图片主键；与 image_url 互斥，0 或省略表示未使用图片库。
+	LibraryImageID int64 `json:"library_image_id,omitempty"`
 }
 
 // itemReplyRequest 是指定商品回复写入请求 DTO。
@@ -209,7 +215,7 @@ func (s *Server) listKeywordsWithType(w http.ResponseWriter, r *http.Request) {
 	result := make([]keywordTypedResponse, 0, len(rows))
 	// row 是当前待映射的关键词规则。
 	for _, row := range rows {
-		result = append(result, keywordTypedResponse{ID: row.ID, Keyword: row.Keyword, Expressions: row.Expressions, MatchType: row.MatchType, Reply: row.Reply, ItemID: row.ItemID, ItemIDs: keywords.SplitItemIDs(row.ItemID), Type: row.Type, ImageURL: row.ImageURL})
+		result = append(result, keywordTypedResponse{ID: row.ID, Keyword: row.Keyword, Expressions: row.Expressions, MatchType: row.MatchType, Reply: row.Reply, ItemID: row.ItemID, ItemIDs: keywords.SplitItemIDs(row.ItemID), Type: row.Type, ImageURL: row.ImageURL, LibraryImageID: row.LibraryImageID})
 	}
 	writeJSON(w, http.StatusOK, result)
 }
@@ -259,7 +265,7 @@ func (s *Server) addKeywordWithItemID(w http.ResponseWriter, r *http.Request) {
 		drafts := make([]keywords.Draft, 0, len(*request.Keywords))
 		// item 是当前待转换的批量请求项。
 		for _, item := range *request.Keywords {
-			drafts = append(drafts, keywords.Draft{Keyword: item.Keyword, Expressions: item.Expressions, MatchType: item.MatchType, Reply: item.Reply, ItemID: item.ItemID, ItemIDs: item.ItemIDs, Type: item.Type, ImageURL: item.ImageURL})
+			drafts = append(drafts, keywords.Draft{Keyword: item.Keyword, Expressions: item.Expressions, MatchType: item.MatchType, Reply: item.Reply, ItemID: item.ItemID, ItemIDs: item.ItemIDs, Type: item.Type, ImageURL: item.ImageURL, LibraryImageID: item.LibraryImageID})
 		}
 		// err 表示批量替换规则的应用服务错误。
 		if err := s.keywordApplication().Replace(r.Context(), userID, cookieID, drafts); err != nil {
@@ -270,7 +276,7 @@ func (s *Server) addKeywordWithItemID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// id 是新建规则的持久化标识；兼容响应保留该字段。
-	id, err := s.keywordApplication().Add(r.Context(), userID, cookieID, keywords.Draft{Keyword: request.Keyword, Expressions: request.Expressions, MatchType: request.MatchType, Reply: request.Reply, ItemID: request.ItemID, ItemIDs: request.ItemIDs, Type: request.Type, ImageURL: request.ImageURL})
+	id, err := s.keywordApplication().Add(r.Context(), userID, cookieID, keywords.Draft{Keyword: request.Keyword, Expressions: request.Expressions, MatchType: request.MatchType, Reply: request.Reply, ItemID: request.ItemID, ItemIDs: request.ItemIDs, Type: request.Type, ImageURL: request.ImageURL, LibraryImageID: request.LibraryImageID})
 	if err != nil {
 		writeKeywordError(w, err, "添加失败")
 		return
@@ -301,7 +307,7 @@ func (s *Server) updateKeywordByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// updateErr 表示应用层按商品范围字段更新规则的结果。
-	updateErr := s.keywordApplication().Update(r.Context(), userID, cookieID, id, keywords.Draft{Keyword: request.Keyword, Expressions: request.Expressions, MatchType: request.MatchType, Reply: request.Reply, ItemID: request.ItemID, ItemIDs: request.ItemIDs, Type: request.Type, ImageURL: request.ImageURL})
+	updateErr := s.keywordApplication().Update(r.Context(), userID, cookieID, id, keywords.Draft{Keyword: request.Keyword, Expressions: request.Expressions, MatchType: request.MatchType, Reply: request.Reply, ItemID: request.ItemID, ItemIDs: request.ItemIDs, Type: request.Type, ImageURL: request.ImageURL, LibraryImageID: request.LibraryImageID})
 	if updateErr != nil {
 		writeKeywordError(w, updateErr, "保存失败")
 		return

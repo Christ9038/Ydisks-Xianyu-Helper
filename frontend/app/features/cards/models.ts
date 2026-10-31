@@ -20,6 +20,8 @@ export interface Card {
   // 图片类型
   /** 图片卡券地址。 */
   image_url?: string;
+  /** 图片卡券使用的图片库图片主键；0 或缺省表示未使用，与 image_url 互斥。 */
+  library_image_id?: number;
   // 通用配置
   /** 卡券发送延迟秒数。 */
   delay_seconds?: number;

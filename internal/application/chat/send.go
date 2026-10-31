@@ -63,6 +63,10 @@ type ImageUpload struct {
 // 返回值依次为图片字节、媒体类型和上传文件名；下载实现不得持久化图片或泄露凭证。
 type ImageURLDownloader func(ctx context.Context, imageURL string) (data []byte, contentType string, filename string, err error)
 
+// LibraryImageReader 定义按发送账号所有者读取图片库图片的能力。
+// 返回值依次为图片字节、媒体类型和上传文件名，与 ImageURLDownloader 同形；实现不得泄露本地路径或凭证。
+type LibraryImageReader func(ctx context.Context, accountID string, imageID int64) (data []byte, contentType string, filename string, err error)
+
 // ReplyInput 是一次完整聊天回复的应用层输入，图片先于文字发送。
 type ReplyInput struct {
 	// Session 保存已完成账号归属校验的会话摘要，不包含登录凭证。
@@ -71,6 +75,8 @@ type ReplyInput struct {
 	Text string
 	// ImageURL 保存可选的来源图片地址；发送时会先下载并复用 SendImage 上传链路。
 	ImageURL string
+	// LibraryImageID 保存可选的图片库图片标识；与 ImageURL 互斥，发送时读取字节后复用 SendImage 上传链路。
+	LibraryImageID int64
 }
 
 // ReplyResult 是完整回复的分段投递结果，用于调用方恢复一次性回复状态。
@@ -182,11 +188,23 @@ func (s *Service) SendReply(ctx context.Context, input ReplyInput) (*ReplyResult
 	if normalizeErr != nil {
 		return nil, normalizeErr
 	}
-	if s == nil || s.outgoing == nil || s.senders == nil || (imageURL != "" && (s.uploader == nil || s.imageDownloader == nil)) {
+	if imageURL != "" && input.LibraryImageID > 0 {
+		return nil, ErrSendInvalidInput
+	}
+	if s == nil || s.outgoing == nil || s.senders == nil || (imageURL != "" && (s.uploader == nil || s.imageDownloader == nil)) || (input.LibraryImageID > 0 && (s.uploader == nil || s.libraryImages == nil)) {
 		return nil, ErrUnavailable
 	}
 	// result 保存图片和文字两个分段的本地消息及平台确认状态。
 	result := &ReplyResult{}
+	if input.LibraryImageID > 0 {
+		// imageMessage 和 imageErr 保存图片库图片发送入口的结果及错误。
+		imageMessage, imageErr := s.SendLibraryImage(ctx, LibraryImageInput{Session: session, ImageID: input.LibraryImageID})
+		result.Image = imageMessage
+		result.ImageSent = replyPartDelivered(imageMessage, imageErr)
+		if imageErr != nil {
+			return result, imageErr
+		}
+	}
 	if imageURL != "" {
 		// imageMessage 和 imageErr 保存公开 URL 图片发送入口的结果及错误。
 		imageMessage, imageErr := s.SendImageURL(ctx, ImageURLInput{Session: session, ImageURL: imageURL})
@@ -230,6 +248,39 @@ func (s *Service) SendImageURL(ctx context.Context, input ImageURLInput) (*Messa
 		return nil, fmt.Errorf("%w: %v", ErrSend, downloadErr)
 	}
 	return s.SendImage(ctx, imageInput)
+}
+
+// LibraryImageInput 是通过统一消息页面入口发送图片库图片的应用层输入。
+type LibraryImageInput struct {
+	// Session 保存目标会话摘要，不包含账号凭证。
+	Session Session
+	// ImageID 保存图片库图片主键；归属按发送账号的所有者校验。
+	ImageID int64
+}
+
+// SendLibraryImage 读取图片库图片并通过消息页面的 SendImage 入口发送。
+// 读取失败发生在任何平台请求之前，调用方可视为确定未发送；上传、真实宽高与状态收口完全复用 SendImage。
+func (s *Service) SendLibraryImage(ctx context.Context, input LibraryImageInput) (*Message, error) {
+	// session 保存规范化后的会话摘要。
+	session := input.Session
+	session.AccountID = strings.TrimSpace(session.AccountID)
+	session.ChatID = strings.TrimSpace(session.ChatID)
+	session.PeerUserID = strings.TrimSpace(session.PeerUserID)
+	if session.AccountID == "" || session.ChatID == "" || session.PeerUserID == "" || input.ImageID <= 0 {
+		return nil, ErrSendInvalidInput
+	}
+	if s == nil || s.outgoing == nil || s.senders == nil || s.uploader == nil || s.libraryImages == nil {
+		return nil, ErrUnavailable
+	}
+	// data、contentType、filename 和 readErr 保存图片库读取结果及错误。
+	data, contentType, filename, readErr := s.libraryImages(ctx, session.AccountID, input.ImageID)
+	if readErr != nil {
+		return nil, fmt.Errorf("%w: %v", ErrSend, readErr)
+	}
+	if len(data) == 0 || strings.TrimSpace(contentType) == "" {
+		return nil, ErrSendInvalidInput
+	}
+	return s.SendImage(ctx, ImageInput{Session: session, Filename: filename, ContentType: contentType, Data: data})
 }
 
 // ImageURLInput 是通过统一消息页面入口发送远程图片的应用层输入。

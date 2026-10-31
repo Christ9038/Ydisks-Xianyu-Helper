@@ -126,6 +126,7 @@ export const getChatQuickReplies = async (accountId: string, options?: RequestCo
     id: reply.id,
     account_id: reply.account_id,
     content: reply.content,
+    library_image_id: reply.library_image_id ?? 0,
     created_at: reply.created_at,
   }));
 };
@@ -137,7 +138,17 @@ export const createChatQuickReply = async (accountId: string, content: string, o
     body: { account_id: accountId, content },
     signal,
   }), options);
-  return { id: response.id, account_id: response.account_id, content: response.content, created_at: response.created_at };
+  return { id: response.id, account_id: response.account_id, content: response.content, library_image_id: response.library_image_id ?? 0, created_at: response.created_at };
+};
+
+/** 为当前账号新增图片快捷回复；图片来自当前用户图片库，发送时由服务端读取字节。 */
+export const createChatImageQuickReply = async (accountId: string, libraryImageId: number, options?: RequestControlOptions): Promise<ChatQuickReply> => {
+  // response 保存创建接口返回的快捷回复 DTO，转换后不向组件暴露生成类型。
+  const response = await runContractRequest(/* signal 是本次新增图片快捷回复请求的超时与取消控制信号。 */ signal => contractClient.POST('/api/v1/chat/quick-replies', {
+    body: { account_id: accountId, library_image_id: libraryImageId },
+    signal,
+  }), options);
+  return { id: response.id, account_id: response.account_id, content: response.content, library_image_id: response.library_image_id ?? 0, created_at: response.created_at };
 };
 
 /** 删除当前账号下指定的人工快捷回复。 */
@@ -202,6 +213,13 @@ export const sendChatImage = async (input: {
     signal,
   }), { timeoutMs: 120_000, ...options });
 };
+
+// sendChatLibraryImage 发送当前用户图片库中的图片；字节由服务端读取并复用手动上传相同的上传与宽高链路。
+export const sendChatLibraryImage = async (input: {
+  /** account_id 表示账号标识。 */ account_id: string; /** chat_id 表示聊天标识。 */ chat_id: string; /** peer_user_id 表示会话对端标识。 */ peer_user_id: string; /** library_image_id 表示图片库图片主键。 */ library_image_id: number;
+  /** peer_name 表示会话对端名称。 */ peer_name?: string; /** peer_avatar_url 表示会话对端头像地址。 */ peer_avatar_url?: string; /** item_id 表示商品标识。 */ item_id?: string; /** item_title 表示商品标题。 */ item_title?: string;
+}, options?: RequestControlOptions): Promise<{/** message 表示消息数据。 */ message: ChatMessage}> =>
+	runContractRequest(/* signal 是本次图库图片发送请求的超时与取消控制信号。 */ signal => contractClient.POST('/api/v1/chat/library-images', { body: input, signal }), { timeoutMs: 120_000, ...options });
 
 /** 查询当前个人会话中对方或当前账号的在售商品。 */
 export const getChatItems = async (accountId: string, chatId: string, role: 'peer' | 'self', query: string, page: number, options?: RequestControlOptions): Promise<ChatItemPage> => {

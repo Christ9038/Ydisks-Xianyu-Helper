@@ -236,6 +236,7 @@ type ChatPort interface {
 	RefreshHistory(context.Context, string, string, int64, int, chatapp.Session) (chatapp.HistoryPage, error)
 	SendText(context.Context, chatapp.OutgoingInput) (*chatapp.Message, error)
 	SendImage(context.Context, chatapp.ImageInput) (*chatapp.Message, error)
+	SendLibraryImage(context.Context, chatapp.LibraryImageInput) (*chatapp.Message, error)
 	ListStoredMessages(context.Context, int64, string, string, int64, int) (chatapp.Page, error)
 	ListSessions(context.Context, int64, string, int) ([]chatapp.Session, error)
 	ListSessionPage(context.Context, int64, string, *chatapp.SessionCursor, int) (chatapp.SessionPage, error)
@@ -250,6 +251,7 @@ type ChatPort interface {
 	RefreshSessionIdentities(context.Context, string, []chatapp.Session) ([]chatapp.Session, error)
 	ListQuickReplies(context.Context, int64, string) ([]chatapp.QuickReply, error)
 	CreateQuickReply(context.Context, int64, string, string) (chatapp.QuickReply, error)
+	CreateQuickReplyWithImage(context.Context, int64, string, string, int64) (chatapp.QuickReply, error)
 	DeleteQuickReply(context.Context, int64, string, int64) error
 	GetBuyerNote(context.Context, int64, string, string) (chatapp.BuyerNote, error)
 	SaveBuyerNote(context.Context, int64, string, string, string) (chatapp.BuyerNote, error)

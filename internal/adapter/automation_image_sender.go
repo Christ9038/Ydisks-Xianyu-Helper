@@ -39,7 +39,12 @@ type automationImageSenderProvider struct {
 	uploader automationImageUploader
 	// downloader 在每次发送前临时读取卡密 URL 指向的图片字节。
 	downloader automationImageDownloader
+	// libraryImages 按发送账号的所有者读取图片库图片；为空时图片库图片按确定未发送处理。
+	libraryImages automationLibraryImageReader
 }
+
+// automationLibraryImageReader 定义自动化发货按账号所有者读取图片库图片的能力，返回值与 automationImageDownloader 同形。
+type automationLibraryImageReader func(ctx context.Context, accountID string, imageID int64) (data []byte, contentType string, filename string, err error)
 
 // automationImageSender 把单个账号的原始发送器与图片下载、上传能力绑定，避免自动化领域接触协议或凭证。
 type automationImageSender struct {
@@ -51,6 +56,8 @@ type automationImageSender struct {
 	uploader automationImageUploader
 	// downloader 只在发送图片时执行远程读取。
 	downloader automationImageDownloader
+	// libraryImages 只在发送图片库图片时读取本地图片库。
+	libraryImages automationLibraryImageReader
 }
 
 // NewAutomationImageSenderProvider 创建自动化中心使用的图片发送器来源。
@@ -58,9 +65,15 @@ type automationImageSender struct {
 func NewAutomationImageSenderProvider(store *db.Store, manager *accountmanager.Manager, clientProvider func() mtop.Client) automation.SenderProvider {
 	// uploader 复用聊天图片上传适配器，确保凭证刷新写回和在线运行时同步保持一致。
 	uploader := NewChatImageUploader(store, clientProvider, manager)
-	return automationImageSenderProvider{
+	// provider 保存图片发送来源；图片库读取来源构造失败（上传根目录为空）时保持为空，图片库图片按确定未发送处理。
+	provider := automationImageSenderProvider{
 		manager: manager, uploader: uploader, downloader: downloadAutomationImage,
 	}
+	// libraryErr 保存构造图片库读取来源的失败原因，失败时保持未装配；libraryImages 是图片库读取来源，供发送图片库图片时取字节。
+	if libraryImages, libraryErr := NewLibraryImageSource(store); libraryErr == nil {
+		provider.libraryImages = libraryImages.ReadLibraryImage
+	}
+	return provider
 }
 
 // Sender 返回指定在线账号的发送包装器；账号离线或初始化不完整时维持既有不可发送语义。
@@ -74,7 +87,7 @@ func (p automationImageSenderProvider) Sender(accountID string) (automation.Mess
 		return nil, false
 	}
 	return automationImageSender{
-		accountID: accountID, sender: sender, uploader: p.uploader, downloader: p.downloader,
+		accountID: accountID, sender: sender, uploader: p.uploader, downloader: p.downloader, libraryImages: p.libraryImages,
 	}, true
 }
 
@@ -110,6 +123,26 @@ func (s automationImageSender) SendImage(ctx context.Context, chatID, toUserID, 
 	if err != nil {
 		return fmt.Errorf("%w: 下载图片卡密失败: %v", automation.ErrMessageNotSent, err)
 	}
+	return s.uploadAndSend(ctx, chatID, toUserID, cardID, data, contentType, filename)
+}
+
+// SendLibraryImage 读取发送账号所有者图片库中的图片，并复用与 URL 图片相同的上传、真实宽高和回显确认发送。
+// 读取失败发生在 WebSocket 写入之前，必须标记为确定未发送以允许自动化安全重试。
+func (s automationImageSender) SendLibraryImage(ctx context.Context, chatID, toUserID string, imageID, cardID int64) error {
+	if s.sender == nil || s.uploader == nil || s.libraryImages == nil {
+		return fmt.Errorf("%w: 图片库发送器未初始化", automation.ErrMessageNotSent)
+	}
+	// data、contentType、filename 和 err 分别保存图片库图片的瞬时字节、媒体类型、上传名称和读取错误。
+	data, contentType, filename, err := s.libraryImages(ctx, s.accountID, imageID)
+	if err != nil {
+		return fmt.Errorf("%w: 读取图片库图片失败: %v", automation.ErrMessageNotSent, err)
+	}
+	return s.uploadAndSend(ctx, chatID, toUserID, cardID, data, contentType, filename)
+}
+
+// uploadAndSend 将内存中的图片上传到闲鱼图片服务，并用真实宽高通过账号运行时发送；URL 图片与图片库图片共用这一条发送链路。
+// 上传失败发生在 WebSocket 写入之前，必须标记为确定未发送。
+func (s automationImageSender) uploadAndSend(ctx context.Context, chatID, toUserID string, cardID int64, data []byte, contentType, filename string) error {
 	// uploaded、err 保存闲鱼图片服务返回的发送地址和上传阶段错误。
 	uploaded, err := s.uploader.UploadChatImage(ctx, s.accountID, filename, contentType, data)
 	if err != nil {

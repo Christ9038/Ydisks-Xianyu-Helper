@@ -31,8 +31,10 @@ type QuickReply struct {
 	ID int64
 	// AccountID 是快捷回复所属账号标识，不包含账号凭证。
 	AccountID string
-	// Content 是用户手动发送到聊天会话的文本模板。
+	// Content 是用户手动发送到聊天会话的文本模板；图片快捷回复为空。
 	Content string
+	// LibraryImageID 是图片快捷回复引用的图片库图片主键，0 表示文字快捷回复。
+	LibraryImageID int64
 	// CreatedAt 是快捷回复创建时的 Unix 秒时间戳。
 	CreatedAt int64
 }
@@ -61,6 +63,38 @@ type MetadataRepository interface {
 	GetBuyerNote(ctx context.Context, accountID, buyerID string) (BuyerNote, bool, error)
 	// SaveBuyerNote 保存完整备注；content 为空时删除已有记录。
 	SaveBuyerNote(ctx context.Context, note BuyerNote) (BuyerNote, error)
+}
+
+// ImageQuickReplyRepository 由支持图片快捷回复的持久化实现选择性提供；图片归属在实现内按账号所有者校验。
+type ImageQuickReplyRepository interface {
+	// CreateQuickReplyWithImage 创建文字或图片快捷回复；libraryImageID 大于 0 时 content 可为空，图片不存在返回 ErrQuickReplyImageNotFound。
+	CreateQuickReplyWithImage(ctx context.Context, accountID, content string, libraryImageID int64) (QuickReply, error)
+}
+
+// ErrQuickReplyImageNotFound 表示快捷回复引用的图片库图片不存在、已被删除或不属于账号所有者。
+var ErrQuickReplyImageNotFound = errors.New("快捷回复引用的图片库图片不存在")
+
+// CreateQuickReplyWithImage 校验归属后保存文字或图片快捷回复；文字与图片二选一，图片快捷回复发送时走统一的图片库发送链路。
+func (s *Service) CreateQuickReplyWithImage(ctx context.Context, userID int64, accountID, content string, libraryImageID int64) (QuickReply, error) {
+	if libraryImageID == 0 {
+		return s.CreateQuickReply(ctx, userID, accountID, content)
+	}
+	// normalizedAccountID 保存归一化后的账号标识。
+	normalizedAccountID := strings.TrimSpace(accountID)
+	if libraryImageID < 0 || strings.TrimSpace(content) != "" {
+		return QuickReply{}, ErrInvalidInput
+	}
+	// repository 保存已完成归属校验的元数据持久化端口。
+	repository, err := s.metadataRepository(ctx, userID, normalizedAccountID)
+	if err != nil {
+		return QuickReply{}, err
+	}
+	// imageRepository、supported 保存持久化端口是否支持图片快捷回复。
+	imageRepository, supported := repository.(ImageQuickReplyRepository)
+	if !supported {
+		return QuickReply{}, ErrMetadataUnavailable
+	}
+	return imageRepository.CreateQuickReplyWithImage(ctx, normalizedAccountID, "", libraryImageID)
 }
 
 // ListQuickReplies 查询当前用户有权访问账号的人工快捷回复。

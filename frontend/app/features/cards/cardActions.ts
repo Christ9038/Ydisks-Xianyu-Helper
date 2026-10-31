@@ -10,6 +10,7 @@ export const emptyAddForm = (): AddCardForm => ({
   name: '',
   type: 'data',
   content: '',
+  library_image_id: 0,
   description: '',
   enabled: true,
   delay_seconds: 0,
@@ -156,6 +157,7 @@ export const useCardActions = ({ cards, loadCards }: CardActionsOptions): CardAc
       text_content: card.text_content || '',
       data_content: card.data_content || '',
       image_url: card.image_url || '',
+      library_image_id: card.library_image_id || 0,
       delay_seconds: card.delay_seconds || 0,
       description: card.description || '',
       enabled: card.enabled,
@@ -209,7 +211,8 @@ export const useCardActions = ({ cards, loadCards }: CardActionsOptions): CardAc
           updateData.expected_data_content = selectedCard.data_content ?? '';
         }
       } else if (editForm.type === 'image') {
-        updateData.image_url = editForm.image_url?.trim() || '';
+        updateData.image_url = editForm.library_image_id ? '' : (editForm.image_url?.trim() || '');
+        updateData.library_image_id = editForm.library_image_id || 0;
       }
       // request 记录保存发起时的编辑会话，防止迟到保存关闭后来打开的弹窗。
       const request = editorRequest.current;
@@ -240,7 +243,7 @@ export const useCardActions = ({ cards, loadCards }: CardActionsOptions): CardAc
       alert('请输入卡密名称');
       return;
     }
-    if (!addForm.content.trim()) {
+    if (!addForm.content.trim() && !(addForm.type === 'image' && addForm.library_image_id > 0)) {
       alert(addForm.type === 'api' ? '请输入 API 地址' : '请输入卡密内容');
       return;
     }
@@ -255,7 +258,10 @@ export const useCardActions = ({ cards, loadCards }: CardActionsOptions): CardAc
       };
       if (addForm.type === 'text') payload.text_content = addForm.content.trim();
       if (addForm.type === 'data') payload.data_content = addForm.content.trim();
-      if (addForm.type === 'image') payload.image_url = addForm.content.trim();
+      if (addForm.type === 'image') {
+        payload.image_url = addForm.library_image_id ? '' : addForm.content.trim();
+        payload.library_image_id = addForm.library_image_id;
+      }
       if (addForm.type === 'api') {
         payload.api_config = apiConfigFromAddForm(addForm);
       }

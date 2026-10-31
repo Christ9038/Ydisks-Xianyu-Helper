@@ -62,7 +62,7 @@ func (r *DefaultReplyRepository) Get(ctx context.Context, cookieID string) (defa
 	}
 	return defaultreplyapp.Reply{
 		Enabled: record.Enabled, ReplyContent: record.ReplyContent,
-		ReplyImageURL: record.ReplyImageURL, ReplyOnce: record.ReplyOnce,
+		ReplyImageURL: record.ReplyImageURL, ReplyLibraryImageID: record.ReplyLibraryImageID, ReplyOnce: record.ReplyOnce,
 	}, nil
 }
 
@@ -72,9 +72,17 @@ func (r *DefaultReplyRepository) Upsert(ctx context.Context, cookieID string, re
 	if err := r.validate(); err != nil {
 		return err
 	}
+	// owned、ownedErr 保存图片库图片归属检查结果，拒绝引用他人或已删除的图片。
+	owned, ownedErr := libraryImageOwnedByAccount(ctx, r.store, cookieID, reply.ReplyLibraryImageID)
+	if ownedErr != nil {
+		return ownedErr
+	}
+	if !owned {
+		return defaultreplyapp.ErrImageNotFound
+	}
 	return r.store.DefaultReps.Upsert(ctx, cookieID, db.DefaultReply{
 		Enabled: reply.Enabled, ReplyContent: reply.ReplyContent,
-		ReplyImageURL: reply.ReplyImageURL, ReplyOnce: reply.ReplyOnce,
+		ReplyImageURL: reply.ReplyImageURL, ReplyLibraryImageID: reply.ReplyLibraryImageID, ReplyOnce: reply.ReplyOnce,
 	})
 }
 
@@ -97,7 +105,7 @@ func (r *DefaultReplyRepository) ListForUser(ctx context.Context, userID int64) 
 			CookieID: record.CookieID,
 			Reply: defaultreplyapp.Reply{
 				Enabled: record.Enabled, ReplyContent: record.ReplyContent,
-				ReplyImageURL: record.ReplyImageURL, ReplyOnce: record.ReplyOnce,
+				ReplyImageURL: record.ReplyImageURL, ReplyLibraryImageID: record.ReplyLibraryImageID, ReplyOnce: record.ReplyOnce,
 			},
 		})
 	}

@@ -113,3 +113,27 @@ func TestReplacePreservesUnboundVariables(t *testing.T) {
 		t.Fatalf("Replace=%q", got)
 	}
 }
+
+// TestParseRecognizesLibraryImageMessages 验证整条图片令牌被识别为图片消息，混排、非法主键和零主键被拒绝。
+func TestParseRecognizesLibraryImageMessages(t *testing.T) {
+	// parsed、err 保存文字与图片混排模板的解析结果。
+	parsed, err := Parse([]string{"请查收 {{cards.main}}", ImageToken(12), " " + ImageToken(7) + " "})
+	if err != nil || len(parsed.ImageIDs) != 2 || parsed.ImageIDs[0] != 12 || parsed.ImageIDs[1] != 7 || len(parsed.Keys) != 1 {
+		t.Fatalf("parsed=%+v err=%v", parsed, err)
+	}
+	// imageID、ok 保存令牌解析结果。
+	if imageID, ok := ImageID(ImageToken(99)); !ok || imageID != 99 {
+		t.Fatalf("imageID=%d ok=%v", imageID, ok)
+	}
+	// invalid 是应被拒绝的非法图片令牌写法。
+	for _, invalid := range []string{"图 {{library_image:5}}", "{{library_image:5}} 文字", "{{library_image:0}}", "{{library_image:abc}}", "{{library_image:}}", "{{library_image:5}}{{library_image:6}}"} {
+		// parseErr 保存非法图片消息的解析错误。
+		if _, parseErr := Parse([]string{invalid}); parseErr == nil {
+			t.Fatalf("%q 应被拒绝", invalid)
+		}
+	}
+	// ok 表示该消息是否为合法的图片库令牌。
+	if _, ok := ImageID("普通文字"); ok {
+		t.Fatal("普通文字不应被识别为图片消息")
+	}
+}

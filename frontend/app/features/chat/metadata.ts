@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { createChatQuickReply, deleteChatQuickReply, getChatBuyerNote, getChatQuickReplies, saveChatBuyerNote } from './api';
+import { createChatImageQuickReply, createChatQuickReply, deleteChatQuickReply, getChatBuyerNote, getChatQuickReplies, saveChatBuyerNote } from './api';
 import type { ChatBuyerNote, ChatQuickReply, ChatSession } from './models';
 import { isChatAbortError } from './state';
 
@@ -23,6 +23,8 @@ export type ChatMetadataState = {
   confirmQuickReplyDelete: () => Promise<void>;
   /** addQuickReply 保存底部输入框中的快捷回复。 */
   addQuickReply: () => Promise<void>;
+  /** addImageQuickReply 把图片库中选中的图片保存为图片快捷回复。 */
+  addImageQuickReply: (libraryImageId: number) => Promise<void>;
   /** copyQuickReply 将一条快捷回复写入系统剪贴板。 */
   copyQuickReply: (reply: ChatQuickReply) => Promise<void>;
   /** copiedQuickReplyID 保存最近复制成功的快捷回复标识，用于显示短暂反馈。 */
@@ -171,6 +173,22 @@ export const useChatMetadata = (activeAccountID: string, selectedSession: ChatSe
     }
   }, [activeAccountID, quickReplyBusy, quickReplyDraft]);
 
+  /** 新增图片快捷回复，沿用文字快捷回复的忙碌保护与错误提示。 */
+  const addImageQuickReply = useCallback(/* 当前回调提交图片库中选中的图片。 */ async (libraryImageId: number): Promise<void> => {
+    if (!activeAccountID || libraryImageId <= 0 || quickReplyBusy) return;
+    setQuickReplyBusy(true);
+    setMetadataError('');
+    try {
+      // reply 保存服务端创建并返回的图片快捷回复。
+      const reply = await createChatImageQuickReply(activeAccountID, libraryImageId);
+      setQuickReplies(/* 当前回调将新建记录插入按最新优先排列的列表。 */ current => [reply, ...current]);
+    } catch (/* createError 保存创建图片快捷回复失败原因。 */ createError) {
+      if (!isChatAbortError(createError)) setMetadataError(createError instanceof Error ? createError.message : '添加图片快捷回复失败');
+    } finally {
+      setQuickReplyBusy(false);
+    }
+  }, [activeAccountID, quickReplyBusy]);
+
   /** requestQuickReplyDelete 打开快捷回复删除确认框。 */
   const requestQuickReplyDelete = useCallback(/* 当前回调记录用户请求删除的快捷回复。 */ (reply: ChatQuickReply): void => {
     setPendingDeleteQuickReply(reply);
@@ -263,7 +281,7 @@ export const useChatMetadata = (activeAccountID: string, selectedSession: ChatSe
 
   return {
     quickReplies, quickReplyDraft, setQuickReplyDraft, quickReplyBusy,
-    pendingDeleteQuickReply, requestQuickReplyDelete, cancelQuickReplyDelete, confirmQuickReplyDelete, addQuickReply,
+    pendingDeleteQuickReply, requestQuickReplyDelete, cancelQuickReplyDelete, confirmQuickReplyDelete, addQuickReply, addImageQuickReply,
     copyQuickReply, copiedQuickReplyID, buyerNote, noteLoading, noteDialogOpen, noteEditing, noteDraft, setNoteDraft,
     noteSaving, openNoteDialog, closeNoteDialog, beginNoteEditing, saveBuyerNote, metadataError, clearMetadataError,
   };

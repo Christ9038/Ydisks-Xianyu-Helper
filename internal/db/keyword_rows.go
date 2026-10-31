@@ -28,6 +28,8 @@ type KeywordRow struct {
 	Type string
 	// ImageURL 是图片回复地址。
 	ImageURL string
+	// LibraryImageID 是图片库图片主键；与 ImageURL 互斥，0 表示未使用图片库。
+	LibraryImageID int64
 }
 
 // UpdateByID 更新指定账号的一条关键词规则。
@@ -41,9 +43,9 @@ func (k *Keywords) UpdateByID(ctx context.Context, row KeywordRow) error {
 	}
 	// res、err 保存数据库更新结果。
 	res, err := k.DB.ExecContext(ctx, `UPDATE keywords
-		SET keyword=?,reply=?,item_id=?,type=?,image_url=?,keyword_expressions=?,match_type=?
+		SET keyword=?,reply=?,item_id=?,type=?,image_url=?,library_image_id=?,keyword_expressions=?,match_type=?
 		WHERE id=? AND cookie_id=?`,
-		keyword, row.Reply, nullable(row.ItemID), kwType, nullable(row.ImageURL), expressionsJSON, matchType, row.ID, row.CookieID)
+		keyword, row.Reply, nullable(row.ItemID), kwType, nullable(row.ImageURL), row.LibraryImageID, expressionsJSON, matchType, row.ID, row.CookieID)
 	if err != nil {
 		return err
 	}
@@ -83,7 +85,7 @@ func (k *Keywords) AllRows(ctx context.Context, cookieID string) ([]KeywordRow, 
 	// rows、err 保存数据库查询结果。
 	rows, err := k.DB.QueryContext(ctx,
 		`SELECT id, keyword, reply, COALESCE(item_id,''), COALESCE(type,'text'), COALESCE(image_url,''),
-				COALESCE(keyword_expressions,''), COALESCE(match_type,'contains')
+				COALESCE(keyword_expressions,''), COALESCE(match_type,'contains'), library_image_id
 		 FROM keywords WHERE cookie_id=? ORDER BY id`, cookieID)
 	if err != nil {
 		return nil, err
@@ -97,7 +99,7 @@ func (k *Keywords) AllRows(ctx context.Context, cookieID string) ([]KeywordRow, 
 		// rawExpressions 保存当前行的表达式 JSON 文本。
 		var rawExpressions string
 		if // err 表示当前行扫描错误。
-		err := rows.Scan(&r.ID, &r.Keyword, &r.Reply, &r.ItemID, &r.Type, &r.ImageURL, &rawExpressions, &r.MatchType); err != nil {
+		err := rows.Scan(&r.ID, &r.Keyword, &r.Reply, &r.ItemID, &r.Type, &r.ImageURL, &rawExpressions, &r.MatchType, &r.LibraryImageID); err != nil {
 			return nil, err
 		}
 		r.Expressions = decodeKeywordExpressions(rawExpressions, r.Keyword)
@@ -118,6 +120,13 @@ func (k *Keywords) Add(ctx context.Context, cookieID, keyword, reply, itemID, kw
 
 // AddWithExpressions 添加一条包含多个表达式和匹配模式的关键词规则。
 func (k *Keywords) AddWithExpressions(ctx context.Context, cookieID string, expressions []string, reply, itemID, kwType, matchType, imageURL string) (int64, error) {
+	return k.AddRow(ctx, KeywordRow{CookieID: cookieID, Expressions: expressions, Reply: reply, ItemID: itemID, Type: kwType, MatchType: matchType, ImageURL: imageURL})
+}
+
+// AddRow 添加一条关键词规则，支持图片库图片；row.ID 被忽略，返回新规则主键。
+func (k *Keywords) AddRow(ctx context.Context, row KeywordRow) (int64, error) {
+	// cookieID、expressions、reply、itemID、kwType、matchType、imageURL 取自待写入行。
+	cookieID, expressions, reply, itemID, kwType, matchType, imageURL := row.CookieID, row.Expressions, row.Reply, row.ItemID, row.Type, row.MatchType, row.ImageURL
 	// firstKeyword 保存兼容旧字段的首表达式。
 	firstKeyword := ""
 	if len(expressions) > 0 {
@@ -129,8 +138,8 @@ func (k *Keywords) AddWithExpressions(ctx context.Context, cookieID string, expr
 		kwType = "text"
 	}
 	return insertReturningID(ctx, k.DB, k.Dialect,
-		`INSERT INTO keywords (cookie_id, keyword, reply, item_id, type, image_url, keyword_expressions, match_type) VALUES (?,?,?,?,?,?,?,?)`,
-		cookieID, keyword, reply, nullable(itemID), kwType, nullable(imageURL), expressionsJSON, normalizedMatchType)
+		`INSERT INTO keywords (cookie_id, keyword, reply, item_id, type, image_url, library_image_id, keyword_expressions, match_type) VALUES (?,?,?,?,?,?,?,?,?)`,
+		cookieID, keyword, reply, nullable(itemID), kwType, nullable(imageURL), row.LibraryImageID, expressionsJSON, normalizedMatchType)
 }
 
 // ReplaceForCookie 原子覆盖某账号的全部关键词规则。
@@ -156,8 +165,8 @@ func (k *Keywords) ReplaceForCookie(ctx context.Context, cookieID string, rows [
 		}
 		if // err 表示写入当前规则的事务错误。
 		_, err := tx.ExecContext(ctx,
-			`INSERT INTO keywords (cookie_id, keyword, reply, item_id, type, image_url, keyword_expressions, match_type) VALUES (?,?,?,?,?,?,?,?)`,
-			cookieID, keyword, row.Reply, nullable(row.ItemID), kwType, nullable(row.ImageURL), expressionsJSON, matchType); err != nil {
+			`INSERT INTO keywords (cookie_id, keyword, reply, item_id, type, image_url, library_image_id, keyword_expressions, match_type) VALUES (?,?,?,?,?,?,?,?,?)`,
+			cookieID, keyword, row.Reply, nullable(row.ItemID), kwType, nullable(row.ImageURL), row.LibraryImageID, expressionsJSON, matchType); err != nil {
 			return err
 		}
 	}

@@ -2,6 +2,8 @@ import { Plus,Send,Trash2,X } from 'lucide-react';
 import React,{ type Dispatch,type SetStateAction } from 'react';
 import { createPortal } from 'react-dom';
 import ItemMultiSelect from './ItemMultiSelect';
+import { ImageSourceField } from '../../../../shared/ui/ImageSourceField';
+import type { LibraryImageChooserComponent } from '../../../../shared/ui/imageSource';
 import type { Item,ReplyRule } from '../types';
 
 /** ReplyRuleEditorProps 描述关键词回复编辑器所需的草稿、商品候选和保存动作。 */
@@ -16,10 +18,12 @@ interface ReplyRuleEditorProps {
   onClose: () => void;
   /** onSave 触发父级的校验、提交和刷新流程。 */
   onSave: () => void;
+  /** libraryImageChooser 是应用壳注入的图片库选择器；缺省时图片回复只能填写外链。 */
+  libraryImageChooser?: LibraryImageChooserComponent;
 }
 
 /** ReplyRuleEditor 展示关键词多表达式、匹配模式、商品范围和回复内容编辑器。 */
-const ReplyRuleEditor: React.FC<ReplyRuleEditorProps> = ({ rule,setRule,items,onClose,onSave }) => {
+const ReplyRuleEditor: React.FC<ReplyRuleEditorProps> = ({ rule,setRule,items,onClose,onSave,libraryImageChooser }) => {
   // expressions 是当前编辑器展示的表达式行，历史单 keyword 规则回退为一行。
   const expressions = rule.expressions?.length ? rule.expressions : [rule.keyword || ''];
   // itemIDs 是当前规则绑定的商品标识集合，兼容历史单值字段。
@@ -80,6 +84,7 @@ const ReplyRuleEditor: React.FC<ReplyRuleEditorProps> = ({ rule,setRule,items,on
                     type,
                     reply_content: type === 'text' ? current.reply_content : '',
                     image_url: type === 'image' ? current.image_url : '',
+                    library_image_id: type === 'image' ? current.library_image_id : 0,
                   } : current);
                 }}
                 className="w-full ios-input px-4 py-3 rounded-xl"
@@ -140,12 +145,12 @@ const ReplyRuleEditor: React.FC<ReplyRuleEditorProps> = ({ rule,setRule,items,on
 
           {rule.type === 'image' ? (
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-2">图片 URL</label>
-              <input
-                value={rule.image_url || ''}
-                onChange={/* 当前回调处理用户输入的图片地址；current 是当前关键词回复草稿。 */ event => setRule(/* current 表示当前关键词回复草稿。 */ current => current ? { ...current, image_url: event.target.value } : current)}
-                placeholder="https://..."
-                className="w-full ios-input px-4 py-3 rounded-xl"
+              <label className="block text-sm font-bold text-gray-700 mb-2">回复图片</label>
+              <ImageSourceField
+                value={{ url: rule.image_url || '', libraryImageId: rule.library_image_id || 0 }}
+                onChange={/* source 是用户选择的新图片来源；外链与图片库图片互斥。 */ source => setRule(/* current 表示当前关键词回复草稿。 */ current => current ? { ...current, image_url: source.url, library_image_id: source.libraryImageId } : current)}
+                chooser={libraryImageChooser}
+                urlPlaceholder="https://..."
               />
             </div>
           ) : (

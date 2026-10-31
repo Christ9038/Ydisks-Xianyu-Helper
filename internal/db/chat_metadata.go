@@ -19,8 +19,10 @@ type ChatQuickReply struct {
 	ID int64
 	// CookieID 是快捷回复所属账号标识。
 	CookieID string
-	// Content 是人工发送时使用的文本模板。
+	// Content 是人工发送时使用的文本模板；图片快捷回复为空。
 	Content string
+	// LibraryImageID 是图片快捷回复引用的图片库图片主键，0 表示文字快捷回复。
+	LibraryImageID int64
 	// CreatedAt 是记录创建的 Unix 秒时间戳。
 	CreatedAt int64
 }
@@ -40,7 +42,7 @@ type ChatBuyerNote struct {
 // ListQuickReplies 查询账号下按最新创建时间排序的人工快捷回复。
 func (s *ChatStore) ListQuickReplies(ctx context.Context, cookieID string) ([]ChatQuickReply, error) {
 	// rows 和 queryErr 保存快捷回复查询游标及数据库错误。
-	rows, queryErr := s.DB.QueryContext(ctx, `SELECT id,cookie_id,content,created_at
+	rows, queryErr := s.DB.QueryContext(ctx, `SELECT id,cookie_id,content,library_image_id,created_at
 		FROM chat_quick_replies WHERE cookie_id=? ORDER BY id DESC`, cookieID)
 	if queryErr != nil {
 		return nil, queryErr
@@ -53,7 +55,7 @@ func (s *ChatStore) ListQuickReplies(ctx context.Context, cookieID string) ([]Ch
 		// reply 保存当前行映射得到的非敏感快捷回复。
 		var reply ChatQuickReply
 		// scanErr 保存当前快捷回复行字段映射失败原因。
-		if scanErr := rows.Scan(&reply.ID, &reply.CookieID, &reply.Content, &reply.CreatedAt); scanErr != nil {
+		if scanErr := rows.Scan(&reply.ID, &reply.CookieID, &reply.Content, &reply.LibraryImageID, &reply.CreatedAt); scanErr != nil {
 			return nil, scanErr
 		}
 		replies = append(replies, reply)
@@ -61,8 +63,13 @@ func (s *ChatStore) ListQuickReplies(ctx context.Context, cookieID string) ([]Ch
 	return replies, rows.Err()
 }
 
-// CreateQuickReply 在账号行锁保护下创建快捷回复，确保并发请求不能突破数量上限。
+// CreateQuickReply 在账号行锁保护下创建文字快捷回复，确保并发请求不能突破数量上限。
 func (s *ChatStore) CreateQuickReply(ctx context.Context, cookieID, content string) (ChatQuickReply, error) {
+	return s.CreateQuickReplyWithImage(ctx, cookieID, content, 0)
+}
+
+// CreateQuickReplyWithImage 在账号行锁保护下创建快捷回复；libraryImageID 大于 0 表示图片快捷回复，此时 content 可以为空。
+func (s *ChatStore) CreateQuickReplyWithImage(ctx context.Context, cookieID, content string, libraryImageID int64) (ChatQuickReply, error) {
 	// transaction 和 beginErr 保存本次账号级写入事务及启动错误。
 	transaction, beginErr := s.DB.BeginTx(ctx, nil)
 	if beginErr != nil {
@@ -92,7 +99,7 @@ func (s *ChatStore) CreateQuickReply(ctx context.Context, cookieID, content stri
 	// createdAt 保存新记录的 UTC 创建时间，供列表排序和传输 DTO 展示。
 	createdAt := time.Now().UTC().Unix()
 	// replyID 和 insertErr 保存数据库生成的主键及写入错误。
-	replyID, insertErr := insertReturningID(ctx, transaction, s.Dialect, `INSERT INTO chat_quick_replies(cookie_id,content,created_at) VALUES(?,?,?)`, cookieID, content, createdAt)
+	replyID, insertErr := insertReturningID(ctx, transaction, s.Dialect, `INSERT INTO chat_quick_replies(cookie_id,content,library_image_id,created_at) VALUES(?,?,?,?)`, cookieID, content, libraryImageID, createdAt)
 	if insertErr != nil {
 		return ChatQuickReply{}, insertErr
 	}
@@ -100,7 +107,7 @@ func (s *ChatStore) CreateQuickReply(ctx context.Context, cookieID, content stri
 	if commitErr := transaction.Commit(); commitErr != nil {
 		return ChatQuickReply{}, commitErr
 	}
-	return ChatQuickReply{ID: replyID, CookieID: cookieID, Content: content, CreatedAt: createdAt}, nil
+	return ChatQuickReply{ID: replyID, CookieID: cookieID, Content: content, LibraryImageID: libraryImageID, CreatedAt: createdAt}, nil
 }
 
 // DeleteQuickReply 删除账号下指定快捷回复，并报告是否实际删除记录。

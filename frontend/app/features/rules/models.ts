@@ -338,6 +338,8 @@ export interface ReplyRule {
   type?: 'text' | 'image';
   /** 图片回复地址。 */
   image_url?: string;
+  /** 图片库图片主键；0 或缺省表示未使用图片库，与 image_url 互斥。 */
+  library_image_id?: number;
 }
 
 /** 由当前 feature adapter 归一后的 DefaultReply UI 模型；不直接暴露 HTTP DTO。 */
@@ -352,6 +354,8 @@ export interface DefaultReply {
   reply_once: boolean;
   /** 默认图片回复地址。 */
   reply_image_url?: string;
+  /** 默认回复使用的图片库图片主键；0 或缺省表示未使用，与 reply_image_url 互斥。 */
+  reply_library_image_id?: number;
 }
 
 /** 商品首次回复规则的 UI 模型，由 feature adapter 从 HTTP DTO 归一得到。 */
@@ -368,6 +372,8 @@ export interface ItemGreetingRule {
   reply_content: string;
   /** 首次回复图片地址，可为空串。 */
   reply_image_url: string;
+  /** 首次回复使用的图片库图片主键；0 表示未使用，与 reply_image_url 互斥。 */
+  reply_library_image_id: number;
   /** 规则覆盖的商品标识集合。 */
   item_ids: string[];
 }
@@ -490,6 +496,8 @@ export interface KeywordTypedResponse extends KeywordItemResponse {
   type: 'text' | 'image';
   /** 图片回复地址。 */
   image_url: string;
+  /** 图片库图片主键；0 表示未使用。 */
+  library_image_id?: number;
 }
 
 /** 指定商品回复项响应。 */

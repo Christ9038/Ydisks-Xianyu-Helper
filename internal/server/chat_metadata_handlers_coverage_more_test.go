@@ -43,6 +43,11 @@ func (port *chatMetadataHandlerCoveragePort) CreateQuickReply(context.Context, i
 	return port.createReply, port.createErr
 }
 
+// CreateQuickReplyWithImage 与 CreateQuickReply 共用测试配置，使 HTTP 创建入口无论是否带图片都走同一组预设结果。
+func (port *chatMetadataHandlerCoveragePort) CreateQuickReplyWithImage(context.Context, int64, string, string, int64) (chatapp.QuickReply, error) {
+	return port.createReply, port.createErr
+}
+
 // DeleteQuickReply 返回测试配置的快捷回复删除错误。
 func (port *chatMetadataHandlerCoveragePort) DeleteQuickReply(context.Context, int64, string, int64) error {
 	return port.deleteErr

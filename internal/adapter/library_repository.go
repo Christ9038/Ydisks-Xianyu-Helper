@@ -155,7 +155,16 @@ func (r *LibraryImageRepository) TemplateImageRefs(ctx context.Context, userID i
 		if convertErr != nil {
 			return nil, convertErr
 		}
-		refs = append(refs, libraryapp.TemplateImageRef{TemplateName: template.Name, ImageIDs: template.ReferencedImageIDs()})
+		refs = append(refs, libraryapp.TemplateImageRef{TemplateName: "商品模板「" + template.Name + "」", ImageIDs: template.ReferencedImageIDs()})
+	}
+	// usages、usageErr 保存回复、卡密、快捷回复和发货模板对图片的引用；读取失败不能当作无引用。
+	usages, usageErr := r.store.LibraryImages.Usages(ctx, userID)
+	if usageErr != nil {
+		return nil, usageErr
+	}
+	// usage 是当前一处引用，转换为与商品模板相同的引用结构。
+	for _, usage := range usages {
+		refs = append(refs, libraryapp.TemplateImageRef{TemplateName: usage.Label, ImageIDs: []int64{usage.ImageID}})
 	}
 	return refs, nil
 }

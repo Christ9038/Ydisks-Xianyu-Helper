@@ -810,6 +810,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/chat/library-images": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** postApiV1ChatLibraryImages */
+        post: operations["postApiV1ChatLibraryImages"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/chat/quick-replies": {
         parameters: {
             query?: never;
@@ -2468,6 +2485,8 @@ export interface components {
             enabled: boolean;
             reply_content: string;
             reply_image_url?: string;
+            /** @description 图片库图片主键；与 reply_image_url 互斥，0 或省略表示未使用图片库 */
+            reply_library_image_id?: number;
             reply_once: boolean;
         };
         AccountTaskSettingsResponse: {
@@ -2572,6 +2591,8 @@ export interface components {
             item_ids: string[];
             type: string;
             image_url: string;
+            /** @description 图片库图片主键；与 image_url 互斥，0 或省略表示未使用图片库 */
+            library_image_id?: number;
         };
         KeywordTypedListResponse: components["schemas"]["KeywordTypedResponse"][];
         KeywordCreateRequest: {
@@ -2592,6 +2613,8 @@ export interface components {
             item_ids: string[];
             type: string;
             image_url: string;
+            /** @description 图片库图片主键；与 image_url 互斥，0 或省略表示未使用图片库 */
+            library_image_id?: number;
         };
         DefaultReplyMapResponse: {
             [key: string]: components["schemas"]["DefaultReplyResponse"];
@@ -2603,6 +2626,8 @@ export interface components {
             enabled: boolean;
             reply_content: string;
             reply_image_url?: string;
+            /** @description 图片库图片主键；与 reply_image_url 互斥，0 或省略表示未使用图片库 */
+            reply_library_image_id?: number;
             item_ids: string[];
         };
         ItemGreetingResponse: {
@@ -2612,6 +2637,8 @@ export interface components {
             enabled: boolean;
             reply_content: string;
             reply_image_url: string;
+            /** @description 图片库图片主键；与 reply_image_url 互斥，0 或省略表示未使用图片库 */
+            reply_library_image_id?: number;
             item_ids: string[];
         };
         ItemGreetingListResponse: components["schemas"]["ItemGreetingResponse"][];
@@ -2827,6 +2854,8 @@ export interface components {
             /** @description 编辑 data 卡库存时打开弹窗所见的库存快照；提交后服务端仅在当前库存仍与之相同时覆盖，否则返回 409。 */
             expected_data_content?: string;
             image_url?: string;
+            /** @description 图片库图片主键；与 image_url 互斥，0 或省略表示未使用图片库 */
+            library_image_id?: number;
             description?: string;
             enabled?: boolean;
             delay_seconds?: number;
@@ -2902,6 +2931,8 @@ export interface components {
             text_content: string;
             data_content: string;
             image_url: string;
+            /** @description 图片库图片主键；与 image_url 互斥，0 或省略表示未使用图片库 */
+            library_image_id?: number;
             description: string;
             enabled: boolean;
             delay_seconds: number;
@@ -3378,15 +3409,31 @@ export interface components {
         ChatQuickReply: {
             id: number;
             account_id: string;
+            /** @description 文字快捷回复正文；图片快捷回复为空字符串 */
             content: string;
+            /** @description 图片快捷回复引用的图片库图片主键；0 或省略表示文字快捷回复 */
+            library_image_id?: number;
             created_at: number;
         };
         ChatQuickReplyList: {
             quick_replies: components["schemas"]["ChatQuickReply"][];
         };
+        /** @description 文字快捷回复提供 content；图片快捷回复提供 library_image_id 且 content 必须为空，两者二选一 */
         ChatQuickReplyCreateRequest: {
             account_id: string;
-            content: string;
+            content?: string;
+            library_image_id?: number;
+        };
+        /** @description 发送当前用户图片库中的图片；图片字节由服务端按发送账号所有者读取，并走与手动上传相同的上传和真实宽高链路 */
+        ChatLibraryImageSendRequest: {
+            account_id: string;
+            chat_id: string;
+            peer_user_id: string;
+            library_image_id: number;
+            peer_name?: string;
+            peer_avatar_url?: string;
+            item_id?: string;
+            item_title?: string;
         };
         ChatBuyerNote: {
             account_id: string;
@@ -8022,6 +8069,84 @@ export interface operations {
                     /** Format: binary */
                     image: string;
                 };
+            };
+        };
+        responses: {
+            /** @description 成功 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatMessageEnvelope"];
+                };
+            };
+            /** @description 统一错误响应 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 消息已发送但本地状态收口失败，或其他统一错误响应 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatSendErrorResponse"];
+                };
+            };
+            /** @description 平台发送失败 */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatSendErrorResponse"];
+                };
+            };
+        };
+    };
+    postApiV1ChatLibraryImages: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatLibraryImageSendRequest"];
             };
         };
         responses: {

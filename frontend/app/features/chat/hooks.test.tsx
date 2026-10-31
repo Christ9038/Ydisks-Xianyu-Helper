@@ -2,7 +2,7 @@
 import { act,renderHook,waitFor } from '@testing-library/react';
 import { beforeEach,describe,expect,test,vi } from 'vitest';
 import type { AccountDetail,ChatMessage,ChatSession } from './api';
-import { confirmedOutgoingMessageFromError,deleteChatSession,getAccountDetails,getAccountRuntimeStatuses,getChatMessagePage,getChatSessionPage,markChatRead,sendChatImage,sendChatMessage,uncertainOutgoingMessageFromError } from './api';
+import { confirmedOutgoingMessageFromError,deleteChatSession,getAccountDetails,getAccountRuntimeStatuses,getChatMessagePage,getChatSessionPage,markChatRead,sendChatImage,sendChatLibraryImage,sendChatMessage,uncertainOutgoingMessageFromError } from './api';
 import { useChat } from './hooks';
 import { publishChatConnectionState,publishChatLiveMessage } from './liveEvents';
 
@@ -14,6 +14,7 @@ vi.mock('./api', /* chatApiMockFactory 提供聊天 Hook 的确定性 API 替身
 	deleteChatSession: vi.fn(),
   markChatRead: vi.fn(),
   sendChatImage: vi.fn(),
+  sendChatLibraryImage: vi.fn(),
   sendChatMessage: vi.fn(),
 	confirmedOutgoingMessageFromError: vi.fn(),
 	uncertainOutgoingMessageFromError: vi.fn(),
@@ -33,6 +34,8 @@ const deleteSessionMock = vi.mocked(deleteChatSession);
 const markReadMock = vi.mocked(markChatRead);
 // sendImageMock 是聊天图片发送请求的可控替身。
 const sendImageMock = vi.mocked(sendChatImage);
+// sendLibraryImageMock 是聊天图库图片发送请求的可控替身。
+const sendLibraryImageMock = vi.mocked(sendChatLibraryImage);
 // sendMessageMock 是聊天文字发送请求的可控替身。
 const sendMessageMock = vi.mocked(sendChatMessage);
 // confirmedOutgoingMock 是远端已发送状态收口失败错误的可控适配器替身。
@@ -69,6 +72,7 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
     markReadMock.mockResolvedValue({ success: true });
     sendMessageMock.mockResolvedValue({ message: sentMessageFixture });
     sendImageMock.mockResolvedValue({ message: sentMessageFixture });
+    sendLibraryImageMock.mockResolvedValue({ message: sentMessageFixture });
 	confirmedOutgoingMock.mockReturnValue(undefined);
 	uncertainOutgoingMock.mockReturnValue(undefined);
     publishChatConnectionState('connecting');
@@ -394,6 +398,57 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
       async () => hook.result.current.retrySend(),
     );
     expect(sendImageMock).toHaveBeenCalledTimes(2);
+    hook.unmount();
+  });
+
+  test('图片库图片经预览确认发送，快捷回复图片直接发送，失败后可原样重试', /* 当前回调验证图库图片复用既有发送、预览与重试流程。 */ async () => {
+    // hook 是聊天 Hook 的渲染结果。
+    const hook = renderHook(
+      // chatHookFactory 创建聊天 Hook。
+      () => useChat(),
+    );
+    await waitFor(
+      // readyAssertion 等待会话与消息加载完成。
+      () => expect(hook.result.current.messagesLoading).toBe(false),
+    );
+    await waitFor(
+      // activeChatAssertion 等待默认会话被选中。
+      () => expect(hook.result.current.activeChatID).toBe('chat-1'),
+    );
+    await act(
+      // pickAction 选择图片库图片，只进入预览，不触发任何发送请求。
+      async () => hook.result.current.handleLibraryImage({ id: 7, filename: 'a.png' }),
+    );
+    expect(hook.result.current.pendingImage).toMatchObject({ libraryImage: { id: 7 }, url: '/api/v1/library/images/7/content' });
+    expect(sendLibraryImageMock).not.toHaveBeenCalled();
+    await act(
+      // confirmAction 确认预览后提交图库图片。
+      async () => hook.result.current.confirmSendImage(),
+    );
+    expect(sendLibraryImageMock).toHaveBeenCalledWith(expect.objectContaining({ account_id: 'account-1', chat_id: 'chat-1', peer_user_id: 'buyer-1', library_image_id: 7 }), expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(sendImageMock).not.toHaveBeenCalled();
+    expect(hook.result.current.pendingImage).toBeNull();
+
+    sendLibraryImageMock.mockRejectedValueOnce(new Error('图库图片发送失败'));
+    await act(
+      // quickImageAction 直接发送图片快捷回复引用的图片，失败时记录重试来源。
+      async () => hook.result.current.handleQuickReplyImage(9),
+    );
+    expect(hook.result.current.error).toBe('图库图片发送失败');
+    expect(hook.result.current.retryAvailable).toBe(true);
+    await act(
+      // retryAction 重试时仍使用同一张图库图片，而不是文件接口。
+      async () => hook.result.current.retrySend(),
+    );
+    expect(sendLibraryImageMock).toHaveBeenLastCalledWith(expect.objectContaining({ library_image_id: 9 }), expect.anything());
+    expect(sendImageMock).not.toHaveBeenCalled();
+    expect(hook.result.current.retryAvailable).toBe(false);
+
+    await act(
+      // invalidAction 非法主键不会触发任何请求。
+      async () => hook.result.current.handleQuickReplyImage(0),
+    );
+    expect(sendLibraryImageMock).toHaveBeenCalledTimes(3);
     hook.unmount();
   });
 

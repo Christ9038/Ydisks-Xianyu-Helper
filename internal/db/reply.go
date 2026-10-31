@@ -24,6 +24,8 @@ type Keyword struct {
 	Type string
 	// ImageURL 是图片回复地址。
 	ImageURL string
+	// LibraryImageID 是图片库图片主键；与 ImageURL 互斥，0 表示未使用图片库。
+	LibraryImageID int64
 }
 
 // decodeKeywordExpressions 从 JSON 文本读取表达式集合；非法或空数据回退兼容首表达式。
@@ -121,7 +123,9 @@ type DefaultReply struct {
 	Enabled       bool
 	ReplyContent  string
 	ReplyImageURL string
-	ReplyOnce     bool
+	// ReplyLibraryImageID 是图片库图片主键；与 ReplyImageURL 互斥，0 表示未使用图片库。
+	ReplyLibraryImageID int64
+	ReplyOnce           bool
 }
 
 // DefaultReplySummary 是按账号查询默认回复列表时使用的带账号标识视图。
@@ -134,6 +138,8 @@ type DefaultReplySummary struct {
 	ReplyContent string
 	// ReplyImageURL 是默认回复图片地址。
 	ReplyImageURL string
+	// ReplyLibraryImageID 是图片库图片主键；与 ReplyImageURL 互斥，0 表示未使用图片库。
+	ReplyLibraryImageID int64
 	// ReplyOnce 表示同一聊天是否只发送一次。
 	ReplyOnce bool
 }
@@ -171,7 +177,7 @@ func (k *Keywords) AllWithType(ctx context.Context, cookieID string) ([]Keyword,
 	// rows、err 保存数据库查询结果。
 	rows, err := k.DB.QueryContext(ctx,
 		`SELECT keyword, reply, COALESCE(item_id,''), COALESCE(type,'text'), COALESCE(image_url,''),
-				COALESCE(keyword_expressions,''), COALESCE(match_type,'contains')
+				COALESCE(keyword_expressions,''), COALESCE(match_type,'contains'), library_image_id
 			 FROM keywords WHERE cookie_id=? ORDER BY LENGTH(keyword) DESC,id ASC`, cookieID)
 	if err != nil {
 		return nil, err
@@ -185,7 +191,7 @@ func (k *Keywords) AllWithType(ctx context.Context, cookieID string) ([]Keyword,
 		// rawExpressions 保存数据库中的表达式 JSON 文本。
 		var rawExpressions string
 		if // err 表示当前行扫描错误。
-		err := rows.Scan(&kw.Keyword, &kw.Reply, &kw.ItemID, &kw.Type, &kw.ImageURL, &rawExpressions, &kw.MatchType); err != nil {
+		err := rows.Scan(&kw.Keyword, &kw.Reply, &kw.ItemID, &kw.Type, &kw.ImageURL, &rawExpressions, &kw.MatchType, &kw.LibraryImageID); err != nil {
 			return nil, err
 		}
 		kw.Expressions = decodeKeywordExpressions(rawExpressions, kw.Keyword)
@@ -214,8 +220,8 @@ func (d *DefaultReplies) Get(ctx context.Context, cookieID string) (*DefaultRepl
 	var content, imageURL sql.NullString
 	// err 用于本次流程后续判断的err
 	err := d.DB.QueryRowContext(ctx,
-		`SELECT enabled, reply_content, reply_image_url, reply_once FROM default_replies WHERE cookie_id=?`,
-		cookieID).Scan(&enabled, &content, &imageURL, &replyOnce)
+		`SELECT enabled, reply_content, reply_image_url, reply_once, library_image_id FROM default_replies WHERE cookie_id=?`,
+		cookieID).Scan(&enabled, &content, &imageURL, &replyOnce, &dr.ReplyLibraryImageID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -233,15 +239,16 @@ func (d *DefaultReplies) Get(ctx context.Context, cookieID string) (*DefaultRepl
 func (d *DefaultReplies) Upsert(ctx context.Context, cookieID string, reply DefaultReply) error {
 	// err 用于本次流程后续判断的err
 	_, err := d.DB.ExecContext(ctx,
-		`INSERT INTO default_replies (cookie_id, enabled, reply_content, reply_image_url, reply_once, updated_at)
-		 VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)`+dialectUpsert(d.Dialect, []string{"cookie_id"}, map[string]string{
-			"enabled":         "EXCLUDED.enabled",
-			"reply_content":   "EXCLUDED.reply_content",
-			"reply_image_url": "EXCLUDED.reply_image_url",
-			"reply_once":      "EXCLUDED.reply_once",
-			"updated_at":      "CURRENT_TIMESTAMP",
+		`INSERT INTO default_replies (cookie_id, enabled, reply_content, reply_image_url, library_image_id, reply_once, updated_at)
+		 VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)`+dialectUpsert(d.Dialect, []string{"cookie_id"}, map[string]string{
+			"enabled":          "EXCLUDED.enabled",
+			"reply_content":    "EXCLUDED.reply_content",
+			"reply_image_url":  "EXCLUDED.reply_image_url",
+			"library_image_id": "EXCLUDED.library_image_id",
+			"reply_once":       "EXCLUDED.reply_once",
+			"updated_at":       "CURRENT_TIMESTAMP",
 		}),
-		cookieID, boolToInt(reply.Enabled), reply.ReplyContent, defaultReplyNullableString(reply.ReplyImageURL), boolToInt(reply.ReplyOnce))
+		cookieID, boolToInt(reply.Enabled), reply.ReplyContent, defaultReplyNullableString(reply.ReplyImageURL), reply.ReplyLibraryImageID, boolToInt(reply.ReplyOnce))
 	return err
 }
 
@@ -257,7 +264,7 @@ func defaultReplyNullableString(value string) any {
 func (d *DefaultReplies) ListForUser(ctx context.Context, userID int64) ([]DefaultReplySummary, error) {
 	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := d.DB.QueryContext(ctx, `
-		SELECT dr.cookie_id, dr.enabled, COALESCE(dr.reply_content,''), dr.reply_once, COALESCE(dr.reply_image_url,'')
+		SELECT dr.cookie_id, dr.enabled, COALESCE(dr.reply_content,''), dr.reply_once, COALESCE(dr.reply_image_url,''), dr.library_image_id
 		  FROM default_replies dr JOIN cookies c ON c.id=dr.cookie_id WHERE c.user_id=?`, userID)
 	if err != nil {
 		return nil, err
@@ -271,7 +278,7 @@ func (d *DefaultReplies) ListForUser(ctx context.Context, userID int64) ([]Defau
 		// enabled、replyOnce 用于本次流程后续判断的enabled、replyOnce
 		var enabled, replyOnce int
 		if // err 用于本次流程后续判断的err
-		err := rows.Scan(&item.CookieID, &enabled, &item.ReplyContent, &replyOnce, &item.ReplyImageURL); err != nil {
+		err := rows.Scan(&item.CookieID, &enabled, &item.ReplyContent, &replyOnce, &item.ReplyImageURL, &item.ReplyLibraryImageID); err != nil {
 			return nil, err
 		}
 		item.Enabled = enabled != 0

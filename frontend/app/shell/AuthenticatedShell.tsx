@@ -58,6 +58,9 @@ const ItemAISettingsModal = lazy(/* 商品 AI 弹窗随商品页面路由加载�
 // LibraryImagePicker 供商品页单品发布按需使用，图片库代码仅在打开选择器时加载。
 const LibraryImagePicker = lazy(/* 图片库选择器随商品页面路由按需加载。 */ () => import('../features/library/components/LibraryImagePicker'));
 // ResourceLibrary 是按需加载的本地资源库页面（商品模板与图片库）。
+// LibraryImageChooser 供规则、卡密、发货模板和聊天页单选图片库图片，仅在打开选择器时加载。
+const LibraryImageChooser = lazy(/* 图片库单选器随使用它的页面按需加载。 */ () => import('../features/library/components/LibraryImageChooser'));
+
 const ResourceLibrary = lazy(/* ResourceLibrary 页面按路由激活时加载。 */ () => import('../features/library/pages/ResourceLibrary'));
 // Settings 是按需加载的系统设置页面，仅在管理员访问时加载。
 const Settings = lazy(/* Settings 页面按路由激活时加载。 */ () => import('../features/settings/pages/Settings'));
@@ -120,17 +123,18 @@ export const AppContent: React.FC<AppContentProps> = ({
     switch (activeTab) {
       case 'dashboard': return <Dashboard />;
       case 'accounts': return <AccountList />;
-      case 'chat': return <Chat />;
+      case 'chat': return <Chat libraryImageChooser={LibraryImageChooser} />;
       case 'orders': return <OrderList />;
       case 'sales': return <SalesStats />;
-      case 'cards': return <CardList />;
+      case 'cards': return <CardList libraryImageChooser={LibraryImageChooser} />;
       case 'items': return <ItemList onConfigureDelivery={handleConfigureDelivery} publishSpecsEditor={PublishSpecsEditor} publishImagesEditor={PublishImagesEditor} itemAISettingsModal={ItemAISettingsModal} libraryImagePicker={LibraryImagePicker} />;
       case 'rules': return <Rules
         initialDeliveryTarget={deliveryRuleTarget}
         onDeliveryTargetHandled={onDeliveryTargetHandled}
         auditPanel={AutomationAuditPanel}
+        libraryImageChooser={LibraryImageChooser}
       />;
-      case 'delivery-templates': return <DeliveryTemplates />;
+      case 'delivery-templates': return <DeliveryTemplates libraryImageChooser={LibraryImageChooser} />;
       case 'library': return <ResourceLibrary onBatchStarted={onNavigateToItems} />;
       case 'notifications': return <Notifications isAdmin={isAdmin} />;
       case 'logs': return isAdmin ? <RuntimeLogs /> : <Dashboard />;

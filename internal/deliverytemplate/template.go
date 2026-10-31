@@ -4,6 +4,7 @@ package deliverytemplate
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -19,6 +20,26 @@ var customVariablePattern = regexp.MustCompile(`\{\{(?:delivery\.)?custom\.([A-Z
 // fullVariablePattern 只匹配完整且受支持的模板变量令牌。
 var fullVariablePattern = regexp.MustCompile(`^\{\{(?:delivery\.)?(?:cards\.[A-Za-z0-9_-]+|custom\.[A-Za-z0-9_-]+|buyer_nickname|order_id|buyer_id|card_name)\}\}$`)
 
+// imageTokenPattern 匹配整条消息就是一张图片库图片的令牌，例如 {{library_image:12}}。
+var imageTokenPattern = regexp.MustCompile(`^\{\{library_image:([1-9][0-9]{0,17})\}\}$`)
+
+// ImageToken 返回引用图片库图片的整条图片消息令牌。
+func ImageToken(imageID int64) string {
+	return "{{library_image:" + strconv.FormatInt(imageID, 10) + "}}"
+}
+
+// ImageID 判断一条模板消息是否是图片库图片消息；只有整条消息恰好是图片令牌时才成立，不能与文字混排。
+func ImageID(message string) (int64, bool) {
+	// match 保存去除首尾空白后的整条消息与图片令牌的匹配结果。
+	match := imageTokenPattern.FindStringSubmatch(strings.TrimSpace(message))
+	if len(match) != 2 {
+		return 0, false
+	}
+	// imageID、err 保存令牌中的图片主键及解析错误。
+	imageID, err := strconv.ParseInt(match[1], 10, 64)
+	return imageID, err == nil
+}
+
 // Parsed 保存校验后的消息副本、卡密变量键和自定义变量键。
 type Parsed struct {
 	// Messages 是模板保存时应保留的有序消息内容。
@@ -27,6 +48,8 @@ type Parsed struct {
 	Keys []string
 	// CustomKeys 是模板需要规则提供的自定义变量键，按消息首次出现顺序排列。
 	CustomKeys []string
+	// ImageIDs 是模板中图片消息引用的图片库图片主键，按消息顺序排列，可含重复项。
+	ImageIDs []int64
 }
 
 // CardKeys 提取单条消息中按首次出现顺序使用的卡密变量键。
@@ -60,6 +83,11 @@ func Parse(messages []string) (Parsed, error) {
 			return Parsed{}, fmt.Errorf("发货模板第 %d 条消息不能为空", index+1)
 		}
 		parsed.Messages[index] = message
+		// imageID、isImage 表示该消息是否是整条图片库图片消息；图片消息没有任何变量，直接进入下一条。
+		if imageID, isImage := ImageID(message); isImage {
+			parsed.ImageIDs = append(parsed.ImageIDs, imageID)
+			continue
+		}
 		// offset 表示当前消息从左到右扫描双大括号令牌的字节位置。
 		for offset := 0; offset < len(message); {
 			// nextOpen、nextClose 分别保存下一个开放和闭合标记的相对位置。

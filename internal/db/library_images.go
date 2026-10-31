@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"xianyu-go/internal/deliverytemplate"
 )
 
 // LibraryImage 对应 library_images，只保存图片元数据；图片字节位于上传根目录的 library 子目录。
@@ -146,4 +147,91 @@ func (l *LibraryImages) Delete(ctx context.Context, userID, id int64) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// LibraryImageUsage 描述一处引用图片库图片的配置，用于删除图片前的引用检查。
+type LibraryImageUsage struct {
+	// ImageID 是被引用的图片主键。
+	ImageID int64
+	// Label 是面向用户的引用位置说明，例如“关键词「你好」”，不包含卡密、Cookie 或消息正文。
+	Label string
+}
+
+// Usages 返回用户名下回复、卡密、快捷回复和发货模板对图片库图片的全部引用。
+// 引用完整性靠本检查保证（这些表没有指向 library_images 的外键），读取失败必须向上返回而不是当作“无引用”。
+func (l *LibraryImages) Usages(ctx context.Context, userID int64) ([]LibraryImageUsage, error) {
+	// sources 保存各引用来源的查询和标签前缀；每条查询都返回 (image_id, name) 两列。
+	sources := []struct {
+		// label 是引用位置的中文前缀。
+		label string
+		// query 是按用户过滤并只返回已引用行的查询。
+		query string
+	}{
+		{"关键词", `SELECT k.library_image_id, COALESCE(k.keyword,'') FROM keywords k JOIN cookies c ON c.id=k.cookie_id WHERE c.user_id=? AND k.library_image_id>0`},
+		{"账号默认回复", `SELECT d.library_image_id, d.cookie_id FROM default_replies d JOIN cookies c ON c.id=d.cookie_id WHERE c.user_id=? AND d.library_image_id>0`},
+		{"商品首次回复", `SELECT r.library_image_id, COALESCE(r.name,'') FROM item_greeting_rules r JOIN cookies c ON c.id=r.cookie_id WHERE c.user_id=? AND r.library_image_id>0`},
+		{"图片卡密", `SELECT cd.library_image_id, COALESCE(cd.name,'') FROM cards cd WHERE cd.user_id=? AND cd.library_image_id>0`},
+		{"快捷回复（账号", `SELECT q.library_image_id, q.cookie_id FROM chat_quick_replies q JOIN cookies c ON c.id=q.cookie_id WHERE c.user_id=? AND q.library_image_id>0`},
+	}
+	// usages 保存全部引用。
+	var usages []LibraryImageUsage
+	// source 是当前查询的引用来源。
+	for _, source := range sources {
+		// rows、err 保存当前来源的查询结果。
+		rows, err := l.DB.QueryContext(ctx, source.query, userID)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			// usage、name 保存当前行的引用与名称。
+			var usage LibraryImageUsage
+			// name 是被引用位置的名称（规则、卡密或模板名），用于拼接引用标签。
+			var name string
+			// scanErr 保存扫描引用行的失败原因，非空时终止查询。
+			if scanErr := rows.Scan(&usage.ImageID, &name); scanErr != nil {
+				rows.Close()
+				return nil, scanErr
+			}
+			usage.Label = usageLabel(source.label, name)
+			usages = append(usages, usage)
+		}
+		// iterErr 保存逐行读取的迭代错误。
+		iterErr := rows.Err()
+		rows.Close()
+		if iterErr != nil {
+			return nil, iterErr
+		}
+	}
+	// templateRows、templateErr 保存未删除发货模板中的图片消息；图片令牌在 content 中，需在 Go 里解析主键。
+	templateRows, templateErr := l.DB.QueryContext(ctx,
+		`SELECT t.name, m.content FROM delivery_template_messages m JOIN delivery_templates t ON t.id=m.template_id
+		 WHERE t.user_id=? AND t.deleted_at IS NULL AND m.content LIKE '{{library_image:%'`, userID)
+	if templateErr != nil {
+		return nil, templateErr
+	}
+	defer templateRows.Close()
+	for templateRows.Next() {
+		// templateName、content 保存模板名称和图片消息令牌。
+		var templateName, content string
+		// scanErr 保存扫描引用行的失败原因，非空时终止查询。
+		if scanErr := templateRows.Scan(&templateName, &content); scanErr != nil {
+			return nil, scanErr
+		}
+		// imageID 是从模板消息中解析出的图片库主键；ok 表示该消息是否为合法的图片库令牌。
+		if imageID, ok := deliverytemplate.ImageID(content); ok {
+			usages = append(usages, LibraryImageUsage{ImageID: imageID, Label: usageLabel("发货模板", templateName)})
+		}
+	}
+	return usages, templateRows.Err()
+}
+
+// usageLabel 组合引用位置说明；名称为空时只保留前缀。
+func usageLabel(prefix, name string) string {
+	if name == "" {
+		return prefix
+	}
+	if prefix == "快捷回复（账号" {
+		return prefix + " " + name + "）"
+	}
+	return prefix + "「" + name + "」"
 }

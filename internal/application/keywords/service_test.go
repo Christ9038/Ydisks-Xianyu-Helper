@@ -721,3 +721,38 @@ func TestNormalizeMatchTypeAcceptsPaddedRegexp(t *testing.T) {
 		t.Fatalf("matchType=%q err=%v", matchType, err)
 	}
 }
+
+// TestServiceImageReplyAcceptsLibraryImageAndRejectsAmbiguousSource 验证图片回复可用图片库图片，且与 URL 互斥。
+func TestServiceImageReplyAcceptsLibraryImageAndRejectsAmbiguousSource(t *testing.T) {
+	// repository、service 是本用例的可控仓储和被测服务。
+	repository := &keywordRepositoryFake{}
+	// service 是被测的应用服务，绑定本用例的仓储替身。
+	service := NewService(repository)
+	// err 保存使用图片库图片创建的结果。
+	if _, err := service.Add(context.Background(), 7, "account-1", Draft{Keyword: "图", Type: "image", LibraryImageID: 5}); err != nil {
+		t.Fatalf("图片库图片应可创建: %v", err)
+	}
+	if repository.addedDraft.LibraryImageID != 5 || repository.addedDraft.ImageURL != "" {
+		t.Fatalf("图片库图片未传给仓储: %+v", repository.addedDraft)
+	}
+	// 文字回复必须清除图片来源，避免保留悬空引用。
+	if _, err := service.Add(context.Background(), 7, "account-1", Draft{Keyword: "文", Reply: "x", Type: "text", LibraryImageID: 5}); err != nil {
+		t.Fatalf("文字回复应可创建: %v", err)
+	}
+	if repository.addedDraft.LibraryImageID != 0 {
+		t.Fatalf("文字回复不应保留图片库引用: %+v", repository.addedDraft)
+	}
+	// draft 是待校验的一份草稿输入；name 是当前场景的名称，用于失败信息定位。
+	for name, draft := range map[string]Draft{
+		"both":     {Keyword: "图", Type: "image", ImageURL: "https://a.example/x.png", LibraryImageID: 5},
+		"neither":  {Keyword: "图", Type: "image"},
+		"negative": {Keyword: "图", Type: "image", LibraryImageID: -1},
+	} {
+		// validationErr 保存非法图片来源的校验结果。
+		var validationErr *ValidationError
+		// err 保存被测调用的失败原因，断言时按预期分支检查。
+		if _, err := service.Add(context.Background(), 7, "account-1", draft); !errors.As(err, &validationErr) {
+			t.Fatalf("%s 应为校验错误: %v", name, err)
+		}
+	}
+}

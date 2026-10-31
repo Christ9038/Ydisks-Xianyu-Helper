@@ -1,5 +1,12 @@
 import type { Dispatch,SetStateAction } from 'react';
 import type { Card,CardAppendResponse,CardBatchResponse } from './api';
+import type { LibraryImageChooserComponent } from '../../../shared/ui/imageSource';
+
+// CardListProps 描述卡密页面从应用壳接收的可选注入项。
+export interface CardListProps {
+  // libraryImageChooser 是应用壳按需注入的图片库选择器；缺省时图片卡密只能填写外链。
+  libraryImageChooser?: LibraryImageChooserComponent;
+}
 
 // AddCardForm 描述新增卡密组弹窗中的可编辑字段。
 export interface AddCardForm {
@@ -9,6 +16,8 @@ export interface AddCardForm {
   type: Card['type'];
   // content 是当前类型对应的主要内容。
   content: string;
+  // library_image_id 是图片卡密选择的图片库图片主键，0 表示未使用，与 content 中的外链互斥。
+  library_image_id: number;
   // description 是卡密组说明。
   description: string;
   // enabled 表示新建后是否启用。

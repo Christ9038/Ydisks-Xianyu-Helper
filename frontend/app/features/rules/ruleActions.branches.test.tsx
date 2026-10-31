@@ -246,14 +246,14 @@ describe('useRuleActions 分支', /* 当前套件覆盖校验提示、异常路�
     const hook = setup();
     await act(/* 当前回调读取失败后回退空配置。 */ async () => hook.result.current.openDefaultReplyModal());
     expect(hook.result.current.defaultForm).toMatchObject({ enabled: false, reply_content: '' });
-    await act(/* 当前回调保存启用但无内容的配置。 */ async () => { hook.result.current.setDefaultForm({ cookie_id: 'account-1', enabled: true, reply_content: ' ', reply_once: false, reply_image_url: '' }); });
+    await act(/* 当前回调保存启用但无内容的配置。 */ async () => { hook.result.current.setDefaultForm({ cookie_id: 'account-1', enabled: true, reply_content: ' ', reply_once: false, reply_image_url: '', reply_library_image_id: 0 }); });
     await act(/* 当前回调保存无内容配置。 */ async () => hook.result.current.handleSaveDefaultReply());
-    expect(alertMock).toHaveBeenLastCalledWith('启用默认回复时，请填写回复内容或图片 URL');
-    act(/* 当前回调清空账号。 */ () => hook.result.current.setDefaultForm({ cookie_id: '', enabled: false, reply_content: '', reply_once: false, reply_image_url: '' }));
+    expect(alertMock).toHaveBeenLastCalledWith('启用默认回复时，请填写回复内容或选择/填写图片');
+    act(/* 当前回调清空账号。 */ () => hook.result.current.setDefaultForm({ cookie_id: '', enabled: false, reply_content: '', reply_once: false, reply_image_url: '', reply_library_image_id: 0 }));
     await act(/* 当前回调保存无账号配置。 */ async () => hook.result.current.handleSaveDefaultReply());
     expect(alertMock).toHaveBeenLastCalledWith('请先选择账号');
     vi.mocked(api.updateDefaultReply).mockRejectedValueOnce(new Error('sv'));
-    act(/* 当前回调写入合法配置。 */ () => hook.result.current.setDefaultForm({ cookie_id: 'account-1', enabled: true, reply_content: 'hi', reply_once: false, reply_image_url: '' }));
+    act(/* 当前回调写入合法配置。 */ () => hook.result.current.setDefaultForm({ cookie_id: 'account-1', enabled: true, reply_content: 'hi', reply_once: false, reply_image_url: '', reply_library_image_id: 0 }));
     await act(/* 当前回调保存失败。 */ async () => hook.result.current.handleSaveDefaultReply());
     expect(alertMock).toHaveBeenLastCalledWith(expect.stringContaining('sv'));
     hook.unmount();

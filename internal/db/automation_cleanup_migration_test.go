@@ -75,7 +75,7 @@ func TestMultiDB_DeletedAutomationRulesUpgrade(t *testing.T) {
 				// t 管理单个业务场景的独立规则和卡密，不并行操作迁移配置。
 				t.Run(scenario.name, func(t *testing.T) {
 					// cardID、err 创建虚构卡密组，内容不会触发任何外部调用。
-					cardID, err := store.Cards.Create(ctx, &CardFull{Name: scenario.name, Type: "text", TextContent: "fixture", Enabled: true, UserID: userID})
+					cardID, err := insertLegacyTextCard(ctx, store, scenario.name, "fixture", userID)
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -186,7 +186,7 @@ func TestMultiDB_DeletedAutomationRulesSharedCard(t *testing.T) {
 			// userID、cookieID 是共享卡密和订单的合法归属。
 			userID, cookieID := seedAccount(t, store)
 			// cardID、err 保存共享卡密创建结果，测试数据不包含真实密钥。
-			cardID, err := store.Cards.Create(ctx, &CardFull{Name: "shared", Type: "text", Enabled: true, UserID: userID})
+			cardID, err := insertLegacyTextCard(ctx, store, "shared", "", userID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -236,4 +236,12 @@ func TestMultiDB_DeletedAutomationRulesSharedCard(t *testing.T) {
 			}
 		})
 	}
+}
+
+// insertLegacyTextCard 在已回退到旧迁移版本的库中直接写入文本卡密组。
+// 当前 Cards.Create 会写入 00059 之后才存在的 library_image_id 列，旧版本表结构没有该列，所以这里使用旧表结构的原始 SQL。
+func insertLegacyTextCard(ctx context.Context, store *Store, name, text string, userID int64) (int64, error) {
+	return insertReturningID(ctx, store.DB, store.Dialect,
+		`INSERT INTO cards (name, type, text_content, enabled, user_id) VALUES (?,?,?,?,?)`,
+		name, "text", nullable(text), 1, userID)
 }

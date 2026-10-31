@@ -5,6 +5,7 @@ package defaultreply
 import (
 	"context"
 	"errors"
+	"strings"
 )
 
 // ErrInvalidUser 表示调用方没有提供有效的本地用户身份。
@@ -19,6 +20,12 @@ var ErrAccountNotFound = errors.New("默认回复账号不存在")
 // ErrForbidden 表示目标账号存在但不属于当前用户。
 var ErrForbidden = errors.New("无权操作该账号的默认回复")
 
+// ErrInvalidImageSource 表示图片地址与图片库图片同时提供，或图片库图片标识无效。
+var ErrInvalidImageSource = errors.New("默认回复图片只能选择图片库图片或填写 URL 之一")
+
+// ErrImageNotFound 表示引用的图片库图片不存在、已被删除或不属于账号所有者。
+var ErrImageNotFound = errors.New("默认回复引用的图片库图片不存在")
+
 // ErrConfigNotFound 表示账号存在但尚未保存默认回复配置。
 var ErrConfigNotFound = errors.New("默认回复配置不存在")
 
@@ -30,6 +37,8 @@ type Reply struct {
 	ReplyContent string
 	// ReplyImageURL 是默认回复使用的图片地址。
 	ReplyImageURL string
+	// ReplyLibraryImageID 是默认回复引用的图片库图片主键；与 ReplyImageURL 互斥，0 表示未使用。
+	ReplyLibraryImageID int64
 	// ReplyOnce 表示同一聊天是否只发送一次默认回复。
 	ReplyOnce bool
 }
@@ -91,6 +100,9 @@ func (s *Service) Upsert(ctx context.Context, userID int64, cookieID string, rep
 	// err 表示输入、所有权或持久化写入失败的原因。
 	if err := s.ensureOwned(ctx, userID, cookieID); err != nil {
 		return err
+	}
+	if reply.ReplyLibraryImageID < 0 || (reply.ReplyLibraryImageID > 0 && strings.TrimSpace(reply.ReplyImageURL) != "") {
+		return ErrInvalidImageSource
 	}
 	return s.repository.Upsert(ctx, cookieID, reply)
 }

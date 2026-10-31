@@ -67,6 +67,8 @@ type cardResponse struct {
 	DataContent string `json:"data_content"`
 	// ImageURL 是图片卡券地址。
 	ImageURL string `json:"image_url"`
+	// LibraryImageID 是图片卡券引用的图片库图片主键；0 或省略表示未使用图片库。
+	LibraryImageID int64 `json:"library_image_id,omitempty"`
 	// Description 是卡券组描述。
 	Description string `json:"description"`
 	// Enabled 表示卡券组是否启用。
@@ -398,6 +400,8 @@ type defaultReplyResponse struct {
 	ReplyContent string `json:"reply_content"`
 	// ReplyImageURL 是默认图片回复地址。
 	ReplyImageURL string `json:"reply_image_url,omitempty"`
+	// ReplyLibraryImageID 是默认回复引用的图片库图片主键；0 或省略表示未使用图片库。
+	ReplyLibraryImageID int64 `json:"reply_library_image_id,omitempty"`
 	// ReplyOnce 表示是否只回复一次。
 	ReplyOnce bool `json:"reply_once"`
 }
@@ -406,7 +410,7 @@ type defaultReplyResponse struct {
 func newDefaultReplyResponse(cookieID string, reply defaultreplyapp.Reply) defaultReplyResponse {
 	return defaultReplyResponse{
 		CookieID: cookieID, Enabled: reply.Enabled, ReplyContent: reply.ReplyContent,
-		ReplyImageURL: reply.ReplyImageURL, ReplyOnce: reply.ReplyOnce,
+		ReplyImageURL: reply.ReplyImageURL, ReplyLibraryImageID: reply.ReplyLibraryImageID, ReplyOnce: reply.ReplyOnce,
 	}
 }
 

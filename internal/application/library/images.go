@@ -36,9 +36,9 @@ type Image struct {
 	CreatedAt string
 }
 
-// TemplateImageRef 描述某个模板引用了哪些图片，用于删除图片前的引用检查。
+// TemplateImageRef 描述某个位置引用了哪些图片，用于删除图片前的引用检查。
 type TemplateImageRef struct {
-	// TemplateName 是引用图片的模板名称。
+	// TemplateName 是引用图片的位置说明，例如“商品模板「春季」”或“关键词「你好」”。
 	TemplateName string
 	// ImageIDs 是该模板引用的全部图片（主图与规格图）。
 	ImageIDs []int64

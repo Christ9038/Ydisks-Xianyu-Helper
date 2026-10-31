@@ -24,7 +24,7 @@ const deleteMock = vi.mocked(deleteItemGreeting);
 const clearMock = vi.mocked(clearItemGreetingRecords);
 
 // ruleFixture 是账号 a1 下覆盖 i1 的启用规则。
-const ruleFixture: ItemGreetingRule = { id: 1, cookie_id: 'a1', name: '欢迎', enabled: true, reply_content: '你好', reply_image_url: '', item_ids: ['i1'] };
+const ruleFixture: ItemGreetingRule = { id: 1, cookie_id: 'a1', name: '欢迎', enabled: true, reply_content: '你好', reply_image_url: '', reply_library_image_id: 0, item_ids: ['i1'] };
 // itemFixture 是编辑器商品候选。
 const itemFixture = { id: 1, cookie_id: 'a1', item_id: 'i1', item_title: '商品' } as Item;
 

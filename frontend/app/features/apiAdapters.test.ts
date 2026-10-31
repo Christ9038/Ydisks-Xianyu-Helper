@@ -972,9 +972,9 @@ test('默认回复 API 补齐空字段默认值', /* 当前回调验证默认回
     .mockResolvedValueOnce(jsonResponse({ enabled: false }))
     .mockResolvedValueOnce(jsonResponse({ success: true }));
   stubContractFetch(fetchMock);
-  await expect(getDefaultReply('account-1')).resolves.toEqual({ cookie_id: 'account-1', enabled: false, reply_content: '', reply_once: false, reply_image_url: '' });
+  await expect(getDefaultReply('account-1')).resolves.toEqual({ cookie_id: 'account-1', enabled: false, reply_content: '', reply_once: false, reply_image_url: '', reply_library_image_id: 0 });
   await updateDefaultReply('account-1', {});
-  expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ enabled: false, reply_content: '', reply_once: false, reply_image_url: '' });
+  expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ enabled: false, reply_content: '', reply_once: false, reply_image_url: '', reply_library_image_id: 0 });
 });
 
 test('商品首次回复 API 归一规则并使用版本化路径', /* 当前回调验证列表归一、创建、更新、删除和清理记录的请求形状。 */ async () => {
@@ -987,16 +987,16 @@ test('商品首次回复 API 归一规则并使用版本化路径', /* 当前回
     .mockResolvedValueOnce(jsonResponse({ success: true }));
   stubContractFetch(fetchMock);
   await expect(getItemGreetings('a1')).resolves.toEqual([
-    { id: 3, cookie_id: 'a1', name: '', enabled: true, reply_content: '', reply_image_url: '', item_ids: ['i1', 'i2'] },
-    { id: 0, cookie_id: '', name: '', enabled: false, reply_content: '', reply_image_url: '', item_ids: [] },
+    { id: 3, cookie_id: 'a1', name: '', enabled: true, reply_content: '', reply_image_url: '', reply_library_image_id: 0, item_ids: ['i1', 'i2'] },
+    { id: 0, cookie_id: '', name: '', enabled: false, reply_content: '', reply_image_url: '', reply_library_image_id: 0, item_ids: [] },
   ]);
   expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/reply-rules/greetings?cookie_id=a1');
   // draft 是创建与更新共用的规则草稿。
-  const draft = { id: 0, cookie_id: 'a1', name: '新', enabled: true, reply_content: '你好', reply_image_url: '', item_ids: ['i1'] };
+  const draft = { id: 0, cookie_id: 'a1', name: '新', enabled: true, reply_content: '你好', reply_image_url: '', reply_library_image_id: 0, item_ids: ['i1'] };
   await expect(saveItemGreeting(draft)).resolves.toMatchObject({ id: 4 });
   expect(fetchMock.mock.calls[1][0]).toBe('/api/v1/reply-rules/greetings');
   expect(fetchMock.mock.calls[1][1].method).toBe('POST');
-  expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ cookie_id: 'a1', name: '新', enabled: true, reply_content: '你好', reply_image_url: '', item_ids: ['i1'] });
+  expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ cookie_id: 'a1', name: '新', enabled: true, reply_content: '你好', reply_image_url: '', reply_library_image_id: 0, item_ids: ['i1'] });
   await expect(saveItemGreeting({ ...draft, id: 4, enabled: false })).resolves.toMatchObject({ enabled: false });
   expect(fetchMock.mock.calls[2][0]).toBe('/api/v1/reply-rules/greetings/4');
   expect(fetchMock.mock.calls[2][1].method).toBe('PUT');
@@ -1019,7 +1019,7 @@ test('updateReplyRule preserves keyword image metadata when saving text edits', 
     credentials: 'include',
   }));
   expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
-    keyword: '发货', expressions: ['发货'], match_type: 'contains', reply: '稍后安排', item_id: 'item-1', item_ids: ['item-1'], type: 'text', image_url: '',
+    keyword: '发货', expressions: ['发货'], match_type: 'contains', reply: '稍后安排', item_id: 'item-1', item_ids: ['item-1'], type: 'text', image_url: '', library_image_id: 0,
   });
 
 } /* 测试回调验证：updateReplyRule preserves keyword image metadata when saving text edits。 */);
@@ -1032,7 +1032,7 @@ test('updateReplyRule sends every selected item id for multi-select rules', asyn
 
   expect(fetchMock).toHaveBeenCalledTimes(1);
   expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
-    keyword: '发货', expressions: ['发货'], match_type: 'contains', reply: '稍后安排', item_id: 'item-1', item_ids: ['item-1', 'item-2'], type: 'text', image_url: '',
+    keyword: '发货', expressions: ['发货'], match_type: 'contains', reply: '稍后安排', item_id: 'item-1', item_ids: ['item-1', 'item-2'], type: 'text', image_url: '', library_image_id: 0,
   });
 } /* 测试回调验证：多选规则保存为一条规则并提交全部关联商品。 */);
 
@@ -1047,9 +1047,26 @@ test('createReplyRule keeps multi-select items in one rule request', async () =>
     credentials: 'include',
   }));
   expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
-    keyword: '发货', expressions: ['发货'], match_type: 'contains', reply: '稍后安排', item_id: 'item-1', item_ids: ['item-1', 'item-2'], type: 'text', image_url: '',
+    keyword: '发货', expressions: ['发货'], match_type: 'contains', reply: '稍后安排', item_id: 'item-1', item_ids: ['item-1', 'item-2'], type: 'text', image_url: '', library_image_id: 0,
   });
 } /* 测试回调验证：新建多选规则只提交一次请求。 */);
+
+test('图片库图片与外链互斥：关键词、默认回复、首次回复和卡密请求只提交图片库主键', async () => {
+  // fetchMock 记录各适配器发出的请求体。
+  const fetchMock = vi.fn().mockImplementation(/* 每次调用返回新的响应对象，避免响应体被重复读取。 */ async () => jsonResponse({ success: true, id: 1, cookie_id: 'a1', name: 'n', enabled: true, reply_content: '', reply_image_url: '', reply_library_image_id: 4, item_ids: [] }));
+  stubContractFetch(fetchMock);
+
+  await updateReplyRule({ id: '42', keyword: '图', type: 'image', image_url: 'https://stale/x.png', library_image_id: 4 }, 'acc1');
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ type: 'image', image_url: '', library_image_id: 4 });
+  await updateReplyRule({ id: '42', keyword: '文', type: 'text', reply_content: 'hi', library_image_id: 4 }, 'acc1');
+  expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toMatchObject({ type: 'text', image_url: '', library_image_id: 0 });
+  await updateDefaultReply('acc1', { enabled: true, reply_image_url: 'https://stale/x.png', reply_library_image_id: 4 });
+  expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toMatchObject({ reply_image_url: '', reply_library_image_id: 4 });
+  await saveItemGreeting({ id: 0, cookie_id: 'a1', name: 'n', enabled: true, reply_content: '', reply_image_url: 'https://stale/x.png', reply_library_image_id: 4, item_ids: ['i1'] });
+  expect(JSON.parse(fetchMock.mock.calls[3][1].body)).toMatchObject({ reply_image_url: '', reply_library_image_id: 4 });
+  await createCard({ name: '图', type: 'image', image_url: 'https://stale/x.png', library_image_id: 4 });
+  expect(JSON.parse(fetchMock.mock.calls[4][1].body)).toMatchObject({ type: 'image', image_url: '', library_image_id: 4 });
+} /* 测试回调验证：图片库图片与外链互斥地提交。 */);
 
 test('updateReplyRule clears stale content when switching reply type', async () => {
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true })); /* fetchMock 表示fetchMock。 */
@@ -1057,7 +1074,7 @@ test('updateReplyRule clears stale content when switching reply type', async () 
 
   await updateReplyRule({ id: '42', keyword: '发货', type: 'image', image_url: 'https://img.example/new.png' }, 'acc1');
   expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
-    keyword: '发货', expressions: ['发货'], match_type: 'contains', reply: '', item_id: '', item_ids: [], type: 'image', image_url: 'https://img.example/new.png',
+    keyword: '发货', expressions: ['发货'], match_type: 'contains', reply: '', item_id: '', item_ids: [], type: 'image', image_url: 'https://img.example/new.png', library_image_id: 0,
   });
 } /* 测试回调验证：updateReplyRule clears stale content when switching reply type。 */);
 

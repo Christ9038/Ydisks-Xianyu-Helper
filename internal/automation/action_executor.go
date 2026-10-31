@@ -626,6 +626,31 @@ func (e *automationActionExecutor) sendImage(ctx context.Context, task Task, ima
 	return sender.SendImage(ctx, task.ChatID, task.BuyerID, imageURL, cardID, 0, 0)
 }
 
+// sendLibraryImage 向账号在线发送器发送图片库图片，并标记关联卡密组；cardID 为 0 表示不关联卡密组。
+func (e *automationActionExecutor) sendLibraryImage(ctx context.Context, task Task, imageID, cardID int64) error {
+	// executionErr 在平台副作用前拒绝已取消或失去数据库执行权的旧动作。
+	if executionErr := checkRunExecution(ctx); executionErr != nil {
+		return fmt.Errorf("%w: %w", ErrMessageNotSent, executionErr)
+	}
+	if task.ChatID == "" || task.BuyerID == "" {
+		return fmt.Errorf("%w: 发送图片缺少 chat_id 或 buyer_id", ErrMessageNotSent)
+	}
+	if e.senders == nil {
+		return fmt.Errorf("%w: 账号发送器未初始化", ErrMessageNotSent)
+	}
+	// sender、senderOK 分别是当前账号的在线发送器及其可用标记，账号离线时必须返回确定未发送错误。
+	sender, senderOK := e.senders.Sender(task.AccountID)
+	if !senderOK {
+		return fmt.Errorf("%w: 账号未在线，无法发送自动化图片", ErrMessageNotSent)
+	}
+	// librarySender、supported 保存发送器是否支持图片库图片。
+	librarySender, supported := sender.(LibraryImageSender)
+	if !supported {
+		return fmt.Errorf("%w: 当前发送器不支持图片库图片", ErrMessageNotSent)
+	}
+	return librarySender.SendLibraryImage(ctx, task.ChatID, task.BuyerID, imageID, cardID)
+}
+
 // cardContent 读取卡密组内容并拒绝不支持的卡密类型。
 func (e *automationActionExecutor) cardContent(_ context.Context, card *db.CardFull) (text, imageURL string, err error) {
 	switch card.Type {
@@ -638,7 +663,7 @@ func (e *automationActionExecutor) cardContent(_ context.Context, card *db.CardF
 		return "", "", fmt.Errorf("data 卡密必须通过 sendDataCard 发送")
 	case "image":
 		if strings.TrimSpace(card.ImageURL) == "" {
-			return "", "", fmt.Errorf("图片卡密组缺少图片 URL")
+			return "", "", fmt.Errorf("图片卡密组缺少图片 URL 或图片库图片")
 		}
 		return "", card.ImageURL, nil
 	case "api":

@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import { act,renderHook,waitFor } from '@testing-library/react';
 import { beforeEach,describe,expect,test,vi } from 'vitest';
-import { createChatQuickReply,deleteChatQuickReply,getChatBuyerNote,getChatQuickReplies,saveChatBuyerNote } from './api';
+import { createChatImageQuickReply,createChatQuickReply,deleteChatQuickReply,getChatBuyerNote,getChatQuickReplies,saveChatBuyerNote } from './api';
 import { useChatMetadata } from './metadata';
 import type { ChatSession } from './models';
 
 vi.mock('./api', /* chatMetadataApiMockFactory 提供快捷回复和买家备注 Hook 的确定性 API 替身。 */ () => ({
+  createChatImageQuickReply: vi.fn(),
   createChatQuickReply: vi.fn(),
   deleteChatQuickReply: vi.fn(),
   getChatBuyerNote: vi.fn(),
@@ -15,6 +16,8 @@ vi.mock('./api', /* chatMetadataApiMockFactory 提供快捷回复和买家备注
 
 // createQuickReplyMock 是创建快捷回复请求的可控替身。
 const createQuickReplyMock = vi.mocked(createChatQuickReply);
+// createImageQuickReplyMock 是创建图片快捷回复请求的可控替身。
+const createImageQuickReplyMock = vi.mocked(createChatImageQuickReply);
 // deleteQuickReplyMock 是删除快捷回复请求的可控替身。
 const deleteQuickReplyMock = vi.mocked(deleteChatQuickReply);
 // getBuyerNoteMock 是读取买家备注请求的可控替身。
@@ -35,6 +38,8 @@ type QuickReplyFixture = {
   account_id: string;
   /** content 是快捷回复文本模板。 */
   content: string;
+  /** library_image_id 是图片快捷回复引用的图片库图片主键，0 表示文字回复。 */
+  library_image_id: number;
   /** created_at 是快捷回复创建时间。 */
   created_at: number;
 };
@@ -50,9 +55,9 @@ type MetadataHookProps = {
 describe('useChatMetadata', /* 当前回调覆盖账号快捷回复与买家备注的异步状态和用户交互。 */ () => {
   beforeEach(/* 当前回调重置所有元数据 API 替身并配置默认成功响应。 */ () => {
     vi.clearAllMocks();
-    getQuickRepliesMock.mockResolvedValue([{ id: 1, account_id: 'account-1', content: '您好', created_at: 1 }]);
+    getQuickRepliesMock.mockResolvedValue([{ id: 1, account_id: 'account-1', content: '您好', library_image_id: 0, created_at: 1 }]);
     getBuyerNoteMock.mockResolvedValue({ account_id: 'account-1', buyer_id: 'buyer-1', content: '偏好顺丰', updated_at: 1 });
-    createQuickReplyMock.mockResolvedValue({ id: 2, account_id: 'account-1', content: '现货可拍', created_at: 2 });
+    createQuickReplyMock.mockResolvedValue({ id: 2, account_id: 'account-1', content: '现货可拍', library_image_id: 0, created_at: 2 });
     deleteQuickReplyMock.mockResolvedValue({ success: true });
     saveBuyerNoteMock.mockResolvedValue({ account_id: 'account-1', buyer_id: 'buyer-1', content: '重点客户', updated_at: 2 });
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn().mockResolvedValue(undefined) } });
@@ -113,12 +118,44 @@ describe('useChatMetadata', /* 当前回调覆盖账号快捷回复与买家备�
     hook.unmount();
   });
 
+  test('新增图片快捷回复：成功插入列表，失败保留错误，非法主键不发请求', /* 当前回调验证图片快捷回复的忙碌保护与错误提示。 */ async () => {
+    // hook 是账号 account-1 下的聊天元数据 Hook。
+    const hook = renderHook(
+      // metadataHookFactory 创建元数据 Hook。
+      () => useChatMetadata('account-1', sessionFixture),
+    );
+    await waitFor(
+      // loadedAssertion 等待首次快捷回复读取完成。
+      () => expect(getQuickRepliesMock).toHaveBeenCalled(),
+    );
+    createImageQuickReplyMock.mockResolvedValueOnce({ id: 5, account_id: 'account-1', content: '', library_image_id: 7, created_at: 3 });
+    await act(
+      // addAction 提交图片库中选中的图片。
+      async () => hook.result.current.addImageQuickReply(7),
+    );
+    expect(createImageQuickReplyMock).toHaveBeenCalledWith('account-1', 7);
+    expect(hook.result.current.quickReplies[0]).toMatchObject({ id: 5, library_image_id: 7 });
+    await act(
+      // invalidAction 非法主键直接忽略。
+      async () => hook.result.current.addImageQuickReply(0),
+    );
+    expect(createImageQuickReplyMock).toHaveBeenCalledTimes(1);
+    createImageQuickReplyMock.mockRejectedValueOnce(new Error('图片不可用'));
+    await act(
+      // failAction 服务端拒绝时展示错误且不改变列表。
+      async () => hook.result.current.addImageQuickReply(8),
+    );
+    expect(hook.result.current.metadataError).toBe('图片不可用');
+    expect(hook.result.current.quickReplies.some(/* reply 是当前列表中的快捷回复。 */ reply => reply.library_image_id === 8)).toBe(false);
+    hook.unmount();
+  });
+
   test('账号切换后拒绝旧快捷回复响应', /* 当前回调验证请求代次保护不会让慢旧响应覆盖新账号。 */ async () => {
     // resolveOldReplies 保存稍后手动完成旧账号请求的 Promise 解析函数。
     let resolveOldReplies: ((replies: QuickReplyFixture[]) => void) | undefined;
     // oldRepliesPromise 是模拟慢旧账号快捷回复请求的受控 Promise。
     const oldRepliesPromise = new Promise<QuickReplyFixture[]>(/* resolve 保存外部可调用的旧请求完成函数。 */ resolve => { resolveOldReplies = resolve; });
-    getQuickRepliesMock.mockImplementationOnce(/* 当前回调让首次账号请求保持 pending，模拟网络晚到。 */ () => oldRepliesPromise).mockResolvedValueOnce([{ id: 9, account_id: 'account-2', content: '新账号回复', created_at: 1 }]);
+    getQuickRepliesMock.mockImplementationOnce(/* 当前回调让首次账号请求保持 pending，模拟网络晚到。 */ () => oldRepliesPromise).mockResolvedValueOnce([{ id: 9, account_id: 'account-2', content: '新账号回复', library_image_id: 0, created_at: 1 }]);
     // hook 是可通过 rerender 切换账号的聊天元数据 Hook。
     const hook = renderHook(
       // metadataHookFactory 根据渲染参数创建元数据 Hook。
@@ -133,7 +170,7 @@ describe('useChatMetadata', /* 当前回调覆盖账号快捷回复与买家备�
     );
     await act(
       // oldResponseAction 在新账号已生效后完成旧账号请求。
-      () => resolveOldReplies?.([{ id: 8, account_id: 'account-1', content: '旧账号回复', created_at: 1 }]),
+      () => resolveOldReplies?.([{ id: 8, account_id: 'account-1', content: '旧账号回复', library_image_id: 0, created_at: 1 }]),
     );
     expect(hook.result.current.quickReplies[0]?.id).toBe(9);
     hook.unmount();

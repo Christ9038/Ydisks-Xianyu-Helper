@@ -79,6 +79,10 @@ func (r *CardsRepository) Create(ctx context.Context, card cardsapp.Card) (int64
 	if err := r.validate(); err != nil {
 		return 0, err
 	}
+	// guardErr 保存图片库图片归属校验的失败原因，非空时拒绝写入。
+	if guardErr := r.ensureLibraryImage(ctx, card); guardErr != nil {
+		return 0, guardErr
+	}
 	// record 是仅在适配器内存在的数据库写入模型。
 	record := cardDatabaseModel(card)
 	return r.store.Cards.Create(ctx, &record)
@@ -90,6 +94,10 @@ func (r *CardsRepository) Update(ctx context.Context, card cardsapp.Card) error 
 	if err := r.validate(); err != nil {
 		return err
 	}
+	// guardErr 保存图片库图片归属校验的失败原因，非空时拒绝写入。
+	if guardErr := r.ensureLibraryImage(ctx, card); guardErr != nil {
+		return guardErr
+	}
 	// record 是仅在适配器内存在的数据库更新模型。
 	record := cardDatabaseModel(card)
 	return r.store.Cards.Update(ctx, &record)
@@ -100,6 +108,10 @@ func (r *CardsRepository) UpdateIfDataUnchanged(ctx context.Context, card cardsa
 	// err 表示卡券适配器依赖缺失时的装配错误。
 	if err := r.validate(); err != nil {
 		return false, err
+	}
+	// guardErr 保存图片库图片归属校验的失败原因，非空时拒绝写入。
+	if guardErr := r.ensureLibraryImage(ctx, card); guardErr != nil {
+		return false, guardErr
 	}
 	// record 是仅在适配器内存在的数据库更新模型。
 	record := cardDatabaseModel(card)
@@ -225,7 +237,7 @@ func cardApplicationModel(record db.CardFull) cardsapp.Card {
 	}
 	return cardsapp.Card{
 		ID: record.ID, Name: record.Name, Type: record.Type, APIConfig: record.APIConfig, APIConfigSummary: summary,
-		TextContent: record.TextContent, DataContent: record.DataContent, ImageURL: record.ImageURL,
+		TextContent: record.TextContent, DataContent: record.DataContent, ImageURL: record.ImageURL, LibraryImageID: record.LibraryImageID,
 		Description: record.Description, Enabled: record.Enabled, DelaySeconds: record.DelaySeconds,
 		IsMultiSpec: record.IsMultiSpec, SpecName: record.SpecName, SpecValue: record.SpecValue, UserID: record.UserID,
 	}
@@ -235,10 +247,23 @@ func cardApplicationModel(record db.CardFull) cardsapp.Card {
 func cardDatabaseModel(card cardsapp.Card) db.CardFull {
 	return db.CardFull{
 		ID: card.ID, Name: card.Name, Type: card.Type, APIConfig: card.APIConfig,
-		TextContent: card.TextContent, DataContent: card.DataContent, ImageURL: card.ImageURL,
+		TextContent: card.TextContent, DataContent: card.DataContent, ImageURL: card.ImageURL, LibraryImageID: card.LibraryImageID,
 		Description: card.Description, Enabled: card.Enabled, DelaySeconds: card.DelaySeconds,
 		IsMultiSpec: card.IsMultiSpec, SpecName: card.SpecName, SpecValue: card.SpecValue, UserID: card.UserID,
 	}
 }
 
 var _ cardsapp.Repository = (*CardsRepository)(nil)
+
+// ensureLibraryImage 确认卡券引用的图片库图片属于卡券所有者，引用他人或已删除的图片按校验错误处理。
+func (r *CardsRepository) ensureLibraryImage(ctx context.Context, card cardsapp.Card) error {
+	// owned、err 保存图片归属检查结果。
+	owned, err := libraryImageOwnedByUser(ctx, r.store, card.UserID, card.LibraryImageID)
+	if err != nil {
+		return err
+	}
+	if !owned {
+		return &cardsapp.ValidationError{Message: "图片库图片不存在"}
+	}
+	return nil
+}

@@ -445,6 +445,8 @@ type KeywordRowPayload = {
     type: 'text' | 'image';
     /** 图片回复地址。 */
     image_url: string;
+    /** 图片库图片主键；0 表示未使用。 */
+    library_image_id: number;
 };
 
 // normalizeKeywordExpressions 归一化服务端关键词表达式，并为历史单关键词响应提供回退值。
@@ -502,6 +504,7 @@ const normalizeKeywordRow = (item: any): KeywordRowPayload => {
         item_ids: itemIDs,
         type: item?.type === 'image' ? 'image' : 'text',
         image_url: typeof item?.image_url === 'string' ? item.image_url : '',
+        library_image_id: typeof item?.library_image_id === 'number' ? item.library_image_id : 0,
     };
 };
 
@@ -528,6 +531,7 @@ export const getReplyRules = async (cookieId?: string): Promise<ReplyRule[]> => 
         item_ids: Array.isArray(item.item_ids) ? item.item_ids : [],
         type: item.type === 'image' ? 'image' : 'text',
         image_url: item.image_url || '',
+        library_image_id: item.library_image_id || 0,
     }));
 };
 
@@ -583,7 +587,8 @@ export const updateReplyRule = async (rule: Partial<ReplyRule>, cookieId: string
         item_id: itemIDs[0] || '',
         item_ids: itemIDs,
         type,
-        image_url: type === 'image' ? (rule.image_url || '') : '',
+        image_url: type === 'image' && !rule.library_image_id ? (rule.image_url || '') : '',
+        library_image_id: type === 'image' ? (rule.library_image_id || 0) : 0,
     };
     return rule.id
         ? runContractRequest(/* signal 控制关键词规则更新请求的取消和超时。 */ signal => contractClient.PUT('/api/v1/reply-rules/{cid}/typed/{id}', { params: { path: { cid: cookieId, id: String(rule.id) } }, body: payload as never, signal }))
@@ -615,7 +620,8 @@ export const getDefaultReply = async (cookieId: string): Promise<DefaultReply> =
     enabled: result.enabled || false,
     reply_content: result.reply_content || '',
     reply_once: result.reply_once || false,
-    reply_image_url: result.reply_image_url || ''
+    reply_image_url: result.reply_image_url || '',
+    reply_library_image_id: result.reply_library_image_id || 0
   };
 };
 
@@ -625,7 +631,8 @@ export const updateDefaultReply = async (cookieId: string, data: Partial<Default
     enabled: data.enabled ?? false,
     reply_content: data.reply_content || '',
     reply_once: data.reply_once ?? false,
-    reply_image_url: data.reply_image_url || ''
+    reply_image_url: data.reply_library_image_id ? '' : (data.reply_image_url || ''),
+    reply_library_image_id: data.reply_library_image_id || 0
   } as never, signal }));
 };
 
@@ -651,6 +658,7 @@ const normalizeItemGreeting = (raw: unknown): ItemGreetingRule => {
     enabled: dto.enabled === true,
     reply_content: typeof dto.reply_content === 'string' ? dto.reply_content : '',
     reply_image_url: typeof dto.reply_image_url === 'string' ? dto.reply_image_url : '',
+    reply_library_image_id: typeof dto.reply_library_image_id === 'number' ? dto.reply_library_image_id : 0,
     item_ids: Array.isArray(dto.item_ids) ? dto.item_ids.filter(/* itemID 是服务端返回的商品标识。 */ (itemID): itemID is string => typeof itemID === 'string') : [],
   };
 };
@@ -665,7 +673,7 @@ export const getItemGreetings = async (accountID?: string, options?: RequestCont
 // saveItemGreeting 创建（id 为 0）或更新商品首次回复规则，返回服务端确认的规则。
 export const saveItemGreeting = async (rule: ItemGreetingRule): Promise<ItemGreetingRule> => {
   // body 是创建和更新共用的请求载荷。
-  const body = { cookie_id: rule.cookie_id, name: rule.name, enabled: rule.enabled, reply_content: rule.reply_content, reply_image_url: rule.reply_image_url, item_ids: rule.item_ids };
+  const body = { cookie_id: rule.cookie_id, name: rule.name, enabled: rule.enabled, reply_content: rule.reply_content, reply_image_url: rule.reply_library_image_id ? '' : rule.reply_image_url, reply_library_image_id: rule.reply_library_image_id, item_ids: rule.item_ids };
   // response 保存写入接口返回的规则。
   const response = rule.id
     ? await runContractRequest(/* signal 控制首次回复规则更新请求的取消和超时。 */ signal => contractClient.PUT('/api/v1/reply-rules/greetings/{id}', { params: { path: { id: rule.id } }, body, signal }))

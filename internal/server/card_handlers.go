@@ -29,6 +29,8 @@ type cardMutationRequest struct {
 	ExpectedDataContent *string `json:"expected_data_content"`
 	// ImageURL 是 image 类型自动发货时发送的图片地址。
 	ImageURL string `json:"image_url"`
+	// LibraryImageID 是 image 类型引用的图片库图片主键；与 image_url 互斥，0 或省略表示未使用图片库。
+	LibraryImageID int64 `json:"library_image_id,omitempty"`
 	// Description 是用户维护的卡券组说明。
 	Description string `json:"description"`
 	// Enabled 表示保存后是否允许自动化规则使用该卡券组。
@@ -291,7 +293,7 @@ func decodeCardDraft(r *http.Request) (cardsapp.Draft, error) {
 	}
 	return cardsapp.Draft{
 		Name: request.Name, Type: request.Type, APIConfig: apiConfig,
-		TextContent: request.TextContent, DataContent: dataContent, DataContentSet: dataContentSet, ImageURL: request.ImageURL,
+		TextContent: request.TextContent, DataContent: dataContent, DataContentSet: dataContentSet, ImageURL: request.ImageURL, LibraryImageID: request.LibraryImageID,
 		ExpectedDataContent: expectedData, ExpectedDataContentSet: expectedDataSet,
 		Description: request.Description, Enabled: request.Enabled, DelaySeconds: request.DelaySeconds,
 		IsMultiSpec: isMultiSpec, IsMultiSpecSet: isMultiSpecSet,

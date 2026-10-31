@@ -252,6 +252,8 @@ type Service struct {
 	uploader ImageUploader
 	// imageDownloader 负责把自动回复等 URL 图片转换为消息页面可复用的内存图片输入。
 	imageDownloader ImageURLDownloader
+	// libraryImages 负责按发送账号的所有者读取图片库图片；未装配时图片库图片回复不可用。
+	libraryImages LibraryImageReader
 	// identityResolver 保存平台身份查询端口，凭证只在适配器内部短暂存在。
 	identityResolver IdentityResolver
 	// subscription 保存实时事件订阅端口；平台和领域实现不会泄露到 HTTP 层。
@@ -563,6 +565,14 @@ func WithPlatformReadReporter(service *Service, reporter PlatformReadReporter) *
 func WithChatItemCatalog(service *Service, catalog ChatItemCatalog) *Service {
 	if service != nil {
 		service.itemCatalog = catalog
+	}
+	return service
+}
+
+// WithLibraryImages 为已构造的聊天应用服务注入图片库读取能力；仅在装配阶段调用一次。
+func WithLibraryImages(service *Service, reader LibraryImageReader) *Service {
+	if service != nil {
+		service.libraryImages = reader
 	}
 	return service
 }

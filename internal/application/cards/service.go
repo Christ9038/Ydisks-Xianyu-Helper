@@ -59,6 +59,8 @@ type Card struct {
 	DataContent string
 	// ImageURL 是 image 类型自动发货时发送的图片地址。
 	ImageURL string
+	// LibraryImageID 是 image 类型引用的图片库图片主键；与 ImageURL 互斥，0 表示未使用。
+	LibraryImageID int64
 	// Description 是用户维护的卡券组说明。
 	Description string
 	// Enabled 表示自动化规则是否可以使用该卡券组。
@@ -95,8 +97,10 @@ type Draft struct {
 	ExpectedDataContent string
 	// ExpectedDataContentSet 表示请求是否提交了库存快照；未提交的历史客户端保持无条件覆盖语义。
 	ExpectedDataContentSet bool
-	// ImageURL 是 image 类型必须提供的非空图片地址。
+	// ImageURL 是 image 类型的远程图片地址；与 LibraryImageID 二选一。
 	ImageURL string
+	// LibraryImageID 是 image 类型引用的图片库图片主键；与 ImageURL 二选一，0 表示未使用。
+	LibraryImageID int64
 	// Description 是用户维护的卡券组说明。
 	Description string
 	// Enabled 表示保存后是否允许自动化规则使用该卡券组。
@@ -408,10 +412,16 @@ func validateDraft(draft Draft) error {
 			return &ValidationError{Message: "数据卡密内容不能为空"}
 		}
 	case "image":
+		if draft.LibraryImageID < 0 || (draft.LibraryImageID > 0 && strings.TrimSpace(draft.ImageURL) != "") {
+			return &ValidationError{Message: "图片卡密只能选择图片库图片或填写 URL 之一"}
+		}
+		if draft.LibraryImageID > 0 {
+			return nil
+		}
 		// imageURL、err 分别保存规范化后的远程图片地址和 URL 解析错误。
 		imageURL, err := url.Parse(strings.TrimSpace(draft.ImageURL))
 		if strings.TrimSpace(draft.ImageURL) == "" {
-			return &ValidationError{Message: "图片卡密 URL 不能为空"}
+			return &ValidationError{Message: "图片卡密需要选择图片库图片或填写 URL"}
 		}
 		if err != nil || imageURL.Hostname() == "" || imageURL.User != nil || (imageURL.Scheme != "http" && imageURL.Scheme != "https") {
 			return &ValidationError{Message: "图片卡密 URL 必须是 HTTP(S) 地址"}
@@ -428,7 +438,7 @@ func validateDraft(draft Draft) error {
 func cardFromDraft(cardID, userID int64, draft Draft) Card {
 	return Card{
 		ID: cardID, Name: draft.Name, Type: draft.Type, APIConfig: draft.APIConfig,
-		TextContent: draft.TextContent, DataContent: draft.DataContent, ImageURL: draft.ImageURL,
+		TextContent: draft.TextContent, DataContent: draft.DataContent, ImageURL: draft.ImageURL, LibraryImageID: draft.LibraryImageID,
 		Description: draft.Description, Enabled: draft.Enabled, DelaySeconds: draft.DelaySeconds,
 		IsMultiSpec: draft.IsMultiSpec, SpecName: draft.SpecName, SpecValue: draft.SpecValue, UserID: userID,
 	}

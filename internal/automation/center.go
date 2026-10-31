@@ -71,6 +71,14 @@ type MessageSender interface {
 	UpdateCookie(cookieStr string)
 }
 
+// LibraryImageSender 由支持发送图片库图片的发送器选择性实现。
+// 它与 SendImage 共用同一条“读取字节 → 上传 → 真实宽高 → 回显确认发送”的链路，只是图片来源是图片库。
+// 未实现该接口的发送器（例如旧测试替身）遇到图片库图片时按“确定未发送”处理。
+type LibraryImageSender interface {
+	// SendLibraryImage 读取发送账号所有者图片库中的图片并发送；读取或上传失败必须返回 ErrMessageNotSent。
+	SendLibraryImage(ctx context.Context, chatID, toUserID string, imageID, cardID int64) error
+}
+
 // automationReadySender 由能够报告实时连接状态的发送器选择性实现。
 // 未实现的测试或外部发送器保持向后兼容，视为已经就绪。
 // automationReadySender 用于本次流程后续判断的自动化ReadySender

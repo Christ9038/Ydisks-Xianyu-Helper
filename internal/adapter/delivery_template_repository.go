@@ -3,9 +3,11 @@ package adapter
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	deliveryapp "xianyu-go/internal/application/deliverytemplate"
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/deliverytemplate"
 )
 
 // DeliveryTemplateRepository 将模板数据库仓储转换为应用层模板 Port。
@@ -61,6 +63,10 @@ func (r *DeliveryTemplateRepository) Create(ctx context.Context, userID int64, d
 	if err := r.validate(); err != nil {
 		return 0, err
 	}
+	// guardErr 保存图片库图片归属校验的失败原因，非空时拒绝写入。
+	if guardErr := r.ensureLibraryImages(ctx, userID, draft.Messages); guardErr != nil {
+		return 0, guardErr
+	}
 	return r.store.DeliveryTemplates.Create(ctx, db.DeliveryTemplateInput{UserID: userID, Name: draft.Name, Enabled: draft.Enabled, Messages: draft.Messages})
 }
 
@@ -69,6 +75,10 @@ func (r *DeliveryTemplateRepository) Update(ctx context.Context, userID, templat
 	// err 保存适配器初始化校验失败原因。
 	if err := r.validate(); err != nil {
 		return err
+	}
+	// guardErr 保存图片库图片归属校验的失败原因，非空时拒绝写入。
+	if guardErr := r.ensureLibraryImages(ctx, userID, draft.Messages); guardErr != nil {
+		return guardErr
 	}
 	// err 保存模板更新结果。
 	err := r.store.DeliveryTemplates.Update(ctx, userID, templateID, db.DeliveryTemplateInput{UserID: userID, Name: draft.Name, Enabled: draft.Enabled, Messages: draft.Messages})
@@ -117,3 +127,24 @@ func deliveryTemplateApplicationModel(item db.DeliveryTemplate) deliveryapp.Temp
 }
 
 var _ deliveryapp.Repository = (*DeliveryTemplateRepository)(nil)
+
+// ensureLibraryImages 确认模板图片消息引用的图片库图片都属于当前用户，引用他人或已删除的图片按输入错误处理。
+func (r *DeliveryTemplateRepository) ensureLibraryImages(ctx context.Context, userID int64, messages []string) error {
+	// message 是当前模板消息；只有整条消息是图片令牌时才引用图片库。
+	for _, message := range messages {
+		// imageID、isImage 保存令牌解析结果。
+		imageID, isImage := deliverytemplate.ImageID(message)
+		if !isImage {
+			continue
+		}
+		// owned、err 保存图片归属检查结果。
+		owned, err := libraryImageOwnedByUser(ctx, r.store, userID, imageID)
+		if err != nil {
+			return err
+		}
+		if !owned {
+			return fmt.Errorf("%w: 图片库图片不存在", deliveryapp.ErrInvalidInput)
+		}
+	}
+	return nil
+}

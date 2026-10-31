@@ -1,5 +1,5 @@
 import {
-AlertCircle,Check,CheckCheck,ImagePlus,Loader2,MessageCircleMore,PackageSearch,PanelRightClose,PanelRightOpen,
+AlertCircle,Check,CheckCheck,ImagePlus,Images,Loader2,MessageCircleMore,PackageSearch,PanelRightClose,PanelRightOpen,
 RefreshCw,Search,Send,Smile,UserRound,Wifi,WifiOff,X,
 } from 'lucide-react';
 import React from 'react';
@@ -14,17 +14,18 @@ import { DeleteConversationDialog } from '../components/DeleteConversationDialog
 import { ItemMessageCard } from '../components/ItemMessageCard';
 import { useChat } from '../hooks';
 import type { ChatSession } from '../models';
+import type { ChatProps } from '../types';
 import { unreadBadgeClassName,unreadBadgeLabel } from '../state';
 
 // Chat 展示实时会话、消息分页和消息发送界面。
-const Chat: React.FC = () => {
+const Chat: React.FC<ChatProps> = ({ libraryImageChooser: LibraryChooser }) => {
   // chatState 是 Chat feature Hook 提供的状态、引用和交互动作。
   const {
     accounts, activeAccountID, activeChatID, activeAccount, selectedSession, filteredSessions,
     messages, search, unreadOnly, draft, loading, messagesLoading, olderLoading, hasOlder, contactsLoading,
     hasMoreContacts, emojiOpen, sending, error, sendNotice, liveState, pendingImage, scrollRef, imageInputRef, setActiveAccountID,
     setActiveChatID, setSearch, setUnreadOnly, setDraft, setEmojiOpen, reloadSessions, loadMoreContacts,
-    loadOlderMessages, handleMessageScroll, handleSend, handleQuickReply, handleImage, handlePastedImages, confirmSendImage, closeImagePreview, retrySend, retryAvailable,
+    loadOlderMessages, handleMessageScroll, handleSend, handleQuickReply, handleQuickReplyImage, handleLibraryImage, handleImage, handlePastedImages, confirmSendImage, closeImagePreview, retrySend, retryAvailable,
     deletingChatID, deleteError, deleteConversation, clearDeleteError, acceptOutgoingMessage, unreadForAccount, emojiURL, xianyuEmojis, renderXianyuText, formatClock, messageTime,
   } = useChat();
 
@@ -41,6 +42,8 @@ const Chat: React.FC = () => {
   }, [imageMessages]);
   // quickReplyPanelOpen 保存右侧快捷回复抽屉的展开状态；页面卸载后恢复默认收起。
   const [quickReplyPanelOpen, setQuickReplyPanelOpen] = React.useState(false);
+  // libraryPickerOpen 保存输入框“图片库”选择器的开关，属于瞬时界面状态。
+  const [libraryPickerOpen, setLibraryPickerOpen] = React.useState(false);
   // itemPickerOpen 控制当前会话的居中商品选择弹窗。
   const [itemPickerOpen, setItemPickerOpen] = React.useState(false);
 	// deleteTarget 保存等待用户确认清空的会话，空值表示确认框关闭。
@@ -230,6 +233,7 @@ const Chat: React.FC = () => {
                     </div>
                     <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => void handleImage(event.target.files?.[0])} />
                     <button type="button" onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => imageInputRef.current?.click()} disabled={sending || activeAccount?.runtime_state !== 'online'} className="rounded-lg p-2 text-slate-500 transition hover:bg-sky-50 hover:text-sky-600 disabled:opacity-40" title="发送图片（最大 10MB）"><ImagePlus className="h-5 w-5" /></button>
+                    {LibraryChooser && <button type="button" onClick={/* 当前回调打开图片库选择器，选中后进入与本地图片相同的发送预览。 */ () => setLibraryPickerOpen(true)} disabled={sending || !selectedSession || activeAccount?.runtime_state !== 'online'} className="rounded-lg p-2 text-slate-500 transition hover:bg-sky-50 hover:text-sky-600 disabled:opacity-40" title="从图片库发送图片" aria-label="从图片库发送图片"><Images className="h-5 w-5" /></button>}
                     <button type="button" onClick={/* 当前回调打开居中商品选择弹窗并收起表情面板。 */ () => { setEmojiOpen(false); setItemPickerOpen(true); }} disabled={sending || !selectedSession || activeAccount?.runtime_state !== 'online'} className="rounded-lg p-2 text-slate-500 transition hover:bg-sky-50 hover:text-sky-600 focus:bg-sky-50 focus:text-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-100 active:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-40" title="发送宝贝" aria-label="发送宝贝"><PackageSearch className="h-5 w-5" /></button>
                     <button type="button" onClick={/* 当前回调依当前渲染状态切换右侧账号快捷回复抽屉，避免页面级外部点击监听与按钮切换相互抵消。 */ () => setQuickReplyPanelOpen(!quickReplyPanelOpen)} className="ml-auto rounded-lg p-2 text-slate-500 transition hover:bg-sky-50 hover:text-sky-600" title={quickReplyPanelOpen ? '收起快捷回复' : '展开快捷回复'} aria-label={quickReplyPanelOpen ? '收起快捷回复' : '展开快捷回复'}>
                       {quickReplyPanelOpen ? <PanelRightClose className="h-5 w-5" /> : <PanelRightOpen className="h-5 w-5" />}
@@ -263,7 +267,7 @@ const Chat: React.FC = () => {
                 <p className="mt-1 text-sm text-slate-400">该账号的新消息会实时出现在左侧列表。</p>
               </div>
             )}
-            <ChatMetadataFeature activeAccountID={activeAccountID} selectedSession={selectedSession} quickReplyPanelOpen={quickReplyPanelOpen} closeQuickReplyPanel={/* 当前回调收起右侧快捷回复抽屉。 */ () => setQuickReplyPanelOpen(false)} sendQuickReply={handleQuickReply} sending={sending} accountOnline={activeAccount?.runtime_state === 'online'} />
+            <ChatMetadataFeature activeAccountID={activeAccountID} selectedSession={selectedSession} quickReplyPanelOpen={quickReplyPanelOpen} closeQuickReplyPanel={/* 当前回调收起右侧快捷回复抽屉。 */ () => setQuickReplyPanelOpen(false)} sendQuickReply={handleQuickReply} sendQuickReplyImage={handleQuickReplyImage} libraryImageChooser={LibraryChooser} sending={sending} accountOnline={activeAccount?.runtime_state === 'online'} />
           </main>
         </div>
       )}
@@ -276,7 +280,7 @@ const Chat: React.FC = () => {
           </div>
           <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-slate-100 p-4"><img src={pendingImage.url} alt="待发送图片预览" className="max-h-[55vh] max-w-full rounded-xl object-contain" /></div>
           <div className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-200 px-5 py-3">
-            <div className="min-w-0 truncate text-xs text-slate-500">{pendingImage.file.name || '粘贴的图片'} · {(pendingImage.file.size / 1024).toFixed(0)} KB</div>
+            <div className="min-w-0 truncate text-xs text-slate-500">{pendingImage.libraryImage ? `图片库 · ${pendingImage.libraryImage.filename}` : `${pendingImage.file?.name || '粘贴的图片'} · ${((pendingImage.file?.size ?? 0) / 1024).toFixed(0)} KB`}</div>
             <div className="flex shrink-0 items-center gap-2">
               <button type="button" onClick={/* 当前回调取消图片发送。 */ closeImagePreview} className="rounded-xl px-4 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-100">取消</button>
               <button type="button" onClick={/* 当前回调确认发送预览图片。 */ () => void confirmSendImage()} disabled={sending || activeAccount?.runtime_state !== 'online'} className="flex items-center gap-2 rounded-xl bg-sky-500 px-4 py-2 text-sm font-bold text-white shadow-md shadow-sky-100 transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-50">{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}发送</button>
@@ -284,6 +288,8 @@ const Chat: React.FC = () => {
           </div>
         </div>
       </div>}
+
+      {LibraryChooser && <LibraryChooser open={libraryPickerOpen} onClose={/* 当前回调关闭图片库选择器。 */ () => setLibraryPickerOpen(false)} onSelect={/* image 是用户选中的图片库图片，进入发送预览后关闭选择器。 */ image => { handleLibraryImage(image); setLibraryPickerOpen(false); }} />}
 
       {itemPickerOpen && <ChatItemPickerDialog open accountID={activeAccountID} chatID={activeChatID} onSent={acceptOutgoingMessage} onClose={/* 当前回调关闭当前会话的商品选择弹窗。 */ () => setItemPickerOpen(false)} />}
 

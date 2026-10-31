@@ -230,3 +230,26 @@ func TestServiceOwnershipAndErrors(t *testing.T) {
 		t.Errorf("clear foreign err=%v", err)
 	}
 }
+
+// TestServiceGreetingLibraryImageSatisfiesContentAndExcludesURL 验证首次回复可只用图片库图片，且与 URL 互斥。
+func TestServiceGreetingLibraryImageSatisfiesContentAndExcludesURL(t *testing.T) {
+	// service 是绑定内存仓储的被测服务。
+	service := NewService(newFake())
+	// rule、err 保存仅含图片库图片的创建结果。
+	rule, err := service.Create(context.Background(), 1, Draft{CookieID: "acc1", ReplyLibraryImageID: 9, ItemIDs: []string{"a"}})
+	if err != nil || rule.ReplyLibraryImageID != 9 {
+		t.Fatalf("rule=%+v err=%v", rule, err)
+	}
+	// draft 是待校验的一份草稿输入；name 是当前场景的名称，用于失败信息定位。
+	for name, draft := range map[string]Draft{
+		"both":     {CookieID: "acc1", ReplyImageURL: "https://a.example/x.png", ReplyLibraryImageID: 9, ItemIDs: []string{"a"}},
+		"negative": {CookieID: "acc1", ReplyLibraryImageID: -1, ItemIDs: []string{"a"}},
+	} {
+		// invalid 保存非法图片来源的输入错误。
+		var invalid *InvalidInputError
+		// createErr 保存创建调用的失败原因，应命中图片来源校验错误。
+		if _, createErr := service.Create(context.Background(), 1, draft); !errors.As(createErr, &invalid) {
+			t.Fatalf("%s 应为输入错误: %v", name, createErr)
+		}
+	}
+}

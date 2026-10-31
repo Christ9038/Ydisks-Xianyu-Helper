@@ -12,6 +12,7 @@ export const emptyItemGreetingDraft = (cookieID: string): ItemGreetingRule => ({
   enabled: true,
   reply_content: '',
   reply_image_url: '',
+  reply_library_image_id: 0,
   item_ids: [],
 });
 
@@ -183,7 +184,7 @@ export const useItemGreetings = (accountID: string) => {
       setToast({ type: 'error', text: '请至少选择一个商品' });
       return;
     }
-    if (!draft.reply_content.trim() && !draft.reply_image_url.trim()) {
+    if (!draft.reply_content.trim() && !draft.reply_image_url.trim() && !draft.reply_library_image_id) {
       setToast({ type: 'error', text: '回复文字和图片至少填写一项' });
       return;
     }

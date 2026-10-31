@@ -68,9 +68,9 @@ describe('聊天 API 适配器', /* 聊天 API 测试覆盖请求映射、响应
 
   test('快捷回复与买家备注响应被转换为 UI 模型', /* 当前回调验证列表、创建、读取和保存四个转换。 */ async () => {
     getMock.mockResolvedValueOnce({ data: { quick_replies: [{ id: 1, account_id: 'a', content: 'x', created_at: 't', extra: 1 }] } });
-    expect(await api.getChatQuickReplies('a')).toEqual([{ id: 1, account_id: 'a', content: 'x', created_at: 't' }]);
+    expect(await api.getChatQuickReplies('a')).toEqual([{ id: 1, account_id: 'a', content: 'x', library_image_id: 0, created_at: 't' }]);
     postMock.mockResolvedValueOnce({ data: { id: 2, account_id: 'a', content: 'y', created_at: 't', extra: 1 } });
-    expect(await api.createChatQuickReply('a', 'y')).toEqual({ id: 2, account_id: 'a', content: 'y', created_at: 't' });
+    expect(await api.createChatQuickReply('a', 'y')).toEqual({ id: 2, account_id: 'a', content: 'y', library_image_id: 0, created_at: 't' });
     // note 是买家备注 DTO。
     const note = { account_id: 'a', buyer_id: 'b', content: 'n', updated_at: 't' };
     getMock.mockResolvedValueOnce({ data: { ...note, extra: 1 } });
@@ -97,6 +97,15 @@ describe('聊天 API 适配器', /* 聊天 API 测试覆盖请求映射、响应
     expect(form.has('peer_avatar_url')).toBe(false);
     expect(form.get('image')).toBeInstanceOf(File);
     expect(lastOptions.value).toMatchObject({ timeoutMs: 120_000 });
+  });
+
+  test('图库图片发送提交 JSON 主键并放宽超时，图片快捷回复只提交主键', /* 当前回调验证两个新适配器的请求体与转换。 */ async () => {
+    await api.sendChatLibraryImage({ account_id: 'a', chat_id: 'c', peer_user_id: 'p', library_image_id: 7 });
+    expect(postMock).toHaveBeenLastCalledWith('/api/v1/chat/library-images', expect.objectContaining({ body: { account_id: 'a', chat_id: 'c', peer_user_id: 'p', library_image_id: 7 } }));
+    expect(lastOptions.value).toMatchObject({ timeoutMs: 120_000 });
+    postMock.mockResolvedValueOnce({ data: { id: 3, account_id: 'a', content: '', library_image_id: 7, created_at: 't' } });
+    expect(await api.createChatImageQuickReply('a', 7)).toEqual({ id: 3, account_id: 'a', content: '', library_image_id: 7, created_at: 't' });
+    expect(postMock).toHaveBeenLastCalledWith('/api/v1/chat/quick-replies', expect.objectContaining({ body: { account_id: 'a', library_image_id: 7 } }));
   });
 
   test('商品查询空关键字不提交 query 并转换商品字段', /* 当前回调验证分页结果的字段白名单。 */ async () => {

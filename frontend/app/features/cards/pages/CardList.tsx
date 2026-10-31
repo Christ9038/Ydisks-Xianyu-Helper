@@ -9,10 +9,12 @@ import { BatchCardImportModal } from '../components/BatchCardImportModal';
 import { CardIcon } from '../components/CardIcon';
 import { CardStockDialog } from '../components/CardStockDialog';
 import { useCardBatchActions,useCardsData } from '../hooks';
+import { ImageSourceField } from '../../../../shared/ui/ImageSourceField';
 import { PageHeader } from '../../../../shared/ui/PageHeader';
+import type { CardListProps } from '../types';
 
 // CardList 渲染卡密列表组件。
-const CardList: React.FC = () => {
+const CardList: React.FC<CardListProps> = ({ libraryImageChooser }) => {
   // { 解构得到当前 Hook 返回的状态和操作函数。
   const { cards, loadCards } = useCardsData();
   // cardActions 集中管理卡密编辑、新增、删除、筛选和模板动作。
@@ -129,6 +131,8 @@ const CardList: React.FC = () => {
                   stockInfo = card.text_content;
                 } else if (card.type === 'api' && card.api_config) {
                   stockInfo = card.api_config.url;
+                } else if (card.type === 'image' && card.library_image_id) {
+                  stockInfo = '图片库图片';
                 } else if (card.type === 'image' && card.image_url) {
                   stockInfo = '图片链接';
                 }
@@ -344,27 +348,15 @@ const CardList: React.FC = () => {
                   <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">
                     <h3 className="font-bold text-gray-900 mb-3">图片配置</h3>
                     <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-2">图片 URL</label>
-                      <input
-                        type="url"
-                        value={editForm.image_url || ''}
-                        onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setEditForm({ ...editForm, image_url: e.target.value })}
-                        className="w-full ios-input px-4 py-3 rounded-xl font-mono text-sm"
-                        placeholder="https://example.com/image.png"
+                      <label className="block text-sm font-bold text-gray-700 mb-2">卡密图片</label>
+                      <ImageSourceField
+                        value={{ url: editForm.image_url || '', libraryImageId: editForm.library_image_id || 0 }}
+                        onChange={/* source 是用户选择的新图片来源；外链与图片库图片互斥。 */ source => setEditForm({ ...editForm, image_url: source.url, library_image_id: source.libraryImageId })}
+                        chooser={libraryImageChooser}
+                        urlPlaceholder="https://example.com/image.png"
                       />
-                      <p className="text-xs text-gray-500 mt-2">仅保存图片 URL；发货时会临时下载并上传到闲鱼</p>
+                      <p className="text-xs text-gray-500 mt-2">图片库图片发货时由服务端读取；外链图片发货时会临时下载并上传到闲鱼</p>
                     </div>
-                    {editForm.image_url && (
-                      <div className="mt-3">
-                        <label className="block text-sm font-bold text-gray-700 mb-2">图片预览</label>
-                        <img
-                          src={editForm.image_url}
-                          alt="预览"
-                          className="max-w-full max-h-48 rounded-xl border border-gray-200"
-                          onError={/* 当前回调处理用户交互或异步状态变化。 */ (e) => { e.currentTarget.src = 'https://via.placeholder.com/400x200?text=图片加载失败'; }}
-                        />
-                      </div>
-                    )}
                   </div>
                 )}
 
@@ -476,7 +468,7 @@ const CardList: React.FC = () => {
                   <div className="grid grid-cols-4 gap-2">
                     <button
                       type="button"
-                      onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setAddForm({ ...addForm, type: 'data', content: '' })}
+                      onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setAddForm({ ...addForm, type: 'data', content: '', library_image_id: 0 })}
                       className={`p-3 rounded-xl font-bold transition-all ${addForm.type === 'data' ? 'bg-brand text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                     >
                       <CreditCard className="w-5 h-5 mx-auto mb-1" />
@@ -484,7 +476,7 @@ const CardList: React.FC = () => {
                     </button>
                     <button
                       type="button"
-                      onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setAddForm({ ...addForm, type: 'text', content: '' })}
+                      onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setAddForm({ ...addForm, type: 'text', content: '', library_image_id: 0 })}
                       className={`p-3 rounded-xl font-bold transition-all ${addForm.type === 'text' ? 'bg-brand text-white' : 'bg-gray-100 text-gray-600'}`}
                     >
                       <FileText className="w-5 h-5 mx-auto mb-1" />
@@ -492,7 +484,7 @@ const CardList: React.FC = () => {
                     </button>
                     <button
                       type="button"
-                      onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setAddForm({ ...addForm, type: 'image', content: '' })}
+                      onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setAddForm({ ...addForm, type: 'image', content: '', library_image_id: 0 })}
                       className={`p-3 rounded-xl font-bold transition-all ${addForm.type === 'image' ? 'bg-brand text-white' : 'bg-gray-100 text-gray-600'}`}
                     >
                       <ImageIcon className="w-5 h-5 mx-auto mb-1" />
@@ -500,7 +492,7 @@ const CardList: React.FC = () => {
                     </button>
                     <button
                       type="button"
-                      onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setAddForm({ ...addForm, type: 'api', content: '' })}
+                      onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setAddForm({ ...addForm, type: 'api', content: '', library_image_id: 0 })}
                       className={`p-3 rounded-xl font-bold transition-all ${addForm.type === 'api' ? 'bg-brand text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                     >
                       <Globe className="w-5 h-5 mx-auto mb-1" />
@@ -511,18 +503,17 @@ const CardList: React.FC = () => {
 
                 {addForm.type !== 'api' && <div className="space-y-2">
                   <label className="block text-sm font-bold text-gray-700 mb-2">
-                    {addForm.type === 'data' ? '库存内容（一行一个）' : addForm.type === 'text' ? '固定回复内容' : '图片 URL'}
+                    {addForm.type === 'data' ? '库存内容（一行一个）' : addForm.type === 'text' ? '固定回复内容' : '卡密图片'}
                   </label>
                   {addForm.type === 'image' ? (
                     <div className="space-y-2">
-                      <input
-                        type="url"
-                        value={addForm.content}
-                        onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setAddForm({ ...addForm, content: e.target.value })}
-                        className="w-full ios-input px-4 py-3 rounded-xl"
-                        placeholder="https://example.com/card.png"
+                      <ImageSourceField
+                        value={{ url: addForm.content, libraryImageId: addForm.library_image_id }}
+                        onChange={/* source 是用户选择的新图片来源；外链与图片库图片互斥。 */ source => setAddForm({ ...addForm, content: source.url, library_image_id: source.libraryImageId })}
+                        chooser={libraryImageChooser}
+                        urlPlaceholder="https://example.com/card.png"
                       />
-                      <p className="text-xs text-gray-500">仅保存图片 URL；发货时会临时下载并上传到闲鱼</p>
+                      <p className="text-xs text-gray-500">图片库图片发货时由服务端读取；外链图片发货时会临时下载并上传到闲鱼</p>
                     </div>
                   ) : (
                     <textarea

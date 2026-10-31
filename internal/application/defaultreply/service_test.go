@@ -203,3 +203,28 @@ func TestServiceListAndMutationValidation(t *testing.T) {
 }
 
 var _ Repository = (*fakeRepository)(nil)
+
+// TestUpsertRejectsAmbiguousOrInvalidLibraryImage 验证默认回复的图片库图片与 URL 互斥，且非法主键在写入前被拒绝。
+func TestUpsertRejectsAmbiguousOrInvalidLibraryImage(t *testing.T) {
+	// repository、service 是本用例的内存 Port 和被测服务。
+	repository := &fakeRepository{ownership: AccountOwnership{OwnerID: 7}}
+	// service 是被测的应用服务，绑定本用例的仓储替身。
+	service := NewService(repository)
+	// name 是当前场景的名称，用于失败信息定位；reply 是待校验的默认回复输入。
+	for name, reply := range map[string]Reply{
+		"both":     {ReplyImageURL: "https://a.example/x.png", ReplyLibraryImageID: 3},
+		"negative": {ReplyLibraryImageID: -1},
+	} {
+		// err 保存被测调用的失败原因，断言时按预期分支检查。
+		if err := service.Upsert(context.Background(), 7, "acc", reply); !errors.Is(err, ErrInvalidImageSource) {
+			t.Fatalf("%s 应返回 ErrInvalidImageSource: %v", name, err)
+		}
+	}
+	if repository.mutationCookieID != "" {
+		t.Fatal("非法图片来源不应进入仓储写入")
+	}
+	// err 保存被测调用的失败原因，断言时按预期分支检查。
+	if err := service.Upsert(context.Background(), 7, "acc", Reply{ReplyLibraryImageID: 3}); err != nil || repository.mutationCookieID != "acc" {
+		t.Fatalf("合法图片库图片应可保存: err=%v", err)
+	}
+}

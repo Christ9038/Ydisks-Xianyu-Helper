@@ -2,14 +2,17 @@ import { Edit3, FileStack, Plus, Save, Trash2, X } from 'lucide-react';
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useDeliveryTemplates } from '../hooks';
-import type { DeliveryTemplate, DeliveryTemplateDraft } from '../types';
+import type { DeliveryTemplate, DeliveryTemplateDraft, DeliveryTemplatesProps } from '../types';
+import { ImageSourceField } from '../../../../shared/ui/ImageSourceField';
+import { libraryImageContentUrl } from '../../../../shared/ui/imageSource';
 import { PageHeader } from '../../../../shared/ui/PageHeader';
+import { imageToken, parseImageToken } from '../messageImage';
 
 // emptyDraft 创建一份可直接编辑的模板草稿。
 const emptyDraft = (): DeliveryTemplateDraft => ({ name: '', enabled: true, messages: [{ content: '' }] });
 
 /** 发货模板管理页面。 */
-const DeliveryTemplates: React.FC = () => {
+const DeliveryTemplates: React.FC<DeliveryTemplatesProps> = ({ libraryImageChooser }) => {
   // templates、loading、saving、requestError 由 Hook 统一管理请求生命周期和竞态保护。
   const { templates, loading, saving, error: requestError, loadTemplates, saveTemplate: persistTemplate, removeTemplate: deleteTemplate } = useDeliveryTemplates();
   // draft 保存弹窗中的模板编辑状态。
@@ -57,6 +60,14 @@ const DeliveryTemplates: React.FC = () => {
     setDraft(/* current 是更新前的模板草稿。 */ current => ({
       ...current,
       messages: current.messages.map(/* currentMessage 是待检查的模板消息。 */ (currentMessage, messageIndex) => messageIndex === index ? { content: event.target.value } : currentMessage),
+    }));
+  };
+
+  // setMessageContent 直接替换指定顺序消息的正文，供图片库选择与文本/图片切换使用。
+  const setMessageContent = (index /* index 是待更新消息在模板中的顺序下标。 */: number, content /* content 是新的消息正文，图片消息为图片令牌。 */: string): void => {
+    setDraft(/* current 是更新前的模板草稿。 */ current => ({
+      ...current,
+      messages: current.messages.map(/* currentMessage 是待检查的模板消息。 */ (currentMessage, messageIndex) => messageIndex === index ? { content } : currentMessage),
     }));
   };
 
@@ -121,7 +132,7 @@ const DeliveryTemplates: React.FC = () => {
               <FileStack className="h-5 w-5 text-sky-500" />
             </div>
             <div className="mt-4 space-y-2">
-              {template.messages.map(/* message 是模板中的消息预览。 */ message => <div key={message.id} className="rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-600">{message.content}</div>)}
+              {template.messages.map(/* message 是模板中的消息预览。 */ message => <div key={message.id} className="rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-600">{parseImageToken(message.content) > 0 ? <img src={libraryImageContentUrl(parseImageToken(message.content))} alt="图片消息" className="h-16 w-16 rounded-lg object-cover" /> : message.content}</div>)}
             </div>
             {((template.keys.length > 0) || (template.custom_keys || []).length > 0) && <p className="mt-3 text-xs leading-5 text-sky-700">变量：{template.keys.map(/* key 是模板中的变量键。 */ key => `{{cards.${key}}}`).concat((template.custom_keys || []).map(/* key 是模板中的自定义变量键。 */ key => `{{custom.${key}}}`)).join('、')}</p>}
             <div className="mt-5 flex gap-2">
@@ -161,7 +172,16 @@ const DeliveryTemplates: React.FC = () => {
                     {draft.messages.map(/* message 是正在编辑的模板消息。 */ (message, index) => (
                       <div key={index} className="flex gap-2 rounded-2xl border border-gray-200 bg-gray-50/70 p-3">
                         <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-white text-xs font-black text-gray-400">{index + 1}</div>
-                        <textarea value={message.content} onChange={/* callback 更新当前消息正文。 */ event => updateMessageContent(index, event)} placeholder="例如：感谢购买，您的卡密是 {{cards.main}}" className="ios-input min-h-24 flex-1 resize-y rounded-xl bg-white px-4 py-3" />
+                        {parseImageToken(message.content) > 0 ? (
+                          <div className="flex-1 space-y-2">
+                            <ImageSourceField value={{ url: '', libraryImageId: parseImageToken(message.content) }} onChange={/* source 是用户重新选择或清除后的图片来源。 */ source => setMessageContent(index, source.libraryImageId > 0 ? imageToken(source.libraryImageId) : '')} chooser={libraryImageChooser} allowUrl={false} />
+                          </div>
+                        ) : (
+                          <div className="flex-1 space-y-2">
+                            <textarea value={message.content} onChange={/* callback 更新当前消息正文。 */ event => updateMessageContent(index, event)} placeholder="例如：感谢购买，您的卡密是 {{cards.main}}" className="ios-input min-h-24 w-full resize-y rounded-xl bg-white px-4 py-3" />
+                            {libraryImageChooser && <ImageSourceField value={{ url: '', libraryImageId: 0 }} onChange={/* source 选中图片库图片后，整条消息改为图片消息。 */ source => { if (source.libraryImageId > 0) setMessageContent(index, imageToken(source.libraryImageId)); }} chooser={libraryImageChooser} allowUrl={false} />}
+                          </div>
+                        )}
                         <button type="button" disabled={draft.messages.length === 1} onClick={/* callback 删除当前消息。 */ () => removeMessage(index)} aria-label={`删除第 ${index + 1} 条消息`} className="self-start rounded-lg p-2 text-red-500 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-30"><Trash2 className="h-4 w-4" /></button>
                       </div>
                     ))}

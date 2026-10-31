@@ -517,6 +517,14 @@ func testOpenAPIChatSendSuccess(t *testing.T) {
 	imageRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(imageRecorder, imageRequest)
 	assertOpenAPIRecordedSuccessResponse(t, imageRequest, imageRecorder)
+	// libraryImageRequest 是发送图片库图片的版本化请求，字节由服务端读取，浏览器只提交图片主键。
+	libraryImageRequest := httptest.NewRequest(http.MethodPost, "/api/v1/chat/library-images", strings.NewReader(`{"account_id":"acc1","chat_id":"chat","peer_user_id":"buyer","library_image_id":7}`))
+	libraryImageRequest.Header.Set("Content-Type", "application/json")
+	libraryImageRequest.AddCookie(sessionCookie)
+	// libraryImageRecorder 保存图片库图片发送响应。
+	libraryImageRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(libraryImageRecorder, libraryImageRequest)
+	assertOpenAPIRecordedSuccessResponse(t, libraryImageRequest, libraryImageRecorder)
 	// itemListRequest 是当前个人会话中对方商品的查询请求。
 	itemListRequest := httptest.NewRequest(http.MethodGet, "/api/v1/chat/items?account_id=acc1&chat_id=chat&role=peer&page=1", nil)
 	itemListRequest.AddCookie(sessionCookie)
@@ -825,6 +833,11 @@ func (contractChatPort) SendImage(context.Context, chatapp.ImageInput) (*chatapp
 	return &chatapp.Message{AccountID: "acc1", ChatID: "chat", MessageKey: "contract-image", Direction: "outgoing", MessageType: "image", Content: "https://img.example/i.png", Status: "sent"}, nil
 }
 
+// SendLibraryImage 返回确定性的图片库图片发送成功结果。
+func (contractChatPort) SendLibraryImage(context.Context, chatapp.LibraryImageInput) (*chatapp.Message, error) {
+	return &chatapp.Message{AccountID: "acc1", ChatID: "chat", MessageKey: "contract-library-image", Direction: "outgoing", MessageType: "image", Content: "https://img.example/lib.png", Status: "sent"}, nil
+}
+
 // ListStoredMessages 返回空消息页。
 func (contractChatPort) ListStoredMessages(context.Context, int64, string, string, int64, int) (chatapp.Page, error) {
 	return chatapp.Page{}, nil
@@ -885,6 +898,11 @@ func (contractChatPort) ListQuickReplies(context.Context, int64, string) ([]chat
 // CreateQuickReply 返回确定性的测试快捷回复，避免该端口在未来契约场景中依赖数据库。
 func (contractChatPort) CreateQuickReply(context.Context, int64, string, string) (chatapp.QuickReply, error) {
 	return chatapp.QuickReply{ID: 1, AccountID: "acc1", Content: "测试快捷回复", CreatedAt: 1}, nil
+}
+
+// CreateQuickReplyWithImage 返回确定性的快捷回复，满足聊天 HTTP 应用端口。
+func (contractChatPort) CreateQuickReplyWithImage(_ context.Context, _ int64, _ string, content string, libraryImageID int64) (chatapp.QuickReply, error) {
+	return chatapp.QuickReply{ID: 1, AccountID: "acc1", Content: content, LibraryImageID: libraryImageID, CreatedAt: 1}, nil
 }
 
 // DeleteQuickReply 保持确定性成功，用于满足聊天 HTTP 应用端口。

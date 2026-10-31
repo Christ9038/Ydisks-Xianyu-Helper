@@ -57,6 +57,8 @@ func (s *Server) getDefaultReply(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, defaultreplyapp.ErrAccountNotFound):
 		writeErr(w, http.StatusNotFound, "账号不存在")
 		return
+	case errors.Is(err, defaultreplyapp.ErrInvalidImageSource), errors.Is(err, defaultreplyapp.ErrImageNotFound):
+		writeErr(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, defaultreplyapp.ErrForbidden):
 		writeErr(w, http.StatusForbidden, "无权限操作该账号")
 		return
@@ -87,7 +89,7 @@ func (s *Server) setDefaultReply(w http.ResponseWriter, r *http.Request) {
 	// err 表示默认回复应用服务写入失败的原因。
 	err := s.defaultReplyApplication().Upsert(r.Context(), userID, cid, defaultreplyapp.Reply{
 		Enabled: req.Enabled, ReplyContent: req.ReplyContent,
-		ReplyImageURL: req.ReplyImageURL, ReplyOnce: req.ReplyOnce,
+		ReplyImageURL: req.ReplyImageURL, ReplyLibraryImageID: req.ReplyLibraryImageID, ReplyOnce: req.ReplyOnce,
 	})
 	if err != nil {
 		writeDefaultReplyMutationError(w, err, "保存失败")
@@ -104,6 +106,8 @@ type defaultReplyMutationRequest struct {
 	ReplyContent string `json:"reply_content"`
 	// ReplyImageURL 是默认回复图片地址。
 	ReplyImageURL string `json:"reply_image_url"`
+	// ReplyLibraryImageID 是默认回复引用的图片库图片主键；与 reply_image_url 互斥，0 或省略表示未使用图片库。
+	ReplyLibraryImageID int64 `json:"reply_library_image_id,omitempty"`
 	// ReplyOnce 表示同一聊天是否只发送一次默认回复。
 	ReplyOnce bool `json:"reply_once"`
 }
@@ -128,7 +132,7 @@ func (s *Server) listDefaultReplies(w http.ResponseWriter, r *http.Request) {
 	for _, row := range rows {
 		out = append(out, defaultReplyResponse{
 			CookieID: row.CookieID, Enabled: row.Reply.Enabled, ReplyContent: row.Reply.ReplyContent,
-			ReplyOnce: row.Reply.ReplyOnce, ReplyImageURL: row.Reply.ReplyImageURL,
+			ReplyOnce: row.Reply.ReplyOnce, ReplyImageURL: row.Reply.ReplyImageURL, ReplyLibraryImageID: row.Reply.ReplyLibraryImageID,
 			// 列表 DTO 保留账号标识，前端可直接建立按账号索引。
 		})
 	}
@@ -154,11 +158,12 @@ func (s *Server) listDefaultRepliesMap(w http.ResponseWriter, r *http.Request) {
 	// row 表示当前遍历过程中的应用层默认回复摘要。
 	for _, row := range rows {
 		out[row.CookieID] = defaultReplyResponse{
-			CookieID:      row.CookieID,
-			Enabled:       row.Reply.Enabled,
-			ReplyContent:  row.Reply.ReplyContent,
-			ReplyOnce:     row.Reply.ReplyOnce,
-			ReplyImageURL: row.Reply.ReplyImageURL,
+			CookieID:            row.CookieID,
+			Enabled:             row.Reply.Enabled,
+			ReplyContent:        row.Reply.ReplyContent,
+			ReplyOnce:           row.Reply.ReplyOnce,
+			ReplyImageURL:       row.Reply.ReplyImageURL,
+			ReplyLibraryImageID: row.Reply.ReplyLibraryImageID,
 			// map 键与 cookie_id 同时保留，兼容旧前端索引方式。
 		}
 	}
@@ -216,6 +221,8 @@ func writeDefaultReplyMutationError(w http.ResponseWriter, err error, fallback s
 	switch {
 	case errors.Is(err, defaultreplyapp.ErrAccountNotFound):
 		writeErr(w, http.StatusNotFound, "账号不存在")
+	case errors.Is(err, defaultreplyapp.ErrInvalidImageSource), errors.Is(err, defaultreplyapp.ErrImageNotFound):
+		writeErr(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, defaultreplyapp.ErrForbidden):
 		writeErr(w, http.StatusForbidden, "无权限操作该账号")
 	default:

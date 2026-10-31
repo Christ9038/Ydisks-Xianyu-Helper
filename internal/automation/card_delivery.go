@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"xianyu-go/internal/db"
@@ -49,6 +50,23 @@ func (e *automationActionExecutor) sendCardWithProof(ctx context.Context, task T
 		// executionErr 阻止失权运行继续取下一份卡密，已发送的 proof 必须随错误返回。
 		if executionErr := checkRunExecution(ctx); executionErr != nil {
 			return actionExecutionResult{sent: sent, proof: proof}, executionErr
+		}
+
+		// 图片库图片卡密：与 URL 图片卡密相同的“发送成功才计数”语义，但来源是图片库，消息凭证记录图片令牌而不是地址。
+		if card.Type == "image" && card.LibraryImageID > 0 {
+			// libraryMessage 保存该图片库图片在发货凭证中的消息记录，补发时据此重新读取图片库。
+			libraryMessage := db.AutomationDeliveryMessage{Kind: "library_image", Content: strconv.FormatInt(card.LibraryImageID, 10)}
+			// sendErr 保存发送图片库图片的失败原因，用于判定是否确定未发送。
+			if sendErr := e.sendLibraryImage(ctx, task, card.LibraryImageID, card.ID); sendErr != nil {
+				if errors.Is(sendErr, ErrMessageNotSent) {
+					return actionExecutionResult{sent: sent, proof: proof}, classifyMessageSendError(sendErr)
+				}
+				return actionExecutionResult{sent: sent, proof: proof, reviewProof: shipmentDeliveryProof{unknownUnits: 1, messages: []db.AutomationDeliveryMessage{libraryMessage}}}, classifyMessageSendError(sendErr)
+			}
+			proof.messages = append(proof.messages, libraryMessage)
+			sent++
+			proof.preparedUnits++
+			continue
 		}
 
 		// content、imageURL、readErr 分别是当前卡密组可发送的文本、图片地址和读取配置失败原因。

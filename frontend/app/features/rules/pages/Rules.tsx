@@ -34,10 +34,11 @@ import { filterAutomationIssues } from '../issueState';
 import { useRuleActions } from '../ruleActions';
 import type { AutomationTriggerType,ReplyRule,RulesProps,RulesTab } from '../types';
 import { accentClasses,accountLabel,actionSummary,adjustPriceTarget,buildReviewConfig,reviewLookbackHours,cardActionsForTrigger,isDeliveryCardReady,needsAllItemsConfirmation,statusPill,triggerMeta,triggerOrder,withAllItemsConfirmation } from '../utils';
+import { ImageSourceField } from '../../../../shared/ui/ImageSourceField';
 import { PageHeader } from '../../../../shared/ui/PageHeader';
 
 // Rules 是规则 feature 在旧页面目录下保留的兼容入口组件。
-const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHandled, auditPanel: AuditPanel }) => {
+const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHandled, auditPanel: AuditPanel, libraryImageChooser }) => {
   // [activeTab, 解构得到当前 Hook 返回的状态和操作函数。
   const [activeTab, setActiveTab] = useState<RulesTab>('automation');
   // [selectedAccountId, 解构得到当前 Hook 返回的状态和操作函数。
@@ -584,7 +585,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                     )}
                   </div>
                   <div className="bg-white p-3 rounded-xl border border-gray-100 text-sm text-gray-600 leading-relaxed">
-                    {rule.type === 'image' && rule.image_url ? rule.image_url : rule.reply_content}
+                    {rule.type === 'image' ? (rule.image_url || (rule.library_image_id ? `图片库图片 #${rule.library_image_id}` : '')) : rule.reply_content}
                   </div>
                 </div>
                 <div className="flex items-center gap-3 border-t md:border-t-0 md:border-l border-gray-200 pt-4 md:pt-0 md:pl-6">
@@ -643,7 +644,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                         )}
                       </div>
                       <div className="text-sm text-gray-600 line-clamp-2">
-                        {enabled ? (defaultReply.reply_content || defaultReply.reply_image_url || '已配置默认回复') : '未配置默认回复'}
+                        {enabled ? (defaultReply.reply_content || defaultReply.reply_image_url || (defaultReply.reply_library_image_id ? `图片库图片 #${defaultReply.reply_library_image_id}` : '已配置默认回复')) : '未配置默认回复'}
                       </div>
                     </div>
                   </div>
@@ -677,7 +678,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
         </section>
       )}
 
-      {activeTab === 'greeting' && <ItemGreetingPanel accountID={selectedAccountId} />}
+      {activeTab === 'greeting' && <ItemGreetingPanel accountID={selectedAccountId} libraryImageChooser={libraryImageChooser} />}
 
       {activeTab === 'logs' && (
         AuditPanel ? (
@@ -1129,6 +1130,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
           items={replyModalItems}
           onClose={/* 当前回调关闭关键词回复编辑器。 */ () => setShowReplyModal(false)}
           onSave={/* 当前回调提交关键词回复规则。 */ handleSaveReplyRule}
+          libraryImageChooser={libraryImageChooser}
         />
       )}
 
@@ -1191,13 +1193,11 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
               </div>
 
               <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">回复图片 URL（可选）</label>
-                <input
-                  type="text"
-                  value={defaultForm.reply_image_url}
-                  onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setDefaultForm({ ...defaultForm, reply_image_url: event.target.value })}
-                  placeholder="https://example.com/image.jpg"
-                  className="w-full ios-input px-4 py-3 rounded-xl"
+                <label className="block text-sm font-bold text-gray-700 mb-2">回复图片（可选）</label>
+                <ImageSourceField
+                  value={{ url: defaultForm.reply_image_url, libraryImageId: defaultForm.reply_library_image_id }}
+                  onChange={/* source 是用户选择的新图片来源；外链与图片库图片互斥。 */ source => setDefaultForm({ ...defaultForm, reply_image_url: source.url, reply_library_image_id: source.libraryImageId })}
+                  chooser={libraryImageChooser}
                 />
               </div>
 

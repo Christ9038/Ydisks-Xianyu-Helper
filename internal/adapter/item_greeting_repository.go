@@ -89,6 +89,10 @@ func (r *ItemGreetingRepository) Create(ctx context.Context, rule itemgreetingap
 	if err := r.validate(); err != nil {
 		return 0, err
 	}
+	// guardErr 保存图片库图片归属校验的失败原因，非空时拒绝写入。
+	if guardErr := r.ensureLibraryImage(ctx, rule); guardErr != nil {
+		return 0, guardErr
+	}
 	// err、id 保存 Create 的返回值及错误。
 	id, err := r.store.ItemGreetings.Create(ctx, itemGreetingDBModel(rule))
 	return id, itemGreetingError(err)
@@ -99,6 +103,10 @@ func (r *ItemGreetingRepository) Update(ctx context.Context, rule itemgreetingap
 	// err 表示适配器依赖未装配的错误，非空时直接返回。
 	if err := r.validate(); err != nil {
 		return err
+	}
+	// guardErr 保存图片库图片归属校验的失败原因，非空时拒绝写入。
+	if guardErr := r.ensureLibraryImage(ctx, rule); guardErr != nil {
+		return guardErr
 	}
 	return itemGreetingError(r.store.ItemGreetings.Update(ctx, itemGreetingDBModel(rule)))
 }
@@ -129,6 +137,19 @@ func (r *ItemGreetingRepository) validate() error {
 	return nil
 }
 
+// ensureLibraryImage 确认规则引用的图片库图片属于账号所有者，引用他人或已删除的图片按输入错误处理。
+func (r *ItemGreetingRepository) ensureLibraryImage(ctx context.Context, rule itemgreetingapp.Rule) error {
+	// owned、err 保存图片归属检查结果。
+	owned, err := libraryImageOwnedByAccount(ctx, r.store, rule.CookieID, rule.ReplyLibraryImageID)
+	if err != nil {
+		return err
+	}
+	if !owned {
+		return &itemgreetingapp.InvalidInputError{Reason: "图片库图片不存在"}
+	}
+	return nil
+}
+
 // itemGreetingError 把数据库错误转换为应用层错误。
 func itemGreetingError(err error) error {
 	// conflict 保存数据库层的商品冲突错误。
@@ -146,7 +167,7 @@ func itemGreetingError(err error) error {
 func itemGreetingRuleModel(rule db.ItemGreetingRule) itemgreetingapp.Rule {
 	return itemgreetingapp.Rule{
 		ID: rule.ID, CookieID: rule.CookieID, Name: rule.Name, Enabled: rule.Enabled,
-		ReplyContent: rule.ReplyContent, ReplyImageURL: rule.ReplyImageURL, ItemIDs: rule.ItemIDs,
+		ReplyContent: rule.ReplyContent, ReplyImageURL: rule.ReplyImageURL, ReplyLibraryImageID: rule.ReplyLibraryImageID, ItemIDs: rule.ItemIDs,
 	}
 }
 
@@ -165,7 +186,7 @@ func itemGreetingRuleModels(rows []db.ItemGreetingRule) []itemgreetingapp.Rule {
 func itemGreetingDBModel(rule itemgreetingapp.Rule) db.ItemGreetingRule {
 	return db.ItemGreetingRule{
 		ID: rule.ID, CookieID: rule.CookieID, Name: rule.Name, Enabled: rule.Enabled,
-		ReplyContent: rule.ReplyContent, ReplyImageURL: rule.ReplyImageURL, ItemIDs: rule.ItemIDs,
+		ReplyContent: rule.ReplyContent, ReplyImageURL: rule.ReplyImageURL, ReplyLibraryImageID: rule.ReplyLibraryImageID, ItemIDs: rule.ItemIDs,
 	}
 }
 

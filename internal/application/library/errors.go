@@ -24,13 +24,13 @@ func (e *ValidationError) Error() string { return e.Message }
 // invalid 构造一个输入校验错误。
 func invalid(message string) error { return &ValidationError{Message: message} }
 
-// ImageInUseError 表示图片仍被商品模板引用，不能删除。
+// ImageInUseError 表示图片仍被商品模板、回复、卡密或发货模板引用，不能删除。
 type ImageInUseError struct {
-	// Templates 是引用该图片的模板名称。
+	// Templates 是引用该图片的位置说明（例如“商品模板「春季」”“关键词「你好」”）。
 	Templates []string
 }
 
 // Error 返回包含引用模板名称的说明。
 func (e *ImageInUseError) Error() string {
-	return "图片仍被商品模板引用: " + strings.Join(e.Templates, "、")
+	return "图片仍被以下位置引用: " + strings.Join(e.Templates, "、")
 }

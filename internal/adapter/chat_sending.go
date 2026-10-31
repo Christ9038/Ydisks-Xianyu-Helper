@@ -45,6 +45,10 @@ func NewChatSendingApplication(domainService *domainchat.Service, store *db.Stor
 		downloadAutomationImage,
 		NewChatIdentityResolver(store, clientProvider, manager),
 	)
+	// libraryImages 是图片库读取来源；构造失败（上传根目录为空）时保持图片库回复不可用，不影响其他发送能力。
+	if libraryImages, libraryErr := NewLibraryImageSource(store); libraryErr == nil {
+		service = chatapp.WithLibraryImages(service, libraryImages.ReadLibraryImage)
+	}
 	return chatapp.WithPlatformReadReporter(chatapp.WithChatItemCatalog(service, NewChatItemCatalog(store, clientProvider, manager)), readReporter)
 }
 
@@ -217,7 +221,7 @@ func (d chatReplyDelivery) SendReply(ctx context.Context, message engine.ReplyMe
 	// sent、sendErr 保存聊天应用统一发送结果及错误。
 	sent, sendErr := d.service.SendReply(ctx, chatapp.ReplyInput{
 		Session: chatapp.Session{AccountID: message.AccountID, ChatID: message.ChatID, PeerUserID: message.ToUserID},
-		Text:    message.Text, ImageURL: message.ImageURL,
+		Text:    message.Text, ImageURL: message.ImageURL, LibraryImageID: message.LibraryImageID,
 	})
 	// result 保存引擎只关心的分段确认和未知结果标记，不泄露应用层消息模型。
 	result := engine.ReplySendResult{}

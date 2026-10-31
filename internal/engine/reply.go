@@ -21,15 +21,22 @@ import (
 
 // ReplyResult 回复结果。
 type ReplyResult struct {
-	Text      string // 文本回复（可空）
-	ImageURL  string // 图片回复（可空）
-	Source    string // 回复来源：API/关键词/AI/默认
-	Skip      bool   // true 表示匹配到空回复，不发送任何内容
-	ReplyOnce bool   // 默认回复与商品首次回复使用，发送状态由 Handle 持久化
+	Text     string // 文本回复（可空）
+	ImageURL string // 图片回复（可空）
+	// LibraryImageID 是图片库图片主键（0 表示未使用）；与 ImageURL 互斥，发送时由聊天应用读取字节并走统一上传链路。
+	LibraryImageID int64
+	Source         string // 回复来源：API/关键词/AI/默认
+	Skip           bool   // true 表示匹配到空回复，不发送任何内容
+	ReplyOnce      bool   // 默认回复与商品首次回复使用，发送状态由 Handle 持久化
 	// onceRecords 是 ReplyOnce 回复使用的投递记录仓储；为空时使用账号默认回复记录。
 	onceRecords onceRecordStore
 	// AutoPriceQuote 是 AI 已明确承诺且通过价格边界校验的可执行报价。
 	AutoPriceQuote *AIPriceQuoteProposal
+}
+
+// hasImage 判断回复是否携带图片（URL 或图片库图片），用于一次性投递记录的分段领取。
+func (r *ReplyResult) hasImage() bool {
+	return r.ImageURL != "" || r.LibraryImageID > 0
 }
 
 // onceRecordStore 是“每个会话只投递一次”回复的持久化端口，由账号默认回复和商品首次回复各自实现。
@@ -80,6 +87,8 @@ type ReplyMessage struct {
 	Text string
 	// ImageURL 是可选的来源图片地址；上传和尺寸处理由聊天应用完成。
 	ImageURL string
+	// LibraryImageID 是可选的图片库图片主键；与 ImageURL 互斥，读取、上传和尺寸处理由聊天应用完成。
+	LibraryImageID int64
 }
 
 // ReplySendResult 是聊天应用投递完整回复后的分段确认结果。
@@ -180,7 +189,8 @@ func (r *ReplyService) handleItemGreeting(ctx context.Context, m ChatMessage) {
 	if strings.TrimSpace(rule.ReplyImageURL) != "" {
 		res.ImageURL = rule.ReplyImageURL
 	}
-	if res.Text == "" && res.ImageURL == "" {
+	res.LibraryImageID = rule.ReplyLibraryImageID
+	if res.Text == "" && res.ImageURL == "" && res.LibraryImageID == 0 {
 		return
 	}
 	// deliverErr 保存首次回复投递错误，仅记录日志不阻断后续回复。
@@ -202,7 +212,7 @@ func (r *ReplyService) deliver(ctx context.Context, m ChatMessage, res *ReplyRes
 		var claimed bool
 		// err 用于本次流程后续判断的err
 		var err error
-		record, claimed, err = r.records(res).ClaimRecord(ctx, r.cookieID, m.ChatID, res.Text != "", res.ImageURL != "")
+		record, claimed, err = r.records(res).ClaimRecord(ctx, r.cookieID, m.ChatID, res.Text != "", res.hasImage())
 		if err != nil {
 			return fmt.Errorf("领取%s回复发送任务: %w", res.Source, err)
 		}
@@ -224,14 +234,15 @@ func (r *ReplyService) records(res *ReplyResult) onceRecordStore {
 // handleWithDelivery 把完整回复交给聊天应用，并把其分段结果同步到 reply_once 状态。
 func (r *ReplyService) handleWithDelivery(ctx context.Context, m ChatMessage, res *ReplyResult, record db.DefaultReplyRecord) error {
 	// message 保存本次仍需发送的完整回复；已成功的 reply_once 分段会被剔除。
-	message := ReplyMessage{AccountID: r.cookieID, ChatID: m.ChatID, ToUserID: m.SenderUserID, Text: res.Text, ImageURL: res.ImageURL}
+	message := ReplyMessage{AccountID: r.cookieID, ChatID: m.ChatID, ToUserID: m.SenderUserID, Text: res.Text, ImageURL: res.ImageURL, LibraryImageID: res.LibraryImageID}
 	if record.ImageSent {
 		message.ImageURL = ""
+		message.LibraryImageID = 0
 	}
 	if record.TextSent {
 		message.Text = ""
 	}
-	if strings.TrimSpace(message.Text) == "" && strings.TrimSpace(message.ImageURL) == "" {
+	if strings.TrimSpace(message.Text) == "" && strings.TrimSpace(message.ImageURL) == "" && message.LibraryImageID == 0 {
 		return nil
 	}
 	// sent、sendErr 保存消息页面完整发送入口返回的分段确认和错误。
@@ -482,8 +493,8 @@ func containsItemID(rawItemIDs string, target string) bool {
 
 // keywordResult 封装关键词结果业务协调。
 func (r *ReplyService) keywordResult(kw db.Keyword, m ChatMessage) *ReplyResult {
-	if kw.Type == "image" && kw.ImageURL != "" {
-		return &ReplyResult{ImageURL: kw.ImageURL, Source: "关键词"}
+	if kw.Type == "image" && (kw.ImageURL != "" || kw.LibraryImageID > 0) {
+		return &ReplyResult{ImageURL: kw.ImageURL, LibraryImageID: kw.LibraryImageID, Source: "关键词"}
 	}
 	if strings.TrimSpace(kw.Reply) == "" {
 		return &ReplyResult{Skip: true, Source: "关键词"} // EMPTY_REPLY
@@ -508,7 +519,7 @@ func (r *ReplyService) defaultReply(ctx context.Context, m ChatMessage) *ReplyRe
 		return nil
 	}
 	// 文字和图片都为空 → 空回复标记。
-	if strings.TrimSpace(dr.ReplyContent) == "" && strings.TrimSpace(dr.ReplyImageURL) == "" {
+	if strings.TrimSpace(dr.ReplyContent) == "" && strings.TrimSpace(dr.ReplyImageURL) == "" && dr.ReplyLibraryImageID == 0 {
 		return &ReplyResult{Skip: true, Source: "默认"}
 	}
 	// res 用于本次流程后续判断的响应
@@ -524,6 +535,7 @@ func (r *ReplyService) defaultReply(ctx context.Context, m ChatMessage) *ReplyRe
 	if strings.TrimSpace(dr.ReplyImageURL) != "" {
 		res.ImageURL = dr.ReplyImageURL
 	}
+	res.LibraryImageID = dr.ReplyLibraryImageID
 	return res
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -384,6 +385,13 @@ func (c *Center) replayDeliveryProof(ctx context.Context, task Task, run *db.Aut
 			sendErr = c.actions.sendText(ctx, task, message.Content)
 		case "image":
 			sendErr = c.actions.sendImage(ctx, task, message.Content, 0)
+		case "library_image":
+			// imageID、parseErr 保存快照中的图片库图片主键及解析错误；无法解析按确定未发送处理。
+			imageID, parseErr := strconv.ParseInt(strings.TrimSpace(message.Content), 10, 64)
+			if parseErr != nil || imageID <= 0 {
+				return messageIndex, fmt.Errorf("订单发货快照第 %d 条图片库图片标识无效", messageIndex+1)
+			}
+			sendErr = c.actions.sendLibraryImage(ctx, task, imageID, 0)
 		default:
 			return messageIndex, fmt.Errorf("订单发货快照第 %d 条消息类型无效", messageIndex+1)
 		}

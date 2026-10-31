@@ -1,4 +1,5 @@
 import type { ComponentType,Dispatch,ElementType,SetStateAction } from 'react';
+import type { LibraryImageChooserComponent } from '../../../shared/ui/imageSource';
 import type {
 AccountDetail,
   AutomationAction,
@@ -46,6 +47,8 @@ export interface RulesProps {
   // auditPanel 是应用壳按需注入的规则日志面板；缺省时“规则日志”页签只显示不可用提示。
   // 面板体积较大，由应用壳懒加载后注入，避免规则页分片超出体积预算。
   auditPanel?: ComponentType<AutomationAuditPanelProps>;
+  // libraryImageChooser 是应用壳按需注入的图片库选择器；缺省时图片回复只能填写外链。
+  libraryImageChooser?: LibraryImageChooserComponent;
 }
 
 // AutomationAuditPanelProps 描述规则日志面板的外部输入；rules 页面只依赖该最小结构，不静态引用面板实现。
@@ -68,6 +71,8 @@ export interface DefaultReplyForm {
   reply_once: boolean;
   // reply_image_url 表示可选的默认图片地址。
   reply_image_url: string;
+  // reply_library_image_id 表示默认回复使用的图片库图片主键，0 表示未使用，与图片地址互斥。
+  reply_library_image_id: number;
 }
 
 // TriggerMeta 描述自动化触发类型在页面中的展示元数据。

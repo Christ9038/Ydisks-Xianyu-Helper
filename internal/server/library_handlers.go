@@ -50,7 +50,7 @@ func writeLibraryError(w http.ResponseWriter, r *http.Request, err error, fallba
 	var validation *libraryapp.ValidationError
 	switch {
 	case errors.As(err, &inUse):
-		writeErrDetails(w, http.StatusConflict, "conflict", "图片仍被商品模板引用，请先修改模板", middleware.GetReqID(r.Context()),
+		writeErrDetails(w, http.StatusConflict, "conflict", "图片仍被模板、回复或卡密引用，请先移除引用后再删除", middleware.GetReqID(r.Context()),
 			map[string]any{"templates": inUse.Templates})
 	case errors.As(err, &validation):
 		writeErrRequest(w, r, http.StatusBadRequest, validation.Message)

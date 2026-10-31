@@ -196,7 +196,7 @@ func TestServiceCreateValidation(t *testing.T) {
 		{name: "invalid-delay", draft: Draft{Name: "x", Type: "text", TextContent: "x", DelaySeconds: 3601}, want: "延时发货必须在 0 到 3600 秒之间"},
 		{name: "empty-text", draft: Draft{Name: "x", Type: "text", TextContent: "  "}, want: "文本卡密内容不能为空"},
 		{name: "empty-data", draft: Draft{Name: "x", Type: "data", DataContent: "\n"}, want: "数据卡密内容不能为空"},
-		{name: "empty-image", draft: Draft{Name: "x", Type: "image", ImageURL: ""}, want: "图片卡密 URL 不能为空"},
+		{name: "empty-image", draft: Draft{Name: "x", Type: "image", ImageURL: ""}, want: "图片卡密需要选择图片库图片或填写 URL"},
 		{name: "non-http-image", draft: Draft{Name: "x", Type: "image", ImageURL: "file:///tmp/card.png"}, want: "图片卡密 URL 必须是 HTTP(S) 地址"},
 		{name: "credential-image", draft: Draft{Name: "x", Type: "image", ImageURL: "https://user:pass@example.com/card.png"}, want: "图片卡密 URL 必须是 HTTP(S) 地址"},
 	} {
@@ -520,3 +520,30 @@ func TestServiceCoversRemainingCRUDBoundaries(t *testing.T) {
 }
 
 var _ Repository = (*cardRepositoryStub)(nil)
+
+// TestServiceImageCardAcceptsLibraryImageAndRejectsAmbiguousSource 验证图片卡密可用图片库图片，且与 URL 互斥。
+func TestServiceImageCardAcceptsLibraryImageAndRejectsAmbiguousSource(t *testing.T) {
+	// repository、service 是记录创建输入的持久化替身和被测服务。
+	repository := &cardRepositoryStub{createdID: 21}
+	// service 是被测的应用服务，绑定本用例的仓储替身。
+	service := NewService(repository)
+	// err 保存被测调用的失败原因，断言时按预期分支检查。
+	if _, err := service.Create(context.Background(), 7, Draft{Name: "图", Type: "image", LibraryImageID: 4}); err != nil {
+		t.Fatalf("图片库图片卡密应可创建: %v", err)
+	}
+	if repository.createdCard.LibraryImageID != 4 || repository.createdCard.ImageURL != "" {
+		t.Fatalf("图片库图片未写入模型: %+v", repository.createdCard)
+	}
+	// draft 是待校验的一份草稿输入；name 是当前场景的名称，用于失败信息定位。
+	for name, draft := range map[string]Draft{
+		"both":     {Name: "图", Type: "image", ImageURL: "https://a.example/x.png", LibraryImageID: 4},
+		"negative": {Name: "图", Type: "image", LibraryImageID: -1},
+	} {
+		// validationError 保存非法图片来源的校验错误。
+		var validationError *ValidationError
+		// err 保存被测调用的失败原因，断言时按预期分支检查。
+		if _, err := service.Create(context.Background(), 7, draft); !errors.As(err, &validationError) {
+			t.Fatalf("%s 应为校验错误: %v", name, err)
+		}
+	}
+}

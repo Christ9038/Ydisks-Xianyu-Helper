@@ -46,4 +46,6 @@ type keywordTypedResponse struct {
 	Type string `json:"type"`
 	// ImageURL 是图片回复地址。
 	ImageURL string `json:"image_url"`
+	// LibraryImageID 是图片库图片主键；与 image_url 互斥，0 或省略表示未使用图片库。
+	LibraryImageID int64 `json:"library_image_id,omitempty"`
 }

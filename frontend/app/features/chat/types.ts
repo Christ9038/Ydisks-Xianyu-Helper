@@ -1,3 +1,11 @@
+import type { LibraryImageChooserComponent } from '../../../shared/ui/imageSource';
+
+/** ChatProps 描述聊天页面从应用壳接收的可选注入项。 */
+export interface ChatProps {
+  /** libraryImageChooser 是应用壳按需注入的图片库选择器；缺省时聊天页不显示图片库入口。 */
+  libraryImageChooser?: LibraryImageChooserComponent;
+}
+
 import type { AccountDetail,ChatMessage,ChatSession } from './api';
 
 /** 按账号保存会话列表。 */

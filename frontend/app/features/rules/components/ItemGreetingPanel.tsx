@@ -5,6 +5,8 @@ import { useItemGreetings } from '../itemGreetings';
 import type { ItemGreetingRule } from '../api';
 import ItemMultiSelect from './ItemMultiSelect';
 import Toast from './Toast';
+import { ImageSourceField } from '../../../../shared/ui/ImageSourceField';
+import type { LibraryImageChooserComponent } from '../../../../shared/ui/imageSource';
 
 // ITEM_GREETING_TOAST_MS 是操作提示的自动消失时长（毫秒）。
 const ITEM_GREETING_TOAST_MS = 2500;
@@ -13,10 +15,12 @@ const ITEM_GREETING_TOAST_MS = 2500;
 interface ItemGreetingPanelProps {
   /** accountID 是规则页当前选择的账号；空串表示全部账号，此时不能新建规则。 */
   accountID: string;
+  /** libraryImageChooser 是应用壳注入的图片库选择器；缺省时只能填写外链图片。 */
+  libraryImageChooser?: LibraryImageChooserComponent;
 }
 
 /** ItemGreetingPanel 展示并编辑“买家首次咨询指定商品时自动发送一次”的回复规则。 */
-const ItemGreetingPanel: React.FC<ItemGreetingPanelProps> = ({ accountID }) => {
+const ItemGreetingPanel: React.FC<ItemGreetingPanelProps> = ({ accountID, libraryImageChooser }) => {
   // greetings 汇总规则列表、编辑草稿和写操作；所有请求都由 Hook 负责取消与过期丢弃。
   const greetings = useItemGreetings(accountID);
   // draft、toast 是编辑中的草稿与操作提示。
@@ -73,7 +77,7 @@ const ItemGreetingPanel: React.FC<ItemGreetingPanelProps> = ({ accountID }) => {
                 <span className={`px-2 py-0.5 rounded-lg text-xs font-bold ${rule.enabled ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-500'}`}>{rule.enabled ? '已启用' : '已停用'}</span>
                 <span className="px-2 py-0.5 rounded-lg text-xs font-bold bg-purple-100 text-purple-700">{rule.item_ids.length} 个商品</span>
               </div>
-              <div className="text-sm text-gray-600 line-clamp-2">{rule.reply_content || rule.reply_image_url}</div>
+              <div className="text-sm text-gray-600 line-clamp-2">{rule.reply_content || rule.reply_image_url || (rule.reply_library_image_id ? `图片库图片 #${rule.reply_library_image_id}` : '')}</div>
             </div>
             <div className="flex items-center gap-3">
               <button onClick={/* 当前回调切换启停。 */ () => void greetings.toggle(rule)} className="px-3 py-2 text-xs font-bold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors">{rule.enabled ? '停用' : '启用'}</button>
@@ -110,8 +114,8 @@ const ItemGreetingPanel: React.FC<ItemGreetingPanelProps> = ({ accountID }) => {
                 <p className="mt-2 text-xs text-gray-400">支持变量：{'{send_user_name}'} {'{send_user_id}'} {'{send_message}'} {'{item_id}'}</p>
               </div>
               <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">回复图片 URL（可选）</label>
-                <input value={draft.reply_image_url} onChange={/* 当前回调更新图片地址。 */ event => greetings.setDraft({ ...draft, reply_image_url: event.target.value })} placeholder="https://example.com/image.jpg" className="w-full ios-input px-4 py-3 rounded-xl" />
+                <label className="block text-sm font-bold text-gray-700 mb-2">回复图片（可选）</label>
+                <ImageSourceField value={{ url: draft.reply_image_url, libraryImageId: draft.reply_library_image_id }} onChange={/* source 是用户选择的新图片来源；外链与图片库图片互斥。 */ source => greetings.setDraft({ ...draft, reply_image_url: source.url, reply_library_image_id: source.libraryImageId })} chooser={libraryImageChooser} />
               </div>
               <label className="flex items-center justify-between p-4 bg-gray-50 rounded-xl text-sm font-bold text-gray-800">
                 <span>启用此规则</span>

@@ -1,3 +1,11 @@
+import type { LibraryImageChooserComponent } from '../../../shared/ui/imageSource';
+
+/** DeliveryTemplatesProps 描述发货模板页面从应用壳接收的可选注入项。 */
+export interface DeliveryTemplatesProps {
+  /** libraryImageChooser 是应用壳按需注入的图片库选择器；缺省时模板只能编辑文字消息。 */
+  libraryImageChooser?: LibraryImageChooserComponent;
+}
+
 /** 发货模板编辑器使用的单条消息草稿。 */
 export interface DeliveryTemplateMessageDraft {
   /** 消息正文，可使用 cards.key 和 custom.key 变量。 */

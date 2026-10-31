@@ -67,6 +67,8 @@ type Keyword struct {
 	Type string
 	// ImageURL 是 image 类型回复使用的图片地址。
 	ImageURL string
+	// LibraryImageID 是 image 类型回复引用的图片库图片主键；与 ImageURL 互斥，0 表示未使用。
+	LibraryImageID int64
 }
 
 // SplitItemIDs 把持久化的商品范围字段拆分为去空白的商品标识集合。
@@ -119,6 +121,8 @@ type Draft struct {
 	Type string
 	// ImageURL 是 image 类型回复使用的图片地址。
 	ImageURL string
+	// LibraryImageID 是 image 类型回复引用的图片库图片主键；与 ImageURL 互斥，0 表示未使用。
+	LibraryImageID int64
 }
 
 // ItemReply 是指定商品回复的应用层模型。
@@ -350,9 +354,13 @@ func normalizeDraft(draft Draft) (Draft, error) {
 			return Draft{}, &ValidationError{Message: "文字回复内容不能为空"}
 		}
 		draft.ImageURL = ""
+		draft.LibraryImageID = 0
 	case "image":
-		if draft.ImageURL == "" {
-			return Draft{}, &ValidationError{Message: "图片回复 URL 不能为空"}
+		if draft.ImageURL != "" && draft.LibraryImageID > 0 {
+			return Draft{}, &ValidationError{Message: "图片回复只能选择图片库图片或填写 URL 之一"}
+		}
+		if draft.LibraryImageID < 0 || (draft.ImageURL == "" && draft.LibraryImageID == 0) {
+			return Draft{}, &ValidationError{Message: "图片回复需要选择图片库图片或填写图片 URL"}
 		}
 		draft.Reply = ""
 	default:

@@ -184,7 +184,7 @@ export const useRuleActions = ({
   // editingReplyRule 保存当前关键词回复草稿。
   const [editingReplyRule, setEditingReplyRule] = useState<Partial<ReplyRule> | null>(null);
   // defaultForm 保存当前默认回复草稿。
-  const [defaultForm, setDefaultForm] = useState<DefaultReplyForm>({ cookie_id: '', enabled: false, reply_content: '', reply_once: false, reply_image_url: '' });
+  const [defaultForm, setDefaultForm] = useState<DefaultReplyForm>({ cookie_id: '', enabled: false, reply_content: '', reply_once: false, reply_image_url: '', reply_library_image_id: 0 });
   // toast 保存关键词回复操作的轻提示内容。
   const [toast, setToast] = useState<ToastValue | null>(null);
   // toastTimer 保存轻提示自动消失的定时器句柄。
@@ -473,7 +473,7 @@ export const useRuleActions = ({
     if (!selectedAccountId) return showReplyToast('error', '请先选择账号');
     // expressions 保存至少一行可编辑表达式，避免新建表单丢失 OR 语义入口。
     const expressions = [''];
-    setEditingReplyRule({ keyword: '', expressions, reply_content: '', image_url: '', item_id: '', item_ids: [], type: 'text', match_type: 'contains', enabled: true });
+    setEditingReplyRule({ keyword: '', expressions, reply_content: '', image_url: '', library_image_id: 0, item_id: '', item_ids: [], type: 'text', match_type: 'contains', enabled: true });
     setShowReplyModal(true);
   }, [selectedAccountId, showReplyToast]);
 
@@ -493,7 +493,7 @@ export const useRuleActions = ({
     // matchType 将历史 fuzzy/exact/空值归一为当前 UI 支持的模式。
     const matchType = editingReplyRule.match_type === 'regexp' ? 'regexp' : 'contains';
     // hasReplyContent 表示当前回复是否填写了文字或图片。
-    const hasReplyContent = editingReplyRule.type === 'image' ? Boolean(editingReplyRule.image_url?.trim()) : Boolean(editingReplyRule.reply_content?.trim());
+    const hasReplyContent = editingReplyRule.type === 'image' ? Boolean(editingReplyRule.image_url?.trim()) || Boolean(editingReplyRule.library_image_id) : Boolean(editingReplyRule.reply_content?.trim());
     if (!expressions.length || !hasReplyContent) return showReplyToast('error', '请填写关键词和回复内容');
     // 正则模式先做尽力而为的语法预检；预检已兼容 Go/RE2 的内联标志和命名组，后端仍是最终权威。
     if (matchType === 'regexp' && !expressions.every(/* expression 是当前待预检的正则表达式。 */ expression => precheckRegexpExpression(expression))) {
@@ -527,9 +527,9 @@ export const useRuleActions = ({
     try {
       // data 保存服务端返回的默认回复配置。
       const data = await getDefaultReply(cookieID);
-      setDefaultForm({ cookie_id: cookieID, enabled: data.enabled, reply_content: data.reply_content, reply_once: data.reply_once, reply_image_url: data.reply_image_url || '' });
+      setDefaultForm({ cookie_id: cookieID, enabled: data.enabled, reply_content: data.reply_content, reply_once: data.reply_once, reply_image_url: data.reply_image_url || '', reply_library_image_id: data.reply_library_image_id || 0 });
     } catch {
-      setDefaultForm({ cookie_id: cookieID, enabled: false, reply_content: '', reply_once: false, reply_image_url: '' });
+      setDefaultForm({ cookie_id: cookieID, enabled: false, reply_content: '', reply_once: false, reply_image_url: '', reply_library_image_id: 0 });
     }
     setShowDefaultModal(true);
   }, [selectedAccountId]);
@@ -538,11 +538,11 @@ export const useRuleActions = ({
   const handleSaveDefaultReply = useCallback(/* saveDefaultAction 保存默认回复。 */ async () => {
     if (defaultReplySubmitState.submitting) return;
     if (!defaultForm.cookie_id) return alert('请先选择账号');
-    if (defaultForm.enabled && !defaultForm.reply_content.trim() && !defaultForm.reply_image_url.trim()) return alert('启用默认回复时，请填写回复内容或图片 URL');
+    if (defaultForm.enabled && !defaultForm.reply_content.trim() && !defaultForm.reply_image_url.trim() && !defaultForm.reply_library_image_id) return alert('启用默认回复时，请填写回复内容或选择/填写图片');
     setDefaultReplySubmitState(startRuleSubmission(defaultReplySubmitState));
     // succeeded 记录保存是否成功。
     let succeeded = false;
-    try { await updateDefaultReply(defaultForm.cookie_id, { enabled: defaultForm.enabled, reply_content: defaultForm.reply_content, reply_once: defaultForm.reply_once, reply_image_url: defaultForm.reply_image_url }); setShowDefaultModal(false); await loadDefaultReplies(); alert('保存成功'); succeeded = true; } catch (/* error 表示默认回复保存异常。 */ error) { alert('保存失败：' + (error as Error).message); } finally { setDefaultReplySubmitState(/* current 保存默认回复提交状态。 */ current => finishRuleSubmission(current, succeeded)); }
+    try { await updateDefaultReply(defaultForm.cookie_id, { enabled: defaultForm.enabled, reply_content: defaultForm.reply_content, reply_once: defaultForm.reply_once, reply_image_url: defaultForm.reply_image_url, reply_library_image_id: defaultForm.reply_library_image_id }); setShowDefaultModal(false); await loadDefaultReplies(); alert('保存成功'); succeeded = true; } catch (/* error 表示默认回复保存异常。 */ error) { alert('保存失败：' + (error as Error).message); } finally { setDefaultReplySubmitState(/* current 保存默认回复提交状态。 */ current => finishRuleSubmission(current, succeeded)); }
   }, [defaultForm, defaultReplySubmitState, loadDefaultReplies]);
 
   // handleDeleteDefaultReply 删除账号默认回复配置。
