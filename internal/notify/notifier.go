@@ -586,7 +586,7 @@ func eventLabel(eventType string) string {
 	case EventAutomationReviewMissingTimeout:
 		return "求评价"
 	case EventManualDeliveryResult:
-		return "手动发货结果"
+		return "手动发货"
 	case EventManualInterventionRequired:
 		return "需要人工处理"
 	case EventSystemError:

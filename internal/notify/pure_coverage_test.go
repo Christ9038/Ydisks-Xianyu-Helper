@@ -23,7 +23,7 @@ func TestNotificationPureMappings(t *testing.T) {
 		EventAccountOffline: "掉线通知", EventAccountRecovered: "恢复通知", EventAccountDisabled: "禁用通知",
 		EventSecurityVerification: "风控验证", EventTokenRenewal: "续期通知", EventDeliveryResult: "交易通知",
 		EventAutomationOrderCreated: "拍下改价", EventAutomationOrderPaid: "付款发货", EventAutomationBuyerReviewed: "评价赠品",
-		EventAutomationReviewMissingTimeout: "求评价", EventManualDeliveryResult: "手动发货结果",
+		EventAutomationReviewMissingTimeout: "求评价", EventManualDeliveryResult: "手动发货",
 		EventManualInterventionRequired: "需要人工处理",
 		EventSystemError:                "系统错误", "": "通知", "custom": "custom",
 	}
@@ -174,8 +174,8 @@ func TestFormatEventHeadlineCarriesTypeAndOutcome(t *testing.T) {
 	}{
 		{"paid-ok", NotificationEvent{Type: EventAutomationOrderPaid, Title: "自动化运行通知", Outcome: statusOutcome("success")}, "【付款发货】成功"},
 		{"paid-fail", NotificationEvent{Type: EventAutomationOrderPaid, Title: "自动化运行通知", Outcome: statusOutcome("failed")}, "【付款发货】失败"},
-		{"manual-fail", NotificationEvent{Type: EventManualDeliveryResult, Title: "自动发货通知", Outcome: messageOutcome("手动确认发货异常: x")}, "【手动发货结果】失败"},
-		{"manual-ok", NotificationEvent{Type: EventManualDeliveryResult, Outcome: messageOutcome("手动完整发货成功")}, "【手动发货结果】成功"},
+		{"manual-fail", NotificationEvent{Type: EventManualDeliveryResult, Title: "自动发货通知", Outcome: messageOutcome("手动确认发货异常: x")}, "【手动发货】失败"},
+		{"manual-ok", NotificationEvent{Type: EventManualDeliveryResult, Outcome: messageOutcome("手动完整发货成功")}, "【手动发货】成功"},
 		{"review", NotificationEvent{Type: EventManualInterventionRequired, Title: "自动化需要人工处理", Outcome: statusOutcome("needs_review")}, "【需要人工处理】"},
 		{"offline", NotificationEvent{Type: EventAccountOffline, Title: "账号掉线"}, "【掉线通知】 账号掉线"},
 	}
