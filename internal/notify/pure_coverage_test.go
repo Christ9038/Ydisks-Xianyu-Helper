@@ -153,12 +153,40 @@ func TestFormatEventCoversFallbacksAndStableFieldOrder(t *testing.T) {
 	event := NotificationEvent{Type: EventSystemError, Level: "", AccountID: "account-1", Fields: map[string]string{"zeta": "", "alpha": "值"}, Body: "  正文  ", Time: time.Date(2026, 8, 26, 11, 45, 0, 0, time.UTC)}
 	// formatted 保存通知格式化后的文本。
 	formatted := formatEvent(event)
-	if !strings.Contains(formatted, "[提示] 系统错误") || !strings.Contains(formatted, "账号: account-1") || !strings.Contains(formatted, "alpha: 值") || strings.Contains(formatted, "zeta:") || !strings.Contains(formatted, "\n\n正文") {
+	if !strings.HasPrefix(formatted, "【系统错误】\n") || !strings.Contains(formatted, "级别: 提示") || !strings.Contains(formatted, "账号: account-1") || !strings.Contains(formatted, "alpha: 值") || strings.Contains(formatted, "zeta:") || !strings.Contains(formatted, "\n\n正文") {
 		t.Fatalf("通知格式化结果异常: %q", formatted)
 	}
 	// orderedIndex 保存字段稳定排序后的第一个字段位置。
 	orderedIndex := strings.Index(formatted, "alpha: 值")
 	if orderedIndex < 0 {
 		t.Fatalf("通知字段缺失: %q", formatted)
+	}
+}
+
+// TestFormatEventHeadlineCarriesTypeAndOutcome 验证首行直接给出类型与成败，且泛称标题不再占据首行。
+func TestFormatEventHeadlineCarriesTypeAndOutcome(t *testing.T) {
+	// cases 覆盖付款发货成败、手动发货推断、人工处理和带具体标题的掉线告警。
+	cases := []struct {
+		// name 是用例名称；event 是输入事件；want 是期望首行。
+		name  string
+		event NotificationEvent
+		want  string
+	}{
+		{"paid-ok", NotificationEvent{Type: EventAutomationOrderPaid, Title: "自动化运行通知", Outcome: statusOutcome("success")}, "【付款发货】成功"},
+		{"paid-fail", NotificationEvent{Type: EventAutomationOrderPaid, Title: "自动化运行通知", Outcome: statusOutcome("failed")}, "【付款发货】失败"},
+		{"manual-fail", NotificationEvent{Type: EventManualDeliveryResult, Title: "自动发货通知", Outcome: messageOutcome("手动确认发货异常: x")}, "【手动发货结果】失败"},
+		{"manual-ok", NotificationEvent{Type: EventManualDeliveryResult, Outcome: messageOutcome("手动完整发货成功")}, "【手动发货结果】成功"},
+		{"review", NotificationEvent{Type: EventManualInterventionRequired, Title: "自动化需要人工处理", Outcome: statusOutcome("needs_review")}, "【需要人工处理】"},
+		{"offline", NotificationEvent{Type: EventAccountOffline, Title: "账号掉线"}, "【掉线通知】 账号掉线"},
+	}
+	// tc 是当前用例。
+	for _, tc := range cases {
+		// got 是格式化结果的首行。
+		if got, _, _ := strings.Cut(formatEvent(tc.event), "\n"); got != tc.want {
+			t.Fatalf("%s: 首行=%q want=%q", tc.name, got, tc.want)
+		}
+	}
+	if messageHeadline("  \n", "兜底") != "兜底" || messageHeadline("【A】\n正文", "x") != "【A】" {
+		t.Fatal("渠道标题提取异常")
 	}
 }

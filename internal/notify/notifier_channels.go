@@ -99,7 +99,7 @@ func (n *Notifier) sendDingTalk(cfg map[string]any, message string) error {
 	payload := map[string]any{
 		"msgtype": "markdown",
 		"markdown": map[string]any{
-			"title": "闲鱼自动回复通知",
+			"title": messageHeadline(message, "闲鱼自动回复通知"),
 			"text":  message,
 		},
 	}
@@ -147,7 +147,7 @@ func (n *Notifier) sendBark(cfg map[string]any, message string) error {
 	// data 用于本次流程后续判断的数据
 	data := map[string]any{
 		"device_key": deviceKey,
-		"title":      strOr(cfg, "title", "闲鱼自动回复通知"),
+		"title":      strOr(cfg, "title", messageHeadline(message, "闲鱼自动回复通知")),
 		"body":       message,
 		"sound":      strOr(cfg, "sound", "default"),
 		"group":      strOr(cfg, "group", "xianyu"),
@@ -619,4 +619,14 @@ func fallback(s, def string) string {
 		return def
 	}
 	return s
+}
+
+// messageHeadline 取通知文本首行作为渠道标题，使钉钉、Bark 等带独立标题字段的渠道推送预览直接显示事件类型；首行为空时使用 fallbackTitle。
+func messageHeadline(message, fallbackTitle string) string {
+	// headline 是去掉首尾空白后的第一行文本。
+	headline, _, _ := strings.Cut(strings.TrimSpace(message), "\n")
+	if headline = strings.TrimSpace(headline); headline != "" {
+		return headline
+	}
+	return fallbackTitle
 }

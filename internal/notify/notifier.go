@@ -53,9 +53,11 @@ type NotificationEvent struct {
 	Type      string
 	Level     string
 	Title     string
-	Body      string
-	Fields    map[string]string
-	Time      time.Time
+	// Outcome 是通知标题中的结果后缀（“成功”或“失败”）；为空表示该类事件没有成败语义。
+	Outcome string
+	Body    string
+	Fields  map[string]string
+	Time    time.Time
 	// SubscriptionFallbackTypes 保存兼容旧订阅配置的候选类别；只参与渠道过滤，不改变实际入队类别和通知展示。
 	SubscriptionFallbackTypes []string
 }
@@ -157,6 +159,7 @@ func (n *Notifier) NotifyDelivery(accountID, buyerName, buyerID, itemID, message
 		Type:      EventManualDeliveryResult,
 		Level:     "info",
 		Title:     "自动发货通知",
+		Outcome:   messageOutcome(message),
 		Body:      message,
 		Fields: map[string]string{
 			"买家":   fmt.Sprintf("%s (ID: %s)", buyerName, buyerID),
@@ -233,6 +236,7 @@ func (n *Notifier) automationRunEvent(eventType string, runID int64, accountID, 
 		Type:      notificationType,
 		Level:     notificationLevel,
 		Title:     notificationTitle,
+		Outcome:   statusOutcome(status),
 		Body:      message,
 		Fields: map[string]string{
 			"买家":   fmt.Sprintf("(ID: %s)", buyerID),
@@ -617,6 +621,30 @@ func classifyAccountAlertEvent(title, body string) string {
 	}
 }
 
+// statusOutcome 把自动化运行终态转换为标题结果后缀；人工处理等无成败语义的状态返回空串。
+func statusOutcome(status string) string {
+	switch strings.TrimSpace(status) {
+	case "success", "succeeded":
+		return "成功"
+	case "failed":
+		return "失败"
+	default:
+		return ""
+	}
+}
+
+// messageOutcome 根据手动发货结果文案推断成败；含“成功”视为成功，含“失败”或“异常”视为失败，其余无后缀。
+func messageOutcome(message string) string {
+	switch {
+	case strings.Contains(message, "失败"), strings.Contains(message, "异常"):
+		return "失败"
+	case strings.Contains(message, "成功"):
+		return "成功"
+	default:
+		return ""
+	}
+}
+
 // formatEvent 封装formatEvent业务协调。
 func formatEvent(ev NotificationEvent) string {
 	// b 用于本次流程后续判断的b
@@ -633,12 +661,18 @@ func formatEvent(ev NotificationEvent) string {
 	if title == "" {
 		title = label
 	}
-	b.WriteString("[")
-	b.WriteString(level)
-	b.WriteString("] ")
-	b.WriteString(title)
-	b.WriteString("\n\n类型: ")
+	// 首行必须直接给出事件类型与结果，手机推送预览只显示首行，用户无需进入程序即可判断。
+	b.WriteString("【")
 	b.WriteString(label)
+	b.WriteString("】")
+	b.WriteString(ev.Outcome)
+	// 自动化与发货类事件的原标题只是泛称，已被类型标签取代；账号告警等保留原标题作为具体事件说明。
+	if title != label && !isAutomationEventType(ev.Type) && ev.Type != EventManualDeliveryResult && ev.Type != EventManualInterventionRequired && ev.Type != EventDeliveryResult {
+		b.WriteString(" ")
+		b.WriteString(title)
+	}
+	b.WriteString("\n\n级别: ")
+	b.WriteString(level)
 	if ev.AccountID != "" {
 		b.WriteString("\n账号: ")
 		b.WriteString(ev.AccountID)
