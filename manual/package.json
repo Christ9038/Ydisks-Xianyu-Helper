@@ -1,0 +1,14 @@
+{
+  "name": "ydisks-xianyu-helper-manual",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prepare:content": "node scripts/prepare.mjs",
+    "dev": "npm run prepare:content && vitepress dev",
+    "build": "npm run prepare:content && vitepress build",
+    "preview": "vitepress preview"
+  },
+  "devDependencies": {
+    "vitepress": "1.6.4"
+  }
+}

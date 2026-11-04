@@ -7,7 +7,7 @@ An Xianyu multi-account management, messaging, and automated-delivery system bui
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)
 [![Release](https://github.com/Christ9038/Ydisks-Xianyu-Helper/actions/workflows/release.yml/badge.svg)](https://github.com/Christ9038/Ydisks-Xianyu-Helper/actions/workflows/release.yml)
 
-English documentation · [中文 README](README.zh-CN.md) · [English Wiki](docs/wiki/Home.md) ·
+English documentation · [Online Manual](https://xianyu.ydisks.com/manual/en/) · [中文 README](README.zh-CN.md) · [English Wiki](docs/wiki/Home.md) ·
 [中文 Wiki](docs/wiki/Home.zh-CN.md) · [Contributing](CONTRIBUTING.md) ·
 [Security policy](SECURITY.md) · [Code of Conduct](CODE_OF_CONDUCT.md) · [License](#license)
 

@@ -1,0 +1,77 @@
+name: 发布使用手册站点
+
+# 手册内容来自 docs/wiki（唯一维护来源），由 manual/ 的 VitePress 构建到 /manual/，
+# 与 docs/ 下的官网首页一起发布到 GitHub Pages（域名见 docs/CNAME）。
+# 需要在仓库 Settings → Pages 把 Source 切换为 “GitHub Actions” 后，deploy 任务才会生效。
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - docs/**
+      - manual/**
+      - .github/workflows/manual.yml
+  pull_request:
+    paths:
+      - docs/wiki/**
+      - manual/**
+      - .github/workflows/manual.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: manual-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: 构建手册站点
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v6
+
+      - name: 准备 Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: manual/package-lock.json
+
+      - name: 安装依赖
+        run: npm ci --prefix manual
+
+      - name: 构建手册（含站内死链检查）
+        run: npm run build --prefix manual
+
+      - name: 组装 Pages 站点
+        run: |
+          mkdir -p _site
+          cp docs/index.html docs/CNAME _site/
+          cp -r docs/assets docs/img _site/
+          cp -r manual/dist _site/manual
+          touch _site/.nojekyll
+
+      - name: 上传 Pages 产物
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    name: 部署到 GitHub Pages
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 部署
+        id: deployment
+        uses: actions/deploy-pages@v4

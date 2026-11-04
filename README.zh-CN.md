@@ -13,7 +13,7 @@
 [Docker 部署](#docker-部署) · [开发指南](#开发指南) · [贡献指南](CONTRIBUTING.md) ·
 [安全策略](SECURITY.md) · [行为准则](CODE_OF_CONDUCT.md) · [开源协议](#开源协议)
 
-操作手册见仓库内的 [GitHub Wiki 文档](docs/wiki/Home.zh-CN.md)：包含数据库选择、账号接入、
+操作手册见 [在线使用手册](https://xianyu.ydisks.com/manual/)（源文件为仓库内的 [Wiki 文档](docs/wiki/Home.zh-CN.md)）：包含数据库选择、账号接入、
 在线聊天、账号自动任务、批量铺货、自动化发货、AI、通知和运维流程。
 
 > [!IMPORTANT]

@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.vitepress/cache/
+# 由 scripts/prepare.mjs 从 docs/wiki 生成，不入库
+/*.md
+/en/
+/public/img/
