@@ -50,7 +50,7 @@ To configure review reminders:
 
 ## Exceptions and manual delivery
 
-The exception area of Automation lists actionable runs and delayed tasks. Check the order, inventory, chat history, and failure reason before using Process/Resolve. If delivery status is uncertain, do not retry immediately; duplicate cards may be sent.
+The exception area of Automation lists actionable runs and delayed tasks. Check the order, inventory, chat history, and failure reason before using the matching action ("已执行，继续下一步" continue, "未执行，安全重试" safe retry, "终止" cancel; delayed tasks: "重新入队" requeue, "忽略" dismiss). If delivery status is uncertain, do not retry immediately; duplicate cards may be sent.
 
 For a manual resend, locate the order in Orders, confirm buyer, product, and delivery history, then use manual delivery/resend. Record the reason and check inventory afterward.
 
@@ -73,7 +73,7 @@ Rules page → **Item first reply** tab. When a buyer first inquires about a sel
 
 - A rule has a name, enabled switch, reply text, optional image URL and one or more items of the account. Within one account **an item can belong to only one rule** (a conflict is rejected).
 - Text may use `{send_user_name}`, `{send_user_id}`, `{send_message}` and `{item_id}`.
-- It is sent once per buyer conversation and item; sent records can be cleared. If it fails, only a log line is written and the normal reply chain continues. For a conversation that already received it, the account default reply set to "reply once" yields to it.
+- It is sent once per buyer conversation and item; sent records can be cleared. If it fails, only a log line is written and the normal reply chain continues. For a conversation that already received it, the account default reply set to "只回复一次" (reply once) yields to it.
 
 ## Rule log
 
