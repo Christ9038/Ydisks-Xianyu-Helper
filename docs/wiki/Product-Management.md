@@ -20,7 +20,7 @@ Add Product creates a local association for a product that already exists on Xia
 1. Click Publish Product and select the publishing account.
 2. Enter title, inventory, description, price, original price, and shipping fee. A virtual product may omit the shipping origin.
 3. Optionally enter a category keyword and fetch a category. If blank, Xianyu attempts automatic recognition, then uses Electronic Materials as the fallback.
-4. Add specifications when needed. Up to two specification types are supported, with at least two values per type.
+4. Add specifications when needed. Up to two specification types are supported, with at least two values per type, and at most 1500 combinations in total.
 5. Fill price and inventory for each generated combination; upload specification images when needed.
 6. Upload product images. Up to nine are supported; the first is the main image. Images can be added, removed, or reordered.
 7. Recheck account, category, inventory, and images, then click Publish to Xianyu.

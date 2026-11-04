@@ -26,7 +26,7 @@ An unsigned installer gets blocked by the system. Open *System Settings → Priv
 We have no confirmed cause yet. Try running the installer as administrator after stopping the old `YdisksXianyuHelper` service; if it still fails, open an issue with the full error.
 
 **The notification test says "access to non-public address denied".**
-For safety the program refuses notification URLs that resolve to a private IP. The usual cause is a proxy in fake-ip mode (mihomo, for example) answering your notification server's domain with a private address. Add that domain to the proxy's fake-ip filter.
+When "Restrict user-configured HTTP outbound requests to public addresses" is enabled in System and AI (off by default), the program refuses notification URLs that resolve to a private IP; remote image downloads always allow public addresses only. The usual cause is a proxy in fake-ip mode (mihomo, for example) answering your notification server's domain with a private address. Add that domain to the proxy's fake-ip filter.
 
 **Browser notifications say "permission denied", or play no sound.**
 Allow notifications for this address in the browser's site settings (browsers generally require HTTPS or `localhost`). The sound switch is under *System Settings → Basic Settings*.
@@ -36,8 +36,8 @@ It follows Xianyu's own web version protocol (WebSocket plus the MTOP interfaces
 
 ## Products, cards and delivery
 
-**I saved an API card's headers, but they are gone when I reopen it.**
-That is on purpose. API cards can contain third-party keys, so they are never shown on the page again; just type them in again when editing.
+**I saved an API card's headers, but I cannot see them in the list.**
+That is on purpose: API cards may contain third-party keys, so card lists and details never return them. To review or change them, open the card's API editor (owner only, read on demand, not cached); secret inputs are masked until you click to reveal, and the draft is cleared when the dialog closes or the card switches.
 
 **A multi-spec product never matches auto delivery.**
 The rule has to match the order's **complete spec combination**; the program never guesses from a partial match. Upgrade to a recent version and check that every spec combination has a rule.

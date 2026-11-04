@@ -19,7 +19,7 @@ In Bargaining Only mode AI handles buyer bargaining messages; in Full Service mo
 
 1. Open Notification Settings. Configure system SMTP when using email. Email inherits system SMTP by default; enable Use Independent SMTP when another sender is required and fill in the complete independent configuration.
 2. Create a channel: Bark, DingTalk, Feishu, WeCom, Telegram, email, or custom Webhook. Enter the address or token required by that channel.
-3. Select events. Selecting none means all events. The four automation categories—price adjustment after order creation, paid-order delivery, review gifts, and review requests—can now be disabled independently. Other options include disconnection, recovery, disabling, security verification, renewal, manual delivery results, and system errors.
+3. Select events. Selecting none means all events. The four automation categories—price adjustment after order creation, paid-order delivery, review gifts, and review requests—can now be disabled independently. Other options are 掉线通知 (offline), 恢复通知 (recovered), 禁用通知 (disabled), 风控验证 (security verification), 续期通知 (renewal), 手动发货结果 (manual delivery result), 需要人工处理 (manual intervention required), and 系统错误 (system error).
 4. Save and click Test Notification. Confirm delivery in the target channel.
 5. Return to Account Management → Edit and bind the channel to each account. Creating a channel alone does not make an account use it.
 

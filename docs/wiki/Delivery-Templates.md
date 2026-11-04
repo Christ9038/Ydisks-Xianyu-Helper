@@ -10,20 +10,20 @@
 4. Click Add Message for additional messages. Unneeded messages can be removed, but a template must keep at least one message.
 5. Click Save Template.
 
+Each message is either text or an image: choosing an image from the image library below the text box turns the whole message into an image message (internal token `{{library_image:<imageID>}}`); it cannot be mixed with text, and clearing the image lets you type text again. See [Resource Library](Resource-Library).
+
 ## Available variables
 
 Template messages can use these variables:
 
 - `{{order_id}}`: order ID
-- `{{item_id}}`: product ID
-- `{{item_title}}`: product title
 - `{{buyer_id}}`: buyer ID
-- `{{buyer_nick}}`: buyer nickname
+- `{{buyer_nickname}}`: buyer nickname (replaced with an empty string when missing)
 - `{{card_name}}`: name of the card inventory bound to the rule
 - `{{cards.<name>}}`: card content bound to the rule, for example `{{cards.main}}`
 - `{{custom.<name>}}`: custom text entered in the automation rule
 
-Variable names must not contain spaces or Chinese characters, and all braces must be present. The system validates variable spelling when saving.
+After `cards.` and `custom.`, names may only use English letters, digits, underscores or hyphens; no spaces or Chinese characters, and all braces must be present. The `delivery.` prefix is optional (`{{delivery.order_id}}` equals `{{order_id}}`). Other variables such as item ID or item title are not supported. The system validates variable spelling when saving. Template variables only apply to delivery templates.
 
 ## Use a template in automation
 

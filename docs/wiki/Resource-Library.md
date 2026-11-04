@@ -11,7 +11,9 @@ The **Resource Library** (`/app/library`, sidebar entry below Online Chat) store
 - Search by file name, preview a larger image, and delete single or multiple images.
 - A badge shows how many templates reference an image. The single-product publish dialog can also pick images from this library.
 
-Image sorting: newest, oldest, file name A→Z / Z→A, size large→small / small→large. Use "Reset filters" to clear them; images still referenced by a product template cannot be deleted.
+Image sorting: newest, oldest, file name A→Z / Z→A, size large→small / small→large. Use "Reset filters" to clear them; images still referenced by a product template, reply rule, card, or delivery template cannot be deleted (the message lists where they are used; remove the references first). The picker can also filter by format (JPG / PNG / WEBP / GIF).
+
+Library images can be chosen directly when publishing items and editing product templates, in delivery-template image messages, image-type cards, keyword/default replies, item first-reply messages, and when sending images in online chat.
 
 ## Product templates
 
@@ -27,7 +29,7 @@ The template list supports search and sorting (recently updated, oldest updated,
 ## Publishing templates to accounts
 
 1. Tick one or more templates and click publish.
-2. Choose target accounts and the publish interval (seconds, 0–3600).
+2. Choose target accounts and the publish interval (seconds, 0–3600; 0 uses the default of 5).
 3. The system builds a **template × account preview**. Invalid rows show their reason and can be filtered.
 4. Confirm. Publishing then follows the [Bulk Listing](Bulk-Listing) pipeline: serial publishing with the enforced interval, progress display and failed-row retry. The total rows per batch (templates × accounts) are capped by the same limit as bulk listing.
 

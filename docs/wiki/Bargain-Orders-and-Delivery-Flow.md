@@ -32,7 +32,7 @@ Hard rules:
 - A payment event without an order number is rejected; the system never guesses an order from the conversation.
 - Purchase quantity must be known reliably before sending.
 - A payment amount gate stops zero-amount orders (for example service-appointment orders) from being delivered by mistake.
-- Orders whose item is not in the local item library are skipped silently instead of raising a manual-review alert.
+- An order-created event with unknown role whose item is not in this account's local item library (for example, the account bought someone else's item) is skipped silently: no deferral, no notification, no platform request, and no false manual-review alert. Delivery after payment is driven by the payment event and the pending-shipment scan, not by the order-created event.
 
 ## Fallback and recovery
 

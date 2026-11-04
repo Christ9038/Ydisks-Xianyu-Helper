@@ -12,7 +12,7 @@ Dashboard shows the current operating overview. It does not modify orders, inven
 2. Select Today, Yesterday, Last 3 Days, Last 7 Days, or Last Month.
 3. Select Custom to enter a start and end date, then click Apply.
 4. Review cumulative revenue, active accounts/total accounts, order count, and remaining card inventory.
-5. Continue with revenue trends, product sales ranking, order-source distribution, and the order details included in the statistics.
+5. Continue with revenue trends, product sales ranking, item order share, item amount analysis (TOP5), and the order details included in the statistics; when there are too many, only the most recent are loaded and the page shows "showing the latest N / total".
 
 Included orders are pending shipment, shipped, and completed orders with valid amounts. Order details can be searched by order ID, product, or buyer.
 

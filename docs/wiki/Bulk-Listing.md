@@ -19,7 +19,7 @@ English headers are also supported, but Chinese and English headers cannot be mi
 ### Required fields and formats
 
 - Title is required and price must be greater than 0. Inventory is a positive integer; blank defaults to 1.
-- Shipping mode is `free`/`包邮` or `fixed`/`固定邮费`. Fixed shipping requires a shipping fee.
+- Shipping mode defaults to free when blank. Accepted values: `free`/`包邮`, `fixed`/`固定邮费`/`一口价邮费` (a non-negative fee is required), `distance`/`按距离计费`, `none`/`无需邮寄`/`不需要邮寄`.
 - Each product has 1–9 images. Separate multiple values with the English semicolon `;`. Use publicly accessible `http(s)://` URLs or relative paths inside the ZIP.
 - The upload-page default category may be blank. To specify one, select an account, enter a keyword, and use Xianyu’s category recommendation response. A row’s Category ID + Category Name + Channel Category ID overrides the current row; all three must be supplied together.
 - Fill Taobao Category ID from the Xianyu recommendation response. Leave the value empty for Electronic Materials.
@@ -40,9 +40,9 @@ For example, `101:1;102:2:30` sends one unit from group 101, waits 30 seconds, a
 ## 2. Operate the task
 
 1. Click Bulk Listing in Product Management.
-2. Select a default account; rows without an account ID use it.
+2. Select the required "默认发布账号" (default publishing account); rows without an account ID use it, and a filled ID overrides it for that row only.
 3. Leave the default category blank or enter a keyword and click Get Category to apply one to the batch.
-4. Select the table and, when needed, the ZIP image package.
+4. Select the table and, when needed, the ZIP image package. Adjust "商品发布强制间隔" (forced publish interval, 1–3600 seconds, default 5) if needed: images are uploaded ahead of time and only the final publish requests wait at least that long between each other.
 5. Run preflight. Check category strategy and fix errors such as an unauthorized account, missing card group, mismatched image path, missing fixed shipping fee, or zero price.
 6. Start the task only after every publishable row is confirmed.
 7. Review successful, failed, and in-progress rows in task details. Cancel when needed; a single product already being submitted may still finish.
@@ -52,7 +52,7 @@ For example, `101:1;102:2:30` sends one unit from group 101, waits 30 seconds, a
 
 Category priority is: row-specified category > upload-page default category fetched by keyword > automatic recognition from title, description, and images > Electronic Materials fallback. A user-specified category is never overwritten by automatic recognition. Timeouts, authentication failures, risk controls, and similar errors are reported rather than hidden by the final fallback.
 
-Bulk-listed products are virtual products. The task does not request or submit a physical shipping address; category selection only identifies the product type and does not change virtual delivery after payment.
+Bulk listing targets virtual products: the optional "批次发货地" (batch location) may be left blank; if filled, the whole batch uses that one location, which is saved with the task for recovery and retry. Category selection only identifies the product type and does not change virtual delivery after payment.
 
 ## 3. Common issues
 

@@ -33,7 +33,18 @@ In the import dialog switch to "Batch create card groups" and upload a table: on
 
 API cards are suitable for external code-delivery systems that issue a code per order. You can paste a cURL command to fill in the request, and an existing card can be reopened for editing and tested without retyping its secrets. When idempotent retry is enabled, `{idempotency_key}` must appear in a header, query parameter, or body that is actually sent; otherwise saving is rejected and delivery makes only one request. Test the endpoint with non-sensitive data and confirm the response shape before enabling production automation. Request headers, parameters, and keys are sensitive; do not expose them in screenshots or chat.
 
-Common order variables include order ID, product ID, buyer ID, account ID, quantity, amount, and trigger type. A response path may be `data.card.code`. If the external response changes, disable the group first so automatic delivery does not fail repeatedly.
+Headers, query parameters and the body may use these variables (replaced with the current order's values at send time):
+
+| Variable | Meaning |
+| --- | --- |
+| `{order_id}` `{item_id}` `{buyer_id}` `{chat_id}` | Order ID, item ID, buyer ID, chat ID |
+| `{account_id}` (same as `{cookie_id}`) | Account ID |
+| `{spec_name}` `{spec_value}` | Order specification name and value |
+| `{quantity}` (same as `{order_quantity}`), `{amount}` (same as `{order_amount}`) | Purchased quantity, order amount |
+| `{item_detail}` `{trigger_type}` `{timestamp}` | Item detail, trigger type, UTC timestamp (RFC3339) |
+| `{delivery_unit_index}` `{delivery_total_count}` | Which unit this is and the total (each unit is requested separately when several are bought) |
+| `{idempotency_key}` | Stable key per card unit across retries; must appear in the request when retry is enabled; at most 3 attempts |
+ A response path may be `data.card.code`. If the external response changes, disable the group first so automatic delivery does not fail repeatedly.
 
 ## Edit, disable, or delete
 

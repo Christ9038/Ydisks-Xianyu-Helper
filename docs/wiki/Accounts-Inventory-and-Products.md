@@ -31,7 +31,7 @@ API cards support `{order_id}`, `{item_id}`, `{buyer_id}`, `{chat_id}`, `{accoun
 
 Headers, parameters, and the request body are encrypted as a whole. Card lists, details, and rule APIs return only whether headers and parameters are configured and never echo template plaintext. Only when the owner opens a saved API card for editing, a dedicated owner-only endpoint returns the saved template (sent with no-store caching); secret-bearing inputs are masked by default and the draft is cleared when the dialog closes or another card is opened. Saved cards can be tested directly without retyping their secrets. Editing headers or parameters replaces the stored template, Keep preserves the old one, and Clear removes it. A new card can also be filled in from a pasted cURL command. Before enabling idempotent retries, put `{idempotency_key}` in a place that is actually sent: a header works for both GET and POST, GET may also use a query parameter, and POST only sends the request body (when the body is empty, parameters are sent as the body). Saving is rejected otherwise; configurations already stored are marked unusable until they are fixed and re-saved, and delivery never retries without a delivered idempotency key. The system makes at most three requests and retries only network errors, timeouts, 408, 429, and 5xx responses.
 
-Administrators can enable “user-configured HTTP may access public network only” in System and AI. Once enabled, API delivery, AI, HTTP notifications, remote images, and remote slider services cannot reach local, private, link-local, reserved, or cloud-metadata addresses; DNS resolution and redirects are checked again. The option is off by default and takes effect immediately after saving. It does not replace API-key or request-template security.
+Administrators can enable “限制用户配置的 HTTP 出站请求只能访问公网” (restrict user-configured HTTP outbound requests to public addresses) in System and AI. Once enabled, API delivery, AI, HTTP notifications, remote images, and remote slider services cannot reach local, private, link-local, reserved, or cloud-metadata addresses; DNS resolution and redirects are checked again. The option is off by default and takes effect immediately after saving. It does not replace API-key or request-template security.
 
 Batch cards can be created with Batch Import, or appended to an existing `data` group. Check inventory before listing; replenish first instead of relying on manual recovery.
 
@@ -48,7 +48,7 @@ In Product Management:
 - Single-product publishing supports up to two specification types. Each type needs at least two values; the system generates combinations with separate price and inventory.
 - Specification values can have specification images. Product images can be added, removed, dragged, or reordered; the first image is the main image.
 - Bulk Listing’s default category may be blank or fetched by keyword. Priority is row category, page default, automatic recognition, and finally Electronic Materials.
-- Bulk-listed products are virtual products and do not depend on a physical shipping address. The category fallback does not change paid virtual delivery.
+- Bulk listing targets virtual products; the optional batch location may be left blank. The category fallback does not change paid virtual delivery.
 - Successful publishing does not enable automatic delivery. Bind card groups by product/specification in Automation or declare the configuration in the bulk-listing table.
 
 ## 5. Pre-launch checks

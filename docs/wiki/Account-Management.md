@@ -14,15 +14,22 @@ For face or risk-control verification, use only the official Xianyu app or the o
 ## Daily account operations
 
 - **Enable/disable:** a disabled account does not process backend tasks; tasks resume when it is enabled.
-- **Edit:** change notes, automatic delivery/shipping confirmation, processing pause duration, Cookie, and long-login settings.
+- **Search:** the search box filters the list by nickname, note, or account ID.
+- **Edit:** change the note, the three switches (Auto delivery / Auto confirm shipping / Auto skip-group), processing pause duration, Cookie, "Save login info" (Xianyu's official long-login setting), and notification channel bindings. The account ID is read-only.
 - **Reauthorize by QR:** use after Cookie expiry, account disconnection, or failed profile refresh. QR login is the current production login path.
 - **AI Settings:** enable AI for this account, choose Bargaining Only or Full Service mode, and set bargaining limits. The system-wide API and model are configured in System and AI.
 - **Automatic Reviews and Daily Refresh:** open it from the account card, save settings, or click Review Now/Refresh Now for one run.
 - **Delete:** delete only after confirming that related products, rules, and orders no longer need processing.
 
-## Pause and automatic shipping confirmation
+## Pause and the three automation switches
 
-In Edit Account, Processing Pause Duration (minutes) temporarily stops order handling and resumes it when the duration expires. Use Pause Again Now to restart the pause using the current duration.
+In Edit Account, Processing Pause Duration (minutes, 0–1440; 0 means no pause) temporarily stops order handling and resumes it when the duration expires; the account card shows "暂停处理中" while paused. Use Pause Again Now to restart the pause using the current duration.
+
+The three switches are independent and follow the fixed bargain-order sequence (see [Bargain Orders and Delivery Flow](Bargain-Orders-and-Delivery-Flow)):
+
+- **Auto delivery (自动发货):** master automation switch. After payment it sends the card or template messages; it never changes the Xianyu order status.
+- **Auto confirm shipping (自动确认发货):** after the card is sent, calls Xianyu's "shipped" API so the order becomes shipped. Requires Auto delivery. Turn it off for slow-fulfilment goods to avoid starting the buyer's auto-receive countdown.
+- **Auto skip-group (自动免拼):** only on the "我已小刀，待刀成" system message it calls the skip-group API; cards are sent only after "我已成功小刀，待发货". Turning it off does not block delivery for orders that already reached that stage.
 
 Automatic Shipping Confirmation only marks the Xianyu order as shipped; it does not prove that a card was sent. Complete automatic delivery still requires the product, automation rule, and inventory to be configured correctly.
 
