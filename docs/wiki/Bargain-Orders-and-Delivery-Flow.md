@@ -4,7 +4,7 @@
 
 Automatic delivery is driven by Xianyu's **WebSocket system messages**. The order-status scanner is only a safety net for lost messages and never jumps ahead of a WebSocket stage. This page explains the four delivery paths, the order of actions for two-person bargain ("小刀") orders, and how failed runs are recovered.
 
-## Two account switches
+## Three account switches
 
 | Switch (Account Management) | Role |
 | --- | --- |

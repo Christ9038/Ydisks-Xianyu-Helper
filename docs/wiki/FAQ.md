@@ -8,7 +8,7 @@ If your account is risk-controlled or QR login keeps saying "security verificati
 
 **Which account is the administrator? I forgot the password.**
 The username is always `admin`; the password is the one you set the first time you opened the console. To reset it from the command line:
-`go run ./cmd/server -init-admin -db <database path> -admin-password 'new password'`. Docker users just change `XIANYU_ADMIN_PASSWORD`.
+`go run ./cmd/server -init-admin -db <database path> -admin-password 'new password'`. Docker users run `/app/xianyu-server -init-admin -admin-password 'new password'` inside the container; the bundled `docker-compose.debian13-postgres17.yml` has an `init-admin` service (profile `init`) that reads `XIANYU_ADMIN_PASSWORD` and performs the same reset. Changing the environment variable alone, without running `-init-admin`, does not change an existing administrator's password (`-ensure-admin` only creates the administrator when it is missing).
 
 **How do I upgrade Docker? Will I lose data?**
 No. Pull the latest image, remove the old container and create it again with the same parameters. With Compose run `docker compose pull && docker compose up -d`; with Portainer pull the image and click Recreate. As long as you keep the same data volume and `XIANYU_DATA_KEY`, your accounts and orders stay. Note that redeploying without pulling a new image just runs the old version again.
@@ -26,10 +26,10 @@ An unsigned installer gets blocked by the system. Open *System Settings → Priv
 We have no confirmed cause yet. Try running the installer as administrator after stopping the old `YdisksXianyuHelper` service; if it still fails, open an issue with the full error.
 
 **The notification test says "access to non-public address denied".**
-When "Restrict user-configured HTTP outbound requests to public addresses" is enabled in System and AI (off by default), the program refuses notification URLs that resolve to a private IP; remote image downloads always allow public addresses only. The usual cause is a proxy in fake-ip mode (mihomo, for example) answering your notification server's domain with a private address. Add that domain to the proxy's fake-ip filter.
+When "Restrict user-configured HTTP outbound requests to public addresses" is enabled in System and AI (off by default), the program refuses notification URLs that resolve to a private IP; the switch covers API delivery, AI, HTTP notifications, remote images and the remote slider service, while email (SMTP) notifications and image-URL downloads for bulk listing are not affected by the switch and always connect to public addresses only. The usual cause is a proxy in fake-ip mode (mihomo, for example) answering your notification server's domain with a private address. Add that domain to the proxy's fake-ip filter.
 
 **Browser notifications say "permission denied", or play no sound.**
-Allow notifications for this address in the browser's site settings (browsers generally require HTTPS or `localhost`). The sound switch is under *System Settings → Basic Settings*.
+Allow notifications for this address in the browser's site settings (browsers generally require HTTPS or `localhost`). The sound switch is "New-message browser notification sound" under *System and AI → Basic settings* (it only applies to the current browser, requires browser reminders to be enabled on the Online Chat page first, and that page is visible to administrators only).
 
 **How does it send and receive messages? The official API?**
 It follows Xianyu's own web version protocol (WebSocket plus the MTOP interfaces). It does not drive a headless browser to scrape pages.
@@ -43,7 +43,7 @@ That is on purpose: API cards may contain third-party keys, so card lists and de
 The rule has to match the order's **complete spec combination**; the program never guesses from a partial match. Upgrade to a recent version and check that every spec combination has a rule.
 
 **I can't pick an account in the automation rules.**
-Make sure a card stock exists and the account is enabled.
+The account drop-down lists all accounts owned by the signed-in user and is not filtered by enabled state or card stock. Check that the account was added under the signed-in user, then reload the page.
 
 **Can I connect a card dealer's API for automatic delivery?**
 Yes. Choose the API type in Card Inventory and fill in the request template.
@@ -58,21 +58,21 @@ By design: paid auto delivery checks the deal amount, and ¥0 orders never recei
 Physical goods need a location; virtual goods usually don't. Newer versions let you choose the shipping region when publishing.
 
 **Where do I download the "import orders" spreadsheet template?**
-There isn't one; it is a leftover feature. Just use "Sync orders".
+There isn't one; the feature has been removed. The front end no longer offers it, and the old import endpoint always returns 501 ("manual order insertion has been removed, please use one-click order sync"). Just use "Sync orders".
 
 **The account's default reply also fires when I am the buyer.**
-Default replies apply per account and can't tell roles apart yet. Use keyword rules to narrow the scope.
+Auto replies (keyword, API, AI and default reply) fire only when the chat's item is in the account's local item list and the account is the seller of that chat; buyer-side chats, or items not yet synced into the local list, are saved but never auto-replied. So asking about someone else's item from your own account as a buyer does not trigger it; if an item has not been synced yet, sync items first.
 
 ## Reviews and AI
 
 **Auto review suddenly stopped working.**
-Upgrade first. Two bugs were fixed: the order number in the "received" notice was parsed wrongly, and the review candidate list only looked at the first 200 orders, so once those were all reviewed new orders could never get in. Also, Xianyu itself no longer accepts reviews for orders older than 30 days.
+Upgrade first. Two bugs were fixed: the order number in the "received" notice was parsed wrongly, and the review candidate list only looked at the first 200 orders, so once those were all reviewed new orders could never get in. Candidates are now only locally confirmed-received orders that have no review run yet (or can still be retried), at most 200 per round. Also, Xianyu itself no longer accepts reviews for orders older than 30 days; the system treats that as a non-retryable failure.
 
 **After re-enabling the "ask for review" rule it messaged a pile of old orders.**
 Fixed. The rule now has "only orders shipped within the last N hours"; older orders are left alone. See [Automated Delivery and Replies](Automated-Delivery-and-Replies).
 
 **AI reply does nothing even though the model test succeeds.**
-Check three things: the API URL must be OpenAI-compatible, usually ending in `/v1`; run "Test connection" in AI settings; and AI replies mainly handle haggling, so for other questions switch the account's AI mode to "full customer service".
+Check three things: the API URL must be OpenAI-compatible, usually ending in `/v1`; run "Test connection" in AI settings; and the AI mode defaults to "haggle only" (AI is called only when a haggling intent is detected; other messages keep using the default reply), so for other questions switch the AI mode in the account's AI settings in Account Management to "full customer service". Keyword replies still take priority over AI.
 
 **Can I get notified when a buyer sends something like "talk to a human"?**
 Not at the moment. Buyer message alerts still come from the Xianyu app's own push; there is no keyword notification in this program.

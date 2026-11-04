@@ -2,11 +2,11 @@
 
 [中文](销售统计.zh-CN) | English
 
-**Sales Statistics** (`/app/sales`) summarises revenue over a period. **Only administrators can open this page**, and it aggregates orders of all accounts.
+**Sales Statistics** (`/app/sales`) summarises revenue over a period. It aggregates the orders of accounts owned by the signed-in user; the sidebar entry is shown to every signed-in user, not only administrators.
 
 ## Time range
 
-Today, Yesterday, Last 3 days, Last 7 days, Last 30 days, or a custom date range (start and end dates, then *Apply*). Orders are attributed by their **creation time** in your local time zone.
+Today, Yesterday, Last 3 days, Last 7 days, Last 30 days, or a custom date range (start and end dates, then *Apply*). Orders are attributed by their **creation time** in the browser's local time zone. "Last 30 days" is labelled "一个月内" in the UI, and Last 7 days is selected by default.
 
 ## Metrics
 

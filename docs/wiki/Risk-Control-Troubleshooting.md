@@ -2,7 +2,7 @@
 
 [中文](风控处理.zh-CN) | English
 
-If an account card shows "Xianyu requires security verification, please scan the QR code again", or "API renewal updated the credential, reconnecting…", or order sync fails with `PERMISSION_EXCEPTION`, it is almost always the same thing: **Xianyu has flagged that account's login credential (the Cookie) as risky.**
+If an account card shows the "verification required" (需要验证) badge with "Xianyu requires security verification; re-scanning does not help — after passing risk control on the Xianyu web version, copy the Cookie from the token request and paste it into the account settings" (the on-card text is in Chinese: 闲鱼要求安全验证；重新扫码无效，请在网页版闲鱼通过风控后，复制 token 请求中的 Cookie 粘贴到账号设置), or "API renewal updated the credential, reconnecting…", or order sync fails with `PERMISSION_EXCEPTION`, it is almost always the same thing: **Xianyu has flagged that account's login credential (the Cookie) as risky.**
 
 That is the platform's decision, not a bug. The program cannot do face or slider verification for you. What you can do is pass the verification in a browser yourself, then hand the program the Cookie that has passed.
 
@@ -64,7 +64,7 @@ It means the order-detail interface of this Cookie is flagged. On the web versio
 ## Common misunderstandings
 
 - "The API is broken": usually it is your network. Log lines such as `wsarecv ... forcibly closed` or `server misbehaving` mean this machine's network or DNS cannot reach Xianyu. Fix the network/DNS; the interface itself is fine.
-- "A short network drop leaves the account offline forever": no. Newer versions reconnect after 5 s, 15 s, 30 s, 60 s and then every 2 minutes, and only stop when Xianyu explicitly rejects the login.
+- "A short network drop leaves the account offline forever": no. Newer versions reconnect after 5 s, 15 s, 30 s, 60 s and then every 2 minutes, and only stop when Xianyu explicitly rejects the login (the message service rejects the credential), requires security verification, or the login credential has expired, in which case follow the steps above.
 
 Never send your Cookie to anyone, paste it in a group chat or post it in an issue. It is equivalent to the account's login.
 

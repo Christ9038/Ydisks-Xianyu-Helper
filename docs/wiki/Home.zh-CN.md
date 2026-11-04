@@ -26,7 +26,7 @@
 安装脚本只补齐系统依赖。桌面托盘退出前会先停止后台服务。
 
 管理后台侧边栏底部会显示当前运行版本和短提交号。源码运行默认显示 `dev`/`unknown`；正式安装包和
-Docker 镜像会显示构建时注入的正式版本与提交信息。
+Docker 镜像会显示构建时注入的版本与提交信息（提交号最多显示前 12 位；正式版本号形如 `1.2.3` 时显示为 `v1.2.3`）。
 
 Windows 安装包注册 `YdisksXianyuHelper` 服务；macOS 安装包分别提供 Apple Silicon（arm64）和
 Intel（amd64）版本，并注册 `com.ydisks.xianyu-helper.server` 与
@@ -40,16 +40,17 @@ Intel（amd64）版本，并注册 `com.ydisks.xianyu-helper.server` 与
 - [仪表盘](仪表盘.zh-CN)
 - [账号管理](账号管理.zh-CN)
 - [卡密库存](卡密库存.zh-CN)
-- [商品列表](商品管理.zh-CN)
+- [商品管理](商品管理.zh-CN)（侧边栏入口为“商品列表”）
 - [订单管理](订单管理.zh-CN)
 - [发货模板](发货模板.zh-CN)
-- [自动化规则](自动化发货与回复.zh-CN)
+- [自动化发货与回复](自动化发货与回复.zh-CN)（侧边栏入口为“自动化规则”）
 - [在线聊天与账号自动任务](在线聊天与账号自动任务.zh-CN)
 - [批量铺货](批量铺货.zh-CN)
-- [通知设置](AI、通知与运维.zh-CN)
+- [AI、通知与运维](AI、通知与运维.zh-CN)（侧边栏入口为“通知设置”）
 - [系统与AI](系统设置.zh-CN)
+- [账号、库存与商品](账号、库存与商品.zh-CN)（上线前总览）
 - [本地资源库](资源库.zh-CN)
-- [销售统计](销售统计.zh-CN)（管理员）
+- [销售统计](销售统计.zh-CN)
 - [运行日志](运行日志.zh-CN)（管理员）
 - [砍价订单与自动发货流程](砍价订单与自动发货流程.zh-CN)
 - [请求频率与风控设计](请求频率与风控设计.zh-CN)
@@ -59,7 +60,7 @@ Intel（amd64）版本，并注册 `com.ydisks.xianyu-helper.server` 与
 - [常见问题](常见问题.zh-CN)
 - [风控处理](风控处理.zh-CN) — Cookie 被闲鱼风控了？先看这里
 
-“账号、库存与商品”仍保留为上线前总览；需要按页面操作时，优先阅读上面的独立手册。
+“账号、库存与商品”是上线前的串联总览；需要按页面操作时，优先阅读上面的独立手册。
 
 ## 关键安全规则
 
@@ -75,5 +76,14 @@ Intel（amd64）版本，并注册 `com.ydisks.xianyu-helper.server` 与
 Wiki；也可以通过 GitHub Actions 手动运行该工作流。仓库内保留副本，便于在 Pull Request 中审阅和版本化维护，
 不建议直接在 GitHub Wiki 仓库中维护内容。
 
-项目 Pages 站点使用 `main` 分支的 `/docs` 目录发布，域名由 `docs/CNAME` 中的配置决定；修改首页或图片资源
-后，合并到 `main` 即可由 GitHub Pages 发布。Pages 发布与 GitHub Wiki 同步是两个独立流程。
+在线使用手册站点同样以 `docs/wiki/` 为唯一内容源：`manual/` 目录是 VitePress 站点，构建前由
+`manual/scripts/prepare.mjs` 从 `docs/wiki/` 生成页面（中文在根路径，英文在 `/en/`，并去除本“GitHub Wiki 同步”章节），
+再构建到 `/manual/`。`.github/workflows/manual.yml` 在 `main` 分支的 `docs/**`、`manual/**` 或该工作流文件变更时触发，
+也可手动运行；涉及 `docs/wiki/**`、`manual/**` 或该工作流文件的 Pull Request 只执行构建（含站内死链检查），不部署。
+构建任务使用 Node.js 24 执行 `npm ci --prefix manual` 与 `npm run build --prefix manual`，并把 `docs/index.html`、
+`docs/CNAME`、`docs/assets`、`docs/img` 与手册产物（置于 `/manual/`）组装为 Pages 站点；部署任务通过
+`actions/deploy-pages` 发布到 GitHub Pages，域名由 `docs/CNAME` 中的配置决定。
+
+部署任务只有在仓库 Settings → Pages 把 Source 切换为 “GitHub Actions” 后才会生效；因此站点（官网首页与 `/manual/`）
+改由该工作流整体发布，不再依赖“从 `main` 分支的 `/docs` 目录发布”。GitHub Wiki 同步（`sync-wiki.yml`）与 Pages 发布
+（`manual.yml`）是两个独立流程，修改 `docs/wiki/` 后两者都会各自触发。

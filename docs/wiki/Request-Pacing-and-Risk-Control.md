@@ -6,8 +6,8 @@ Once Xianyu's risk control flags an account it rarely recovers quickly, so the h
 
 ## What you will notice
 
-- **Every platform (MTOP) request is paced per account.** Requests of the same account start at least 2 seconds apart plus a random jitter; background batch jobs use at least 5 seconds. Order-detail lookups use their own stricter coordinator (at least 5 seconds plus jitter, with a short result cache).
-- **One user action or one scan makes at most one, or a few capped, platform requests.** There is no "one request per list row" fan-out. Chat identity lookups and item sync have hard per-run caps; the remainder is filled in later on demand.
+- **Every platform (MTOP) request is paced per account.** Requests of the same account start at least 2 seconds apart plus a random 0–1 second jitter; background batch jobs use at least 5 seconds (also plus 0–1 second jitter). Order-detail lookups use their own stricter coordinator: at least 5 seconds apart per account plus 0–5 seconds of random jitter, concurrent requests for the same order are merged into one, and a successful result is reused for 30 seconds (failures are not cached).
+- **One user action or one scan makes at most one, or a few capped, platform requests.** There is no "one request per list row" fan-out. Chat contact identity lookups are limited to 5 per list refresh; a full item sync defaults to at most 50 pages with a hard cap of 100; the contact refresh triggered by order sync is capped at 100 pages. The remainder is filled in later on demand.
 - **A batch stops immediately on risk control.** Review, polish, paging and identity batches end at the first `RGV587`/risk verification, expired session or exhausted token. The rest of the batch is not requested and is not replayed automatically after a cooldown.
 - **Order sync is incremental.** Orders are stored page by page, and the front end timing out does not cancel the background job.
 - **Slow lists are normal.** Large first-time syncs take a while on purpose; do not click refresh repeatedly.

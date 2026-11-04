@@ -20,7 +20,7 @@
 - [Bargain Orders and Delivery Flow](Bargain-Orders-and-Delivery-Flow) · [砍价订单与自动发货流程](砍价订单与自动发货流程.zh-CN)
 - [Request Pacing and Risk Control](Request-Pacing-and-Risk-Control) · [请求频率与风控设计](请求频率与风控设计.zh-CN)
 - [Notification Events](Notification-Events) · [通知事件参考](通知事件参考.zh-CN)
-- [Admin API](Admin-API) · [管理API](管理API.zh-CN)
+- [Admin API](Admin-API) · [管理 API](管理API.zh-CN)
 - [Configuration Reference](Configuration-Reference) · [配置参考](配置参考.zh-CN)
 - [FAQ](FAQ) · [常见问题](常见问题.zh-CN)
 - [Risk-Control Troubleshooting](Risk-Control-Troubleshooting) · [风控处理](风控处理.zh-CN)
