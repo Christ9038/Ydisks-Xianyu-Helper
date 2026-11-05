@@ -47,6 +47,9 @@ jobs:
       - name: 检查 OpenAPI 路由与规范
         run: go run ./tools/apicheck
 
+      - name: 检查文档与代码一致性
+        run: go run ./tools/docscheck
+
       - name: 运行 go vet
         run: go vet ./...
 

@@ -3,7 +3,7 @@
 GO ?= go
 GOLANGCI_LINT ?= golangci-lint
 
-.PHONY: smoke build build-int build-browser-install build-tray test test-server test-server-race test-multidb test-int vet lint architecture api-generate api-check cover cover-browser cover-frontend tidy frontend fmt comments check
+.PHONY: smoke build build-int build-browser-install build-tray test test-server test-server-race test-multidb test-int vet lint architecture api-generate api-check docs-check cover cover-browser cover-frontend tidy frontend fmt comments check
 
 ## build: 编译 server（默认，跳过 integration build tag）
 build:
@@ -65,6 +65,10 @@ architecture:
 api-generate:
 	npm run api:generate --prefix frontend
 
+## docs-check: 校验 docs/wiki 与代码事实（参数、环境变量、数值上限、中英文对齐）一致
+docs-check:
+	$(GO) run ./tools/docscheck
+
 ## api-check: 校验 OpenAPI 规范、版本化路由登记和生成 TypeScript 产物漂移
 api-check:
 	npm run api:check --prefix frontend
@@ -104,4 +108,4 @@ comments:
 	node frontend/scripts/check-comments.mjs --mode check --root frontend
 
 ## check: 本地提交前全套检查（fmt + vet + lint + test）
-check: fmt architecture api-check vet lint test comments
+check: fmt architecture api-check docs-check vet lint test comments

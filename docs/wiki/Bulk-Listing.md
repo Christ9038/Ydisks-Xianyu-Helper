@@ -19,7 +19,7 @@ English headers are also supported; avoid mixing Chinese and English headers. He
 ### Required fields and formats
 
 - Title is required and price must be greater than 0 (at most two decimals). Inventory is a positive integer; blank defaults to 1.
-- Shipping mode defaults to free when blank. Accepted values: `free`/`包邮`, `fixed`/`固定邮费`/`一口价邮费` (enter the fee; it must not be negative — preflight only checks the format and non-negativity, and a blank fee is submitted as 0), `distance`/`按距离计费`, `none`/`无需邮寄`/`不需要邮寄`.
+- Shipping mode defaults to free when blank. Accepted values: `free`/`包邮`/`free_shipping`, `fixed`/`固定邮费`/`一口价邮费` (enter the fee; it must not be negative — preflight only checks the format and non-negativity, and a blank fee is submitted as 0), `distance`/`按距离计费`/`distance_fee`, `none`/`无需邮寄`/`不需要邮寄`/`no_shipping`.
 - Each product has 1–9 images. Separate multiple values with the English semicolon `;`. Use publicly accessible `http(s)://` URLs (preflight only checks the prefix; the download happens when that row is published, and a failed download fails the row) or relative paths inside the ZIP (preflight checks that the file exists).
 - The upload-page default category may be blank. To specify one, select an account, enter a keyword, and use Xianyu’s category recommendation response. A row’s Category ID + Category Name + Channel Category ID overrides the current row; all three must be supplied together.
 - Fill Taobao Category ID from the Xianyu recommendation response. Leave the value empty for Electronic Materials.

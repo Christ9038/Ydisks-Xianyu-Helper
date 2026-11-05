@@ -2,7 +2,7 @@
 
 [中文](风控处理.zh-CN) | English
 
-If an account card shows the "verification required" (需要验证) badge with "Xianyu requires security verification; re-scanning does not help — after passing risk control on the Xianyu web version, copy the Cookie from the token request and paste it into the account settings" (the on-card text is in Chinese: 闲鱼要求安全验证；重新扫码无效，请在网页版闲鱼通过风控后，复制 token 请求中的 Cookie 粘贴到账号设置), or "API renewal updated the credential, reconnecting…", or order sync fails with `PERMISSION_EXCEPTION`, it is almost always the same thing: **Xianyu has flagged that account's login credential (the Cookie) as risky.**
+If an account card shows the "verification required" (需要验证) badge with "Xianyu requires security verification; re-scanning does not help — after passing risk control on the Xianyu web version, copy the Cookie from the token request and paste it into the account settings" (the on-card text is in Chinese: 闲鱼要求安全验证；重新扫码无效，请在网页版闲鱼通过风控后，复制 token 请求中的 Cookie 粘贴到账号设置), or "API renewal updated the credential, reconnecting…", or order sync fails with `PERMISSION_EXCEPTION::无权限访问`, it is almost always the same thing: **Xianyu has flagged that account's login credential (the Cookie) as risky.**
 
 That is the platform's decision, not a bug. The program cannot do face or slider verification for you. What you can do is pass the verification in a browser yourself, then hand the program the Cookie that has passed.
 
