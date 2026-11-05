@@ -5,8 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=ydisks-xianyu
-Group=ydisks-xianyu
+User=ydisks-xianyu-helper
+Group=ydisks-xianyu-helper
 WorkingDirectory=/var/lib/ydisks-xianyu-helper
 EnvironmentFile=-/etc/ydisks-xianyu-helper/config.env
 Environment=XIANYU_LOG_DIR=/var/log/ydisks-xianyu-helper
