@@ -35,6 +35,16 @@ export const filterSearchableOptions = (options: SearchableSelectOption[], keywo
   return options.filter(/* option 是待判断的候选项；命中名称或为当前选中项时保留。 */ option => option.value === selected || option.label.toLowerCase().includes(normalized));
 };
 
+/** MAX_OPTION_LABEL_LENGTH 是下拉项展示名称的最大字符数；原生下拉弹层宽度随最长选项增长，超长名称会撑出屏幕。 */
+export const MAX_OPTION_LABEL_LENGTH = 40;
+
+/** truncateOptionLabel 把过长名称压缩为单行省略展示（含换行折叠），完整名称仍保留在 title 与搜索中。 */
+export const truncateOptionLabel = (label: string): string => {
+  // flat 是把连续空白（含换行）折叠为单个空格后的名称。
+  const flat = label.replace(/\s+/g, ' ').trim();
+  return flat.length > MAX_OPTION_LABEL_LENGTH ? `${flat.slice(0, MAX_OPTION_LABEL_LENGTH)}…` : flat;
+};
+
 /** SearchableSelect 在原生下拉框上方提供名称搜索，适合卡密库存较多的选择场景。 */
 const SearchableSelect: React.FC<SearchableSelectProps> = ({ options, value, onChange, placeholder, ariaLabel, className = 'w-full ios-input px-3 py-2.5 rounded-lg' }) => {
   // keyword 保存用户在搜索框中输入的临时关键字，仅属于本组件的瞬时界面状态。
@@ -58,7 +68,7 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({ options, value, onC
         className={className}
       >
         <option value="">{placeholder}</option>
-        {visibleOptions.map(/* option 是待渲染的候选项。 */ option => <option key={option.value} value={option.value}>{option.label}</option>)}
+        {visibleOptions.map(/* option 是待渲染的候选项。 */ option => <option key={option.value} value={option.value} title={option.label}>{truncateOptionLabel(option.label)}</option>)}
       </select>
       {keyword.trim() && visibleOptions.length === 0 && <p className="text-xs text-gray-400">没有匹配“{keyword.trim()}”的选项</p>}
     </div>
