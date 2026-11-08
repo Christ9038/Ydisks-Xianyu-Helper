@@ -176,6 +176,8 @@ export interface ItemPublishBatchState {
   setBatchCategoryKeyword: Dispatch<SetStateAction<string>>;
   // batchCategoryLoading 表示默认类目推荐请求是否正在执行。
   batchCategoryLoading: boolean;
+  // batchCategoryCandidates 是最近一次类目推荐返回的候选类目；仅在默认类目已选中且候选多于一项时展示选择列表。
+  batchCategoryCandidates: PublishCategory[];
   // batchFallbackCategory 是默认类目配置。
   batchFallbackCategory: BatchFallbackCategory;
   // setBatchFallbackCategory 更新默认类目配置。

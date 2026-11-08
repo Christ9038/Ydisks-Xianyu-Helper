@@ -95,6 +95,18 @@ describe('useItemPublishBatch', /* 当前回调处理批量发布的表单、任
     );
     expect(recommendCategoryMock).toHaveBeenCalledWith('account-1', '服饰', expect.objectContaining({ signal: expect.any(AbortSignal) }));
     expect(hook.result.current.batchFallbackCategory.catId).toBe('cat-1');
+    // 旧后端不返回 candidates 时，候选退回只含主推荐的列表。
+    expect(hook.result.current.batchCategoryCandidates).toEqual([{ cat_id: 'cat-1', cat_name: '服饰', channel_cat_id: 'channel-1', tb_cat_id: 'tb-1' }]);
+    recommendCategoryMock.mockResolvedValueOnce({
+      success: true,
+      category: { cat_id: 'cat-1', cat_name: '服饰', channel_cat_id: 'channel-1' },
+      candidates: [{ cat_id: 'cat-1', cat_name: '服饰', channel_cat_id: 'channel-1' }, { cat_id: 'cat-2', cat_name: '游戏软件平台', channel_cat_id: 'channel-2' }],
+    });
+    await act(
+      // secondRecommendAction 再次请求推荐，得到多个候选类目。
+      async () => hook.result.current.handleRecommendBatchCategory(),
+    );
+    expect(hook.result.current.batchCategoryCandidates.map(/* candidate 表示当前候选类目。 */ candidate => candidate.cat_name)).toEqual(['服饰', '游戏软件平台']);
 
     await act(
       // fileAction 设置商品表格文件。

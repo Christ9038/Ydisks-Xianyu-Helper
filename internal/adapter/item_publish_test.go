@@ -49,7 +49,7 @@ func TestItemPublishPortRecommendsCategoryAndPersistsUpdatedCookie(t *testing.T)
 	port := NewItemPublishPort(store, func() mtop.Client { return client }, nil, nil, nil)
 	// category、err 保存类目推荐结果。
 	category, err := port.RecommendCategory(context.Background(), 1, "cid", "资料")
-	if err != nil || category.CatID != "cat-1" {
+	if err != nil || category.Category.CatID != "cat-1" || len(category.Candidates) != 1 || category.Candidates[0].CatID != "cat-1" {
 		t.Fatalf("类目推荐失败: category=%+v err=%v", category, err)
 	}
 	// value、valueErr 保存平台返回 Cookie 的本地持久化结果。
@@ -263,5 +263,50 @@ func TestPublishErrorToApplicationKeepsNonPlatformError(t *testing.T) {
 	}
 	if publishErrorToApplication(nil) != nil {
 		t.Fatal("空错误应保持为空")
+	}
+}
+
+// itemPublishCandidateClientStub 在单项推荐替身之上额外提供候选类目能力。
+type itemPublishCandidateClientStub struct {
+	// itemPublishClientStub 提供其余平台客户端行为。
+	itemPublishClientStub
+	// candidates 保存候选类目推荐请求的可控行为。
+	candidates func(context.Context, string, string) ([]mtop.PublishCategory, string, error)
+}
+
+// RecommendPublishCategoryCandidates 调用测试注入的候选类目推荐行为。
+func (c itemPublishCandidateClientStub) RecommendPublishCategoryCandidates(ctx context.Context, cookies, keyword string) ([]mtop.PublishCategory, string, error) {
+	return c.candidates(ctx, cookies, keyword)
+}
+
+// TestItemPublishPortRecommendsCategoryCandidates 验证端口优先使用候选能力并保持主推荐在首位，且空候选按未识别处理。
+func TestItemPublishPortRecommendsCategoryCandidates(t *testing.T) {
+	// store、cleanup 保存当前测试使用的 SQLite 存储及清理函数。
+	store, cleanup := newAdapterTestStore(t)
+	defer cleanup()
+	// results 保存候选替身本次要返回的类目；后续用例会替换为空列表。
+	results := []mtop.PublishCategory{
+		{CatID: "1", CatName: "电子资料", ChannelCatID: "11"},
+		{CatID: "2", CatName: "游戏软件平台", ChannelCatID: "22", TBCatID: "222"},
+	}
+	// client 是同时实现单项与候选推荐的平台替身；单项推荐若被调用说明没有优先使用候选能力。
+	client := itemPublishCandidateClientStub{
+		itemPublishClientStub: itemPublishClientStub{recommend: func(context.Context, string, string) (mtop.PublishCategory, string, error) {
+			t.Fatal("存在候选能力时不应回退到单项推荐")
+			return mtop.PublishCategory{}, "", nil
+		}},
+		candidates: func(context.Context, string, string) ([]mtop.PublishCategory, string, error) { return results, "", nil },
+	}
+	// port 是绑定候选替身的商品发布端口。
+	port := NewItemPublishPort(store, func() mtop.Client { return client }, nil, nil, nil)
+	// result、err 保存应用层推荐结果。
+	result, err := port.RecommendCategory(context.Background(), 1, "cid", "游戏")
+	if err != nil || result.Category.CatID != "1" || len(result.Candidates) != 2 || result.Candidates[1].CatName != "游戏软件平台" || result.Candidates[1].TBCatID != "222" {
+		t.Fatalf("候选类目结果异常: %+v err=%v", result, err)
+	}
+	results = nil
+	// emptyErr 保存空候选时的应用层错误。
+	if _, emptyErr := port.RecommendCategory(context.Background(), 1, "cid", "游戏"); !errors.Is(emptyErr, itemapp.ErrCategoryUnrecognized) {
+		t.Fatalf("空候选应映射为未识别: %v", emptyErr)
 	}
 }

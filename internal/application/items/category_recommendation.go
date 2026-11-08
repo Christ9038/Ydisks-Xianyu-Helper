@@ -18,10 +18,18 @@ var ErrCategoryCredentialChanged = errors.New("账号凭证已变化，请重试
 // ErrCategoryPersistence 表示平台响应中的账号会话无法安全写回。
 var ErrCategoryPersistence = errors.New("保存账号登录状态失败")
 
+// CategoryRecommendation 是一次类目推荐的应用层结果。
+type CategoryRecommendation struct {
+	// Category 是平台主推荐类目，等于 Candidates 的首项。
+	Category BatchPreviewCategory
+	// Candidates 是按推荐优先级排序的完整候选类目；至少包含主推荐，供用户手动改选。
+	Candidates []BatchPreviewCategory
+}
+
 // CategoryRecommendationPort 定义类目推荐用例所需的平台能力。
 type CategoryRecommendationPort interface {
 	// RecommendCategory 根据用户账号和关键词返回应用层类目。
-	RecommendCategory(context.Context, int64, string, string) (BatchPreviewCategory, error)
+	RecommendCategory(context.Context, int64, string, string) (CategoryRecommendation, error)
 }
 
 // CategoryRecommendationService 编排类目推荐输入校验和平台端口调用。
@@ -39,15 +47,15 @@ func NewCategoryRecommendationService(port CategoryRecommendationPort) (*Categor
 }
 
 // Recommend 校验账号和关键词后调用类目推荐端口。
-func (service *CategoryRecommendationService) Recommend(ctx context.Context, userID int64, cookieID, keyword string) (BatchPreviewCategory, error) {
+func (service *CategoryRecommendationService) Recommend(ctx context.Context, userID int64, cookieID, keyword string) (CategoryRecommendation, error) {
 	if service == nil || service.port == nil {
-		return BatchPreviewCategory{}, errors.New("类目推荐服务未初始化")
+		return CategoryRecommendation{}, errors.New("类目推荐服务未初始化")
 	}
 	if userID <= 0 || strings.TrimSpace(cookieID) == "" {
-		return BatchPreviewCategory{}, ErrCategoryCredentialChanged
+		return CategoryRecommendation{}, ErrCategoryCredentialChanged
 	}
 	if strings.TrimSpace(keyword) == "" {
-		return BatchPreviewCategory{}, errors.New("类目关键词不能为空")
+		return CategoryRecommendation{}, errors.New("类目关键词不能为空")
 	}
 	return service.port.RecommendCategory(ctx, userID, strings.TrimSpace(cookieID), strings.TrimSpace(keyword))
 }

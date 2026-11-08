@@ -220,6 +220,8 @@ type categoryRecommendationResponse struct {
 	Success bool `json:"success"`
 	// Category 是推荐的商品类目。
 	Category publishCategoryResponse `json:"category"`
+	// Candidates 是按推荐优先级排序的候选类目，首项即 Category，供用户手动改选。
+	Candidates []publishCategoryResponse `json:"candidates"`
 }
 
 // publishCategoryResponse 是商品类目 HTTP 响应的稳定 DTO，不泄露平台包类型。

@@ -122,6 +122,27 @@ describe('useItemActions', /* 当前回调验证商品普通操作、发布和�
     hook.unmount();
   });
 
+  test('普通发布类目推荐保存全部候选并可改选，再次推荐时整体替换', /* 当前回调验证候选类目列表的保存、改选和替换。 */ async () => {
+    // hook 是商品动作 Hook 的真实 React 状态实例。
+    const hook = renderHook(/* candidateHookFactory 创建候选类目场景的 Hook。 */ () => useItemActionsHarness());
+    recommendPublishCategoryMock.mockResolvedValueOnce({
+      success: true,
+      category: { cat_id: '5001', cat_name: '虚拟服务', channel_cat_id: '6001' },
+      candidates: [{ cat_id: '5001', cat_name: '虚拟服务', channel_cat_id: '6001' }, { cat_id: '5002', cat_name: '游戏软件平台', channel_cat_id: '6002' }],
+    });
+    act(/* accountAction 写入推荐使用的账号。 */ () => hook.result.current.actions.setPublishForm(current => ({ ...current, cookie_id: 'account-1' })));
+    act(/* keywordAction 写入类目关键词。 */ () => hook.result.current.actions.setPublishCategoryKeyword('游戏'));
+    await act(/* recommendAction 请求推荐类目。 */ async () => hook.result.current.actions.handleRecommendPublishCategory());
+    expect(hook.result.current.actions.publishCategoryCandidates.map(/* candidate 表示当前候选类目。 */ candidate => candidate.cat_name)).toEqual(['虚拟服务', '游戏软件平台']);
+    act(/* selectAction 模拟用户改选第二个候选。 */ () => hook.result.current.actions.setPublishCategory(hook.result.current.actions.publishCategoryCandidates[1]));
+    expect(hook.result.current.actions.publishCategory?.cat_id).toBe('5002');
+    // 下一次推荐会整体替换候选列表。
+    recommendPublishCategoryMock.mockResolvedValueOnce({ success: true, category: { cat_id: '9', cat_name: '其他', channel_cat_id: '99' } });
+    await act(/* secondRecommendAction 再次请求推荐类目，旧后端不返回候选。 */ async () => hook.result.current.actions.handleRecommendPublishCategory());
+    expect(hook.result.current.actions.publishCategoryCandidates).toEqual([{ cat_id: '9', cat_name: '其他', channel_cat_id: '99' }]);
+    hook.unmount();
+  });
+
   test('定位成功写入普通和批量发货地，浏览器拒绝时收口状态', /* 当前回调验证定位动作的成功和失败分支。 */ async () => {
     // getCurrentPositionMock 是浏览器定位 API 的可控替身。
     const getCurrentPositionMock = vi.fn(/* currentPositionAction 模拟定位成功回调。 */ (success: PositionCallback) => success({ coords: { longitude: 120, latitude: 30 } } as GeolocationPosition));

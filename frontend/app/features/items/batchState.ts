@@ -1,3 +1,6 @@
+import type { CategoryRecommendationResponse } from './models';
+import type { BatchFallbackCategory, PublishCategory } from './types';
+
 // PublishBatchSummary 是选择最近批量任务时所需的最小状态模型。
 export interface PublishBatchSummary {
   // id 是批量任务标识。
@@ -79,3 +82,14 @@ export const batchStatusClass = (status?: string): string => {
       return 'bg-amber-50 text-amber-700 border-amber-100';
   }
 };
+
+// toBatchFallbackCategory 把推荐接口返回的类目转换为批量预检使用的默认类目表单值。
+export const toBatchFallbackCategory = (category: PublishCategory): BatchFallbackCategory => ({
+  catId: category.cat_id,
+  catName: category.cat_name,
+  channelCatId: category.channel_cat_id || '',
+  tbCatId: category.tb_cat_id || '',
+});
+
+// categoryCandidatesOf 返回推荐响应的候选类目；旧后端没有 candidates 时退回只含主推荐的列表。
+export const categoryCandidatesOf = (result: CategoryRecommendationResponse): PublishCategory[] => (result.candidates?.length ? result.candidates : [result.category]);

@@ -9048,6 +9048,10 @@ components:
       properties:
         success: {type: boolean}
         category: {$ref: '#/components/schemas/PublishCategoryResponse'}
+        candidates:
+          type: array
+          description: 按推荐优先级排序的候选类目，首项即 category；旧后端可能缺失。
+          items: {$ref: '#/components/schemas/PublishCategoryResponse'}
     CategoryRecommendationRequest:
       type: object
       required: [cookie_id, keyword]

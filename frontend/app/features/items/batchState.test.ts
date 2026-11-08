@@ -4,9 +4,11 @@ batchStatusClass,
 batchStatusText,
 canRetryBatch,
 canStartBatch,
+categoryCandidatesOf,
 isBatchInProgress,
 isCurrentBatchRequest,
 selectActivePublishBatch,
+toBatchFallbackCategory,
 } from './batchState';
 
 // ItemList 批量行为测试覆盖预检、取消、重试和过期任务响应。
@@ -79,4 +81,22 @@ describe('ItemList batch state',
     expect(batchStatusClass('canceled')).toContain('bg-gray-100');
     expect(batchStatusClass('pending')).toContain('bg-amber-50');
     });
+});
+
+describe('类目推荐候选辅助函数', /* testGroup 验证候选列表回退与批量默认类目转换。 */ () => {
+  // primary 是推荐接口返回的主推荐类目样本。
+  const primary = { cat_id: '1', cat_name: '电子资料', channel_cat_id: '11' };
+  // secondary 是带淘宝类目的第二个候选样本。
+  const secondary = { cat_id: '2', cat_name: '游戏软件平台', channel_cat_id: '22', tb_cat_id: '222' };
+
+  test('响应含候选时原样返回，缺失或为空时退回只含主推荐的列表', /* testCase 验证旧后端兼容。 */ () => {
+    expect(categoryCandidatesOf({ success: true, category: { ...primary }, candidates: [primary, secondary] })).toEqual([primary, secondary]);
+    expect(categoryCandidatesOf({ success: true, category: { ...primary } })).toEqual([primary]);
+    expect(categoryCandidatesOf({ success: true, category: { ...primary }, candidates: [] })).toEqual([primary]);
+  });
+
+  test('转换批量默认类目时缺失的频道与淘宝类目补空串', /* testCase 验证表单值归一。 */ () => {
+    expect(toBatchFallbackCategory(secondary)).toEqual({ catId: '2', catName: '游戏软件平台', channelCatId: '22', tbCatId: '222' });
+    expect(toBatchFallbackCategory({ cat_id: '3', cat_name: '其他' })).toEqual({ catId: '3', catName: '其他', channelCatId: '', tbCatId: '' });
+  });
 });

@@ -152,7 +152,13 @@ func (s *Server) recommendItemPublishCategory(w http.ResponseWriter, r *http.Req
 		writeErr(w, http.StatusBadGateway, callErr.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, categoryRecommendationResponse{Success: true, Category: publishCategoryResponse{CatID: category.CatID, CatName: category.CatName, ChannelCatID: category.ChannelCatID, TBCatID: category.TBCatID}})
+	// candidates 保存转换为 HTTP DTO 的候选类目，首项即主推荐。
+	candidates := make([]publishCategoryResponse, 0, len(category.Candidates))
+	// candidate 表示当前待转换的应用层候选类目。
+	for _, candidate := range category.Candidates {
+		candidates = append(candidates, publishCategoryResponse{CatID: candidate.CatID, CatName: candidate.CatName, ChannelCatID: candidate.ChannelCatID, TBCatID: candidate.TBCatID})
+	}
+	writeJSON(w, http.StatusOK, categoryRecommendationResponse{Success: true, Category: publishCategoryResponse{CatID: category.Category.CatID, CatName: category.Category.CatName, ChannelCatID: category.Category.ChannelCatID, TBCatID: category.Category.TBCatID}, Candidates: candidates})
 }
 
 // previewItemPublishBatch 处理表格上传、图片归档和批量发布预检。
