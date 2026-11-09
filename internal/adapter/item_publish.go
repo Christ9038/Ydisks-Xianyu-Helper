@@ -44,15 +44,21 @@ type categoryRecommender interface {
 	RecommendPublishCategory(context.Context, string, string) (mtop.PublishCategory, string, error)
 }
 
+// categoryCandidateRecommender 是可选的 MTOP 候选类目能力；未实现时退回只返回主推荐的单项接口。
+type categoryCandidateRecommender interface {
+	// RecommendPublishCategoryCandidates 根据关键词一次性返回主推荐在首位的候选类目及可能刷新的 Cookie。
+	RecommendPublishCategoryCandidates(context.Context, string, string) ([]mtop.PublishCategory, string, error)
+}
+
 // RecommendCategory 读取账号平台凭证、调用类目推荐并提交响应会话变化。
-func (p *ItemPublishPort) RecommendCategory(ctx context.Context, userID int64, cookieID, keyword string) (itemapp.BatchPreviewCategory, error) {
+func (p *ItemPublishPort) RecommendCategory(ctx context.Context, userID int64, cookieID, keyword string) (itemapp.CategoryRecommendation, error) {
 	if p == nil || p.store == nil || p.store.Cookies == nil {
-		return itemapp.BatchPreviewCategory{}, errors.New("商品发布存储未初始化")
+		return itemapp.CategoryRecommendation{}, errors.New("商品发布存储未初始化")
 	}
 	// recommender 和 ok 表示当前 MTOP 客户端是否支持类目推荐。
 	recommender, ok := p.mtopClient().(categoryRecommender)
 	if !ok {
-		return itemapp.BatchPreviewCategory{}, itemapp.ErrCategoryUnsupported
+		return itemapp.CategoryRecommendation{}, itemapp.ErrCategoryUnsupported
 	}
 	// unlock 保护凭证快照读取，远端调用前会释放该锁。
 	unlock := p.store.LockAccountCredentials(cookieID)
@@ -60,7 +66,7 @@ func (p *ItemPublishPort) RecommendCategory(ctx context.Context, userID int64, c
 	latest, loadErr := p.store.Cookies.GetCookiePlatformRuntimeData(ctx, cookieID)
 	if loadErr != nil || latest.UserID != userID || !hasStoredCredential(latest) {
 		unlock()
-		return itemapp.BatchPreviewCategory{}, itemapp.ErrCategoryCredentialChanged
+		return itemapp.CategoryRecommendation{}, itemapp.ErrCategoryCredentialChanged
 	}
 	// requestCtx 和 cancel 控制类目推荐远端调用的最长时间。
 	requestCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -71,23 +77,46 @@ func (p *ItemPublishPort) RecommendCategory(ctx context.Context, userID int64, c
 	initialValue, initialMetadata := latest.Value, latest.MetadataJSON
 	unlock()
 
-	// category、updatedCookies 和 callErr 保存平台推荐结果、刷新 Cookie 与调用错误。
-	category, updatedCookies, callErr := recommender.RecommendPublishCategory(mtopCtx, latest.Value, strings.TrimSpace(keyword))
+	// candidates、updatedCookies 和 callErr 保存平台候选类目、刷新 Cookie 与调用错误。
+	candidates, updatedCookies, callErr := recommendCategoryCandidates(mtopCtx, recommender, latest.Value, strings.TrimSpace(keyword))
 	// runtimeCookie 和 persistErr 保存会话写回后的运行时 Cookie 与错误。
 	runtimeCookie, persistErr := p.persistCategorySession(ctx, userID, cookieID, initialValue, initialMetadata, cookieSession, updatedCookies)
 	if runtimeCookie != "" && p.updateRunningCookie != nil {
 		p.updateRunningCookie(ctx, cookieID, runtimeCookie)
 	}
 	if persistErr != nil {
-		return itemapp.BatchPreviewCategory{}, errors.Join(itemapp.ErrCategoryPersistence, persistErr)
+		return itemapp.CategoryRecommendation{}, errors.Join(itemapp.ErrCategoryPersistence, persistErr)
 	}
 	if callErr != nil {
 		if errors.Is(callErr, mtop.ErrPublishCategoryUnrecognized) {
-			return itemapp.BatchPreviewCategory{}, errors.Join(itemapp.ErrCategoryUnrecognized, callErr)
+			return itemapp.CategoryRecommendation{}, errors.Join(itemapp.ErrCategoryUnrecognized, callErr)
 		}
-		return itemapp.BatchPreviewCategory{}, callErr
+		return itemapp.CategoryRecommendation{}, callErr
 	}
-	return itemapp.BatchPreviewCategory{CatID: category.CatID, CatName: category.CatName, ChannelCatID: category.ChannelCatID, TBCatID: category.TBCatID}, nil
+	// applicationCandidates 保存转换为应用层模型的候选类目，首项即主推荐。
+	applicationCandidates := make([]itemapp.BatchPreviewCategory, 0, len(candidates))
+	// candidate 表示当前待转换的平台候选类目。
+	for _, candidate := range candidates {
+		applicationCandidates = append(applicationCandidates, itemapp.BatchPreviewCategory{CatID: candidate.CatID, CatName: candidate.CatName, ChannelCatID: candidate.ChannelCatID, TBCatID: candidate.TBCatID})
+	}
+	if len(applicationCandidates) == 0 {
+		return itemapp.CategoryRecommendation{}, errors.Join(itemapp.ErrCategoryUnrecognized, mtop.ErrPublishCategoryUnrecognized)
+	}
+	return itemapp.CategoryRecommendation{Category: applicationCandidates[0], Candidates: applicationCandidates}, nil
+}
+
+// recommendCategoryCandidates 优先使用候选类目能力；客户端只支持单项推荐时返回仅含主推荐的列表。
+func recommendCategoryCandidates(ctx context.Context, recommender categoryRecommender, cookies, keyword string) ([]mtop.PublishCategory, string, error) {
+	// candidateRecommender、ok 表示客户端是否实现候选类目能力。
+	if candidateRecommender, ok := recommender.(categoryCandidateRecommender); ok {
+		return candidateRecommender.RecommendPublishCategoryCandidates(ctx, cookies, keyword)
+	}
+	// category、updated、err 保存单项推荐结果、刷新 Cookie 和错误。
+	category, updated, err := recommender.RecommendPublishCategory(ctx, cookies, keyword)
+	if err != nil {
+		return nil, updated, err
+	}
+	return []mtop.PublishCategory{category}, updated, nil
 }
 
 // persistCategorySession 在远端调用后复核凭证并保存完整会话或平面 Cookie。

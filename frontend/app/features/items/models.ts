@@ -316,6 +316,8 @@ export interface CategoryRecommendationResponse {
     /** 淘宝类目主键。 */
     tb_cat_id?: string;
   };
+  /** 按推荐优先级排序的候选类目，首项即 category；旧后端可能缺失。 */
+  candidates?: CategoryRecommendationResponse['category'][];
 }
 
 /** 商品批量发布预检逐行结果。 */

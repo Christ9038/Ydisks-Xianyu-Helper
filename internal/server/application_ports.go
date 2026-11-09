@@ -98,7 +98,7 @@ type ItemBatchManagementPort interface {
 
 // ItemCategoryRecommendationPort 定义批量发布类目推荐能力。
 type ItemCategoryRecommendationPort interface {
-	Recommend(context.Context, int64, string, string) (itemapp.BatchPreviewCategory, error)
+	Recommend(context.Context, int64, string, string) (itemapp.CategoryRecommendation, error)
 }
 
 // ItemBatchPreviewPersistencePort 定义批量预检结果保存能力。

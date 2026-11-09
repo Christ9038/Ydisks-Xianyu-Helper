@@ -1186,3 +1186,67 @@ func parseDataURL(body string) (map[string]any, bool) {
 	}
 	return m, true
 }
+
+// TestRecommendPublishCategoryCandidatesKeepsPrimaryFirstAndDedupes 验证候选列表以主推荐开头、保持平台顺序、按 catId 去重并丢弃不完整项。
+func TestRecommendPublishCategoryCandidatesKeepsPrimaryFirstAndDedupes(t *testing.T) {
+	// requests 统计推荐接口被调用次数，候选读取必须只发起一次平台请求。
+	requests := 0
+	// dt 返回含主推荐、重复项、缺少频道的无效项、非分类卡片和两个有效候选的响应。
+	dt := &dispatchTransport{handlers: map[string]http.HandlerFunc{
+		"mtop.taobao.idle.kgraph.property.recommend": func(w http.ResponseWriter, r *http.Request) {
+			requests++
+			fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"categoryPredictResult":{"catId":"1","catName":"电子资料","channelCatId":"11"},"cardList":[`+
+				`{"cardData":{"propertyId":"-10000","valuesList":[`+
+				`{"catId":"1","catName":"电子资料","channelCatId":"11","isClicked":"1"},`+
+				`{"catId":"2","catName":"游戏软件平台","channelCatId":"22","tbCatId":"222"},`+
+				`{"catId":"3","catName":"缺少频道"},`+
+				`{"catId":"4","catName":"游戏账号","channelCatId":"44"}]}},`+
+				`{"cardData":{"propertyId":"99","valuesList":[{"catId":"5","catName":"非分类","channelCatId":"55"}]}}]}}`)
+		},
+	}}
+	// client 使用本地分发传输，不访问真实平台。
+	client := &ClientImpl{HTTPClient: &http.Client{Transport: dt}}
+	// candidates、_、err 保存候选类目列表和调用错误。
+	candidates, _, err := client.RecommendPublishCategoryCandidates(context.Background(), consignCookies, " 游戏 ")
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	// wantIDs 是期望的候选顺序：主推荐在前，其余按平台顺序，重复、不完整、非分类卡片被排除。
+	wantIDs := []string{"1", "2", "4"}
+	if len(candidates) != len(wantIDs) {
+		t.Fatalf("candidates=%+v", candidates)
+	}
+	// index、wantID 表示当前比对的候选位置和期望类目 ID。
+	for index, wantID := range wantIDs {
+		if candidates[index].CatID != wantID {
+			t.Fatalf("candidates[%d]=%+v want %s", index, candidates[index], wantID)
+		}
+	}
+	if candidates[1].CatName != "游戏软件平台" || candidates[1].ChannelCatID != "22" || candidates[1].TBCatID != "222" {
+		t.Fatalf("候选字段丢失: %+v", candidates[1])
+	}
+	if requests != 1 {
+		t.Fatalf("候选读取应只请求一次平台接口: %d", requests)
+	}
+}
+
+// TestRecommendPublishCategoryCandidatesOnlyPrimary 验证响应没有候选卡片时仍返回仅含主推荐的列表，以及空关键词被拒绝。
+func TestRecommendPublishCategoryCandidatesOnlyPrimary(t *testing.T) {
+	// dt 返回只有 categoryPredictResult 的响应。
+	dt := &dispatchTransport{handlers: map[string]http.HandlerFunc{
+		"mtop.taobao.idle.kgraph.property.recommend": func(w http.ResponseWriter, r *http.Request) {
+			fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"categoryPredictResult":{"catId":"1","catName":"电子资料","channelCatId":"11"}}}`)
+		},
+	}}
+	// client 使用本地分发传输。
+	client := &ClientImpl{HTTPClient: &http.Client{Transport: dt}}
+	// candidates、_、err 保存候选类目和错误。
+	candidates, _, err := client.RecommendPublishCategoryCandidates(context.Background(), consignCookies, "资料")
+	if err != nil || len(candidates) != 1 || candidates[0].CatID != "1" {
+		t.Fatalf("candidates=%+v err=%v", candidates, err)
+	}
+	// emptyErr 保存空关键词被拒绝的错误。
+	if _, _, emptyErr := client.RecommendPublishCategoryCandidates(context.Background(), consignCookies, "  "); emptyErr == nil {
+		t.Fatal("空关键词应被拒绝")
+	}
+}

@@ -8,8 +8,8 @@ import (
 
 // categoryRecommendationPortStub 记录应用层类目推荐调用。
 type categoryRecommendationPortStub struct {
-	// category 保存端口返回的测试类目。
-	category BatchPreviewCategory
+	// category 保存端口返回的测试类目结果。
+	category CategoryRecommendation
 	// err 保存端口返回的测试错误。
 	err error
 	// calls 保存端口被调用次数。
@@ -17,7 +17,7 @@ type categoryRecommendationPortStub struct {
 }
 
 // RecommendCategory 返回预设类目并记录调用次数。
-func (stub *categoryRecommendationPortStub) RecommendCategory(context.Context, int64, string, string) (BatchPreviewCategory, error) {
+func (stub *categoryRecommendationPortStub) RecommendCategory(context.Context, int64, string, string) (CategoryRecommendation, error) {
 	stub.calls++
 	return stub.category, stub.err
 }
@@ -25,7 +25,10 @@ func (stub *categoryRecommendationPortStub) RecommendCategory(context.Context, i
 // TestCategoryRecommendationServiceDelegatesValidatedInput 验证应用服务转发合法输入。
 func TestCategoryRecommendationServiceDelegatesValidatedInput(t *testing.T) {
 	// port 保存可控的类目推荐端口。
-	port := &categoryRecommendationPortStub{category: BatchPreviewCategory{CatID: "1", CatName: "资料"}}
+	// candidates 保存端口返回的多个候选类目，用于验证应用服务原样透传候选列表。
+	candidates := []BatchPreviewCategory{{CatID: "1", CatName: "资料"}, {CatID: "2", CatName: "游戏软件平台"}}
+	// port 保存返回多个候选类目的可控推荐端口。
+	port := &categoryRecommendationPortStub{category: CategoryRecommendation{Category: candidates[0], Candidates: candidates}}
 	// service 保存待测试的应用服务。
 	service, err := NewCategoryRecommendationService(port)
 	if err != nil {
@@ -33,7 +36,7 @@ func TestCategoryRecommendationServiceDelegatesValidatedInput(t *testing.T) {
 	}
 	// category 保存应用服务返回的类目结果。
 	category, err := service.Recommend(context.Background(), 1, " acc ", " 资料 ")
-	if err != nil || category.CatID != "1" || port.calls != 1 {
+	if err != nil || category.Category.CatID != "1" || len(category.Candidates) != 2 || category.Candidates[1].CatName != "游戏软件平台" || port.calls != 1 {
 		t.Fatalf("类目推荐结果异常: category=%+v err=%v calls=%d", category, err, port.calls)
 	}
 }

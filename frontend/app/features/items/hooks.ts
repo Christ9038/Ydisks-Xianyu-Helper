@@ -9,7 +9,7 @@ recommendPublishCategory,
 retryFailedItemPublishBatch,
 startItemPublishBatch,
 } from './api';
-import { canRetryBatch,canStartBatch,isBatchInProgress,isCurrentBatchRequest,selectActivePublishBatch } from './batchState';
+import { canRetryBatch,categoryCandidatesOf,toBatchFallbackCategory,canStartBatch,isBatchInProgress,isCurrentBatchRequest,selectActivePublishBatch } from './batchState';
 import type {
 BatchFallbackCategory,
 BatchPhase,
@@ -17,6 +17,7 @@ ItemPublishBatchOptions,
 ItemPublishBatchState,
 PublishBatchDetail,
 PublishBatchPreview,
+PublishCategory,
 } from './types';
 
 // useItemPublishBatch 集中管理批量铺货的表单、任务恢复、轮询和重试状态。
@@ -33,6 +34,8 @@ export const useItemPublishBatch = (options: ItemPublishBatchOptions): ItemPubli
   const [batchCategoryKeyword, setBatchCategoryKeyword] = useState('');
   // batchCategoryLoading 表示默认类目推荐请求是否正在执行。
   const [batchCategoryLoading, setBatchCategoryLoading] = useState(false);
+  // batchCategoryCandidates 保存最近一次类目推荐返回的候选类目，供用户改选；界面仅在默认类目已选中且候选多于一项时展示。
+  const [batchCategoryCandidates, setBatchCategoryCandidates] = useState<PublishCategory[]>([]);
   // batchFallbackCategory 保存默认类目配置。
   const [batchFallbackCategory, setBatchFallbackCategory] = useState<BatchFallbackCategory>({ catId: '', catName: '', channelCatId: '', tbCatId: '' });
   // batchPreview 保存最近一次批量预检结果。
@@ -148,12 +151,8 @@ export const useItemPublishBatch = (options: ItemPublishBatchOptions): ItemPubli
       if (!isCurrentBatchOperation(request.requestGeneration, request.controller)) return;
       // category 是后端返回的推荐类目。
       const category = result.category;
-      setBatchFallbackCategory({
-        catId: category.cat_id,
-        catName: category.cat_name,
-        channelCatId: category.channel_cat_id,
-        tbCatId: category.tb_cat_id || '',
-      });
+      setBatchFallbackCategory(toBatchFallbackCategory(category));
+      setBatchCategoryCandidates(categoryCandidatesOf(result));
     } catch (error: any /* 推荐类目错误 */) {
       if (!isCurrentBatchOperation(request.requestGeneration, request.controller)) return;
       console.error('获取推荐类目失败:', error);
@@ -426,6 +425,7 @@ export const useItemPublishBatch = (options: ItemPublishBatchOptions): ItemPubli
     batchCategoryKeyword,
     setBatchCategoryKeyword,
     batchCategoryLoading,
+    batchCategoryCandidates,
     batchFallbackCategory,
     setBatchFallbackCategory,
     batchPreview,

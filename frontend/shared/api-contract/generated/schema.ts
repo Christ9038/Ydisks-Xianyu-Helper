@@ -2807,6 +2807,8 @@ export interface components {
         CategoryRecommendationResponse: {
             success: boolean;
             category: components["schemas"]["PublishCategoryResponse"];
+            /** @description 按推荐优先级排序的候选类目，首项即 category；旧后端可能缺失。 */
+            candidates?: components["schemas"]["PublishCategoryResponse"][];
         };
         CategoryRecommendationRequest: {
             cookie_id: string;

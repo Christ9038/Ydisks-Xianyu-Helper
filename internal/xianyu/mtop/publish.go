@@ -265,32 +265,6 @@ func (c *ClientImpl) PublishItem(ctx context.Context, cookiesStr string, req Pub
 	return c.publishItemOnce(publishCtx, currentCookies, req, uploaded, uploadedSpecImages, category)
 }
 
-// RecommendPublishCategory 根据关键词调用闲鱼推荐接口，返回可直接用于发布的完整类目。
-func (c *ClientImpl) RecommendPublishCategory(ctx context.Context, cookiesStr, keyword string) (PublishCategory, string, error) {
-	keyword = strings.TrimSpace(keyword)
-	if keyword == "" {
-		return PublishCategory{}, cookiesStr, errors.New("类目关键词不能为空")
-	}
-	// data、updated、err 用于本次流程后续判断的data、updated、err
-	data, updated, err := c.recommendPublishCategory(ctx, cookiesStr, keyword, keyword, nil)
-	if err != nil {
-		return PublishCategory{}, updated, err
-	}
-	// cat 用于本次流程后续判断的cat
-	cat := mapFromAny(data["categoryPredictResult"])
-	// category 用于本次流程后续判断的分类
-	category := PublishCategory{
-		CatID:        strings.TrimSpace(mtopString(cat["catId"])),
-		CatName:      strings.TrimSpace(mtopString(cat["catName"])),
-		ChannelCatID: strings.TrimSpace(mtopString(cat["channelCatId"])),
-		TBCatID:      strings.TrimSpace(mtopString(cat["tbCatId"])),
-	}
-	if !validPublishCategory(category) {
-		return PublishCategory{}, updated, fmt.Errorf("%w: 推荐结果缺少完整类目路径", ErrPublishCategoryUnrecognized)
-	}
-	return category, updated, nil
-}
-
 // uploadPublishImage 封装upload发布图片业务协调。
 func (c *ClientImpl) uploadPublishImage(ctx context.Context, cookiesStr string, img PublishImage) (uploadedImage, string, error) {
 	// hc 用于本次流程后续判断的hc

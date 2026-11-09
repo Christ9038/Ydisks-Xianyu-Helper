@@ -3,6 +3,7 @@ import type { Item } from './api';
 import type { PublishLocation } from './api';
 import { createItem,deleteItem,getPublishLocations,itemErrorMessage,publishItem,recommendPublishCategory as recommendItemPublishCategory,syncItemsFromAccount,updateItem } from './api';
 import type { PublishSkuRow, PublishSpec } from '../../../shared/ui/publish/publishSpecs';
+import { categoryCandidatesOf } from './batchState';
 import type { PublishCategory } from './types';
 
 // AddItemForm 描述手动添加商品弹窗的表单字段。
@@ -103,6 +104,8 @@ export interface ItemActionsState {
   setPublishCategoryKeyword: Dispatch<SetStateAction<string>>;
   // publishCategoryLoading 表示普通发布类目推荐是否正在执行。
   publishCategoryLoading: boolean;
+  // publishCategoryCandidates 保存最近一次类目推荐返回的候选类目，供用户改选；仅在已选中类目且候选多于一项时展示。
+  publishCategoryCandidates: PublishCategory[];
   // publishCategory 保存普通发布当前选中的类目；为空时由后端自动识别并兜底。
   publishCategory: PublishCategory | null;
   // setPublishCategory 更新普通发布当前选中的类目。
@@ -175,6 +178,8 @@ export const useItemActions = ({ selectedAccount, setSelectedAccount, setItems, 
   const [publishCategoryKeyword, setPublishCategoryKeyword] = useState('');
   // publishCategoryLoading 表示当前普通发布类目推荐请求是否运行中。
   const [publishCategoryLoading, setPublishCategoryLoading] = useState(false);
+  // publishCategoryCandidates 保存当前推荐返回的候选类目。
+  const [publishCategoryCandidates, setPublishCategoryCandidates] = useState<PublishCategory[]>([]);
   // publishCategory 保存当前普通发布选中的完整类目。
   const [publishCategory, setPublishCategory] = useState<PublishCategory | null>(null);
   // selectedItem 保存当前编辑或删除的商品。
@@ -382,6 +387,7 @@ export const useItemActions = ({ selectedAccount, setSelectedAccount, setItems, 
       const result = await recommendItemPublishCategory(cookieID, keyword, { signal: controller.signal });
       if (controller.signal.aborted || generation !== publishCategoryGeneration.current) return;
       setPublishCategory(result.category);
+      setPublishCategoryCandidates(categoryCandidatesOf(result));
     } catch (/* error 表示类目推荐请求异常。 */ error: unknown) {
       if (controller.signal.aborted || generation !== publishCategoryGeneration.current) return;
       console.error('获取普通发布类目失败:', error);
@@ -482,5 +488,5 @@ export const useItemActions = ({ selectedAccount, setSelectedAccount, setItems, 
     }
   }, [cancelLocationLookup, publishForm.cookie_id, selectedAccount, setBatchLocation, setBatchLocations]);
 
-  return { selectedAccount, setSelectedAccount, loading, publishing, showEditModal, setShowEditModal, showAddModal, setShowAddModal, showPublishModal, setShowPublishModal, locationLoading, publishLocations, setPublishLocations, publishLocation, setPublishLocation, publishCategoryKeyword, setPublishCategoryKeyword, publishCategoryLoading, publishCategory, setPublishCategory, selectedItem, editForm, setEditForm, addForm, setAddForm, publishForm, setPublishForm, publishImagePreviews, handleSync, handleEdit, handleSaveEdit, handleDelete, handleAddItem, handlePublishItem, handleRecommendPublishCategory, downloadPublishTemplate, openAddModal, openPublishModal, locateForPublish };
+  return { selectedAccount, setSelectedAccount, loading, publishing, showEditModal, setShowEditModal, showAddModal, setShowAddModal, showPublishModal, setShowPublishModal, locationLoading, publishLocations, setPublishLocations, publishLocation, setPublishLocation, publishCategoryKeyword, setPublishCategoryKeyword, publishCategoryLoading, publishCategoryCandidates, publishCategory, setPublishCategory, selectedItem, editForm, setEditForm, addForm, setAddForm, publishForm, setPublishForm, publishImagePreviews, handleSync, handleEdit, handleSaveEdit, handleDelete, handleAddItem, handlePublishItem, handleRecommendPublishCategory, downloadPublishTemplate, openAddModal, openPublishModal, locateForPublish };
 };
