@@ -233,17 +233,61 @@ export interface LibraryPublishPreview {
   rows: LibraryPublishPreviewRow[];
 }
 
-/** LibraryPublishLocation 是发布使用的发货地。 */
+/** LibraryPublishLocation 是发布使用的完整发货地（与商品管理发布一致，含行政区划、坐标与 POI），字段沿用平台传输命名。 */
 export interface LibraryPublishLocation {
-  /** province 是省。 */
-  province: string;
-  /** city 是市。 */
-  city: string;
   /** area 是区县。 */
   area: string;
-  /** divisionId 是行政区划标识。 */
-  divisionId: string;
+  /** city 是市。 */
+  city: string;
+  /** division_id 是行政区划标识。 */
+  division_id: string;
+  /** longitude 是经度。 */
+  longitude: number;
+  /** latitude 是纬度。 */
+  latitude: number;
+  /** poi_id 是高德兴趣点标识。 */
+  poi_id: string;
+  /** poi_name 是高德兴趣点名称。 */
+  poi_name: string;
+  /** province 是省。 */
+  province: string;
 }
+
+/** LibraryLocationFieldProps 是发货地选择字段的属性，应用壳把商品管理的定位/手动选点实现注入资源库。 */
+export interface LibraryLocationFieldProps {
+  /** value 是当前发货地，空表示不指定。 */
+  value: LibraryPublishLocation | null;
+  /** onChange 回传新的完整发货地或 null。 */
+  onChange: (location: LibraryPublishLocation | null) => void;
+}
+
+/** LibraryLocationFieldComponent 是应用壳注入的发货地选择组件类型。 */
+export type LibraryLocationFieldComponent = ComponentType<LibraryLocationFieldProps>;
+
+/** LibraryCategoryValue 是类目选择字段使用的类目，字段沿用平台传输命名。 */
+export interface LibraryCategoryValue {
+  /** cat_id 是类目标识。 */
+  cat_id: string;
+  /** cat_name 是类目名称。 */
+  cat_name: string;
+  /** channel_cat_id 是频道类目标识。 */
+  channel_cat_id?: string;
+  /** tb_cat_id 是淘宝类目标识。 */
+  tb_cat_id?: string;
+}
+
+/** LibraryCategoryFieldProps 是类目选择字段的属性，应用壳把商品管理的类目推荐实现注入资源库。 */
+export interface LibraryCategoryFieldProps {
+  /** cookieId 是用于调用平台类目推荐的账号。 */
+  cookieId: string;
+  /** value 是当前类目，空表示发布时自动识别。 */
+  value: LibraryCategoryValue | null;
+  /** onChange 回传完整类目或 null。 */
+  onChange: (category: LibraryCategoryValue | null) => void;
+}
+
+/** LibraryCategoryFieldComponent 是应用壳注入的类目选择组件类型。 */
+export type LibraryCategoryFieldComponent = ComponentType<LibraryCategoryFieldProps>;
 
 /** LibraryImagePickerProps 是图片选择器组件的属性，应用壳把它注入到商品发布页。 */
 export interface LibraryImagePickerProps {

@@ -11,7 +11,7 @@ import { type BatchDeleteResult, useAutomationOptions, useLibraryImages, useProd
 import { defaultImageFilters, imageUsage, isImageFilterActive, queryImages, type ImageFilters } from '../imageQuery';
 import { countHidden, selectionState, toggleAllVisible } from '../selection';
 import { defaultTemplateFilters, isTemplateFilterActive, queryTemplates, type TemplateFilters } from '../templateQuery';
-import type { LibraryImage, ProductTemplate } from '../types';
+import type { LibraryCategoryFieldComponent, LibraryImage, LibraryLocationFieldComponent, ProductTemplate } from '../types';
 import { PageHeader } from '../../../../shared/ui/PageHeader';
 
 /** imageSortOptions 是图片排序下拉的选项。 */
@@ -38,10 +38,14 @@ const summarizeBatch = (result: BatchDeleteResult, nameOf: (id: number) => strin
 export interface ResourceLibraryProps {
   /** onBatchStarted 在模板批次启动后通知应用壳，例如跳转到商品页查看进度。 */
   onBatchStarted?: (batchId: string) => void;
+  /** locationField 是应用壳注入的发货地选择组件，用于模板发布。 */
+  locationField?: LibraryLocationFieldComponent;
+  /** categoryField 是应用壳注入的类目选择组件，用于模板编辑。 */
+  categoryField?: LibraryCategoryFieldComponent;
 }
 
 /** ResourceLibrary 是本地资源库页面：商品模板（批量铺货入口）与图片库。 */
-const ResourceLibrary: React.FC<ResourceLibraryProps> = ({ onBatchStarted }) => {
+const ResourceLibrary: React.FC<ResourceLibraryProps> = ({ onBatchStarted, locationField, categoryField }) => {
   // tab 是当前标签页。
   const [tab, setTab] = useState<'templates' | 'images'>('templates');
   // images 是图片库状态；templates 是模板状态。
@@ -200,12 +204,12 @@ const ResourceLibrary: React.FC<ResourceLibraryProps> = ({ onBatchStarted }) => 
       )}
 
       {editing !== undefined && (
-        <TemplateEditorDialog key={editing?.id ?? 'new'} template={editing} busy={templates.busy} options={options}
+        <TemplateEditorDialog key={editing?.id ?? 'new'} template={editing} busy={templates.busy} options={options} categoryField={categoryField}
           onClose={/* 关闭并丢弃草稿。 */ () => setEditing(undefined)}
           onSave={/* 保存成功后关闭编辑器。 */ async body => { if (await templates.save(editing?.id ?? null, body)) setEditing(undefined); }} />
       )}
       {publishing && (
-        <TemplatePublishDialog templates={selectedTemplates} accounts={options.accounts} onClose={/* 关闭发布弹窗。 */ () => setPublishing(false)}
+        <TemplatePublishDialog templates={selectedTemplates} accounts={options.accounts} locationField={locationField} onClose={/* 关闭发布弹窗。 */ () => setPublishing(false)}
           onStarted={/* 批次启动后关闭弹窗并通知应用壳。 */ batchId => { setPublishing(false); setSelectedIds([]); setNotice({ text: '发布已开始，可在商品列表的批量铺货中查看进度。', tone: 'ok' }); onBatchStarted?.(batchId); }} />
       )}
     </div>

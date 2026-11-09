@@ -85,6 +85,10 @@ func (s *TemplatePublishService) PreviewPublish(ctx context.Context, input Publi
 	if len(cookieIDs) == 0 {
 		return itemapp.BatchPreviewPersistenceResult{}, invalid("请选择要发布到的账号")
 	}
+	// locationErr 保存发货地完整性校验结果：未指定允许（虚拟商品沿用平台默认），指定则必须带坐标。
+	if locationErr := validateLocation(input.Location); locationErr != nil {
+		return itemapp.BatchPreviewPersistenceResult{}, locationErr
+	}
 	// total 保存 len 的返回结果。
 	if total := len(templateIDs) * len(cookieIDs); total > s.maxRows {
 		return itemapp.BatchPreviewPersistenceResult{}, invalid(fmt.Sprintf("单次最多发布 %d 条商品，当前选择 %d 条", s.maxRows, total))
@@ -254,4 +258,20 @@ func uniqueStrings(values []string) []string {
 		}
 	}
 	return result
+}
+
+// validateLocation 校验批次发货地：全空表示不指定；一旦指定就必须与发布接口要求一致，
+// 即行政区划、省、市齐全且经纬度有效，否则发布阶段会以“发货地信息不完整”失败。
+func validateLocation(location itemapp.Location) error {
+	if location == (itemapp.Location{}) {
+		return nil
+	}
+	// complete 表示发货地是否具备发布接口要求的全部字段。
+	complete := strings.TrimSpace(location.DivisionID) != "" && strings.TrimSpace(location.Province) != "" && strings.TrimSpace(location.City) != "" &&
+		location.Longitude >= -180 && location.Longitude <= 180 && location.Latitude >= -90 && location.Latitude <= 90 &&
+		!(location.Longitude == 0 && location.Latitude == 0)
+	if !complete {
+		return invalid("发货地信息不完整，请重新定位或手动选择具体地点")
+	}
+	return nil
 }

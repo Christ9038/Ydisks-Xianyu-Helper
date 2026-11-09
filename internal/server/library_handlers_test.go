@@ -122,7 +122,7 @@ func TestLibraryHandlersContract(t *testing.T) {
 
 	// 模板 CRUD：创建返回 201。
 	templateBody := `{"name":"模板A","title":"标题A","description":"描述","price":"9.90","quantity":3,"postage_mode":"free","postage":"0",` +
-		`"category":{"cat_id":"1","cat_name":"测试"},"image_ids":[` + itoa(imageID) + `],` +
+		`"category":{"cat_id":"1","cat_name":"测试","channel_cat_id":"2"},"image_ids":[` + itoa(imageID) + `],` +
 		`"specs":{"specs":[],"skus":[],"spec_image_ids":[]},"automation":{"paid_delivery":{"enabled":false,"actions":[]},"review_gift":{"enabled":false,"actions":[]},"review_request":{"enabled":false,"after_shipped_hours":0,"message":"","max_attempts":0,"delay_seconds":0}}}`
 	// created 保存 libraryRequest 的返回结果。
 	created := libraryRequest(t, handler, session, http.MethodPost, "/api/v1/library/product-templates", "application/json", []byte(templateBody))
@@ -146,6 +146,10 @@ func TestLibraryHandlersContract(t *testing.T) {
 	if rec := libraryRequest(t, handler, session, http.MethodPut, templatePath, "application/json", []byte(strings.Replace(templateBody, "模板A", "模板B", 1))); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "模板B") {
 		t.Fatalf("update template status=%d body=%s", rec.Code, rec.Body.String())
 	}
+	// 类目只填一部分（缺频道类目）与保存后发布都会失败，必须在保存时拒绝。
+	if rec := libraryRequest(t, handler, session, http.MethodPost, "/api/v1/library/product-templates", "application/json", []byte(strings.Replace(templateBody, `,"channel_cat_id":"2"`, "", 1))); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "类目信息不完整") {
+		t.Fatalf("partial category status=%d body=%s", rec.Code, rec.Body.String())
+	}
 	// 校验失败与不存在。
 	if rec := libraryRequest(t, handler, session, http.MethodPost, "/api/v1/library/product-templates", "application/json", []byte(`{"name":""}`)); rec.Code != http.StatusBadRequest {
 		t.Fatalf("invalid template status=%d body=%s", rec.Code, rec.Body.String())
@@ -164,8 +168,12 @@ func TestLibraryHandlersContract(t *testing.T) {
 		t.Fatalf("referenced delete status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
+	// 发货地缺少经纬度（此前模板发布只传省市区）必须在预检阶段以 400 拒绝，而不是发布阶段才失败。
+	if rec := libraryRequest(t, handler, session, http.MethodPost, "/api/v1/library/product-templates/publish-preview", "application/json", []byte(`{"template_ids":[`+itoa(template.ID)+`],"cookie_ids":["acc1"],"location":{"province":"浙江","city":"杭州","area":"西湖","division_id":"330106"}}`)); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "发货地信息不完整") {
+		t.Fatalf("incomplete location status=%d body=%s", rec.Code, rec.Body.String())
+	}
 	// 发布预检：生成 preview 批次；非法间隔与空选择返回 400。
-	previewBody := `{"template_ids":[` + itoa(template.ID) + `],"cookie_ids":["acc1"],"location":{"province":"浙江","city":"杭州","area":"西湖","division_id":"330106"},"publish_interval_seconds":5}`
+	previewBody := `{"template_ids":[` + itoa(template.ID) + `],"cookie_ids":["acc1"],"location":{"province":"浙江","city":"杭州","area":"西湖","division_id":"330106","longitude":120.1,"latitude":30.2,"poi_id":"B1","poi_name":"地点"},"publish_interval_seconds":5}`
 	// preview 保存 libraryRequest 的返回结果。
 	preview := libraryRequest(t, handler, session, http.MethodPost, "/api/v1/library/product-templates/publish-preview", "application/json", []byte(previewBody))
 	if preview.Code != http.StatusOK {

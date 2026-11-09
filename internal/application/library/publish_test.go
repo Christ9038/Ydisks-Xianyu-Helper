@@ -131,7 +131,7 @@ func TestTemplatePublishPreviewExpandsTemplatesAndAccounts(t *testing.T) {
 	f := newPublishFixture(t, 50)
 	// result 保存 PreviewPublish 的返回结果，err 保存其失败原因。
 	result, err := f.service.PreviewPublish(context.Background(), PublishPreviewInput{UserID: 1, TemplateIDs: []int64{1, 2, 1}, CookieIDs: []string{" a ", "b", "a", ""},
-		Location: itemapp.Location{City: "杭州"}})
+		Location: itemapp.Location{Province: "浙江省", City: "杭州", Area: "西湖区", DivisionID: "330106", Longitude: 120.1, Latitude: 30.2, POIID: "B1", POIName: "地点"}})
 	if err != nil || result.PreviewID != "batch_x" || result.Total != 4 {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
@@ -174,9 +174,12 @@ func TestTemplatePublishPreviewFailures(t *testing.T) {
 	f := newPublishFixture(t, 3)
 	// 输入校验：缺少模板、账号，以及超过行数上限。
 	for name, input := range map[string]PublishPreviewInput{
-		"无模板": {UserID: 1, CookieIDs: []string{"a"}},
-		"无账号": {UserID: 1, TemplateIDs: []int64{1}},
-		"超上限": {UserID: 1, TemplateIDs: []int64{1, 2}, CookieIDs: []string{"a", "b"}},
+		"无模板":     {UserID: 1, CookieIDs: []string{"a"}},
+		"无账号":     {UserID: 1, TemplateIDs: []int64{1}},
+		"超上限":     {UserID: 1, TemplateIDs: []int64{1, 2}, CookieIDs: []string{"a", "b"}},
+		"发货地缺坐标":  {UserID: 1, TemplateIDs: []int64{1}, CookieIDs: []string{"a"}, Location: itemapp.Location{Province: "浙江省", City: "杭州", Area: "西湖区", DivisionID: "330106"}},
+		"发货地缺行政区": {UserID: 1, TemplateIDs: []int64{1}, CookieIDs: []string{"a"}, Location: itemapp.Location{Province: "浙江省", City: "杭州", Longitude: 120.1, Latitude: 30.2}},
+		"发货地坐标越界": {UserID: 1, TemplateIDs: []int64{1}, CookieIDs: []string{"a"}, Location: itemapp.Location{Province: "浙江省", City: "杭州", DivisionID: "330106", Longitude: 220, Latitude: 30.2}},
 	} {
 		// err 保存 PreviewPublish 调用的失败原因。
 		if _, err := f.service.PreviewPublish(ctx, input); !errors.As(err, new(*ValidationError)) {

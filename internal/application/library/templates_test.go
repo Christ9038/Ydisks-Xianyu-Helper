@@ -156,6 +156,8 @@ func TestTemplateServiceValidation(t *testing.T) {
 		{"邮费模式非法", func(t *Template) { t.PostageMode = "buyer" }, "邮费模式"},
 		{"固定邮费为负", func(t *Template) { t.PostageMode, t.PostageCents = "fixed", -1 }, "固定邮费"},
 		{"原价为负", func(t *Template) { t.OriginalPriceCents = -1 }, "原价"},
+		{"类目缺频道ID", func(t *Template) { t.Category = itemapp.BatchPreviewCategory{CatID: "1", CatName: "电子资料"} }, "类目信息不完整"},
+		{"类目只有淘宝ID", func(t *Template) { t.Category = itemapp.BatchPreviewCategory{TBCatID: "9"} }, "类目信息不完整"},
 		{"没有图片", func(t *Template) { t.ImageIDs = nil }, "至少选择"},
 		{"图片过多", func(t *Template) { t.ImageIDs = []int64{1, 2, 3, 5, 6, 7, 8, 9, 10, 11} }, "最多"},
 		{"图片重复", func(t *Template) { t.ImageIDs = []int64{1, 1} }, "不能重复"},
@@ -195,5 +197,27 @@ func TestTemplateServiceValidation(t *testing.T) {
 	}
 	if (&ValidationError{Message: "x"}).Error() != "x" {
 		t.Fatal("ValidationError 文本异常")
+	}
+}
+
+// TestTemplateServiceCategoryRules 验证类目全空（自动识别）与完整类目均可保存，且首尾空白被清理。
+func TestTemplateServiceCategoryRules(t *testing.T) {
+	// f 保存 newTemplateFixture 的返回结果。
+	f := newTemplateFixture(t)
+	// empty 是类目全空（含纯空白）的模板，应沿用自动识别。
+	empty := validTemplate()
+	empty.Category = itemapp.BatchPreviewCategory{CatID: " ", CatName: "\t"}
+	// created、err 保存创建结果。
+	created, err := f.service.CreateTemplate(context.Background(), empty)
+	if err != nil || created.Category != (itemapp.BatchPreviewCategory{}) {
+		t.Fatalf("空类目应允许保存并清理空白: %+v %v", created.Category, err)
+	}
+	// full 是完整类目，保存后字段原样保留（已去空白）。
+	full := validTemplate()
+	full.Category = itemapp.BatchPreviewCategory{CatID: " 50025386", CatName: "电子资料 ", ChannelCatID: "201451202", TBCatID: "7"}
+	// saved、saveErr 保存创建结果。
+	saved, saveErr := f.service.CreateTemplate(context.Background(), full)
+	if saveErr != nil || saved.Category.CatID != "50025386" || saved.Category.CatName != "电子资料" || saved.Category.TBCatID != "7" {
+		t.Fatalf("完整类目应原样保存: %+v %v", saved.Category, saveErr)
 	}
 }

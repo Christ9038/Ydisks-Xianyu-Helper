@@ -200,6 +200,10 @@ func (s *TemplateService) normalize(ctx context.Context, input Template) (Templa
 	if input.OriginalPriceCents < 0 {
 		return Template{}, invalid("原价格式错误")
 	}
+	input.Category = trimCategory(input.Category)
+	if categoryIncomplete(input.Category) {
+		return Template{}, invalid("类目信息不完整，请重新通过关键词获取类目")
+	}
 	// err 保存 checkImages 调用的失败原因。
 	if err := s.checkImages(ctx, input); err != nil {
 		return Template{}, err
@@ -286,4 +290,18 @@ func minSKUPrice(specs *itemapp.BatchSpecs) int64 {
 		}
 	}
 	return lowest
+}
+
+// trimCategory 去除类目各字段的首尾空白，避免空白串被误判为已指定类目。
+func trimCategory(category itemapp.BatchPreviewCategory) itemapp.BatchPreviewCategory {
+	return itemapp.BatchPreviewCategory{CatID: strings.TrimSpace(category.CatID), CatName: strings.TrimSpace(category.CatName),
+		ChannelCatID: strings.TrimSpace(category.ChannelCatID), TBCatID: strings.TrimSpace(category.TBCatID)}
+}
+
+// categoryIncomplete 判断类目是否只填了一部分：发布接口要求类目 ID、名称和频道类目 ID 同时存在，
+// 全空表示沿用自动识别，不算不完整。与批量铺货表格行、商品管理发布使用同一条规则。
+func categoryIncomplete(category itemapp.BatchPreviewCategory) bool {
+	// anySet 表示是否填写了任一类目字段。
+	anySet := category.CatID != "" || category.CatName != "" || category.ChannelCatID != "" || category.TBCatID != ""
+	return anySet && (category.CatID == "" || category.CatName == "" || category.ChannelCatID == "")
 }

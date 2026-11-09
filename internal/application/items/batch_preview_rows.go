@@ -31,6 +31,10 @@ func (service *BatchPreviewService) PreviewRows(ctx context.Context, input Batch
 		}
 		row.PostageMode = normalizePostageMode(row.PostageMode)
 		service.validateRow(ctx, input, row)
+		if (row.Category.CatID != "" || row.Category.CatName != "" || row.Category.ChannelCatID != "" || row.Category.TBCatID != "") &&
+			(row.Category.CatID == "" || row.Category.CatName == "" || row.Category.ChannelCatID == "") {
+			row.Errors = append(row.Errors, "指定行类目时必须同时填写类目ID、类目名称和频道类目ID")
+		}
 		service.validateRowSpecs(input, row)
 	}
 	return result, nil

@@ -1,11 +1,11 @@
 import { ChevronDown, ChevronUp, ImagePlus, Trash2, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { Suspense, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { PublishSpecsEditor } from '../../../../shared/ui/publish/PublishSpecsEditor';
 import { libraryImageUrl, type TemplateRequestTransport } from '../api';
 import type { AutomationOptions } from '../hooks';
 import { draftFromTemplate, emptyDraft, reconcileDraftSpecs, specScopes, toRequest, validateDraft, type TemplateDraft } from '../templateDraft';
-import type { ProductTemplate } from '../types';
+import type { LibraryCategoryFieldComponent, LibraryCategoryValue, ProductTemplate } from '../types';
 import { ImagePickerDialog } from './ImagePickerDialog';
 import { TemplateAutomationEditor } from './TemplateAutomationEditor';
 
@@ -17,6 +17,8 @@ export interface TemplateEditorDialogProps {
   busy: boolean;
   /** options 是自动化可选项。 */
   options: AutomationOptions;
+  /** categoryField 是应用壳注入的类目选择组件（平台类目推荐）；缺省时只展示当前类目。 */
+  categoryField?: LibraryCategoryFieldComponent;
   /** onSave 提交请求体，成功后由父级关闭弹窗。 */
   onSave: (body: TemplateRequestTransport) => Promise<void>;
   /** onClose 关闭弹窗并丢弃草稿。 */
@@ -26,17 +28,27 @@ export interface TemplateEditorDialogProps {
 /** maxMainImages 是模板主图数量上限，与服务端一致。 */
 const maxMainImages = 9;
 
+/** categoryToValue 把草稿类目转换为类目选择组件使用的传输命名。 */
+const categoryToValue = (category: TemplateDraft['category']): LibraryCategoryValue => ({ cat_id: category.catId, cat_name: category.catName, channel_cat_id: category.channelCatId, tb_cat_id: category.tbCatId });
+
+/** valueToCategory 把类目选择组件回传的类目转换回草稿命名。 */
+const valueToCategory = (value: LibraryCategoryValue): TemplateDraft['category'] => ({ catId: value.cat_id, catName: value.cat_name, channelCatId: value.channel_cat_id ?? '', tbCatId: value.tb_cat_id ?? '' });
+
 /** fieldClass 是表单输入统一样式。 */
 const fieldClass = 'ios-input w-full rounded-xl px-4 py-3';
 
 /** TemplateEditorDialog 编辑商品模板；草稿只存在于弹窗内，关闭即丢弃。 */
-export const TemplateEditorDialog = ({ template, busy, options, onSave, onClose }: TemplateEditorDialogProps) => {
+export const TemplateEditorDialog = ({ template, busy, options, categoryField: CategoryField, onSave, onClose }: TemplateEditorDialogProps) => {
   // draft 是表单草稿，初始值来自模板或空白。
   const [draft, setDraft] = useState<TemplateDraft>(() => template ? draftFromTemplate(template) : emptyDraft());
+  // recommendAccount 是用户为类目推荐显式选择的账号；未选择时由第一个可用账号推导，不另存默认值。
+  const [recommendAccount, setRecommendAccount] = useState('');
   // error 是提交前校验失败原因。
   const [error, setError] = useState('');
   // picker 记录正在选图的目标：主图、某个规格值或关闭。
   const [picker, setPicker] = useState<{ /** kind 区分主图与规格值图片。 */ kind: 'main' | 'spec'; /** valueId 是规格值标识。 */ valueId?: string } | null>(null);
+  // categoryAccount 是类目推荐实际使用的账号：用户选择优先，否则取第一个可用账号。
+  const categoryAccount = recommendAccount || options.accounts[0]?.id || '';
   // scopes 由规格推导，无需存入状态。
   const scopes = useMemo(/* 规格变化时重新推导自动化范围。 */ () => specScopes(draft), [draft]);
 
@@ -85,7 +97,24 @@ export const TemplateEditorDialog = ({ template, busy, options, onSave, onClose 
               <label className="text-sm font-bold text-gray-800">邮费<select className={`${fieldClass} mt-1`} value={draft.postageMode} onChange={/* 切换邮费模式，取值限定为四种已知模式。 */ event => patch({ postageMode: event.target.value as TemplateDraft['postageMode'] })}><option value="free">包邮</option><option value="distance">按距离计费</option><option value="fixed">一口价邮费</option><option value="none">无需邮寄</option></select></label>
               {draft.postageMode === 'fixed' && <label className="text-sm font-bold text-gray-800">邮费（元）<input inputMode="decimal" className={`${fieldClass} mt-1`} value={draft.postage} onChange={/* 修改邮费。 */ event => patch({ postage: event.target.value })} /></label>}
             </div>
-            <p className="text-xs text-gray-500 md:col-span-2">类目：{draft.category.catName}（默认电子资料，与批量铺货兜底一致）；发货地使用各账号在平台上的默认值。</p>
+            <div className="space-y-2 md:col-span-2">
+              <h3 className="text-sm font-extrabold text-gray-900">商品类目</h3>
+              {CategoryField ? (
+                <>
+                  <label className="block text-xs font-bold text-gray-600">用于获取类目的账号
+                    <select aria-label="类目推荐账号" className={`${fieldClass} mt-1`} value={categoryAccount} onChange={/* 切换类目推荐账号。 */ event => setRecommendAccount(event.target.value)}>
+                      {options.accounts.length === 0 && <option value="">没有可用账号</option>}
+                      {options.accounts.map(/* account 渲染一个账号选项。 */ account => <option key={account.id} value={account.id}>{account.label}</option>)}
+                    </select>
+                  </label>
+                  <Suspense fallback={<p className="text-xs text-gray-500">加载中...</p>}>
+                    <CategoryField cookieId={categoryAccount} value={draft.category.catId ? categoryToValue(draft.category) : null}
+                      onChange={/* 选中、改选或清除类目；清除后发布时由平台自动识别。 */ next => patch({ category: next ? valueToCategory(next) : { catId: '', catName: '', channelCatId: '', tbCatId: '' } })} />
+                  </Suspense>
+                  {!draft.category.catId && <p className="text-xs text-gray-500">未选择类目：发布时由平台根据标题和图片自动识别，识别失败的行会在发布结果中报错。</p>}
+                </>
+              ) : <p className="text-xs text-gray-500">类目：{draft.category.catName || '发布时自动识别'}</p>}
+            </div>
           </section>
 
           <section className="space-y-3" aria-labelledby="template-images-title">

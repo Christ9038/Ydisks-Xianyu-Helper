@@ -1,9 +1,9 @@
 import { X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { libraryErrorMessage, previewTemplatePublish, startPublishBatch } from '../api';
 import { selectionState, toggleAllVisible } from '../selection';
-import type { LibraryAccountOption, LibraryPublishPreview, ProductTemplate } from '../types';
+import type { LibraryAccountOption, LibraryLocationFieldComponent, LibraryPublishLocation, LibraryPublishPreview, ProductTemplate } from '../types';
 import { SelectAllCheckbox } from './SelectAllCheckbox';
 
 /** TemplatePublishDialogProps 描述模板发布弹窗。 */
@@ -12,6 +12,8 @@ export interface TemplatePublishDialogProps {
   templates: ProductTemplate[];
   /** accounts 是可选目标账号。 */
   accounts: LibraryAccountOption[];
+  /** locationField 是应用壳注入的发货地选择组件（定位与高德手动选点）；缺省时不提供发货地选择。 */
+  locationField?: LibraryLocationFieldComponent;
   /** onClose 关闭弹窗。 */
   onClose: () => void;
   /** onStarted 在批次启动成功后通知父级，参数是批次标识。 */
@@ -22,7 +24,7 @@ export interface TemplatePublishDialogProps {
 const maxPublishRows = 50;
 
 /** TemplatePublishDialog 先生成“模板 × 账号”预检，用户确认后再启动既有批量铺货批次。 */
-export const TemplatePublishDialog = ({ templates, accounts, onClose, onStarted }: TemplatePublishDialogProps) => {
+export const TemplatePublishDialog = ({ templates, accounts, locationField: LocationField, onClose, onStarted }: TemplatePublishDialogProps) => {
   // selectedAccounts 是已勾选账号。
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
   // interval 是发布间隔秒数文本。
@@ -31,6 +33,8 @@ export const TemplatePublishDialog = ({ templates, accounts, onClose, onStarted 
   const [accountQuery, setAccountQuery] = useState('');
   // onlyInvalid 为真时预检表只显示需修正的行，仅影响展示，不影响确认发布。
   const [onlyInvalid, setOnlyInvalid] = useState(false);
+  // location 是用户选择的发货地，空表示不指定；更换后旧预检失效。
+  const [location, setLocation] = useState<LibraryPublishLocation | null>(null);
   // preview 是最近一次预检结果。
   const [preview, setPreview] = useState<LibraryPublishPreview | null>(null);
   // busy 表示预检或启动请求进行中。
@@ -79,7 +83,7 @@ export const TemplatePublishDialog = ({ templates, accounts, onClose, onStarted 
     setError('');
     try {
       // result 是预检结果。
-      const result = await previewTemplatePublish({ templateIds: templates.map(/* template 提取主键。 */ template => template.id), cookieIds: selectedAccounts, intervalSeconds: Number(interval) || 5 }, { signal: controller.signal });
+      const result = await previewTemplatePublish({ templateIds: templates.map(/* template 提取主键。 */ template => template.id), cookieIds: selectedAccounts, intervalSeconds: Number(interval) || 5, ...(location ? { location } : {}) }, { signal: controller.signal });
       if (!controller.signal.aborted) setPreview(result);
     } catch (failure /* failure 是预检失败原因。 */) {
       if (!controller.signal.aborted) setError(libraryErrorMessage(failure, '生成发布预检失败'));
@@ -138,7 +142,16 @@ export const TemplatePublishDialog = ({ templates, accounts, onClose, onStarted 
             </div>
           </fieldset>
           <label className="block text-sm font-bold text-gray-800">发布间隔（秒）<input aria-label="发布间隔秒数" type="number" min={0} max={3600} className="ios-input mt-1 w-32 rounded-xl px-3 py-2" value={interval} onChange={/* 修改间隔并使旧预检失效。 */ event => { setInterval(event.target.value); setPreview(null); }} /></label>
-          <p className="text-xs text-gray-500">将生成 {rowCount} 行（模板 × 账号，上限 {maxPublishRows}）；发货地使用账号平台默认值。</p>
+          {LocationField && (
+            <fieldset className="space-y-2">
+              <legend className="text-sm font-extrabold text-gray-900">发货地</legend>
+              <Suspense fallback={<p className="text-xs text-gray-500">加载中...</p>}>
+                <LocationField value={location} onChange={/* 更换发货地并使旧预检失效。 */ next => { setLocation(next); setPreview(null); }} />
+              </Suspense>
+              <p className="text-xs text-gray-500">发货地对本次全部商品生效，选择后带有经纬度与具体地点，与商品管理发布一致；不选则沿用账号平台默认。</p>
+            </fieldset>
+          )}
+          <p className="text-xs text-gray-500">将生成 {rowCount} 行（模板 × 账号，上限 {maxPublishRows}）。</p>
           {preview && (
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-4">

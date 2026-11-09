@@ -61,6 +61,11 @@ const LibraryImagePicker = lazy(/* 图片库选择器随商品页面路由按需
 // LibraryImageChooser 供规则、卡密、发货模板和聊天页单选图片库图片，仅在打开选择器时加载。
 const LibraryImageChooser = lazy(/* 图片库单选器随使用它的页面按需加载。 */ () => import('../features/library/components/LibraryImageChooser'));
 
+// PublishLocationField 与 PublishCategoryField 是商品管理发布使用的定位/手动选点与类目推荐字段，经应用壳注入资源库以避免特性之间互相导入。
+// PublishLocationField 是按需加载的发货地字段。
+const PublishLocationField = lazy(/* 发货地字段随资源库发布弹窗按需加载。 */ () => import('../features/items/components/PublishLocationField'));
+// PublishCategoryField 是按需加载的类目字段。
+const PublishCategoryField = lazy(/* 类目字段随资源库模板编辑器按需加载。 */ () => import('../features/items/components/PublishCategoryField'));
 const ResourceLibrary = lazy(/* ResourceLibrary 页面按路由激活时加载。 */ () => import('../features/library/pages/ResourceLibrary'));
 // Settings 是按需加载的系统设置页面，仅在管理员访问时加载。
 const Settings = lazy(/* Settings 页面按路由激活时加载。 */ () => import('../features/settings/pages/Settings'));
@@ -135,7 +140,7 @@ export const AppContent: React.FC<AppContentProps> = ({
         libraryImageChooser={LibraryImageChooser}
       />;
       case 'delivery-templates': return <DeliveryTemplates libraryImageChooser={LibraryImageChooser} />;
-      case 'library': return <ResourceLibrary onBatchStarted={onNavigateToItems} />;
+      case 'library': return <ResourceLibrary onBatchStarted={onNavigateToItems} locationField={PublishLocationField} categoryField={PublishCategoryField} />;
       case 'notifications': return <Notifications isAdmin={isAdmin} />;
       case 'logs': return isAdmin ? <RuntimeLogs /> : <Dashboard />;
       case 'settings': return isAdmin ? <Settings /> : <Dashboard />;

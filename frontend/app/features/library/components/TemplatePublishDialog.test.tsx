@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import * as api from '../api';
-import type { ProductTemplate } from '../types';
+import type { LibraryLocationFieldProps, ProductTemplate } from '../types';
 import { TemplatePublishDialog } from './TemplatePublishDialog';
 
 vi.mock('../api', async (importOriginal) => ({ ...(await importOriginal<typeof import('../api')>()), previewTemplatePublish: vi.fn(), startPublishBatch: vi.fn() }));
@@ -75,5 +75,30 @@ describe('TemplatePublishDialog', /* 先预检再确认的发布流程。 */ () 
     fireEvent.click(screen.getByLabelText('只看需修正'));
     expect(screen.queryByText('正常行')).toBeNull();
     expect(screen.getByText('问题行')).toBeTruthy();
+  });
+
+  test('选择发货地后预检携带完整坐标，更换发货地使旧预检失效', /* 发货地随预检提交。 */ async () => {
+    vi.mocked(api.previewTemplatePublish).mockResolvedValue({ previewId: 'p', total: 1, valid: 1, invalid: 0, rows: [{ rowNo: 1, valid: true, errors: [], cookieId: 'a1', title: '标题Z', price: '1', quantity: 1 }] });
+    // place 是含坐标与 POI 的完整发货地。
+    const place = { province: '浙江省', city: '杭州市', area: '西湖区', division_id: '330106', longitude: 120.1, latitude: 30.2, poi_id: 'B1', poi_name: '某地点' };
+    // FakeLocationField 模拟注入的发货地字段，点击按钮选中 place。
+    const FakeLocationField = ({ onChange }: LibraryLocationFieldProps) => <button type="button" onClick={/* 选中发货地。 */ () => onChange(place)}>选地点</button>;
+    render(<TemplatePublishDialog templates={[template]} accounts={accounts} locationField={FakeLocationField} onClose={vi.fn()} onStarted={vi.fn()} />);
+    fireEvent.click(screen.getByLabelText('店铺1'));
+    fireEvent.click(screen.getByText('选地点'));
+    fireEvent.click(screen.getByText('生成预检'));
+    await waitFor(/* 等待预检表格。 */ () => expect(screen.getByText('标题Z')).toBeTruthy());
+    expect(api.previewTemplatePublish).toHaveBeenCalledWith(expect.objectContaining({ location: place }), expect.anything());
+    fireEvent.click(screen.getByText('选地点'));
+    expect(screen.queryByText('标题Z')).toBeNull();
+  });
+
+  test('未选择发货地时不提交 location', /* 缺省沿用平台默认。 */ async () => {
+    vi.mocked(api.previewTemplatePublish).mockResolvedValue({ previewId: 'p', total: 1, valid: 1, invalid: 0, rows: [] });
+    render(<TemplatePublishDialog templates={[template]} accounts={accounts} locationField={/* 空发货地字段替身，不选择任何地点。 */ () => null} onClose={vi.fn()} onStarted={vi.fn()} />);
+    fireEvent.click(screen.getByLabelText('店铺1'));
+    fireEvent.click(screen.getByText('生成预检'));
+    await waitFor(/* 等待预检请求。 */ () => expect(api.previewTemplatePublish).toHaveBeenCalled());
+    expect(vi.mocked(api.previewTemplatePublish).mock.calls[0][0]).not.toHaveProperty('location');
   });
 });

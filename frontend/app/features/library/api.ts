@@ -145,14 +145,14 @@ export const deleteProductTemplate = async (id: number, options?: RequestControl
 export const previewTemplatePublish = async (input: {
   /** templateIds 是要发布的模板主键。 */ templateIds: number[];
   /** cookieIds 是目标账号标识。 */ cookieIds: string[];
-  /** location 是可选发货地，缺省使用账号平台默认。 */ location?: LibraryPublishLocation;
+  /** location 是可选发货地，含坐标与 POI；缺省使用账号平台默认。 */ location?: LibraryPublishLocation;
   /** intervalSeconds 是发布间隔秒数。 */ intervalSeconds: number;
 }, options?: RequestControlOptions): Promise<LibraryPublishPreview> => {
   // response 是预检传输对象。
   const response = await runContractRequest(/* signal 控制发布预检请求的取消和超时。 */ signal => contractClient.POST('/api/v1/library/product-templates/publish-preview', {
     body: {
       template_ids: input.templateIds, cookie_ids: input.cookieIds, publish_interval_seconds: input.intervalSeconds,
-      ...(input.location ? { location: { province: input.location.province, city: input.location.city, area: input.location.area, division_id: input.location.divisionId } } : {}),
+      ...(input.location ? { location: { province: input.location.province, city: input.location.city, area: input.location.area, division_id: input.location.division_id, longitude: input.location.longitude, latitude: input.location.latitude, poi_id: input.location.poi_id, poi_name: input.location.poi_name } } : {}),
     },
     signal,
   }), options);

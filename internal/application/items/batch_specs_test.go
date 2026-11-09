@@ -357,3 +357,36 @@ func TestNormalizePostageModeAcceptsAllPublishModes(t *testing.T) {
 		}
 	}
 }
+
+// TestPreviewRowsRejectsPartialCategory 验证结构化行的类目只填一部分时逐行报错，全空与完整类目均通过。
+func TestPreviewRowsRejectsPartialCategory(t *testing.T) {
+	// service 使用只含账号归属的替身，类目规则不依赖卡券与模板。
+	service, err := NewBatchPreviewService(batchPreviewOwnershipFake{cookieOwned: "acc"}, batchPreviewImageFake{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// build 生成携带指定类目的合法单规格行。
+	build := func(category BatchPreviewCategory) BatchPreviewRow {
+		// row 保存基础合法行。
+		row := previewRowForSpecs()
+		row.Specs, row.Automation = nil, BatchPreviewAutomation{}
+		row.Category = category
+		return row
+	}
+	// rows 依次为：全空、完整、缺频道类目、只有淘宝类目。
+	rows := []BatchPreviewRow{build(BatchPreviewCategory{}), build(BatchPreviewCategory{CatID: "1", CatName: "电子资料", ChannelCatID: "2"}),
+		build(BatchPreviewCategory{CatID: "1", CatName: "电子资料"}), build(BatchPreviewCategory{TBCatID: "9"})}
+	// result、previewErr 保存校验结果。
+	result, previewErr := service.PreviewRows(context.Background(), BatchPreviewInput{UserID: 1, DefaultCookieID: "acc"}, rows)
+	if previewErr != nil {
+		t.Fatal(previewErr)
+	}
+	// index 是行下标；wantBad 表示该行应因类目不完整报错。
+	for index, wantBad := range []bool{false, false, true, true} {
+		// found 表示该行是否含类目不完整提示。
+		found := strings.Contains(strings.Join(result[index].Errors, "|"), "指定行类目时必须同时填写")
+		if found != wantBad {
+			t.Fatalf("row %d 类目错误=%v 期望=%v errors=%v", index, found, wantBad, result[index].Errors)
+		}
+	}
+}
