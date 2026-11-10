@@ -100,8 +100,9 @@ export const useAgentReply = (accountID: string) => {
   // loading 表示配置读取是否在途；loadError 保存最近一次读取失败文案。
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
-  // submitting 阻断重复保存；testing 阻断重复测试。
-  const [submitting, setSubmitting] = useState(false);
+  // savingAccounts 是保存请求仍在途的账号集合；按账号区分，切换账号后旧账号的在途保存不会锁住新账号的保存按钮。
+  const [savingAccounts, setSavingAccounts] = useState<ReadonlySet<string>>(() => new Set());
+  // testing 阻断重复测试。
   const [testing, setTesting] = useState(false);
   // testResult 是最近一次连接测试结果，编辑表单或切换账号后清空。
   const [testResult, setTestResult] = useState<AgentReplyTestResult | null>(null);
@@ -113,8 +114,8 @@ export const useAgentReply = (accountID: string) => {
   // accountRef 保存最新账号，供异步回调判断响应是否仍属于当前账号。
   const accountRef = useRef(accountID);
   accountRef.current = accountID;
-  // submittingRef 同步记录是否已有保存在途，避免依赖异步的 React 状态。
-  const submittingRef = useRef(false);
+  // savingRef 同步记录保存在途的账号集合，用于在同一账号上即时拒绝重复提交，不依赖异步的 React 状态。
+  const savingRef = useRef<Set<string>>(new Set());
   // loadAbort、testAbort 取消被新请求取代的在途请求。
   const loadAbort = useRef<AbortController | null>(null);
   const testAbort = useRef<AbortController | null>(null);
@@ -191,18 +192,19 @@ export const useAgentReply = (accountID: string) => {
   const keepToken = useCallback(/* 当前回调回到保留命令并丢弃输入。 */ () => updateForm({ tokenAction: 'retain', tokenValue: '' }), [updateForm]);
 
   // save 校验并保存配置；成功后用服务端确认值重置表单，令牌明文随之丢弃。
+  // 保存期间切换账号时，旧账号的结果仍会落库，但不会改写新账号的表单，也不会在新账号页面弹出提示。
   const save = useCallback(/* 当前回调校验表单后保存配置。 */ async (): Promise<boolean> => {
-    if (!accountID || submittingRef.current) return false;
+    if (!accountID || savingRef.current.has(accountID)) return false;
     // problem 是表单校验发现的第一个问题。
     const problem = validateAgentReplyForm(form, false);
     if (problem) {
       setToast({ type: 'error', text: problem });
       return false;
     }
-    submittingRef.current = true;
-    setSubmitting(true);
     // key 是发起保存时的账号，响应返回时用于核对是否仍然有效。
     const key = accountID;
+    savingRef.current.add(key);
+    setSavingAccounts(/* current 是更新前的在途保存账号集合。 */ current => new Set(current).add(key));
     try {
       // saved 是服务端确认的配置。
       const saved = await saveAgentReplySettings(key, agentReplyPayloadFromForm(form));
@@ -210,17 +212,25 @@ export const useAgentReply = (accountID: string) => {
         setSettings(saved);
         setForm(agentReplyFormFromSettings(saved));
         setTestResult(null);
+        setToast({ type: 'success', text: '保存成功' });
       }
-      setToast({ type: 'success', text: '保存成功' });
       return true;
     } catch (/* error 表示保存失败的原因。 */ error) {
-      setToast({ type: 'error', text: agentReplyErrorMessage(error) });
+      if (accountRef.current === key) setToast({ type: 'error', text: agentReplyErrorMessage(error) });
       return false;
     } finally {
-      submittingRef.current = false;
-      setSubmitting(false);
+      savingRef.current.delete(key);
+      setSavingAccounts(/* current 是更新前的在途保存账号集合。 */ current => {
+        // next 是移除本次账号后的在途保存账号集合。
+        const next = new Set(current);
+        next.delete(key);
+        return next;
+      });
     }
   }, [accountID, form]);
+
+  // submitting 表示当前选中账号是否有保存在途；由在途集合派生，不单独存状态。
+  const submitting = accountID !== '' && savingAccounts.has(accountID);
 
   // test 用当前表单草稿向 Agent 发送一次 ping；新的测试会取消在途测试，过期结果被丢弃。
   const test = useCallback(/* 当前回调校验表单后发起连接测试。 */ async () => {

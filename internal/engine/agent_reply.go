@@ -103,12 +103,18 @@ type agentTurnState struct {
 
 // runTurn 执行一轮对话：发送 message 事件，按 working 轮询，并把每个响应里的回复逐条发给买家。
 func (a *AgentReplier) runTurn(ctx context.Context, m ChatMessage, cfg db.AgentReplyRuntime) (*ReplyResult, error) {
-	// endpoint 是本轮复用的出站目标，令牌随它传递但不会写入日志。
-	endpoint := agentclient.Endpoint{URL: cfg.EndpointURL, Token: cfg.Token, Timeout: cfg.RequestTimeout}
-	// request 是即将发送的请求，首个为 message 事件，之后由 pollRequest 派生 poll 事件。
-	request := a.messageRequest(m)
 	// state 记录本轮副作用计数，用于执行请求数、回复数和图片数上限。
 	state := &agentTurnState{}
+	// session 是本轮复用连接的发送器：一轮最多 60 次请求只需一次 TCP/TLS 握手；令牌随它传递但不会写入日志。
+	// 创建失败（地址无效）时按接手前失败处理，降级到后续回复规则。
+	session, sessionErr := agentclient.NewSession(agentclient.Endpoint{URL: cfg.EndpointURL, Token: cfg.Token, Timeout: cfg.RequestTimeout})
+	if sessionErr != nil {
+		return a.failTurn(ctx, state, sessionErr)
+	}
+	// Close 在本轮结束（含被新消息顶替、账号停止）时释放空闲连接，连接不会跨轮次存活。
+	defer session.Close()
+	// request 是即将发送的请求，首个为 message 事件，之后由 pollRequest 派生 poll 事件。
+	request := a.messageRequest(m)
 	// started 是对话开始时刻，用于输出耗时摘要。
 	started := time.Now()
 	defer func() {
@@ -120,7 +126,7 @@ func (a *AgentReplier) runTurn(ctx context.Context, m ChatMessage, cfg db.AgentR
 		state.requests++
 		request.Sequence = state.requests
 		// response、err 保存 Agent 响应及调用错误。
-		response, err := agentclient.Send(ctx, endpoint, request)
+		response, err := session.Send(ctx, request)
 		if err != nil {
 			return a.failTurn(ctx, state, err)
 		}

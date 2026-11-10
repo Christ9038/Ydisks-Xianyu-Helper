@@ -88,13 +88,9 @@ func ConfiguredHTTPClient(timeout time.Duration) *http.Client {
 
 // ConfiguredEndpointHTTPClient 校验用户配置的 HTTP(S) 基础地址并返回策略客户端。
 func ConfiguredEndpointHTTPClient(rawBaseURL string, timeout time.Duration) (*http.Client, error) {
-	// baseURL、err 保存用户配置地址的解析结果及格式错误。
-	baseURL, err := url.Parse(strings.TrimSpace(rawBaseURL))
-	if err != nil || baseURL.Hostname() == "" {
-		return nil, fmt.Errorf("服务地址无效")
-	}
-	if baseURL.Scheme != "http" && baseURL.Scheme != "https" {
-		return nil, fmt.Errorf("服务地址只支持 http 或 https")
+	// err 表示用户配置地址的格式校验错误；地址不合法时不创建客户端。
+	if err := validateConfiguredEndpointURL(rawBaseURL); err != nil {
+		return nil, err
 	}
 	return ConfiguredHTTPClient(timeout), nil
 }
@@ -115,8 +111,83 @@ func PolicyHTTPClientWithTimeouts(policy *OutboundPolicy, timeout, responseHeade
 	return policyHTTPClient(policy, timeout, responseHeaderTimeout, tlsHandshakeTimeout)
 }
 
-// policyHTTPClient 创建每次连接和重定向都遵循同一公网策略的 HTTP 客户端。
+// ConfiguredEndpointSessionHTTPClient 校验用户配置的 HTTP(S) 地址，返回供一次短时会话（如一轮 Agent 对话）
+// 内部复用连接的策略客户端。与 ConfiguredEndpointHTTPClient 的区别只在连接复用：
+//   - 新连接仍在拨号时按当前公网策略解析并校验目标地址；
+//   - 每次请求前若发现公网开关自上次请求后发生变化，先关闭全部空闲连接，迫使本次请求重新拨号校验；
+//   - 空闲连接最多保留 1 条且 30 秒后过期，调用方必须在会话结束时调用 CloseIdleConnections 释放。
+//
+// 它只适合顺序发送、生命周期有明确上限的会话；长期共享的客户端仍必须使用不复用连接的 ConfiguredEndpointHTTPClient。
+func ConfiguredEndpointSessionHTTPClient(rawBaseURL string, timeout time.Duration) (*http.Client, error) {
+	// err 表示用户配置地址的格式校验错误；地址不合法时不创建客户端。
+	if err := validateConfiguredEndpointURL(rawBaseURL); err != nil {
+		return nil, err
+	}
+	return policySessionHTTPClient(defaultOutboundPolicy, timeout), nil
+}
+
+// validateConfiguredEndpointURL 校验用户配置地址必须是带主机名的 http(s) 绝对地址。
+func validateConfiguredEndpointURL(rawBaseURL string) error {
+	// baseURL、err 保存用户配置地址的解析结果及格式错误。
+	baseURL, err := url.Parse(strings.TrimSpace(rawBaseURL))
+	if err != nil || baseURL.Hostname() == "" {
+		return fmt.Errorf("服务地址无效")
+	}
+	if baseURL.Scheme != "http" && baseURL.Scheme != "https" {
+		return fmt.Errorf("服务地址只支持 http 或 https")
+	}
+	return nil
+}
+
+// sessionIdleConnTimeout 是会话客户端空闲连接的最长保留时间；Agent 轮询间隔最长 10 秒，30 秒足以覆盖且不会长期占用连接。
+const sessionIdleConnTimeout = 30 * time.Second
+
+// policySessionHTTPClient 创建允许连接复用、但在公网策略变化时丢弃空闲连接的策略客户端。
+func policySessionHTTPClient(policy *OutboundPolicy, timeout time.Duration) *http.Client {
+	// client 复用统一策略客户端的拨号、代理、重定向和响应体上限规则，只额外开启连接复用。
+	client := newPolicyHTTPClient(policy, timeout, 10*time.Second, 10*time.Second, true)
+	// limited 是外层响应体上限传输；这里把策略变化检测插在它与底层 Transport 之间。
+	limited := client.Transport.(limitedResponseBodyTransport)
+	// guard 记录创建时的公网策略，供首次请求前比较。
+	guard := &policyChangeTransport{base: limited.base.(*http.Transport), policy: policy}
+	guard.lastPublicOnly.Store(policy.PublicOnly())
+	client.Transport = limitedResponseBodyTransport{base: guard}
+	return client
+}
+
+// policyChangeTransport 在公网策略变化后先关闭空闲连接，保证复用连接不会跨越一次策略切换。
+//
+// 并发：lastPublicOnly 是原子值；并发请求同时观察到变化时可能重复关闭空闲连接，关闭操作幂等，不影响正确性。
+type policyChangeTransport struct {
+	// base 是实际持有连接池的底层 Transport。
+	base *http.Transport
+	// policy 是客户端遵循的运行时公网策略。
+	policy *OutboundPolicy
+	// lastPublicOnly 是上一次请求时观察到的公网开关值。
+	lastPublicOnly atomic.Bool
+}
+
+// RoundTrip 先比较公网开关，变化时关闭空闲连接，再交给底层 Transport 发送。
+func (t *policyChangeTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// current 是本次请求发起时的公网开关值。
+	current := t.policy.PublicOnly()
+	if t.lastPublicOnly.Swap(current) != current {
+		t.base.CloseIdleConnections()
+	}
+	return t.base.RoundTrip(req)
+}
+
+// CloseIdleConnections 释放底层连接池中的空闲连接，供会话结束时调用。
+func (t *policyChangeTransport) CloseIdleConnections() { t.base.CloseIdleConnections() }
+
+// policyHTTPClient 创建每次连接和重定向都遵循同一公网策略、且不复用连接的 HTTP 客户端。
 func policyHTTPClient(policy *OutboundPolicy, timeout, responseHeaderTimeout, tlsHandshakeTimeout time.Duration) *http.Client {
+	return newPolicyHTTPClient(policy, timeout, responseHeaderTimeout, tlsHandshakeTimeout, false)
+}
+
+// newPolicyHTTPClient 创建遵循公网策略的 HTTP 客户端；keepAlive 为 false 时禁用连接复用，
+// 为 true 时只保留 1 条空闲连接并在 sessionIdleConnTimeout 后过期，仅供 policySessionHTTPClient 使用。
+func newPolicyHTTPClient(policy *OutboundPolicy, timeout, responseHeaderTimeout, tlsHandshakeTimeout time.Duration, keepAlive bool) *http.Client {
 	// transport 保存统一出站策略客户端的连接和重定向规则。
 	transport := &http.Transport{
 		Proxy: func(request *http.Request) (*url.URL, error) {
@@ -125,8 +196,9 @@ func policyHTTPClient(policy *OutboundPolicy, timeout, responseHeaderTimeout, tl
 			}
 			return http.ProxyFromEnvironment(request)
 		},
-		// 禁用连接复用，确保公网开关切换后每个新请求都重新解析并校验目标地址。
-		DisableKeepAlives:     true,
+		// 默认禁用连接复用，确保公网开关切换后每个新请求都重新解析并校验目标地址；
+		// 会话客户端开启复用时由 policyChangeTransport 在开关变化后丢弃空闲连接。
+		DisableKeepAlives:     !keepAlive,
 		ForceAttemptHTTP2:     false,
 		TLSHandshakeTimeout:   tlsHandshakeTimeout,
 		ResponseHeaderTimeout: responseHeaderTimeout,
@@ -139,6 +211,10 @@ func policyHTTPClient(policy *OutboundPolicy, timeout, responseHeaderTimeout, tl
 			dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
 			return dialer.DialContext(ctx, network, address)
 		},
+	}
+	if keepAlive {
+		// 会话客户端只顺序发送请求，保留 1 条空闲连接即可复用，且限时过期避免长期占用。
+		transport.MaxIdleConns, transport.MaxIdleConnsPerHost, transport.IdleConnTimeout = 1, 1, sessionIdleConnTimeout
 	}
 	return &http.Client{
 		Transport: limitedResponseBodyTransport{base: transport},
@@ -205,6 +281,14 @@ func (t limitedResponseBodyTransport) RoundTrip(req *http.Request) (*http.Respon
 	}
 	response.Body = &limitedResponseBody{body: response.Body, remaining: ConfiguredResponseBodyLimit}
 	return response, nil
+}
+
+// CloseIdleConnections 把空闲连接释放请求转交给底层传输；底层不持有连接池时不做任何事。
+func (t limitedResponseBodyTransport) CloseIdleConnections() {
+	// closer、ok 保存底层传输的空闲连接释放能力及其是否可用。
+	if closer, ok := t.base.(interface{ CloseIdleConnections() }); ok {
+		closer.CloseIdleConnections()
+	}
 }
 
 // TrustedEndpointHTTPClient 用于管理员明确配置的集成端点。目标地址完全由管理员

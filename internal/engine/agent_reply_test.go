@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -58,6 +60,8 @@ type scriptedAgent struct {
 	responses []scriptedResponse
 	// block 非空时，每个请求先等待它被关闭或客户端断开。
 	block chan struct{}
+	// newConns 统计服务端观察到的新建 TCP 连接数，用于验证一轮对话复用连接。
+	newConns atomic.Int32
 }
 
 // scriptedResponse 描述一次预设响应。
@@ -70,7 +74,7 @@ type scriptedResponse struct {
 func (a *scriptedAgent) serve(t *testing.T) string {
 	t.Helper()
 	// server 是本地测试 Agent，按脚本顺序返回响应并记录每个请求。
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// raw 保存请求体原文，用于解码为协议请求。
 		raw, _ := io.ReadAll(r.Body)
 		// request 保存解码后的协议请求，供测试断言事件、序号和标识。
@@ -98,6 +102,12 @@ func (a *scriptedAgent) serve(t *testing.T) string {
 		}
 		_, _ = w.Write([]byte(current.body))
 	}))
+	server.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			a.newConns.Add(1)
+		}
+	}
+	server.Start()
 	t.Cleanup(server.Close)
 	return server.URL
 }
@@ -268,6 +278,18 @@ func TestAgentReplyPollingFlow(t *testing.T) {
 	}
 	if f.delivery.count() != 2 || f.delivery.messages[0].Text != "稍等" || f.delivery.messages[1].Text != "处理好了" {
 		t.Fatalf("应逐步发送: %+v", f.delivery.messages)
+	}
+	// conns 是整轮 message + 2 次 poll 期间 Agent 观察到的新建连接数；一轮只应握手一次。
+	if conns := f.agent.newConns.Load(); conns != 1 {
+		t.Fatalf("一轮对话应复用一条连接，实际新建 %d 条", conns)
+	}
+	// 新一轮对话不得沿用上一轮的连接：会话结束时已释放空闲连接。
+	if _, err := f.replier.Reply(context.Background(), chatMsg("再问一次", "item", "chat")); err != nil {
+		t.Fatal(err)
+	}
+	// conns 是两轮对话累计的新建连接数；第二轮必须重新拨号。
+	if conns := f.agent.newConns.Load(); conns != 2 {
+		t.Fatalf("新一轮对话应重新建立连接，实际累计 %d 条", conns)
 	}
 }
 

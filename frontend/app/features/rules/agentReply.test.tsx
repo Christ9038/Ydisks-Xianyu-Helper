@@ -159,6 +159,50 @@ describe('useAgentReply', /* 当前回调覆盖 Agent 回复 Hook 的加载、�
     expect(saveMock).toHaveBeenCalledTimes(2);
   });
 
+  test('保存进行中切换账号：旧结果不串到新账号，新账号可立即保存', /* 当前回调执行该行为用例。 */ async () => {
+    // result、rerender 提供 Hook 的最新返回值和重新渲染入口。
+    const { result, rerender } = renderHook(/* 当前回调渲染被测 Hook。 */ ({ id }) => useAgentReply(id), { initialProps: { id: 'a1' } });
+    await waitFor(/* 当前回调轮询等待断言条件成立。 */ () => expect(result.current.settings?.cookie_id).toBe('a1'));
+    // slowSuccess 是账号 a1 故意延迟成功的保存请求。
+    const slowSuccess = deferred<AgentReplySettings>();
+    saveMock.mockImplementationOnce(/* 当前回调返回由测试控制完成时机的挂起请求。 */ () => slowSuccess.promise);
+    // pendingA1 保存账号 a1 在途保存的完成结果。
+    let pendingA1!: Promise<boolean>;
+    act(/* 当前回调发起 a1 的保存。 */ () => { pendingA1 = result.current.save(); });
+    expect(result.current.submitting).toBe(true);
+    // a2Settings 是切换后账号 a2 的服务端配置。
+    const a2Settings: AgentReplySettings = { ...settingsFixture, cookie_id: 'a2', endpoint_url: 'https://two.example.com' };
+    loadMock.mockResolvedValueOnce(a2Settings);
+    rerender({ id: 'a2' });
+    await waitFor(/* 当前回调轮询等待断言条件成立。 */ () => expect(result.current.settings?.cookie_id).toBe('a2'));
+    // a1 的在途保存不能把 a2 标为保存中，也不能挡住 a2 的保存。
+    expect(result.current.submitting).toBe(false);
+    saveMock.mockResolvedValueOnce(a2Settings);
+    // savedA2 保存账号 a2 的保存结果。
+    let savedA2 = false;
+    await act(/* 当前回调保存 a2。 */ async () => { savedA2 = await result.current.save(); });
+    expect(savedA2).toBe(true);
+    expect(saveMock).toHaveBeenLastCalledWith('a2', expect.objectContaining({ endpoint_url: 'https://two.example.com' }));
+    act(/* 当前回调清除 a2 的成功提示，便于观察 a1 结果是否串入。 */ () => result.current.dismissToast());
+    await act(/* 当前回调让 a1 的保存此时成功返回。 */ async () => { slowSuccess.resolve(settingsFixture); await pendingA1; });
+    expect(result.current.toast).toBeNull();
+    expect(result.current.settings?.cookie_id).toBe('a2');
+    expect(result.current.form.endpointUrl).toBe('https://two.example.com');
+    // a1 的失败结果同样不能在 a2 页面弹出提示。
+    // slowFailure 是账号 a1 故意延迟失败的保存请求。
+    const slowFailure = deferred<AgentReplySettings>();
+    loadMock.mockResolvedValueOnce(settingsFixture);
+    rerender({ id: 'a1' });
+    await waitFor(/* 当前回调轮询等待断言条件成立。 */ () => expect(result.current.settings?.cookie_id).toBe('a1'));
+    saveMock.mockImplementationOnce(/* 当前回调返回由测试控制完成时机的挂起请求。 */ () => slowFailure.promise);
+    act(/* 当前回调再次发起 a1 的保存。 */ () => { pendingA1 = result.current.save(); });
+    loadMock.mockResolvedValueOnce(a2Settings);
+    rerender({ id: 'a2' });
+    await waitFor(/* 当前回调轮询等待断言条件成立。 */ () => expect(result.current.settings?.cookie_id).toBe('a2'));
+    await act(/* 当前回调让 a1 的保存此时失败。 */ async () => { slowFailure.reject(new Error('旧账号保存失败')); await pendingA1; });
+    expect(result.current.toast).toBeNull();
+  });
+
   test('连接测试：地址必填、结果展示、编辑后清空，过期结果被丢弃', /* 当前回调执行该行为用例。 */ async () => {
     // result、rerender 提供 Hook 的最新返回值和重新渲染入口。
     const { result, rerender } = renderHook(/* 当前回调渲染被测 Hook。 */ ({ id }) => useAgentReply(id), { initialProps: { id: 'a1' } });

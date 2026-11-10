@@ -154,22 +154,68 @@ func ValidateURL(rawURL string) error {
 }
 
 // Send 向 endpoint 发送一次协议请求并返回规范化响应；ctx 取消会立即中止请求。
+// 它使用不复用连接的客户端，适合测试连接这类一次性调用；同一轮多次请求应使用 Session。
 // 错误文本不包含令牌、地址路径或响应正文。
 func Send(ctx context.Context, endpoint Endpoint, request Request) (Response, error) {
 	// err 表示 Agent 地址的格式校验错误；地址不合法时不会发起任何请求。
 	if err := ValidateURL(endpoint.URL); err != nil {
 		return Response{}, err
 	}
+	// client、err 保存带出站策略、不复用连接的 HTTP 客户端。
+	client, err := netguard.ConfiguredEndpointHTTPClient(endpoint.URL, endpoint.Timeout)
+	if err != nil {
+		return Response{}, err
+	}
+	return send(ctx, client, endpoint, request)
+}
+
+// Session 是一轮 Agent 对话内复用同一 HTTP 客户端和连接的发送器，避免每次轮询都重新建立 TCP/TLS 连接。
+//
+// 生命周期：由 NewSession 创建，调用方在本轮结束时必须调用 Close 释放空闲连接；Session 只供顺序调用，
+// 不保证并发安全。新连接仍按出站公网策略校验；公网开关在两次请求之间变化时，下一次请求前会丢弃复用连接。
+type Session struct {
+	// endpoint 是本轮固定的出站目标，令牌随它传递但不会写入日志或错误。
+	endpoint Endpoint
+	// client 是本轮复用的策略客户端，持有至多 1 条空闲连接。
+	client *http.Client
+}
+
+// NewSession 校验地址并创建一轮对话使用的会话；地址不合法时返回错误且不发起任何请求。
+func NewSession(endpoint Endpoint) (*Session, error) {
+	// err 表示 Agent 地址的格式校验错误。
+	if err := ValidateURL(endpoint.URL); err != nil {
+		return nil, err
+	}
+	// client、err 保存允许本轮复用连接的策略客户端。
+	client, err := netguard.ConfiguredEndpointSessionHTTPClient(endpoint.URL, endpoint.Timeout)
+	if err != nil {
+		return nil, err
+	}
+	return &Session{endpoint: endpoint, client: client}, nil
+}
+
+// Send 通过本轮复用的连接发送一次协议请求，语义与包级 Send 相同。
+func (s *Session) Send(ctx context.Context, request Request) (Response, error) {
+	return send(ctx, s.client, s.endpoint, request)
+}
+
+// Close 释放本轮持有的空闲连接；重复调用安全。
+func (s *Session) Close() {
+	if s != nil && s.client != nil {
+		s.client.CloseIdleConnections()
+	}
+}
+
+// nonSuccessDrainBytes 是非 2xx 响应在关闭前最多丢弃读取的字节数，读完小响应体后连接才能被复用。
+const nonSuccessDrainBytes = 4 << 10
+
+// send 用给定客户端发送一次协议请求并规范化响应；client 由调用方负责创建和释放。
+func send(ctx context.Context, client *http.Client, endpoint Endpoint, request Request) (Response, error) {
 	request.Version = ProtocolVersion
 	// body、err 保存序列化后的请求体及序列化错误。
 	body, err := json.Marshal(request)
 	if err != nil {
 		return Response{}, fmt.Errorf("外部 Agent 请求序列化失败: %w", err)
-	}
-	// client、err 保存带出站策略的 HTTP 客户端。
-	client, err := netguard.ConfiguredEndpointHTTPClient(endpoint.URL, endpoint.Timeout)
-	if err != nil {
-		return Response{}, err
 	}
 	// httpRequest 保存带取消上下文的 POST 请求。
 	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimSpace(endpoint.URL), bytes.NewReader(body))
@@ -193,6 +239,8 @@ func Send(ctx context.Context, endpoint Endpoint, request Request) (Response, er
 	}
 	defer httpResponse.Body.Close()
 	if httpResponse.StatusCode < 200 || httpResponse.StatusCode > 299 {
+		// 丢弃少量响应正文以便复用连接；正文内容不读取、不返回，避免泄漏第三方内容。
+		_, _ = io.Copy(io.Discard, io.LimitReader(httpResponse.Body, nonSuccessDrainBytes))
 		return Response{}, &StatusError{Code: httpResponse.StatusCode}
 	}
 	return decodeResponse(httpResponse.Body)
