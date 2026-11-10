@@ -212,6 +212,10 @@ func (s *Service) Update(ctx context.Context, userID int64, cookieID string, dra
 	if err != nil {
 		return Settings{}, err
 	}
+	// err 表示更换地址来源却沿用已保存令牌的拒绝错误或配置读取错误。
+	if err := s.requireTokenReentry(ctx, cookieID, normalized.EndpointURL, normalized.TokenAction); err != nil {
+		return Settings{}, err
+	}
 	// err 表示配置持久化错误，原样返回给调用方。
 	if err := s.repository.Save(ctx, cookieID, normalized); err != nil {
 		return Settings{}, err
@@ -240,11 +244,56 @@ func (s *Service) Test(ctx context.Context, userID int64, cookieID string, input
 	case TokenReplace:
 		token = draft.Token
 	case TokenRetain:
+		// err 表示更换地址来源却沿用已保存令牌的拒绝错误；已保存令牌绝不能发往未经确认的新来源。
+		if err = s.requireTokenReentry(ctx, cookieID, draft.EndpointURL, draft.TokenAction); err != nil {
+			return TestResult{}, err
+		}
 		if token, err = s.repository.StoredToken(ctx, cookieID); err != nil {
 			return TestResult{}, err
 		}
 	}
 	return s.tester.Ping(ctx, Endpoint{URL: draft.EndpointURL, Token: token, Timeout: time.Duration(draft.RequestTimeoutSeconds) * time.Second})
+}
+
+// requireTokenReentry 阻止已保存的访问令牌被发往新的地址来源：令牌只对保存时的协议、主机和端口有效，
+// 更换来源后必须重新输入令牌或选择清除，否则拿到登录会话的人只需改地址再点“测试”就能把令牌发给自己的服务器。
+// 只在命令为 retain、账号已保存令牌、新地址非空且来源与已保存地址不同时拒绝；仅修改路径或查询参数不受影响。
+func (s *Service) requireTokenReentry(ctx context.Context, cookieID, endpointURL, tokenAction string) error {
+	if tokenAction != TokenRetain || endpointURL == "" {
+		return nil
+	}
+	// stored、err 保存账号已保存配置的非敏感摘要；没有配置说明也没有令牌，无需限制。
+	stored, err := s.repository.Get(ctx, cookieID)
+	if errors.Is(err, ErrConfigNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if stored.TokenConfigured && endpointOrigin(stored.EndpointURL) != endpointOrigin(endpointURL) {
+		return &InvalidInputError{Reason: "更换 Agent 地址的协议、域名或端口后，需要重新输入访问令牌（或选择清除令牌）"}
+	}
+	return nil
+}
+
+// endpointOrigin 返回地址的来源（协议、小写主机、端口）；省略的默认端口会补全，路径和查询参数不参与比较。
+// 无法解析的地址返回空串，与任何合法来源都不相等。
+func endpointOrigin(rawURL string) string {
+	// parsed、err 保存地址解析结果及格式错误。
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || parsed.Hostname() == "" {
+		return ""
+	}
+	// scheme、port 是小写协议与补全默认端口后的端口。
+	scheme, port := strings.ToLower(parsed.Scheme), parsed.Port()
+	if port == "" {
+		if scheme == "https" {
+			port = "443"
+		} else {
+			port = "80"
+		}
+	}
+	return scheme + "://" + strings.ToLower(parsed.Hostname()) + ":" + port
 }
 
 // defaultSettings 返回账号尚未配置时的默认关闭配置。

@@ -71,14 +71,14 @@ Default replies are the last level of the current production chain: keyword repl
 
 ## Agent reply
 
-The Agent Reply tab of Automation forwards buyer messages (text or image) that match no keyword to your own external HTTP agent and sends the agent's text or image replies back to the buyer. Priority: keyword reply → Agent reply → AI reply → default reply. When disabled or unconfigured, behavior is unchanged; if the agent returns `handled:false` or the first request fails, AI and default replies take over.
+The Agent Reply tab of Automation forwards buyer messages (text or image) that match no keyword to your own external HTTP agent and sends the agent's text or image replies back to the buyer. Priority: keyword reply → Agent reply → AI reply → default reply. When disabled or unconfigured, behavior is unchanged; if the agent returns `handled:false`, the first request fails, or the whole-turn time limit expires before the agent has taken over, AI and default replies take over.
 
 Protocol v1: the helper POSTs JSON to the configured address with an optional `Authorization: Bearer <token>`. Request fields are `version`, `event` (`message`, `poll`, `ping`), `turn_id`, `sequence`, `account_id`, `chat_id`, `item_id`, `buyer` and `message`; response fields are `handled` (defaults to true), `working`, `replies` (each with `text` or `image_url`) and `poll_after_ms`. While `working` is true the helper keeps sending `poll` events after `poll_after_ms`.
 
 - Request timeout 5–30 s (default 15), response body at most 256 KiB, whole turn 10–300 s (default 120), poll interval clamped to 1–10 s, at most 60 requests per turn.
-- At most 10 replies per turn, of which at most 3 images; an uncertain send result ends the turn without retry.
+- At most 10 replies per turn, of which at most 3 images; once 10 replies have been sent the turn ends without further polling, and an uncertain send result ends the turn without retry.
 - A new message in the same chat cancels and replaces the running turn.
-- The agent cannot trigger automatic price changes; the token is stored encrypted, the page only shows “configured”, and logs and errors never contain it.
+- The agent cannot trigger automatic price changes; the token is stored encrypted, the page only shows “configured”, and logs and errors never contain it. A saved token is only used for the address it was saved with: after changing the protocol, host or port you must enter the token again (or clear it) before saving or testing; changing only the path or query keeps the token.
 - The Test connection button sends a `ping` event with no buyer data.
 
 ## Item first-reply (greeting)

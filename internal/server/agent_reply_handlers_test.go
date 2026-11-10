@@ -72,6 +72,20 @@ func TestAgentReplyHandlersContract(t *testing.T) {
 		_, _ = w.Write([]byte(`{"handled":true,"working":false,"replies":[{"text":"pong"}]}`))
 	}))
 	defer agent.Close()
+	// 令牌只对保存时的地址来源有效：沿用已保存令牌测试其他来源必须被拒绝，且不会向该地址发出任何请求。
+	if foreign := greetingRequest(t, handler, session, http.MethodPost, "/api/v1/agent-replies/acc1/test", `{"endpoint_url":"`+agent.URL+`"}`); foreign.Code != http.StatusBadRequest ||
+		!strings.Contains(foreign.Body.String(), "重新输入访问令牌") {
+		t.Fatalf("更换来源后沿用令牌应被拒绝 status=%d body=%s", foreign.Code, foreign.Body.String())
+	}
+	// 同样地，保存时更换来源且沿用令牌也必须被拒绝，已保存的配置保持不变。
+	if foreign := greetingRequest(t, handler, session, http.MethodPut, "/api/v1/agent-replies/acc1", `{"enabled":true,"endpoint_url":"`+agent.URL+`"}`); foreign.Code != http.StatusBadRequest {
+		t.Fatalf("更换来源后保存应被拒绝 status=%d body=%s", foreign.Code, foreign.Body.String())
+	}
+	// 重新输入令牌并绑定到本地 Agent 后，后续 retain 测试才允许使用该令牌。
+	if rebound := greetingRequest(t, handler, session, http.MethodPut, "/api/v1/agent-replies/acc1",
+		`{"enabled":true,"endpoint_url":"`+agent.URL+`","token":{"action":"replace","value":"super-secret-token"}}`); rebound.Code != http.StatusOK {
+		t.Fatalf("重新输入令牌后应允许保存 status=%d body=%s", rebound.Code, rebound.Body.String())
+	}
 	// tested 保存带令牌连接测试的响应。
 	tested := greetingRequest(t, handler, session, http.MethodPost, "/api/v1/agent-replies/acc1/test", `{"endpoint_url":"`+agent.URL+`"}`)
 	if tested.Code != http.StatusOK || !strings.Contains(tested.Body.String(), `"status":"ok"`) || !strings.Contains(tested.Body.String(), `"reply_count":1`) {
@@ -88,7 +102,7 @@ func TestAgentReplyHandlersContract(t *testing.T) {
 	closedURL := closed.URL
 	closed.Close()
 	// unreachable 保存不可达地址测试的响应。
-	unreachable := greetingRequest(t, handler, session, http.MethodPost, "/api/v1/agent-replies/acc1/test", `{"endpoint_url":"`+closedURL+`"}`)
+	unreachable := greetingRequest(t, handler, session, http.MethodPost, "/api/v1/agent-replies/acc1/test", `{"endpoint_url":"`+closedURL+`","token":{"action":"clear"}}`)
 	if !strings.Contains(unreachable.Body.String(), `"status":"unreachable"`) || strings.Contains(unreachable.Body.String(), closedURL) {
 		t.Fatalf("unreachable body=%s", unreachable.Body.String())
 	}
@@ -96,12 +110,12 @@ func TestAgentReplyHandlersContract(t *testing.T) {
 	garbage := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("not json")) }))
 	defer garbage.Close()
 	// invalid 保存 Agent 返回非 JSON 时测试的响应。
-	if invalid := greetingRequest(t, handler, session, http.MethodPost, "/api/v1/agent-replies/acc1/test", `{"endpoint_url":"`+garbage.URL+`"}`); !strings.Contains(invalid.Body.String(), `"status":"invalid_response"`) {
+	if invalid := greetingRequest(t, handler, session, http.MethodPost, "/api/v1/agent-replies/acc1/test", `{"endpoint_url":"`+garbage.URL+`","token":{"action":"clear"}}`); !strings.Contains(invalid.Body.String(), `"status":"invalid_response"`) {
 		t.Fatalf("invalid_response body=%s", invalid.Body.String())
 	}
 
 	// retain 保留令牌并关闭；clear 后令牌标记消失。
-	if got := greetingRequest(t, handler, session, http.MethodPut, "/api/v1/agent-replies/acc1", `{"enabled":false,"endpoint_url":"https://agent.example.com/v1"}`); !strings.Contains(got.Body.String(), `"token_configured":true`) {
+	if got := greetingRequest(t, handler, session, http.MethodPut, "/api/v1/agent-replies/acc1", `{"enabled":false,"endpoint_url":"`+agent.URL+`"}`); !strings.Contains(got.Body.String(), `"token_configured":true`) {
 		t.Fatalf("retain 应保留令牌: %s", got.Body.String())
 	}
 	// got 保存 retain 命令保存配置后的响应。

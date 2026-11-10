@@ -598,3 +598,66 @@ func TestReplyServiceAgentPrecedence(t *testing.T) {
 		t.Fatalf("Agent 失败应降级到默认回复: %+v", failing.delivery.messages)
 	}
 }
+
+// TestAgentReplyTurnDeadlineBeforeEngagedFallsBack 验证单轮总时长在 Agent 接手前到期时降级到后续规则，
+// 被新消息顶替或账号停止（取消）仍抑制回复，接手之后到期只结束本轮。
+func TestAgentReplyTurnDeadlineBeforeEngagedFallsBack(t *testing.T) {
+	// f 是请求永不返回的 Agent 夹具：block 通道不关闭，请求只会因上下文结束而退出。
+	f := newAgentFixture(t, scriptedResponse{body: `{}`})
+	f.agent.block = make(chan struct{})
+	// cfg 是运行时配置，其中单次请求超时远大于本轮总时长，使本轮因总时长到期而不是请求超时结束。
+	cfg, err := f.store.AgentReply.RuntimeConfig(context.Background(), "cid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.RequestTimeout = 30 * time.Second
+	// expired、cancel 是 50 毫秒后到期的本轮上下文。
+	expired, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	// res、runErr 保存接手前总时长到期的结果，期望不接手并返回错误以便 AI 与默认回复接管。
+	res, runErr := f.replier.runTurn(expired, chatMsg("在吗", "", "chat"), cfg)
+	if res != nil || !errors.Is(runErr, context.DeadlineExceeded) || f.delivery.count() != 0 {
+		t.Fatalf("接手前到期应降级: res=%+v err=%v sent=%d", res, runErr, f.delivery.count())
+	}
+	// canceled 是已被取消（顶替或账号停止）的上下文。
+	canceled, stop := context.WithCancel(context.Background())
+	stop()
+	// failed 保存取消场景的失败处理结果，期望抑制回复而不降级。
+	if failed, failErr := f.replier.failTurn(canceled, &agentTurnState{}, context.Canceled); failErr != nil || failed == nil || !failed.Skip {
+		t.Fatalf("取消应抑制回复: %+v %v", failed, failErr)
+	}
+	// late 是接手后才到期的上下文：已接手的回复不能再降级，否则买家会收到重复回复。
+	late, lateCancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer lateCancel()
+	<-late.Done()
+	// engaged 保存接手后到期的失败处理结果，期望只结束本轮。
+	if engaged, engagedErr := f.replier.failTurn(late, &agentTurnState{engaged: true}, context.DeadlineExceeded); engagedErr != nil || engaged == nil || !engaged.Skip {
+		t.Fatalf("接手后到期应只结束本轮: %+v %v", engaged, engagedErr)
+	}
+}
+
+// TestAgentReplyStopsPollingAfterReplyCap 验证回复条数达到单轮上限后立即结束本轮，不再继续轮询外部 Agent。
+func TestAgentReplyStopsPollingAfterReplyCap(t *testing.T) {
+	// replies 是一次响应携带的恰好达到上限的文字回复。
+	replies := make([]string, 0, agentMaxRepliesPerTurn)
+	// i 是待生成回复的序号。
+	for i := 0; i < agentMaxRepliesPerTurn; i++ {
+		replies = append(replies, fmt.Sprintf(`{"text":"t%d"}`, i))
+	}
+	// f 是每次都返回满额回复且仍在处理的 Agent 夹具；修复前会一直轮询到 60 次请求上限。
+	f := newAgentFixture(t, scriptedResponse{body: `{"working":true,"replies":[` + strings.Join(replies, ",") + `]}`})
+	// res、err 保存达到回复上限的对话结果。
+	res, err := f.replier.Reply(context.Background(), chatMsg("x", "", "chat"))
+	if err != nil || res == nil || !res.Skip {
+		t.Fatalf("应已接手并结束: %+v %v", res, err)
+	}
+	if f.delivery.count() != agentMaxRepliesPerTurn || len(f.agent.seen()) != 1 || len(f.sleeps) != 0 {
+		t.Fatalf("达到回复上限后不应继续轮询: sent=%d requests=%d sleeps=%d", f.delivery.count(), len(f.agent.seen()), len(f.sleeps))
+	}
+	// partial 是只返回 3 条回复且仍在处理的 Agent 夹具，未达上限时必须继续轮询。
+	partial := newAgentFixture(t, scriptedResponse{body: `{"working":true,"replies":[{"text":"a"},{"text":"b"},{"text":"c"}]}`})
+	// partialRes 保存未达上限时的对话结果，期望仍按原规则轮询到请求数上限。
+	if partialRes, partialErr := partial.replier.Reply(context.Background(), chatMsg("x", "", "chat")); partialErr != nil || partialRes == nil || partial.delivery.count() != agentMaxRepliesPerTurn {
+		t.Fatalf("未达上限应继续轮询直至回复上限: res=%+v err=%v sent=%d", partialRes, partialErr, partial.delivery.count())
+	}
+}

@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -135,6 +136,13 @@ func (a *AgentReplier) runTurn(ctx context.Context, m ChatMessage, cfg db.AgentR
 		if stop := a.deliverReplies(ctx, m, response.Replies, state); stop {
 			return a.finishedResult(), nil
 		}
+		if state.sent >= agentMaxRepliesPerTurn {
+			// 回复条数已达上限：之后到达的回复一律被丢弃，继续轮询只会白白占用外部 Agent，直接结束本轮。
+			if response.Working {
+				a.logger.WarnContext(ctx, "Agent 回复条数已达单轮上限，不再继续轮询", "max_replies", agentMaxRepliesPerTurn)
+			}
+			return a.finishedResult(), nil
+		}
 		if !response.Working {
 			return a.finishedResult(), nil
 		}
@@ -149,9 +157,15 @@ func (a *AgentReplier) runTurn(ctx context.Context, m ChatMessage, cfg db.AgentR
 }
 
 // failTurn 处理 Agent 请求失败：接手前的失败降级到后续规则；上下文被取消（被新消息顶替或账号停止）抑制回复；
+// 单轮总时长到期时，接手前同样降级（Agent 一直没有响应，买家不应因此收不到任何回复），接手后只结束本轮；
 // 接手后的失败只记录日志并结束本轮，避免重复回复。
 func (a *AgentReplier) failTurn(ctx context.Context, state *agentTurnState, err error) (*ReplyResult, error) {
-	if ctx.Err() != nil {
+	// ctxErr 是本轮上下文结束的原因：Canceled 表示被顶替或账号停止，DeadlineExceeded 表示单轮总时长到期。
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		if !state.engaged && errors.Is(ctxErr, context.DeadlineExceeded) {
+			// 取消（Canceled）表示被新消息顶替或账号停止，必须抑制；到期（DeadlineExceeded）说明 Agent 迟迟没有接手，交给 AI 与默认回复。
+			return nil, fmt.Errorf("单轮总时长内外部 Agent 未接手: %w", ctxErr)
+		}
 		return a.finishedResult(), nil
 	}
 	if state.engaged {
