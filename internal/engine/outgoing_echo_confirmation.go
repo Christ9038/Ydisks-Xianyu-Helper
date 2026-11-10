@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -36,6 +37,23 @@ type outgoingEchoWaiter struct {
 	requestID string
 	// done 在匹配回显或等待项被取消时关闭，等待方只读该 channel。
 	done chan struct{}
+	// registeredAt 是等待项登记时刻，登记后不再修改，用于计算被忽略推送回显相对发送的到达延迟。
+	registeredAt time.Time
+	// ignoredPushAt 是首个正文匹配但因本等待项绑定请求 mid 而被忽略的无 mid 推送回显到达时刻；零值表示未出现。
+	// 仅用于诊断日志，不参与确认判定；由 tracker.mu 保护。
+	ignoredPushAt time.Time
+}
+
+// outgoingEchoDiagnostic 是一次回显观察产生的诊断事件，在释放 tracker.mu 之后再写日志。
+type outgoingEchoDiagnostic struct {
+	// latePush 表示一条无 mid 推送回显匹配到了已因超时或不确定而取消的带 mid 发送。
+	latePush bool
+	// requestID 是被取消发送的请求 mid，用于与超时日志和 WS 层诊断日志关联。
+	requestID string
+	// chatID 是推送回显所属会话，已去除协议后缀。
+	chatID string
+	// sinceCancel 是推送回显到达时距对应发送被取消的时长。
+	sinceCancel time.Duration
 }
 
 // canceledEchoRecord 保存一条取消发送的迟到回显保护记录；requestID 为空表示历史正文兼容路径。
@@ -59,6 +77,8 @@ type outgoingEchoTracker struct {
 	seenPlatformOrder []string
 	// canceledPending 保存已取消发送的匹配键及其请求身份；窗口内的迟到平台回显只能被丢弃，不能确认后续同文发送。
 	canceledPending map[outgoingEchoKey][]canceledEchoRecord
+	// logger 是可选的诊断日志器，在账号构造期间一次性设置、之后只读；为空时不输出诊断。日志只在释放 mu 后写出。
+	logger *slog.Logger
 }
 
 // maxSeenPlatformKeys 限制单账号去重缓存规模；超过后只淘汰最早的已确认 ID。
@@ -78,28 +98,35 @@ func newOutgoingEchoTracker() *outgoingEchoTracker {
 	return &outgoingEchoTracker{pending: make(map[outgoingEchoKey][]*outgoingEchoWaiter), seenPlatformKeys: make(map[string]struct{}), seenPlatformOrder: make([]string, 0, maxSeenPlatformKeys), canceledPending: make(map[outgoingEchoKey][]canceledEchoRecord)}
 }
 
-// observePlatform 接收带平台消息 ID 的发送响应；同一 ID 只允许消费一个等待项。
+// observePlatform 接收带平台消息 ID 的发送响应；同一 ID 只允许消费一个等待项。诊断日志在释放锁后输出。
 func (t *outgoingEchoTracker) observePlatform(message OutgoingChatMessage) {
 	if t == nil {
 		return
 	}
+	t.logDiagnostic(t.observePlatformLocked(message))
+}
+
+// observePlatformLocked 在 tracker.mu 内完成带平台消息 ID 回显的匹配与去重，返回需要在锁外写出的诊断事件。
+func (t *outgoingEchoTracker) observePlatformLocked(message OutgoingChatMessage) outgoingEchoDiagnostic {
 	// platformKey 保存平台消息唯一 ID，用于跨响应和推送去重。
 	platformKey := strings.TrimSpace(message.MessageKey)
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if platformKey != "" && strings.TrimSpace(message.RequestID) == "" && t.hasCorrelatedWaiterLocked(message) {
 		// 无请求 mid 的推送不能提前占用 PNM；随后到达的带 mid 发送响应仍需有机会确认对应等待器。
-		return
+		t.markIgnoredPushLocked(message)
+		return outgoingEchoDiagnostic{}
 	}
 	if platformKey != "" {
 		// exists 表示该平台消息 ID 是否已经消费过一个等待项。
 		if _, exists := t.seenPlatformKeys[platformKey]; exists {
-			return
+			return outgoingEchoDiagnostic{}
 		}
 	}
-	// matched 表示当前消息是否实际确认了等待器；只有确实归属当前事件时才登记 PNM 去重。
-	if !t.observeLocked(message) || platformKey == "" {
-		return
+	// matched、diagnostic 表示当前消息是否实际确认了等待器，以及未确认时的迟到推送诊断；只有确实归属当前事件时才登记 PNM 去重。
+	matched, diagnostic := t.observeLocked(message)
+	if !matched || platformKey == "" {
+		return diagnostic
 	}
 	if len(t.seenPlatformOrder) >= maxSeenPlatformKeys {
 		// oldestKey 保存最早登记的消息 ID，淘汰它以避免长期运行的账号无限增长内存。
@@ -109,6 +136,44 @@ func (t *outgoingEchoTracker) observePlatform(message OutgoingChatMessage) {
 	}
 	t.seenPlatformKeys[platformKey] = struct{}{}
 	t.seenPlatformOrder = append(t.seenPlatformOrder, platformKey)
+	return diagnostic
+}
+
+// markIgnoredPushLocked 为与无 mid 推送正文匹配、但绑定了请求 mid 的等待项记录首次被忽略的推送时刻；调用方必须持有 tracker.mu。
+// 该记录只供超时日志判断“推送回显其实已到达”，不改变确认结果。
+func (t *outgoingEchoTracker) markIgnoredPushLocked(message OutgoingChatMessage) {
+	// key 是当前推送按会话、类型和正文构造的索引。
+	key := outgoingEchoKey{chatID: normalizeOutgoingIdentity(message.ChatID), messageType: normalizeOutgoingEchoType(message.MessageType), content: outgoingEchoContent(message)}
+	// now 是本次推送的到达时刻。
+	now := time.Now()
+	// waiter 是同键下的单个等待项；只标记绑定了 mid 且尚未记录过的等待项。
+	for _, waiter := range t.pending[key] {
+		if waiter.requestID != "" && waiter.ignoredPushAt.IsZero() {
+			waiter.ignoredPushAt = now
+		}
+	}
+}
+
+// ignoredPushDelay 返回首个被忽略的推送回显相对等待项登记的到达延迟；ok 为 false 表示确认窗口内没有出现这类推送。
+func (w *outgoingEchoWaiter) ignoredPushDelay() (delay time.Duration, ok bool) {
+	if w == nil || w.tracker == nil {
+		return 0, false
+	}
+	w.tracker.mu.Lock()
+	defer w.tracker.mu.Unlock()
+	if w.ignoredPushAt.IsZero() {
+		return 0, false
+	}
+	return w.ignoredPushAt.Sub(w.registeredAt), true
+}
+
+// logDiagnostic 在锁外输出迟到推送回显诊断；未配置日志器或没有诊断事件时直接返回。日志不含消息正文。
+func (t *outgoingEchoTracker) logDiagnostic(diagnostic outgoingEchoDiagnostic) {
+	if t == nil || t.logger == nil || !diagnostic.latePush {
+		return
+	}
+	t.logger.Info("已取消的自动化发送收到迟到推送回显", "log_source", "echo_diag", "request_mid", diagnostic.requestID,
+		"chat_id", diagnostic.chatID, "since_cancel_ms", diagnostic.sinceCancel.Milliseconds())
 }
 
 // hasCorrelatedWaiterLocked 判断同一正文键下是否存在已经绑定请求 mid 的等待器；调用方必须持有 tracker.mu。
@@ -146,7 +211,7 @@ func (t *outgoingEchoTracker) register(chatID, buyerID, messageType, content str
 		requestID = strings.TrimSpace(requestIDs[0])
 	}
 	// waiter 保存本次发送的匹配键和完成信号；它的生命周期不超过一次发送调用。
-	waiter := &outgoingEchoWaiter{tracker: t, key: outgoingEchoKey{chatID: normalizeOutgoingIdentity(chatID), messageType: normalizedType, content: normalizedContent}, buyerID: normalizeOutgoingIdentity(buyerID), requestID: requestID, done: make(chan struct{})}
+	waiter := &outgoingEchoWaiter{tracker: t, key: outgoingEchoKey{chatID: normalizeOutgoingIdentity(chatID), messageType: normalizedType, content: normalizedContent}, buyerID: normalizeOutgoingIdentity(buyerID), requestID: requestID, done: make(chan struct{}), registeredAt: time.Now()}
 	t.mu.Lock()
 	t.pruneCanceledLocked(time.Now())
 	t.pending[waiter.key] = append(t.pending[waiter.key], waiter)
@@ -222,20 +287,22 @@ func (w *outgoingEchoWaiter) cancelWithLateProtection(protectLateEcho bool) {
 }
 
 // observe 接收消息分发器识别出的自身回显，并唤醒第一个匹配的自动化发送等待项。
-// message 只包含已脱敏的会话、接收人和消息正文摘要，不在此处记录日志。
+// message 只包含已脱敏的会话、接收人和消息正文摘要；诊断日志只在释放锁后输出且不含正文。
 func (t *outgoingEchoTracker) observe(message OutgoingChatMessage) {
 	if t == nil {
 		return
 	}
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	t.pruneCanceledLocked(time.Now())
-	t.observeLocked(message)
+	// diagnostic 是锁内匹配产生的迟到推送诊断，释放锁后再写日志。
+	_, diagnostic := t.observeLocked(message)
+	t.mu.Unlock()
+	t.logDiagnostic(diagnostic)
 }
 
-// observeLocked 在 tracker.mu 保护下处理一条自身回显；返回值表示事件是否实际消费了等待器。
-// 调用方必须持有 tracker.mu，返回 false 时不得把平台消息 ID 登记为已消费。
-func (t *outgoingEchoTracker) observeLocked(message OutgoingChatMessage) bool {
+// observeLocked 在 tracker.mu 保护下处理一条自身回显；第一个返回值表示事件是否实际消费了等待器，
+// 第二个返回值是未消费时需要在锁外输出的迟到推送诊断。调用方必须持有 tracker.mu，返回 false 时不得把平台消息 ID 登记为已消费。
+func (t *outgoingEchoTracker) observeLocked(message OutgoingChatMessage) (bool, outgoingEchoDiagnostic) {
 	// key 是当前回显按同一会话、类型和正文构造的索引。
 	key := outgoingEchoKey{chatID: normalizeOutgoingIdentity(message.ChatID), messageType: normalizeOutgoingEchoType(message.MessageType), content: outgoingEchoContent(message)}
 	// now、canceledAt 保存迟到回显保护窗口的清理基准和当前键的取消记录。
@@ -274,7 +341,7 @@ func (t *outgoingEchoTracker) observeLocked(message OutgoingChatMessage) bool {
 		} else {
 			t.canceledPending[key] = canceledAt
 		}
-		return false
+		return false, outgoingEchoDiagnostic{}
 	}
 	// waiters 是当前回显键对应的等待项；只消费一个与请求标识或历史正文规则匹配的等待项。
 	waiters := t.pending[key]
@@ -290,7 +357,8 @@ func (t *outgoingEchoTracker) observeLocked(message OutgoingChatMessage) bool {
 			}
 		}
 		if hasCorrelatedWaiter {
-			return false
+			t.markIgnoredPushLocked(message)
+			return false, outgoingEchoDiagnostic{}
 		}
 	}
 	// index 标识候选等待项的位置；waiter 是将被本次回显唤醒的对象。
@@ -308,13 +376,19 @@ func (t *outgoingEchoTracker) observeLocked(message OutgoingChatMessage) bool {
 			t.pending[key] = waiters
 		}
 		close(waiter.done)
-		return true
+		return true, outgoingEchoDiagnostic{}
 	}
 	if requestID != "" {
 		// 带请求标识但没有对应等待器的响应不能消费其他同文请求，避免迟到或跨代响应错配。
-		return false
+		return false, outgoingEchoDiagnostic{}
 	}
-	return false
+	// record 是同键下仍在保护窗口内的取消记录；无 mid 推送命中带 mid 的取消记录说明该发送很可能已经送达，只记录诊断，不消费记录。
+	for _, record := range canceledAt {
+		if record.requestID != "" {
+			return false, outgoingEchoDiagnostic{latePush: true, requestID: record.requestID, chatID: key.chatID, sinceCancel: now.Sub(record.at)}
+		}
+	}
+	return false, outgoingEchoDiagnostic{}
 }
 
 // pruneCanceledLocked 清理所有已过期的取消保护，并在键数量超限时淘汰最早记录。

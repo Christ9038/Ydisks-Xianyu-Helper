@@ -374,6 +374,8 @@ func New(cfg Config) *Account {
 	}
 	// echoTracker 保存当前账号自动化出站消息的回显等待项；其生命周期与账号 facade 一致。
 	echoTracker := newOutgoingEchoTracker()
+	// 诊断日志器在账号对外可见之前一次性设置，之后只读；用于记录迟到推送回显，便于核对“结果不确定”的发送是否实际送达。
+	echoTracker.logger = logger.With("account", cfg.CookieID, "subsys", "echo")
 	if cfg.Store != nil {
 		// aiReplier 保存当前账号的 AI 回复生成能力。
 		aiReplier := NewAIReplier(cfg.CookieID, cfg.Store, logger)

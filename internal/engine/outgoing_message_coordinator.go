@@ -163,9 +163,12 @@ func (c *outgoingMessageCoordinator) confirmOutgoingEcho(ctx context.Context, wa
 	}
 	// waitErr 是回显等待的退出原因；超时、取消和账号关闭都视为结果不确定。
 	if waitErr := waiter.wait(ctx, timeout); waitErr != nil {
+		// pushDelay、pushSeen 表示确认窗口内是否到达过正文匹配、但因本次发送绑定 mid 而被忽略的推送回显及其延迟；仅用于诊断。
+		pushDelay, pushSeen := waiter.ignoredPushDelay()
 		waiter.cancel()
 		if c != nil && c.account != nil && c.account.logger != nil {
-			c.account.logger.Warn("自动化出站消息等待闲鱼回显超时", "chat_id", chatID, "wait_timeout_ms", timeout.Milliseconds())
+			c.account.logger.Warn("自动化出站消息等待闲鱼回显超时", "chat_id", chatID, "wait_timeout_ms", timeout.Milliseconds(),
+				"request_mid", waiter.requestID, "push_echo_seen", pushSeen, "push_echo_after_ms", pushDelay.Milliseconds())
 		}
 		return fmt.Errorf("%w: %v", errOutgoingEchoUnconfirmed, waitErr)
 	}

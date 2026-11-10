@@ -432,7 +432,7 @@ func TestOutgoingEchoObserveLockedBranches(t *testing.T) {
 	// 过期加两条有效记录：过期被裁剪，消费一条后保留另一条。
 	tracker = newOutgoingEchoTracker()
 	tracker.canceledPending[key] = []canceledEchoRecord{{at: stale}, {at: fresh}, {at: fresh}}
-	if tracker.observeLocked(OutgoingChatMessage{ChatID: "c", Text: "x"}) {
+	if observeLockedMatched(tracker, OutgoingChatMessage{ChatID: "c", Text: "x"}) {
 		t.Fatal("消费取消记录不应确认等待器")
 	}
 	if len(tracker.canceledPending[key]) != 1 {
@@ -451,16 +451,16 @@ func TestOutgoingEchoObserveLockedBranches(t *testing.T) {
 	tracker = newOutgoingEchoTracker()
 	// correlated 是已绑定请求 mid 的等待器。
 	correlated := tracker.register("c", "buyer-a", "text", "x", "mid-1")
-	if tracker.observeLocked(OutgoingChatMessage{ChatID: "c", Text: "x"}) {
+	if observeLockedMatched(tracker, OutgoingChatMessage{ChatID: "c", Text: "x"}) {
 		t.Fatal("无 mid 推送不应消费已关联等待器")
 	}
-	if tracker.observeLocked(OutgoingChatMessage{ChatID: "c", Text: "x", RequestID: "mid-2"}) {
+	if observeLockedMatched(tracker, OutgoingChatMessage{ChatID: "c", Text: "x", RequestID: "mid-2"}) {
 		t.Fatal("mid 不匹配不应确认")
 	}
-	if tracker.observeLocked(OutgoingChatMessage{ChatID: "c", BuyerID: "buyer-b", Text: "x", RequestID: "mid-1"}) {
+	if observeLockedMatched(tracker, OutgoingChatMessage{ChatID: "c", BuyerID: "buyer-b", Text: "x", RequestID: "mid-1"}) {
 		t.Fatal("买家不匹配不应确认")
 	}
-	if !tracker.observeLocked(OutgoingChatMessage{ChatID: "c", BuyerID: "buyer-a", Text: "x", RequestID: "mid-1"}) {
+	if !observeLockedMatched(tracker, OutgoingChatMessage{ChatID: "c", BuyerID: "buyer-a", Text: "x", RequestID: "mid-1"}) {
 		t.Fatal("完全匹配应确认")
 	}
 	select {

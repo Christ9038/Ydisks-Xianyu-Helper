@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -420,7 +422,7 @@ func (c *Conn) sendChatContent(ctx context.Context, myID, cid, toID string, cont
 
 // observeOutgoingResponse 将带有可核验正文的成功发送响应转换为账号运行时可消费的出站观察事件。
 // response 属于当前请求的同一 mid；myID、cid、toID 和 sentContent 是刚刚写入该请求的身份与正文快照。
-// 校验失败时保持旧的同步推送回显路径，绝不把未知响应当作自动化成功。
+// 校验失败时不唤醒任何等待器，只输出一条不含正文的诊断日志，绝不把未知响应当作自动化成功。
 func (c *Conn) observeOutgoingResponse(response map[string]any, requestID, myID, cid, toID string, sentContent []byte) {
 	if c == nil {
 		return
@@ -430,63 +432,134 @@ func (c *Conn) observeOutgoingResponse(response map[string]any, requestID, myID,
 	if observe == nil {
 		return
 	}
-	// echo 和 ok 表示平台响应是否完整、归属正确且携带与本次请求完全一致的消息正文。
-	echo, ok := outgoingEchoFromResponse(response, requestID, myID, cid, toID, sentContent)
-	if !ok {
+	// echo 和 diagnostic 分别是严格核验通过时的观察结果，以及核验失败时的非敏感结构摘要。
+	echo, diagnostic := parseOutgoingEchoResponse(response, requestID, myID, cid, toID, sentContent)
+	if diagnostic.reason != "" {
+		c.logOutgoingEchoDiagnostic(requestID, cid, len(sentContent), diagnostic)
 		return
 	}
 	observe(echo)
 }
 
+// outgoingEchoDiagnostic 描述一次 code=200 发送响应未能作为回显确认的原因，只含字段名、长度和布尔判断，不含消息正文。
+type outgoingEchoDiagnostic struct {
+	// reason 是稳定的失败原因码；空串表示响应已通过严格核验。
+	reason string
+	// bodyKeys 是响应 body 顶层字段名的有序列表，用于判断平台实际返回了哪些结构。
+	bodyKeys []string
+	// echoedBytes 是平台回显正文解码后的字节数；未取到正文时为 -1。
+	echoedBytes int
+	// semanticEqual 表示回显正文虽与发送字节不同，但按 JSON 解析后语义相同（例如字段顺序或转义差异）。
+	semanticEqual bool
+}
+
+// logOutgoingEchoDiagnostic 以 Info 级别记录发送响应未携带可核验回显的原因；requestID 和 cid 只用于与引擎侧超时日志关联。
+func (c *Conn) logOutgoingEchoDiagnostic(requestID, cid string, sentBytes int, diagnostic outgoingEchoDiagnostic) {
+	if c == nil || c.logger == nil {
+		return
+	}
+	c.logger.Info("闲鱼发送响应未携带可核验回显", "log_source", "echo_diag", "reason", diagnostic.reason,
+		"request_mid", strings.TrimSpace(requestID), "cid", stripGoofish(cid), "body_keys", diagnostic.bodyKeys,
+		"sent_bytes", sentBytes, "echoed_bytes", diagnostic.echoedBytes, "semantic_equal", diagnostic.semanticEqual)
+}
+
 // outgoingEchoFromResponse 严格验证 sendByReceiverScope 响应中的消息正文、发送者和 PNM ID。
 // 只有消息正文与本次请求的已编码载荷完全相同时才返回观察结果，防止并发响应或平台异常回包误唤醒等待器。
 func outgoingEchoFromResponse(response map[string]any, requestID, myID, cid, toID string, sentContent []byte) (OutgoingEcho, bool) {
+	// echo 和 diagnostic 是严格核验结果及失败原因；原因为空才表示可用于确认。
+	echo, diagnostic := parseOutgoingEchoResponse(response, requestID, myID, cid, toID, sentContent)
+	return echo, diagnostic.reason == ""
+}
+
+// parseOutgoingEchoResponse 执行与 outgoingEchoFromResponse 相同的严格核验，并在失败时返回第一个不满足条件的原因码。
+// 核验规则本身不放宽：诊断字段只用于日志，不参与任何成功判定。
+func parseOutgoingEchoResponse(response map[string]any, requestID, myID, cid, toID string, sentContent []byte) (OutgoingEcho, outgoingEchoDiagnostic) {
+	// diagnostic 保存逐步核验时累积的非敏感结构摘要，echoedBytes 默认 -1 表示尚未取到回显正文。
+	diagnostic := outgoingEchoDiagnostic{echoedBytes: -1}
 	// body 和 bodyOK 保存平台成功响应的业务主体；缺失主体的 200 仍只表示请求确认。
 	body, bodyOK := response["body"].(map[string]any)
 	if !bodyOK {
-		return OutgoingEcho{}, false
+		diagnostic.reason = "missing_body"
+		return OutgoingEcho{}, diagnostic
 	}
+	diagnostic.bodyKeys = sortedMapKeys(body)
 	// messageKey 是平台接纳消息后分配的 PNM 标识；空值时无法把响应作为可审计回显。
 	messageKey := strings.TrimSpace(fmt.Sprint(body["messageId"]))
 	if messageKey == "" || messageKey == "<nil>" {
-		return OutgoingEcho{}, false
+		diagnostic.reason = "missing_message_id"
+		return OutgoingEcho{}, diagnostic
 	}
 	// extension 和 extensionOK 保存展示与归属字段；发送者必须与当前请求账号一致。
 	extension, extensionOK := body["extension"].(map[string]any)
 	if !extensionOK {
-		return OutgoingEcho{}, false
+		diagnostic.reason = "missing_extension"
+		return OutgoingEcho{}, diagnostic
 	}
 	// senderID 是响应声明的出站发送者，统一移除 IM 后缀后与请求账号比较。
 	senderID := stripGoofish(fmt.Sprint(extension["senderUserId"]))
 	if senderID == "" || senderID != stripGoofish(myID) {
-		return OutgoingEcho{}, false
+		diagnostic.reason = "sender_mismatch"
+		return OutgoingEcho{}, diagnostic
 	}
 	// responseContent 和 contentOK 保存平台回显的 101 外层内容；其中 custom.data 必须与本次原始正文一致。
 	responseContent, contentOK := body["content"].(map[string]any)
 	if !contentOK {
-		return OutgoingEcho{}, false
+		diagnostic.reason = "missing_content"
+		return OutgoingEcho{}, diagnostic
 	}
 	// custom 和 customOK 保存外层内容中的 Base64 编码内层消息正文。
 	custom, customOK := responseContent["custom"].(map[string]any)
 	if !customOK {
-		return OutgoingEcho{}, false
+		diagnostic.reason = "missing_custom"
+		return OutgoingEcho{}, diagnostic
 	}
 	// encoded 是平台回显的内层消息正文；它必须可以解码并逐字节等于本次请求载荷。
 	encoded, encodedOK := custom["data"].(string)
 	if !encodedOK {
-		return OutgoingEcho{}, false
+		diagnostic.reason = "missing_custom_data"
+		return OutgoingEcho{}, diagnostic
 	}
 	// echoedContent 和 decodeErr 保存回显正文的 Base64 解码结果及其格式错误。
 	echoedContent, decodeErr := base64.StdEncoding.DecodeString(encoded)
-	if decodeErr != nil || !bytes.Equal(echoedContent, sentContent) {
-		return OutgoingEcho{}, false
+	if decodeErr != nil {
+		diagnostic.reason = "custom_data_not_base64"
+		return OutgoingEcho{}, diagnostic
+	}
+	diagnostic.echoedBytes = len(echoedContent)
+	if !bytes.Equal(echoedContent, sentContent) {
+		diagnostic.reason = "content_bytes_differ"
+		diagnostic.semanticEqual = jsonSemanticallyEqual(echoedContent, sentContent)
+		return OutgoingEcho{}, diagnostic
 	}
 	// messageType、text、content 和 parsed 表示仅支持自动化确认所需的文本或图片正文；其它类型继续等待正常同步推送。
 	messageType, text, content, parsed := outgoingEchoContent(sentContent)
 	if !parsed {
-		return OutgoingEcho{}, false
+		diagnostic.reason = "unsupported_content_type"
+		return OutgoingEcho{}, diagnostic
 	}
-	return OutgoingEcho{RequestID: strings.TrimSpace(requestID), ChatID: stripGoofish(cid), BuyerID: stripGoofish(toID), MessageKey: messageKey, MessageType: messageType, Text: text, Content: content}, true
+	return OutgoingEcho{RequestID: strings.TrimSpace(requestID), ChatID: stripGoofish(cid), BuyerID: stripGoofish(toID), MessageKey: messageKey, MessageType: messageType, Text: text, Content: content}, diagnostic
+}
+
+// sortedMapKeys 返回 m 的顶层字段名并按字典序排序，保证诊断日志稳定可比。
+func sortedMapKeys(m map[string]any) []string {
+	// keys 保存全部字段名，容量预先按字段数分配。
+	keys := make([]string, 0, len(m))
+	// key 是当前遍历到的顶层字段名。
+	for key := range m {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// jsonSemanticallyEqual 判断两段字节解析为 JSON 后是否等价；任一段不是合法 JSON 时返回 false。仅用于诊断，不参与确认。
+func jsonSemanticallyEqual(left, right []byte) bool {
+	// leftValue、rightValue 保存两段正文的通用 JSON 解析结果。
+	var leftValue, rightValue any
+	if json.Unmarshal(left, &leftValue) != nil || json.Unmarshal(right, &rightValue) != nil {
+		return false
+	}
+	return reflect.DeepEqual(leftValue, rightValue)
 }
 
 // outgoingEchoContent 从已经验证的请求正文提取等待器的比较字段。
