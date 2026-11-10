@@ -361,43 +361,64 @@ func TestReplyOnceDoesNotReclaimWhenUncertainPersistenceFails(t *testing.T) {
 	}
 }
 
-// TestReply_APIPriorityAndError API 回复命中时优先级最高；API 报错时降级到关键词。
+// TestReply_APIPriorityAndError 外部 Agent 槽位位于关键词之后：关键词命中时不询问 Agent；
+// 关键词未命中时 Agent 命中优先于后续规则，Agent 报错或返回 nil 时降级到后续规则；未设置来源标签时沿用 "API"。
 func TestReply_APIPriorityAndError(t *testing.T) {
-	// s、cleanup 用于本次流程后续判断的s、cleanup
+	// s、cleanup 是隔离的数据库聚合及清理函数。
 	s, cleanup := newReplyStore(t)
 	defer cleanup()
-	// ctx 用于本次流程后续判断的ctx
+	// ctx 是本用例共用的上下文。
 	ctx := context.Background()
 	s.DB.ExecContext(ctx, `INSERT INTO keywords (cookie_id,keyword,reply,type) VALUES ('cid','在吗','关键词回复','text')`)
 
-	// API 返回结果 → 用 API。
+	// 关键词命中 → 使用关键词，且不会询问 Agent。
 	api := &fakeAPIReplier{result: &ReplyResult{Text: "API回复"}}
-	// r 用于本次流程后续判断的r
+	// r 是只装配 Agent 槽位替身的回复服务。
 	r := NewReplyService("cid", s, nil, api, nil, nil)
-	// res 用于本次流程后续判断的响应
+	// res 保存关键词命中时的解析结果。
 	res := r.resolve(ctx, chatMsg("在吗", "", "chat1"))
-	if res == nil || res.Source != "API" || res.Text != "API回复" {
-		t.Fatalf("API 命中应优先，got %+v", res)
+	if res == nil || res.Source != "关键词" || res.Text != "关键词回复" || api.called != 0 {
+		t.Fatalf("关键词应优先于 Agent 且不应调用 Agent，got %+v called=%d", res, api.called)
 	}
 
-	// API 报错 → 降级到关键词。
+	// 关键词未命中 → Agent 命中，沿用历史来源标签 API。
+	res = r.resolve(ctx, chatMsg("没有任何规则命中", "", "chat1"))
+	if res == nil || res.Source != "API" || res.Text != "API回复" || api.called != 1 {
+		t.Fatalf("未命中关键词时 Agent 应接手，got %+v called=%d", res, api.called)
+	}
+
+	// Agent 自行设置来源标签时保持不变。
+	labeled := &fakeAPIReplier{result: &ReplyResult{Skip: true, Source: "Agent"}}
+	res = NewReplyService("cid", s, nil, labeled, nil, nil).resolve(ctx, chatMsg("没有任何规则命中", "", "chat1"))
+	if res == nil || res.Source != "Agent" || !res.Skip {
+		t.Fatalf("Agent 自带来源标签应保留，got %+v", res)
+	}
+
+	// Agent 报错 → 降级到 AI。
+	aiFallback := &fakeAIReplier{result: &ReplyResult{Text: "AI兜底"}}
+	// api2 是总是返回错误的 Agent 替身。
 	api2 := &fakeAPIReplier{err: errors.New("upstream down")}
-	// r2 用于本次流程后续判断的r2
-	r2 := NewReplyService("cid", s, nil, api2, nil, nil)
-	// res2 用于本次流程后续判断的res2
-	res2 := r2.resolve(ctx, chatMsg("在吗", "", "chat1"))
-	if res2 == nil || res2.Source != "关键词" || res2.Text != "关键词回复" {
-		t.Fatalf("API 报错应降级到关键词，got %+v", res2)
+	// res2 保存 Agent 报错后降级到 AI 的解析结果。
+	res2 := NewReplyService("cid", s, nil, api2, aiFallback, nil).resolve(ctx, chatMsg("没有任何规则命中", "", "chat1"))
+	if res2 == nil || res2.Source != "AI" || api2.called != 1 {
+		t.Fatalf("Agent 报错应降级到 AI，got %+v", res2)
 	}
 
-	// API 返回 nil（无回复）→ 降级到关键词。
+	// Agent 返回 nil（不接手）→ 降级到 AI；Agent 先于 AI。
 	api3 := &fakeAPIReplier{result: nil}
-	// r3 用于本次流程后续判断的r3
-	r3 := NewReplyService("cid", s, nil, api3, nil, nil)
-	// res3 用于本次流程后续判断的res3
-	res3 := r3.resolve(ctx, chatMsg("在吗", "", "chat1"))
-	if res3 == nil || res3.Source != "关键词" {
-		t.Fatalf("API nil 应降级到关键词，got %+v", res3)
+	// res3 保存 Agent 返回 nil 后降级到 AI 的解析结果。
+	res3 := NewReplyService("cid", s, nil, api3, aiFallback, nil).resolve(ctx, chatMsg("没有任何规则命中", "", "chat1"))
+	if res3 == nil || res3.Source != "AI" {
+		t.Fatalf("Agent nil 应降级到 AI，got %+v", res3)
+	}
+	// api4 是返回正常回复的 Agent 替身。
+	api4 := &fakeAPIReplier{result: &ReplyResult{Text: "API回复"}}
+	// aiNotCalled 是用来断言“Agent 接手后不再调用 AI”的 AI 替身。
+	aiNotCalled := &fakeAIReplier{result: &ReplyResult{Text: "AI兜底"}}
+	// res4 保存 Agent 接手时的解析结果。
+	res4 := NewReplyService("cid", s, nil, api4, aiNotCalled, nil).resolve(ctx, chatMsg("没有任何规则命中", "", "chat1"))
+	if res4 == nil || res4.Source != "API" || aiNotCalled.called != 0 {
+		t.Fatalf("Agent 接手后不应再调用 AI，got %+v aiCalled=%d", res4, aiNotCalled.called)
 	}
 }
 

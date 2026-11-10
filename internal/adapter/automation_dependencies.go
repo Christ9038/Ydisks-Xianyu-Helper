@@ -69,6 +69,14 @@ func (d *AutomationDependencies) NewItemGreetingRepository() *ItemGreetingReposi
 	return NewItemGreetingRepository(d.store)
 }
 
+// NewAgentReplyRepository 创建账号 Agent 回复配置适配器。
+func (d *AutomationDependencies) NewAgentReplyRepository() *AgentReplyRepository {
+	if d == nil {
+		return nil
+	}
+	return NewAgentReplyRepository(d.store)
+}
+
 // NewKeywordRepository 创建关键词和指定商品回复适配器。
 func (d *AutomationDependencies) NewKeywordRepository() *KeywordRepository {
 	if d == nil {

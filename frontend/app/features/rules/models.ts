@@ -378,6 +378,60 @@ export interface ItemGreetingRule {
   item_ids: string[];
 }
 
+/** Agent 访问令牌写入命令：retain 保留已保存令牌，replace 用新值替换，clear 清空。 */
+export type AgentReplyTokenAction = 'retain' | 'replace' | 'clear';
+
+/** 账号 Agent 回复配置的 UI 模型；访问令牌明文永远不会出现在其中，只有 token_configured。 */
+export interface AgentReplySettings {
+  /** 配置所属账号标识。 */
+  cookie_id: string;
+  /** 是否启用 Agent 回复。 */
+  enabled: boolean;
+  /** 外部 Agent 的 http(s) 地址。 */
+  endpoint_url: string;
+  /** 是否已保存访问令牌。 */
+  token_configured: boolean;
+  /** 单次请求超时秒数。 */
+  request_timeout_seconds: number;
+  /** 单轮对话总时长上限秒数。 */
+  max_session_seconds: number;
+}
+
+/** 保存或测试 Agent 回复配置时提交的表单载荷；token_value 只在 token_action 为 replace 时有意义。 */
+export interface AgentReplyPayload {
+  /** 是否启用 Agent 回复。 */
+  enabled: boolean;
+  /** 外部 Agent 地址。 */
+  endpoint_url: string;
+  /** 单次请求超时秒数。 */
+  request_timeout_seconds: number;
+  /** 单轮对话总时长上限秒数。 */
+  max_session_seconds: number;
+  /** 访问令牌写入命令。 */
+  token_action: AgentReplyTokenAction;
+  /** 新访问令牌明文，只存在于表单草稿和单次请求中。 */
+  token_value: string;
+}
+
+/** Agent 连接测试的诊断状态。 */
+export type AgentReplyTestStatus = 'ok' | 'http_error' | 'invalid_response' | 'unreachable';
+
+/** Agent 连接测试的诊断结果，不含 Agent 响应正文。 */
+export interface AgentReplyTestResult {
+  /** 诊断状态。 */
+  status: AgentReplyTestStatus;
+  /** Agent 的 HTTP 状态码；未到达时为 0。 */
+  status_code: number;
+  /** 请求耗时毫秒数。 */
+  duration_ms: number;
+  /** Agent 是否声明接手。 */
+  handled: boolean;
+  /** Agent 是否声明仍在处理。 */
+  working: boolean;
+  /** 响应携带的回复条数。 */
+  reply_count: number;
+}
+
 /** 自动化规则动作的原始具名 DTO。 */
 /** 由当前 feature adapter 归一后的 AutomationActionResponse UI 模型；不直接暴露 HTTP DTO。 */
 export interface AutomationActionResponse {

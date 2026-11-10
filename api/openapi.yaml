@@ -7070,6 +7070,182 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/agent-replies/{cookie_id}":
+    get:
+      operationId: getApiV1AgentRepliesBycookie_id
+      summary: getApiV1AgentRepliesBycookie_id
+      parameters:
+          - name: cookie_id
+            in: path
+            required: true
+            schema:
+              type: string
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: 成功
+          headers:
+            Cache-Control:
+              schema: {type: string}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentReplySettingsResponse'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      operationId: putApiV1AgentRepliesBycookie_id
+      summary: putApiV1AgentRepliesBycookie_id
+      parameters:
+          - name: cookie_id
+            in: path
+            required: true
+            schema:
+              type: string
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentReplySettingsRequest'
+      responses:
+        '200':
+          description: 成功
+          headers:
+            Cache-Control:
+              schema: {type: string}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentReplySettingsResponse'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/agent-replies/{cookie_id}/test":
+    post:
+      operationId: postApiV1AgentRepliesBycookie_idTest
+      summary: postApiV1AgentRepliesBycookie_idTest
+      parameters:
+          - name: cookie_id
+            in: path
+            required: true
+            schema:
+              type: string
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentReplyTestRequest'
+      responses:
+        '200':
+          description: 成功
+          headers:
+            Cache-Control:
+              schema: {type: string}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentReplyTestResponse'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '408':
+          description: 请求已取消或超时
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Agent 连接测试能力未装配
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   "/api/v1/reply-rules/greetings":
     get:
       operationId: getApiV1ReplyRulesGreetings
@@ -8816,6 +8992,50 @@ components:
     DefaultReplyListResponse:
       type: [array, 'null']
       items: {$ref: '#/components/schemas/DefaultReplyResponse'}
+    AgentReplyTokenCommand:
+      type: object
+      description: 访问令牌写入命令；令牌明文只在请求中出现，响应只返回 token_configured。
+      properties:
+        action: {type: string, enum: [retain, replace, clear]}
+        value: {type: string, maxLength: 512}
+    AgentReplySettingsRequest:
+      type: object
+      required: [enabled, endpoint_url]
+      properties:
+        enabled: {type: boolean}
+        endpoint_url: {type: string, maxLength: 2048}
+        request_timeout_seconds: {type: integer, minimum: 0, maximum: 30}
+        max_session_seconds: {type: integer, minimum: 0, maximum: 300}
+        token:
+          $ref: '#/components/schemas/AgentReplyTokenCommand'
+    AgentReplySettingsResponse:
+      type: object
+      required: [cookie_id, enabled, endpoint_url, token_configured, request_timeout_seconds, max_session_seconds]
+      properties:
+        cookie_id: {type: string}
+        enabled: {type: boolean}
+        endpoint_url: {type: string}
+        token_configured: {type: boolean}
+        request_timeout_seconds: {type: integer}
+        max_session_seconds: {type: integer}
+    AgentReplyTestRequest:
+      type: object
+      required: [endpoint_url]
+      properties:
+        endpoint_url: {type: string, maxLength: 2048}
+        request_timeout_seconds: {type: integer, minimum: 0, maximum: 30}
+        token:
+          $ref: '#/components/schemas/AgentReplyTokenCommand'
+    AgentReplyTestResponse:
+      type: object
+      required: [status, status_code, duration_ms, handled, working, reply_count]
+      properties:
+        status: {type: string, enum: [ok, http_error, invalid_response, unreachable]}
+        status_code: {type: integer}
+        duration_ms: {type: integer, format: int64}
+        handled: {type: boolean}
+        working: {type: boolean}
+        reply_count: {type: integer}
     ItemGreetingRequest:
       type: object
       required: [enabled, reply_content, item_ids]

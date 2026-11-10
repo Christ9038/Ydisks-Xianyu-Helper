@@ -7,6 +7,7 @@ import (
 
 	accountapp "xianyu-go/internal/application/account"
 	adminapp "xianyu-go/internal/application/admin"
+	agentreplyapp "xianyu-go/internal/application/agentreply"
 	analyticsapp "xianyu-go/internal/application/analytics"
 	automationapp "xianyu-go/internal/application/automation"
 	cardsapp "xianyu-go/internal/application/cards"
@@ -372,6 +373,13 @@ type ItemGreetingsPort interface {
 	ClearRecords(context.Context, int64, string) error
 }
 
+// AgentReplyPort 定义账号外部 Agent 回复配置与连接测试能力。
+type AgentReplyPort interface {
+	Get(context.Context, int64, string) (agentreplyapp.Settings, error)
+	Update(context.Context, int64, string, agentreplyapp.Draft) (agentreplyapp.Settings, error)
+	Test(context.Context, int64, string, agentreplyapp.TestInput) (agentreplyapp.TestResult, error)
+}
+
 // LibraryPort 定义本地资源库能力：图片库、商品模板，以及「模板 × 账号」发布预检。
 type LibraryPort interface {
 	ListImages(context.Context, int64) ([]libraryapp.Image, error)
@@ -511,6 +519,8 @@ type ApplicationPorts struct {
 	defaultReplies DefaultRepliesPort
 	// itemGreetings 是商品首次回复规则用例。
 	itemGreetings ItemGreetingsPort
+	// agentReplies 是账号外部 Agent 回复配置与连接测试用例。
+	agentReplies AgentReplyPort
 	// library 是本地资源库用例。
 	library LibraryPort
 	// keywords 是关键词回复用例。
@@ -567,10 +577,12 @@ type ApplicationPortsInput struct {
 	PublishAutomationRules PublishAutomationRulesPort
 	DefaultReplies         DefaultRepliesPort
 	ItemGreetings          ItemGreetingsPort
-	Library                LibraryPort
-	Keywords               KeywordsPort
-	Settings               SettingsPort
-	Admin                  AdminPort
+	// AgentReplies 是账号外部 Agent 回复配置与连接测试用例。
+	AgentReplies AgentReplyPort
+	Library      LibraryPort
+	Keywords     KeywordsPort
+	Settings     SettingsPort
+	Admin        AdminPort
 }
 
 // NewApplicationPorts 将组合根已经验证的用例依赖冻结为 Server 私有快照。
@@ -588,7 +600,7 @@ func NewApplicationPorts(input ApplicationPortsInput) *ApplicationPorts {
 		accountSummaries: input.AccountSummaries, accountTasks: input.AccountTasks, chat: input.Chat,
 		uncertainNotifications: input.UncertainNotifications, notificationChannels: input.NotificationChannels,
 		analytics: input.Analytics, automationIssues: input.AutomationIssues, automationAudit: input.AutomationAudit, automationRules: input.AutomationRules,
-		cards: input.Cards, deliveryTemplates: input.DeliveryTemplates, apiRequestTester: input.APIRequestTester, publishAutomationRules: input.PublishAutomationRules, defaultReplies: input.DefaultReplies, itemGreetings: input.ItemGreetings, library: input.Library,
+		cards: input.Cards, deliveryTemplates: input.DeliveryTemplates, apiRequestTester: input.APIRequestTester, publishAutomationRules: input.PublishAutomationRules, defaultReplies: input.DefaultReplies, itemGreetings: input.ItemGreetings, agentReplies: input.AgentReplies, library: input.Library,
 		keywords: input.Keywords, settings: input.Settings, admin: input.Admin, runtimeLogs: input.RuntimeLogs,
 	}
 }
@@ -617,7 +629,7 @@ func (ports *ApplicationPorts) validate() error {
 		{"account_tasks", ports.accountTasks}, {"chat", ports.chat}, {"uncertain_notifications", ports.uncertainNotifications},
 		{"notification_channels", ports.notificationChannels}, {"analytics", ports.analytics}, {"automation_issues", ports.automationIssues}, {"automation_audit", ports.automationAudit},
 		{"automation_rules", ports.automationRules}, {"cards", ports.cards}, {"publish_automation_rules", ports.publishAutomationRules},
-		{"default_replies", ports.defaultReplies}, {"item_greetings", ports.itemGreetings}, {"library", ports.library}, {"keywords", ports.keywords}, {"settings", ports.settings}, {"admin", ports.admin},
+		{"default_replies", ports.defaultReplies}, {"item_greetings", ports.itemGreetings}, {"agent_replies", ports.agentReplies}, {"library", ports.library}, {"keywords", ports.keywords}, {"settings", ports.settings}, {"admin", ports.admin},
 		{"runtime_logs", ports.runtimeLogs},
 	}
 	// requiredPort 是当前必须在 Server 构造前绑定的应用 Port 名称。

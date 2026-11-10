@@ -11,7 +11,7 @@
 | Review gift | A review system card arrives | Match product/specification → send gift cards. |
 | Review reminder | A scheduled scan finds a shipped, unreviewed order | Wait until the threshold → send the reminder copy. |
 
-System notification cards enter automation decisions only. In the current production wiring, ordinary buyer messages go through keyword replies, AI replies, and default replies in that order; the code retains an extension point for an external API reply handler.
+System notification cards enter automation decisions only. ordinary buyer messages go through keyword replies, Agent replies (enabled in the Agent Reply tab), AI replies, and default replies in that order.
 
 Payment reminders, successful bargaining cards awaiting shipment, and review reminders can use different system-message formats. The system recognizes their transaction semantics. Ordinary buyer chat does not trigger transaction automation. Result notifications are sent when the account has a bound channel whose event filters include the corresponding automation category, and the automation reaches completed, failed, or manual-review status.
 
@@ -68,6 +68,18 @@ In Automation → Keyword Replies tab, select an account, click Add keyword (新
 - **Reply type and content:** choose Text or Image, then enter the reply text or the reply image.
 
 Default replies are the last level of the current production chain: keyword reply first, AI reply second, and default reply last. By default AI handles bargaining only (the account AI setting “Bargaining only”); when the account’s AI mode is Full Service, it also answers ordinary consultation, shipping, and after-sales messages that no keyword rule matched. A product can also force AI on or off (see [Product Management](Product-Management)). If AI is disabled, lacks an API key, does not apply to the message, has no usable result, or fails, the system continues to the default reply. The account default reply is maintained on the Account Default Reply tab (button “Edit default reply”) and has an enable switch, text, an image, and “send the default reply only once per conversation”. A product-specific default reply takes precedence over the account default. The external API extension point, if later wired, takes precedence over keyword replies.
+
+## Agent reply
+
+The Agent Reply tab of Automation forwards buyer messages (text or image) that match no keyword to your own external HTTP agent and sends the agent's text or image replies back to the buyer. Priority: keyword reply → Agent reply → AI reply → default reply. When disabled or unconfigured, behavior is unchanged; if the agent returns `handled:false` or the first request fails, AI and default replies take over.
+
+Protocol v1: the helper POSTs JSON to the configured address with an optional `Authorization: Bearer <token>`. Request fields are `version`, `event` (`message`, `poll`, `ping`), `turn_id`, `sequence`, `account_id`, `chat_id`, `item_id`, `buyer` and `message`; response fields are `handled` (defaults to true), `working`, `replies` (each with `text` or `image_url`) and `poll_after_ms`. While `working` is true the helper keeps sending `poll` events after `poll_after_ms`.
+
+- Request timeout 5–30 s (default 15), response body at most 256 KiB, whole turn 10–300 s (default 120), poll interval clamped to 1–10 s, at most 60 requests per turn.
+- At most 10 replies per turn, of which at most 3 images; an uncertain send result ends the turn without retry.
+- A new message in the same chat cancels and replaces the running turn.
+- The agent cannot trigger automatic price changes; the token is stored encrypted, the page only shows “configured”, and logs and errors never contain it.
+- The Test connection button sends a `ping` event with no buyer data.
 
 ## Item first-reply (greeting)
 

@@ -65,7 +65,8 @@ const aiQuoteValidity = 30 * time.Minute
 // replyRecordPersistTimeout 是发送结果不确定时写入隔离状态允许使用的最长时间。
 const replyRecordPersistTimeout = 5 * time.Second
 
-// APIReplier 外部 API 回复（优先级1）。返回 nil 表示无回复。
+// APIReplier 外部 Agent 回复（优先级2，位于关键词之后、AI 之前）。返回 nil 表示不接手，由后续规则回复。
+// 实现方一旦接手并自行发送，应返回 Skip=true 的结果，避免后续规则重复回复；生产实现见 AgentReplier。
 type APIReplier interface {
 	Reply(ctx context.Context, m ChatMessage) (*ReplyResult, error)
 }
@@ -141,7 +142,7 @@ func newReplyService(cookieID string, store *db.Store, delivery ReplyDelivery, a
 	return service
 }
 
-// Handle 收到一条聊天消息：先尝试商品首次回复，再按四级优先级回复。
+// Handle 收到一条聊天消息：先尝试商品首次回复，再按 关键词 → Agent → AI → 默认 的优先级回复。
 // 由 Account 在防抖后调用。返回是否产生了回复。
 func (r *ReplyService) Handle(ctx context.Context, m ChatMessage) error {
 	// 商品首次回复失败只记录日志，不得阻断买家本条消息的正常回复链路。
@@ -328,20 +329,22 @@ func (r *ReplyService) markReplyUncertain(ctx context.Context, res *ReplyResult,
 
 // resolve 按优先级确定回复内容（不发送）。
 func (r *ReplyService) resolve(ctx context.Context, m ChatMessage) *ReplyResult {
-	// 优先级1：API 回复。
+	// 优先级1：关键词匹配。人工配置的规则始终优先，命中（含空回复规则）后不再询问 Agent。
+	if res := r.keywordReply(ctx, m); res != nil {
+		return res
+	}
+
+	// 优先级2：外部 Agent 回复。实现方可自行设置来源标签，未设置时沿用历史标签 "API"。
 	if r.api != nil {
 		if // res、err 用于本次流程后续判断的res、err
 		res, err := r.api.Reply(ctx, m); err != nil {
 			r.logger.ErrorContext(ctx, "API 回复失败", "err", err)
 		} else if res != nil {
-			res.Source = "API"
+			if res.Source == "" {
+				res.Source = "API"
+			}
 			return res
 		}
-	}
-
-	// 优先级2：关键词匹配。
-	if res := r.keywordReply(ctx, m); res != nil {
-		return res
 	}
 
 	// 优先级3：AI 回复。

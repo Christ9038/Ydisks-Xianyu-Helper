@@ -1,5 +1,9 @@
 import {
 AccountDetail,
+AgentReplyPayload,
+AgentReplySettings,
+AgentReplyTestResult,
+AgentReplyTestStatus,
 AutomationAction,
 AutomationIssuesEnvelope,
 AutomationRulePageResponse,
@@ -688,6 +692,72 @@ export const deleteItemGreeting = async (id: number): Promise<OperationResponse>
 // clearItemGreetingRecords 清空账号的首次回复发送记录，使买家下次咨询时重新触发。
 export const clearItemGreetingRecords = async (cookieID: string): Promise<OperationResponse> =>
   runContractRequest(/* signal 控制首次回复记录清理请求的取消和超时。 */ signal => contractClient.POST('/api/v1/reply-rules/greetings/clear-records/{cookie_id}', { params: { path: { cookie_id: cookieID } }, body: {} as never, signal }));
+
+// AGENT_REPLY_TEST_STATUSES 是连接测试允许的诊断状态，未知值按不可达处理。
+const AGENT_REPLY_TEST_STATUSES: readonly AgentReplyTestStatus[] = ['ok', 'http_error', 'invalid_response', 'unreachable'];
+
+// normalizeAgentReplySettings 把服务端配置 DTO 归一为 UI 模型，缺失字段使用与后端一致的默认值。
+const normalizeAgentReplySettings = (raw: unknown, accountID: string): AgentReplySettings => {
+  // dto 是待归一的原始配置对象。
+  const dto = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  return {
+    cookie_id: typeof dto.cookie_id === 'string' && dto.cookie_id ? dto.cookie_id : accountID,
+    enabled: dto.enabled === true,
+    endpoint_url: typeof dto.endpoint_url === 'string' ? dto.endpoint_url : '',
+    token_configured: dto.token_configured === true,
+    request_timeout_seconds: typeof dto.request_timeout_seconds === 'number' ? dto.request_timeout_seconds : 15,
+    max_session_seconds: typeof dto.max_session_seconds === 'number' ? dto.max_session_seconds : 120,
+  };
+};
+
+// agentReplyTokenBody 把表单的令牌命令转换为请求体；只有 replace 才携带令牌明文。
+const agentReplyTokenBody = (payload: AgentReplyPayload) => ({ action: payload.token_action, value: payload.token_action === 'replace' ? payload.token_value : '' });
+
+// getAgentReplySettings 读取账号的 Agent 回复配置；未保存过时服务端返回默认关闭值。
+export const getAgentReplySettings = async (accountID: string, options?: RequestControlOptions): Promise<AgentReplySettings> => {
+  // response 保存配置读取接口的成功响应。
+  const response = await runContractRequest(/* signal 控制 Agent 配置读取的取消和超时。 */ signal => contractClient.GET('/api/v1/agent-replies/{cookie_id}', { params: { path: { cookie_id: accountID } }, signal }), options) as unknown;
+  return normalizeAgentReplySettings(response, accountID);
+};
+
+// saveAgentReplySettings 保存账号的 Agent 回复配置，返回服务端确认的配置（不含令牌）。
+export const saveAgentReplySettings = async (accountID: string, payload: AgentReplyPayload): Promise<AgentReplySettings> => {
+  // response 保存配置写入接口返回的配置摘要。
+  const response = await runContractRequest(/* signal 控制 Agent 配置保存请求的取消和超时。 */ signal => contractClient.PUT('/api/v1/agent-replies/{cookie_id}', {
+    params: { path: { cookie_id: accountID } },
+    body: {
+      enabled: payload.enabled,
+      endpoint_url: payload.endpoint_url,
+      request_timeout_seconds: payload.request_timeout_seconds,
+      max_session_seconds: payload.max_session_seconds,
+      token: agentReplyTokenBody(payload),
+    },
+    signal,
+  })) as unknown;
+  return normalizeAgentReplySettings(response, accountID);
+};
+
+// testAgentReplyConnection 用表单草稿向 Agent 发送一次 ping；retain 令牌时服务端使用已保存令牌。
+export const testAgentReplyConnection = async (accountID: string, payload: AgentReplyPayload, options?: RequestControlOptions): Promise<AgentReplyTestResult> => {
+  // response 保存连接测试接口的诊断响应。
+  const response = await runContractRequest(/* signal 控制 Agent 连接测试的取消和超时。 */ signal => contractClient.POST('/api/v1/agent-replies/{cookie_id}/test', {
+    params: { path: { cookie_id: accountID } },
+    body: { endpoint_url: payload.endpoint_url, request_timeout_seconds: payload.request_timeout_seconds, token: agentReplyTokenBody(payload) },
+    signal,
+  }), options) as unknown;
+  // dto 是待归一的诊断对象。
+  const dto = (response && typeof response === 'object' ? response : {}) as Record<string, unknown>;
+  // status 是校验后的诊断状态，未知值退回不可达。
+  const status = AGENT_REPLY_TEST_STATUSES.find(/* candidate 是允许的诊断状态。 */ candidate => candidate === dto.status) ?? 'unreachable';
+  return {
+    status,
+    status_code: typeof dto.status_code === 'number' ? dto.status_code : 0,
+    duration_ms: typeof dto.duration_ms === 'number' ? dto.duration_ms : 0,
+    handled: dto.handled === true,
+    working: dto.working === true,
+    reply_count: typeof dto.reply_count === 'number' ? dto.reply_count : 0,
+  };
+};
 
 // normalizeAuditEvent 把传输层事件转换为 UI 模型；秒级时间换算为毫秒。
 const normalizeAuditEvent = (item: AutomationAuditEventTransport): AutomationAuditEvent => ({

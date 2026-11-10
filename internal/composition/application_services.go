@@ -17,6 +17,7 @@ import (
 	"xianyu-go/internal/adapter"
 	accountapp "xianyu-go/internal/application/account"
 	adminapp "xianyu-go/internal/application/admin"
+	agentreplyapp "xianyu-go/internal/application/agentreply"
 	analyticsapp "xianyu-go/internal/application/analytics"
 	automationapp "xianyu-go/internal/application/automation"
 	cardsapp "xianyu-go/internal/application/cards"
@@ -132,6 +133,8 @@ type Services struct {
 	defaultReplies *defaultreplyapp.Service
 	// itemGreetings 是商品首次回复规则应用服务。
 	itemGreetings *itemgreetingapp.Service
+	// agentReplies 是账号外部 Agent 回复配置与连接测试应用服务。
+	agentReplies *agentreplyapp.Service
 	// library 是本地资源库（图片库、商品模板、模板发布预检）应用服务。
 	library *libraryapp.Service
 	// keywords 是关键词规则与指定商品回复应用服务。
@@ -352,6 +355,8 @@ type TransportPorts struct {
 	PublishAutomationRules *automationapp.PublishRuleService
 	DefaultReplies         *defaultreplyapp.Service
 	ItemGreetings          *itemgreetingapp.Service
+	// AgentReplies 是账号外部 Agent 回复配置与连接测试应用服务。
+	AgentReplies *agentreplyapp.Service
 	// Library 是本地资源库应用服务。
 	Library  *libraryapp.Service
 	Keywords *keywordsapp.Service
@@ -378,7 +383,7 @@ func (services *Services) TransportPorts() TransportPorts {
 		AccountSummaries: services.accountSummaries, AccountTasks: services.accountTasks, Chat: services.chat,
 		UncertainNotifications: services.uncertainNotifications, NotificationChannels: services.notificationChannels,
 		Analytics: services.analytics, AutomationIssues: services.automationIssues, AutomationAudit: services.automationAudit, AutomationRules: services.automationRules, DeliveryTemplates: services.deliveryTemplates,
-		Cards: services.cards, APICardTester: services.apiCardTester, PublishAutomationRules: services.publishAutomationRules, DefaultReplies: services.defaultReplies, ItemGreetings: services.itemGreetings, Library: services.library,
+		Cards: services.cards, APICardTester: services.apiCardTester, PublishAutomationRules: services.publishAutomationRules, DefaultReplies: services.defaultReplies, ItemGreetings: services.itemGreetings, AgentReplies: services.agentReplies, Library: services.library,
 		Keywords: services.keywords, Settings: services.settings, Admin: services.admin, RuntimeLogs: services.runtimeLogs,
 	}
 }
@@ -527,7 +532,6 @@ func New(dependencies Dependencies) (*Services, error) {
 		itemCatalogMutation:    catalogServices.mutation,
 		itemAISettings:         catalogServices.aiSettings,
 		accountLogin:           &accountLoginService{cookieWriterFactory: cookieWriterFactory, cookieUpdaterFactory: cookieUpdaterFactory, sessionPort: accountRepository, createApplication: accountLoginCreate, qrApplication: accountQRLogin, qrSessions: qrSessionRegistry},
-		authentication:         nil,
 		loginAudit:             loginAudit,
 		passwordLogin:          accountapp.NewPasswordLoginService(),
 		accountDelete:          accountDelete,
@@ -551,6 +555,7 @@ func New(dependencies Dependencies) (*Services, error) {
 		automationAudit:        dependencies.TransportApplications.AutomationAudit,
 		defaultReplies:         dependencies.TransportApplications.DefaultReplies,
 		itemGreetings:          dependencies.TransportApplications.ItemGreetings,
+		agentReplies:           dependencies.TransportApplications.AgentReplies,
 		keywords:               dependencies.TransportApplications.Keywords,
 		settings:               dependencies.TransportApplications.Settings,
 		admin:                  dependencies.TransportApplications.Admin,

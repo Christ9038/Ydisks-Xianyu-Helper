@@ -378,7 +378,9 @@ func New(cfg Config) *Account {
 		// aiReplier 保存当前账号的 AI 回复生成能力。
 		aiReplier := NewAIReplier(cfg.CookieID, cfg.Store, logger)
 		if cfg.ReplyDelivery != nil {
-			a.reply = NewReplyService(cfg.CookieID, cfg.Store, cfg.ReplyDelivery, nil, aiReplier, logger)
+			// agentReplier 保存当前账号的外部 Agent 回复连接器，与回复服务共用同一消息投递端口。
+			agentReplier := NewAgentReplier(cfg.CookieID, cfg.Store, cfg.ReplyDelivery, logger)
+			a.reply = NewReplyService(cfg.CookieID, cfg.Store, cfg.ReplyDelivery, agentReplier, aiReplier, logger)
 		}
 	}
 	a.messageDispatcher = newMessageDispatcher(messageDispatcherConfig{

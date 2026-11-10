@@ -62,6 +62,7 @@ func TestOpenAPISuccessContractCoverage(t *testing.T) {
 		{name: "order-delivered-cards", run: TestOrderDeliveredCardsEndpoint},
 		{name: "card-sold-count", run: TestCardListIncludesSoldCount},
 		{name: "item-greetings", run: TestItemGreetingHandlersContract},
+		{name: "agent-replies", run: TestAgentReplyHandlersContract},
 		{name: "library", run: TestLibraryHandlersContract},
 		{name: "automation-audit-events", run: TestAutomationAuditEventsEndpoint},
 	}

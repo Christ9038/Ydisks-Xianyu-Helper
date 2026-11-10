@@ -25,6 +25,11 @@ func (s *Server) mountVersionedReplyRoutes(r chi.Router) {
 		r.Delete("/api/v1/reply-rules/greetings/{id}", s.deleteItemGreeting)
 		r.Post("/api/v1/reply-rules/greetings/clear-records/{cookie_id}", s.clearItemGreetingRecords)
 
+		// 账号外部 Agent 回复配置与连接测试。
+		r.Get("/api/v1/agent-replies/{cookie_id}", s.getAgentReply)
+		r.Put("/api/v1/agent-replies/{cookie_id}", s.setAgentReply)
+		r.Post("/api/v1/agent-replies/{cookie_id}/test", s.testAgentReply)
+
 		// 关键词规则保留基础、商品和类型三种旧响应语义。
 		r.Get("/api/v1/reply-rules/{cid}", s.listKeywords)
 		r.Post("/api/v1/reply-rules/{cid}", s.addKeyword)

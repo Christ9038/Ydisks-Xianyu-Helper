@@ -193,14 +193,14 @@ func TestReplyKeywordExpressionsSQLiteResolve(t *testing.T) {
 		t.Fatalf("商品级规则未优先: %+v", itemResult)
 	}
 
-	// apiReply 提供最高优先级 API 回复，验证它覆盖已命中的关键词。
+	// apiReply 提供 Agent 回复；关键词已命中时它不应被询问，验证关键词优先于 Agent。
 	apiReply := &fakeAPIReplier{result: &ReplyResult{Text: "API优先"}}
-	// apiService 使用真实 SQLite 规则和 API 替身验证完整优先级链第一段。
+	// apiService 使用真实 SQLite 规则和 Agent 替身验证优先级链：关键词先于 Agent。
 	apiService := NewReplyService("cid", store, nil, apiReply, nil, nil)
-	// apiResult 保存 API 优先级解析结果。
+	// apiResult 保存关键词命中时的解析结果。
 	apiResult := apiService.resolve(ctx, chatMsg("价格", "item-2", "chat-api"))
-	if apiResult == nil || apiResult.Source != "API" || apiResult.Text != "API优先" {
-		t.Fatalf("API 未优先于关键词: %+v", apiResult)
+	if apiResult == nil || apiResult.Source != "关键词" || apiReply.called != 0 {
+		t.Fatalf("关键词应优先于 Agent 且不应调用 Agent: %+v called=%d", apiResult, apiReply.called)
 	}
 
 	// aiReply 提供无关键词命中时的 AI 回复。

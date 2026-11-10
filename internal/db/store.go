@@ -35,6 +35,8 @@ type Store struct {
 	// ProductTemplates 保存可批量铺货的商品模板。
 	ProductTemplates *ProductTemplates
 	AIReply          *AIReply
+	// AgentReply 保存账号外部 Agent 回复配置，访问令牌加密落库。
+	AgentReply *AgentReply
 	// ItemAISettings 保存商品级 AI 启停覆盖与专属资料。
 	ItemAISettings *ItemAISettings
 	Notifications  *Notifications
@@ -103,6 +105,7 @@ func NewStore(db *sql.DB, dialect Dialect) *Store {
 		LibraryImages:     &LibraryImages{DB: db, Dialect: dialect},
 		ProductTemplates:  &ProductTemplates{DB: db, Dialect: dialect},
 		AIReply:           &AIReply{DB: db, Dialect: dialect, codec: codec},
+		AgentReply:        &AgentReply{DB: db, Dialect: dialect, codec: codec},
 		ItemAISettings:    &ItemAISettings{DB: db, Dialect: dialect},
 		Notifications:     &Notifications{DB: db, Dialect: dialect, codec: codec},
 		Settings:          &SystemSettings{DB: db, Dialect: dialect, codec: codec},

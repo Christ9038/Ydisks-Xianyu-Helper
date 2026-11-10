@@ -133,6 +133,10 @@ func (s *Store) EncryptLegacySecrets(ctx context.Context) error {
 	if err := migrateLegacyAutomationDeliveryProofs(ctx, tx, codec); err != nil {
 		return err
 	}
+	// err 表示 Agent 回复访问令牌升级失败。
+	if err := migrateLegacyAgentReplyTokens(ctx, tx, codec); err != nil {
+		return err
+	}
 
 	return tx.Commit()
 }
