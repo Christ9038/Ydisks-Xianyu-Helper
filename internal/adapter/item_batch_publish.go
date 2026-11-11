@@ -439,3 +439,9 @@ func IsSessionExpiredError(err error) bool {
 func IsCredentialExpiredError(err error) bool {
 	return mtop.IsSessionExpiredErr(err)
 }
+
+// IsBatchAbortError 判断批量发布遇到的错误是否必须终止本批次剩余明细：Session 失效、平台风控验证或
+// Token 刷新耗尽时继续发布只会加重风控，按 MTOP 频率约束立即停止；它只决定是否中止，不触发账号恢复。
+func IsBatchAbortError(err error) bool {
+	return mtop.IsSessionExpiredErr(err) || mtop.IsRiskVerificationErr(err) || mtop.IsMTopTokenExpiredErr(err)
+}

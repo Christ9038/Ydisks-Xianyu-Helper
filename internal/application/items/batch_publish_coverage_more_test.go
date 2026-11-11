@@ -116,7 +116,7 @@ func TestBatchRunnerConstructionGuards(t *testing.T) {
 	}
 	// runner 是完整依赖和默认策略构造出的批次 worker。
 	runner, err := NewBatchRunner(&batchRunnerRepository{}, &batchRunnerPublisher{}, BatchRunOptions{})
-	if err != nil || runner.options.Wait == nil || runner.options.Now == nil || runner.options.ClassifyFailure == nil || runner.options.IsSessionExpired == nil {
+	if err != nil || runner.options.Wait == nil || runner.options.Now == nil || runner.options.ClassifyFailure == nil || runner.options.ShouldAbortBatch == nil {
 		t.Fatalf("默认策略构造异常: runner=%+v err=%v", runner, err)
 	}
 }

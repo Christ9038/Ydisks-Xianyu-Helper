@@ -3,6 +3,7 @@ package library
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -92,7 +93,7 @@ type publishFixture struct {
 }
 
 // newPublishFixture 构造夹具，预置用户 1 的图片 1..3 与两个模板（单规格 ID1、多规格 ID2）。
-func newPublishFixture(t *testing.T, maxRows int) publishFixture {
+func newPublishFixture(t *testing.T) publishFixture {
 	t.Helper()
 	// f 是发布预检测试的依赖夹具。
 	f := publishFixture{templates: newFakeTemplateRepository(), images: newFakeImageRepository(), snapshots: &fakeSnapshotStore{}, validator: &fakeRowsValidator{}, persister: &fakePersister{}}
@@ -109,7 +110,7 @@ func newPublishFixture(t *testing.T, maxRows int) publishFixture {
 	multi.ID, multi.PriceCents, multi.Quantity, multi.Name, multi.Title = 2, 900, 5, "多", "多规格"
 	f.templates.templates[1], f.templates.templates[2] = single, multi
 	// service 保存 NewTemplatePublishService 的返回结果，err 保存其失败原因。
-	service, err := NewTemplatePublishService(f.templates, f.images, f.snapshots, f.validator, f.persister, func() string { return "batch_x" }, maxRows)
+	service, err := NewTemplatePublishService(f.templates, f.images, f.snapshots, f.validator, f.persister, func() string { return "batch_x" })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +121,7 @@ func newPublishFixture(t *testing.T, maxRows int) publishFixture {
 // TestNewTemplatePublishServiceRejectsNilPorts 验证必需依赖缺失时构造失败。
 func TestNewTemplatePublishServiceRejectsNilPorts(t *testing.T) {
 	// err 保存 NewTemplatePublishService 调用的失败原因。
-	if _, err := NewTemplatePublishService(nil, nil, nil, nil, nil, nil, 0); err == nil {
+	if _, err := NewTemplatePublishService(nil, nil, nil, nil, nil, nil); err == nil {
 		t.Fatal("缺少依赖必须失败")
 	}
 }
@@ -128,7 +129,7 @@ func TestNewTemplatePublishServiceRejectsNilPorts(t *testing.T) {
 // TestTemplatePublishPreviewExpandsTemplatesAndAccounts 验证「模板 × 账号」展开、图片快照、多规格行与批次元数据。
 func TestTemplatePublishPreviewExpandsTemplatesAndAccounts(t *testing.T) {
 	// f 保存 newPublishFixture 的返回结果。
-	f := newPublishFixture(t, 50)
+	f := newPublishFixture(t)
 	// result 保存 PreviewPublish 的返回结果，err 保存其失败原因。
 	result, err := f.service.PreviewPublish(context.Background(), PublishPreviewInput{UserID: 1, TemplateIDs: []int64{1, 2, 1}, CookieIDs: []string{" a ", "b", "a", ""},
 		Location: itemapp.Location{Province: "浙江省", City: "杭州", Area: "西湖区", DivisionID: "330106", Longitude: 120.1, Latitude: 30.2, POIID: "B1", POIName: "地点"}})
@@ -171,12 +172,11 @@ func TestTemplatePublishPreviewFailures(t *testing.T) {
 	// ctx 保存 Background 的返回结果。
 	ctx := context.Background()
 	// f 保存 newPublishFixture 的返回结果。
-	f := newPublishFixture(t, 3)
-	// 输入校验：缺少模板、账号，以及超过行数上限。
+	f := newPublishFixture(t)
+	// 输入校验：缺少模板、账号，以及发货地不完整。
 	for name, input := range map[string]PublishPreviewInput{
 		"无模板":     {UserID: 1, CookieIDs: []string{"a"}},
 		"无账号":     {UserID: 1, TemplateIDs: []int64{1}},
-		"超上限":     {UserID: 1, TemplateIDs: []int64{1, 2}, CookieIDs: []string{"a", "b"}},
 		"发货地缺坐标":  {UserID: 1, TemplateIDs: []int64{1}, CookieIDs: []string{"a"}, Location: itemapp.Location{Province: "浙江省", City: "杭州", Area: "西湖区", DivisionID: "330106"}},
 		"发货地缺行政区": {UserID: 1, TemplateIDs: []int64{1}, CookieIDs: []string{"a"}, Location: itemapp.Location{Province: "浙江省", City: "杭州", Longitude: 120.1, Latitude: 30.2}},
 		"发货地坐标越界": {UserID: 1, TemplateIDs: []int64{1}, CookieIDs: []string{"a"}, Location: itemapp.Location{Province: "浙江省", City: "杭州", DivisionID: "330106", Longitude: 220, Latitude: 30.2}},
@@ -238,5 +238,22 @@ func TestPublishHelpers(t *testing.T) {
 	}
 	if extensionOf("1/a.b.png") != ".png" || extensionOf("noext") != "" {
 		t.Fatal("扩展名提取异常")
+	}
+}
+
+// TestTemplatePublishPreviewHasNoRowLimit 验证「模板 × 账号」展开不再受 50 行上限约束，超出原上限的组合整体进入同一批次排队。
+func TestTemplatePublishPreviewHasNoRowLimit(t *testing.T) {
+	// f 保存发布预检夹具。
+	f := newPublishFixture(t)
+	// cookieIDs 是 40 个目标账号，与两个模板展开为 80 行。
+	cookieIDs := make([]string, 0, 40)
+	// index 是账号序号。
+	for index := 0; index < 40; index++ {
+		cookieIDs = append(cookieIDs, fmt.Sprintf("acc-%02d", index))
+	}
+	// result、err 保存预检结果。
+	result, err := f.service.PreviewPublish(context.Background(), PublishPreviewInput{UserID: 1, TemplateIDs: []int64{1, 2}, CookieIDs: cookieIDs})
+	if err != nil || result.Total != 80 || len(f.validator.rows) != 80 {
+		t.Fatalf("超过原上限的组合应整体预检: total=%d rows=%d err=%v", result.Total, len(f.validator.rows), err)
 	}
 }

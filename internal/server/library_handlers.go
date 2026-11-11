@@ -58,6 +58,10 @@ func writeLibraryError(w http.ResponseWriter, r *http.Request, err error, fallba
 		writeErrRequest(w, r, http.StatusNotFound, "图片不存在")
 	case errors.Is(err, libraryapp.ErrTemplateNotFound):
 		writeErrRequest(w, r, http.StatusNotFound, "商品模板不存在")
+	case errors.Is(err, libraryapp.ErrImportNotFound):
+		writeErrRequest(w, r, http.StatusNotFound, "导入任务不存在或已过期，请重新上传表格")
+	case errors.Is(err, libraryapp.ErrImportBusy):
+		writeErrRequest(w, r, http.StatusConflict, "导入任务正在处理中，请稍候")
 	case errors.Is(err, itemapp.ErrBatchPreviewNoRows):
 		writeErrRequest(w, r, http.StatusBadRequest, "没有可发布的商品")
 	default:

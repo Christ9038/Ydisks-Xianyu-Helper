@@ -4723,6 +4723,140 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/library/product-template-imports":
+    post:
+      operationId: postApiV1LibraryProductTemplateImports
+      summary: 上传 Excel 表格与可选图片压缩包，预检导入商品模板
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LibraryTemplateImportRequest'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LibraryTemplateImportPreviewResponse'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/library/product-template-imports/{import_id}/commit":
+    post:
+      operationId: postApiV1LibraryProductTemplateImportsByimport_idCommit
+      summary: 继续导入预检通过的行，返回导入进度
+      parameters:
+          - name: import_id
+            in: path
+            required: true
+            schema:
+              type: string
+              maxLength: 64
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LibraryTemplateImportProgressResponse'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/library/product-template-imports/{import_id}":
+    delete:
+      operationId: deleteApiV1LibraryProductTemplateImportsByimport_id
+      summary: 取消导入并删除暂存，已创建的模板保留
+      parameters:
+          - name: import_id
+            in: path
+            required: true
+            schema:
+              type: string
+              maxLength: 64
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationResponse'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   "/api/v1/items/publish-batches":
     get:
       operationId: getApiV1ItemsPublishBatches
@@ -10798,6 +10932,67 @@ components:
         poi_id: {type: string}
         poi_name: {type: string}
         province: {type: string}
+    LibraryTemplateImportRequest:
+      type: object
+      required: [file]
+      properties:
+        file: {type: string, format: binary}
+        images_zip: {type: string, format: binary}
+    LibraryTemplateImportPreviewRow:
+      type: object
+      required: [row_no, valid, name, title, price, image_count, remote_image_count, errors, warnings]
+      properties:
+        row_no: {type: integer}
+        valid: {type: boolean}
+        name: {type: string}
+        title: {type: string}
+        price: {type: string}
+        image_count: {type: integer}
+        remote_image_count: {type: integer}
+        errors:
+          type: array
+          items: {type: string}
+        warnings:
+          type: array
+          items: {type: string}
+    LibraryTemplateImportPreviewResponse:
+      type: object
+      required: [import_id, total, valid, invalid, remote_images, rows]
+      properties:
+        import_id: {type: string}
+        total: {type: integer}
+        valid: {type: integer}
+        invalid: {type: integer}
+        remote_images: {type: integer}
+        rows:
+          type: array
+          items: {$ref: '#/components/schemas/LibraryTemplateImportPreviewRow'}
+    LibraryTemplateImportProgressRow:
+      type: object
+      required: [row_no, status, template_id, errors]
+      properties:
+        row_no: {type: integer}
+        status: {type: string, enum: [invalid, pending, created, failed]}
+        template_id: {type: integer, format: int64}
+        errors:
+          type: array
+          items: {type: string}
+    LibraryTemplateImportProgressResponse:
+      type: object
+      required: [import_id, done, created, failed, pending, invalid, created_template_ids, rows]
+      properties:
+        import_id: {type: string}
+        done: {type: boolean}
+        created: {type: integer}
+        failed: {type: integer}
+        pending: {type: integer}
+        invalid: {type: integer}
+        created_template_ids:
+          type: array
+          items: {type: integer, format: int64}
+        rows:
+          type: array
+          items: {$ref: '#/components/schemas/LibraryTemplateImportProgressRow'}
     LibraryTemplatePublishRequest:
       type: object
       required: [template_ids, cookie_ids]

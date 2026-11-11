@@ -1299,6 +1299,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/library/product-template-imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 上传 Excel 表格与可选图片压缩包，预检导入商品模板 */
+        post: operations["postApiV1LibraryProductTemplateImports"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/library/product-template-imports/{import_id}/commit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 继续导入预检通过的行，返回导入进度 */
+        post: operations["postApiV1LibraryProductTemplateImportsByimport_idCommit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/library/product-template-imports/{import_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** 取消导入并删除暂存，已创建的模板保留 */
+        delete: operations["deleteApiV1LibraryProductTemplateImportsByimport_id"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/items/publish-batches": {
         parameters: {
             query?: never;
@@ -3983,6 +4034,49 @@ export interface components {
             poi_id?: string;
             poi_name?: string;
             province?: string;
+        };
+        LibraryTemplateImportRequest: {
+            /** Format: binary */
+            file: string;
+            /** Format: binary */
+            images_zip?: string;
+        };
+        LibraryTemplateImportPreviewRow: {
+            row_no: number;
+            valid: boolean;
+            name: string;
+            title: string;
+            price: string;
+            image_count: number;
+            remote_image_count: number;
+            errors: string[];
+            warnings: string[];
+        };
+        LibraryTemplateImportPreviewResponse: {
+            import_id: string;
+            total: number;
+            valid: number;
+            invalid: number;
+            remote_images: number;
+            rows: components["schemas"]["LibraryTemplateImportPreviewRow"][];
+        };
+        LibraryTemplateImportProgressRow: {
+            row_no: number;
+            /** @enum {string} */
+            status: "invalid" | "pending" | "created" | "failed";
+            /** Format: int64 */
+            template_id: number;
+            errors: string[];
+        };
+        LibraryTemplateImportProgressResponse: {
+            import_id: string;
+            done: boolean;
+            created: number;
+            failed: number;
+            pending: number;
+            invalid: number;
+            created_template_ids: number[];
+            rows: components["schemas"]["LibraryTemplateImportProgressRow"][];
         };
         LibraryTemplatePublishRequest: {
             template_ids: number[];
@@ -10894,6 +10988,191 @@ export interface operations {
             };
             /** @description 统一错误响应 */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    postApiV1LibraryProductTemplateImports: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["LibraryTemplateImportRequest"];
+            };
+        };
+        responses: {
+            /** @description 成功 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryTemplateImportPreviewResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    postApiV1LibraryProductTemplateImportsByimport_idCommit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                import_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 成功 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryTemplateImportProgressResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    deleteApiV1LibraryProductTemplateImportsByimport_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                import_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 成功 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

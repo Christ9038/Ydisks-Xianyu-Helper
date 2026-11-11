@@ -23,5 +23,9 @@ func (s *Server) mountVersionedLibraryRoutes(r chi.Router) {
 		r.Get("/api/v1/library/product-templates/{template_id}", s.getLibraryTemplate)
 		r.Put("/api/v1/library/product-templates/{template_id}", s.updateLibraryTemplate)
 		r.Delete("/api/v1/library/product-templates/{template_id}", s.deleteLibraryTemplate)
+
+		r.Post("/api/v1/library/product-template-imports", s.previewLibraryTemplateImport)
+		r.Post("/api/v1/library/product-template-imports/{import_id}/commit", s.commitLibraryTemplateImport)
+		r.Delete("/api/v1/library/product-template-imports/{import_id}", s.discardLibraryTemplateImport)
 	})
 }

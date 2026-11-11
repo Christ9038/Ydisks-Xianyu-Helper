@@ -64,6 +64,7 @@ func TestOpenAPISuccessContractCoverage(t *testing.T) {
 		{name: "item-greetings", run: TestItemGreetingHandlersContract},
 		{name: "agent-replies", run: TestAgentReplyHandlersContract},
 		{name: "library", run: TestLibraryHandlersContract},
+		{name: "library-template-imports", run: TestLibraryTemplateImportHandlersContract},
 		{name: "automation-audit-events", run: TestAutomationAuditEventsEndpoint},
 	}
 	// scenario 是当前执行的领域真实响应场景。

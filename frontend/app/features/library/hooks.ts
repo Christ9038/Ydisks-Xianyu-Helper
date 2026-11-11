@@ -165,6 +165,8 @@ export interface ProductTemplatesState {
   busy: boolean;
   /** error 是最近一次失败原因。 */
   error: string;
+  /** reload 重新读取模板列表，例如 Excel 导入新模板之后；过期响应被丢弃。 */
+  reload: () => Promise<void>;
   /** save 创建或更新模板，成功返回 true。 */
   save: (id: number | null, body: TemplateRequestTransport) => Promise<boolean>;
   /** remove 删除模板，成功返回 true。 */
@@ -277,7 +279,7 @@ export const useProductTemplates = (): ProductTemplatesState => {
     }
   }, [reload]);
 
-  return { templates, loading, busy, error, save, remove, removeMany, duplicate };
+  return { templates, loading, busy, error, reload, save, remove, removeMany, duplicate };
 };
 
 /** AutomationOptions 是自动化编辑器需要的卡密组与发货模板选项。 */

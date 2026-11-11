@@ -15,3 +15,7 @@ export type LibraryActionGroupTransport = components['schemas']['LibraryTemplate
 export type LibraryAutomationTransport = components['schemas']['LibraryTemplateAutomation'];
 /** CardTransportForLibrary 表示自动发货可选卡密所需的生成卡券响应。 */
 export type CardTransportForLibrary = components['schemas']['CardResponse'];
+/** LibraryImportPreviewTransport 表示生成的 Excel 导入预检响应。 */
+export type LibraryImportPreviewTransport = components['schemas']['LibraryTemplateImportPreviewResponse'];
+/** LibraryImportProgressTransport 表示生成的 Excel 导入分段提交进度响应。 */
+export type LibraryImportProgressTransport = components['schemas']['LibraryTemplateImportProgressResponse'];

@@ -48,6 +48,8 @@ func normalizeHeader(header string) string {
 	switch value {
 	case "cookieid", "账号id", "账号", "闲鱼账号":
 		return "cookie_id"
+	case "templatename", "模板名称", "模板名":
+		return "template_name"
 	case "title", "itemtitle", "标题", "商品标题", "商品名称":
 		return "title"
 	case "description", "desc", "itemdescription", "描述", "商品描述", "商品详情":

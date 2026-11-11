@@ -157,7 +157,7 @@ func TestBatchRunnerStopsOnCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	publisher.err = context.Canceled
 	// runner 使用会返回取消错误的等待替身，避免测试等待真实间隔。
-	runner, err := NewBatchRunner(repository, publisher, BatchRunOptions{Wait: func(context.Context, time.Duration) error { cancel(); return context.Canceled }, IsSessionExpired: func(error) bool { return true }})
+	runner, err := NewBatchRunner(repository, publisher, BatchRunOptions{Wait: func(context.Context, time.Duration) error { cancel(); return context.Canceled }, ShouldAbortBatch: func(error) bool { return true }})
 	if err != nil {
 		t.Fatalf("构造 worker 失败: %v", err)
 	}

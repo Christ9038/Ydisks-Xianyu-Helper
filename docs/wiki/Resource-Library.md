@@ -27,11 +27,24 @@ A template holds everything needed to publish a product:
 
 The template list can be searched by template name, title, description or category, filtered by spec (single / multi), paid delivery (enabled / not enabled) and postage mode (free / by distance / fixed / no shipping needed), and sorted by recently updated, oldest updated, name A→Z, price low→high / high→low, stock high→low. Each template card has Edit, Duplicate and Delete; use "Select all results", or tick templates and click "Publish selected" or "Delete selected" (already published items are unaffected).
 
+## Importing templates from Excel
+
+To create many templates at once, import a sheet and choose accounts later:
+
+1. On the Product templates tab click "从 Excel 导入" (Import from Excel); "下载导入模板" downloads a CSV template. Columns match [Bulk Listing](Bulk-Listing) but there is **no 账号ID (account) column**; the optional first column 模板名称 (template name) falls back to the first 100 characters of the title. `.xlsx`, `.csv` and `.tsv` are supported, up to 300 rows and 20 MiB.
+2. The 图片 (images) column accepts paths inside an uploaded image zip (up to 200 MiB) or `http/https` URLs. URL images are downloaded into the image library during import, so later publishing no longer depends on the remote link; identical images are deduplicated.
+3. Paid-delivery content supports `T<templateID>` and `变量.xxx` columns as in Bulk Listing, so one cloud-drive link per row needs no card group or template per product. Postage mode `none` means no shipping required; `free` means free shipping.
+4. Click "预检" (Preview): each row shows whether it can be imported and why not (invalid price, image missing from the zip, delivery-template variable missing…). Titles matching an existing template or another row get a warning but are still importable. Preview writes nothing and downloads nothing.
+5. Click "导入 N 个模板" (Import N templates): only valid rows are imported, progress advances in segments, and "停止导入" (Stop) keeps the templates already created. A failed row (for example an image that cannot be downloaded) does not affect the others; failures are listed.
+6. When done, the new templates are selected in the list — click "发布所选" (Publish selected) and choose accounts.
+
+Importing never calls Xianyu platform APIs. Unfinished import tasks are cleaned up after 24 hours.
+
 ## Publishing templates to accounts
 
 1. Tick one or more templates and click "Publish selected".
 2. Choose target accounts (only available accounts are listed) and the publish interval (seconds, 0–3600; 0 uses the default of 5).
 3. The system builds a **template × account preview**. Invalid rows show their reason and can be filtered with "Only show rows to fix" (只看需修正).
-4. Confirm. Publishing then follows the [Bulk Listing](Bulk-Listing) pipeline: serial publishing with the enforced interval, progress display and failed-row retry. The total rows per batch (templates × accounts) are capped by the same limit as bulk listing.
+4. Confirm. Publishing then follows the [Bulk Listing](Bulk-Listing) pipeline: serial publishing with the enforced interval, progress display and failed-row retry. There is no cap on rows per batch (templates × accounts): everything is queued and published one by one, and the dialog shows the estimated duration for the chosen interval. If the platform returns a risk-control check, an expired session or exhausted token refresh, the rest of the batch stops immediately.
 
 Automation rules defined on the template are written for each published item using its full spec combination.

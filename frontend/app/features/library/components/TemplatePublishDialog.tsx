@@ -2,6 +2,7 @@ import { X } from 'lucide-react';
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { libraryErrorMessage, previewTemplatePublish, startPublishBatch } from '../api';
+import { estimatePublishSeconds, formatDuration } from '../publishEstimate';
 import { selectionState, toggleAllVisible } from '../selection';
 import type { LibraryAccountOption, LibraryLocationFieldComponent, LibraryPublishLocation, LibraryPublishPreview, ProductTemplate } from '../types';
 import { SelectAllCheckbox } from './SelectAllCheckbox';
@@ -19,9 +20,6 @@ export interface TemplatePublishDialogProps {
   /** onStarted 在批次启动成功后通知父级，参数是批次标识。 */
   onStarted: (batchId: string) => void;
 }
-
-/** maxPublishRows 是单批最多行数（模板数 × 账号数），与服务端一致。 */
-const maxPublishRows = 50;
 
 /** TemplatePublishDialog 先生成“模板 × 账号”预检，用户确认后再启动既有批量铺货批次。 */
 export const TemplatePublishDialog = ({ templates, accounts, locationField: LocationField, onClose, onStarted }: TemplatePublishDialogProps) => {
@@ -151,7 +149,7 @@ export const TemplatePublishDialog = ({ templates, accounts, locationField: Loca
               <p className="text-xs text-gray-500">发货地对本次全部商品生效，选择后带有经纬度与具体地点，与商品管理发布一致；不选则沿用账号平台默认。</p>
             </fieldset>
           )}
-          <p className="text-xs text-gray-500">将生成 {rowCount} 行（模板 × 账号，上限 {maxPublishRows}）。</p>
+          <p className="text-xs text-gray-500">将生成 {rowCount} 行（模板 × 账号），确认后逐个排队发布{rowCount > 1 ? `，按当前间隔${formatDuration(estimatePublishSeconds(rowCount, interval))}起` : ''}；遇到风控或登录失效会自动停止剩余发布。</p>
           {preview && (
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-4">
@@ -174,7 +172,7 @@ export const TemplatePublishDialog = ({ templates, accounts, locationField: Loca
         </div>
         <div className="modal-footer"><div className="flex gap-3 w-full">
           <button type="button" onClick={onClose} className="flex-1 px-6 py-3 rounded-xl font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors">取消</button>
-          <button type="button" disabled={busy || rowCount === 0 || rowCount > maxPublishRows} onClick={/* 生成预检。 */ () => void runPreview()} className="flex-1 ios-btn-secondary px-6 py-3 rounded-xl font-bold disabled:opacity-50">{busy && !preview ? '处理中...' : '生成预检'}</button>
+          <button type="button" disabled={busy || rowCount === 0} onClick={/* 生成预检。 */ () => void runPreview()} className="flex-1 ios-btn-secondary px-6 py-3 rounded-xl font-bold disabled:opacity-50">{busy && !preview ? '处理中...' : '生成预检'}</button>
           <button type="button" disabled={busy || !preview || preview.valid <= 0} onClick={/* 确认并启动批次。 */ () => void confirm()} className="flex-1 ios-btn-primary px-6 py-3 rounded-xl font-bold disabled:opacity-50">{preview ? `确认发布 ${preview.valid} 个商品` : '确认发布'}</button>
         </div></div>
       </div>

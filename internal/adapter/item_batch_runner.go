@@ -53,10 +53,10 @@ func NewItemBatchRunnerApplication(repository itemapp.BatchRepository, publisher
 	if repository == nil || publisher == nil || leaseDuration <= 0 || classifyFailure == nil {
 		return nil, errors.New("批量发布运行器依赖不完整")
 	}
-	// options 保存 worker 的租约、平台会话判断与失败状态归类，运行期不再回读 Server。
+	// options 保存 worker 的租约、整批中止判断与失败状态归类，运行期不再回读 Server。
 	options := itemapp.BatchRunOptions{
 		LeaseDuration:    leaseDuration,
-		IsSessionExpired: IsCredentialExpiredError,
+		ShouldAbortBatch: IsBatchAbortError,
 		ClassifyFailure:  classifyFailure,
 	}
 	return itemapp.NewBatchRunner(repository, publisher, options)

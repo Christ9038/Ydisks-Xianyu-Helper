@@ -1,5 +1,5 @@
 import { contractClient, contractMultipartBody, runContractRequest } from '../../../shared/api-contract/client';
-import type { CardTransportForLibrary, LibraryActionGroupTransport, LibraryActionTransport, LibraryAutomationTransport, LibraryImageTransport, LibraryTemplateRequestTransport, LibraryTemplateTransport } from '../../../shared/api-contract/library';
+import type { CardTransportForLibrary, LibraryActionGroupTransport, LibraryActionTransport, LibraryAutomationTransport, LibraryImageTransport, LibraryImportPreviewTransport, LibraryImportProgressTransport, LibraryTemplateRequestTransport, LibraryTemplateTransport } from '../../../shared/api-contract/library';
 import { ApiError, type RequestControlOptions } from '../../../shared/http/client';
 import type {
   LibraryAccountOption,
@@ -9,6 +9,8 @@ import type {
   LibraryCardOption,
   LibraryDeliveryTemplateOption,
   LibraryImage,
+  LibraryImportPreview,
+  LibraryImportProgress,
   LibraryPublishLocation,
   LibraryPublishPreview,
   LibraryUploadResult,
@@ -190,4 +192,44 @@ export const listAccountOptions = async (options?: RequestControlOptions): Promi
   // response 是账号摘要传输对象。
   const response = await runContractRequest(/* signal 控制账号列表请求的取消和超时。 */ signal => contractClient.GET('/api/v1/accounts/details', { signal }), options);
   return response.filter(/* account 仅保留启用且有凭证的账号。 */ account => account.enabled && account.has_cookie).map(/* account 转换为选项。 */ account => ({ id: account.id, label: account.remark || account.nickname || account.id }));
+};
+
+/** toImportPreview 将导入预检传输对象转换为 UI 模型。 */
+export const toImportPreview = (dto: LibraryImportPreviewTransport): LibraryImportPreview => ({
+  importId: dto.import_id, total: dto.total, valid: dto.valid, invalid: dto.invalid, remoteImages: dto.remote_images,
+  rows: dto.rows.map(/* row 是传输层预检行。 */ row => ({ rowNo: row.row_no, valid: row.valid, name: row.name, title: row.title, price: row.price,
+    imageCount: row.image_count, remoteImageCount: row.remote_image_count, errors: [...row.errors], warnings: [...row.warnings] })),
+});
+
+/** toImportProgress 将导入进度传输对象转换为 UI 模型。 */
+export const toImportProgress = (dto: LibraryImportProgressTransport): LibraryImportProgress => ({
+  importId: dto.import_id, done: dto.done, created: dto.created, failed: dto.failed, pending: dto.pending, invalid: dto.invalid,
+  createdTemplateIds: [...dto.created_template_ids],
+  rows: dto.rows.map(/* row 是传输层进度行。 */ row => ({ rowNo: row.row_no, status: row.status, templateId: row.template_id, errors: [...row.errors] })),
+});
+
+/** previewTemplateImport 上传 Excel 表格与可选图片压缩包并返回逐行预检；大文件上传给予 5 分钟时限。 */
+export const previewTemplateImport = async (input: {
+  /** sheet 是商品表格（.xlsx/.csv/.tsv）。 */ sheet: File;
+  /** imagesZip 是可选图片压缩包。 */ imagesZip: File | null;
+}, options?: RequestControlOptions): Promise<LibraryImportPreview> => {
+  // body 是 multipart 请求体，字段名与契约一致。
+  const body = new FormData();
+  body.append('file', input.sheet);
+  if (input.imagesZip) body.append('images_zip', input.imagesZip);
+  // response 是预检传输对象。
+  const response = await runContractRequest(/* signal 控制导入预检请求的取消和超时。 */ signal => contractClient.POST('/api/v1/library/product-template-imports', { body: contractMultipartBody(body), signal }), { timeoutMs: 300_000, ...options });
+  return toImportPreview(response);
+};
+
+/** commitTemplateImport 继续导入任务中待导入的行；服务端单次最长约 110 秒，因此给予 150 秒时限。 */
+export const commitTemplateImport = async (importId: string, options?: RequestControlOptions): Promise<LibraryImportProgress> => {
+  // response 是导入进度传输对象。
+  const response = await runContractRequest(/* signal 控制分段提交请求的取消和超时。 */ signal => contractClient.POST('/api/v1/library/product-template-imports/{import_id}/commit', { params: { path: { import_id: importId } }, signal }), { timeoutMs: 150_000, ...options });
+  return toImportProgress(response);
+};
+
+/** discardTemplateImport 取消导入并删除服务端暂存，已创建的模板保留。 */
+export const discardTemplateImport = async (importId: string, options?: RequestControlOptions): Promise<void> => {
+  await runContractRequest(/* signal 控制取消导入请求的取消和超时。 */ signal => contractClient.DELETE('/api/v1/library/product-template-imports/{import_id}', { params: { path: { import_id: importId } }, signal }), options);
 };

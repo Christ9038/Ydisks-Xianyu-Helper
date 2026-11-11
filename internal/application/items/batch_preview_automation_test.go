@@ -103,7 +103,7 @@ func TestParseCardActionsParsesTemplateTokensAndKeepsLegacyFormat(t *testing.T) 
 // TestParseSheetTemplateInputsCollectsColumns 覆盖变量列别名、包含分隔符的取值、空值、冲突、非法键和绑定列格式。
 func TestParseSheetTemplateInputsCollectsColumns(t *testing.T) {
 	// inputs 保存只含普通列的行解析结果，应为 nil。
-	if inputs :=parseSheetTemplateInputs(map[string]any{"title": "商品", "付款发货内容": "101"}); inputs != nil {
+	if inputs := parseSheetTemplateInputs(map[string]any{"title": "商品", "付款发货内容": "101"}); inputs != nil {
 		t.Fatalf("没有模板列时必须返回 nil: %+v", inputs)
 	}
 	// link 是包含冒号、分号和查询参数的网盘链接，必须完整保留。
@@ -169,7 +169,7 @@ func TestParseAutomationReportsTemplateInputErrorsOnlyForTemplateActions(t *test
 		t.Fatalf("动作文本错误应优先: %q", got)
 	}
 	// legacy 保存旧格式行的解析结果，不应带表格模板输入。
-	if legacy :=parseAutomation(map[string]any{"paid_delivery_contents": "9"}); legacy.sheetTemplateInputs != nil {
+	if legacy := parseAutomation(map[string]any{"paid_delivery_contents": "9"}); legacy.sheetTemplateInputs != nil {
 		t.Fatalf("旧表格不应产生模板输入: %+v", legacy.sheetTemplateInputs)
 	}
 }

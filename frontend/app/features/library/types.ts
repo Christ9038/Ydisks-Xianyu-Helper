@@ -303,3 +303,76 @@ export interface LibraryImagePickerProps {
 
 /** LibraryImagePickerComponent 是应用壳注入商品页的图片选择器组件类型。 */
 export type LibraryImagePickerComponent = ComponentType<LibraryImagePickerProps>;
+
+/** LibraryImportPreviewRow 是 Excel 导入预检中的一行。 */
+export interface LibraryImportPreviewRow {
+  /** rowNo 是表格行号（表头后第一行为 2）。 */
+  rowNo: number;
+  /** valid 表示该行能否导入。 */
+  valid: boolean;
+  /** name 是将要创建的模板名称。 */
+  name: string;
+  /** title 是商品标题。 */
+  title: string;
+  /** price 是售价文本。 */
+  price: string;
+  /** imageCount 是图片数量。 */
+  imageCount: number;
+  /** remoteImageCount 是需要下载的网址图片数量。 */
+  remoteImageCount: number;
+  /** errors 是阻止导入的问题。 */
+  errors: string[];
+  /** warnings 是不阻止导入的提示，例如标题重复。 */
+  warnings: string[];
+}
+
+/** LibraryImportPreview 是 Excel 导入预检结果；importId 为空表示没有可导入的行。 */
+export interface LibraryImportPreview {
+  /** importId 是服务端暂存的导入任务标识。 */
+  importId: string;
+  /** total 是数据行数。 */
+  total: number;
+  /** valid 是可导入行数。 */
+  valid: number;
+  /** invalid 是不可导入行数。 */
+  invalid: number;
+  /** remoteImages 是需要下载的网址图片总数。 */
+  remoteImages: number;
+  /** rows 是逐行结果。 */
+  rows: LibraryImportPreviewRow[];
+}
+
+/** LibraryImportRowStatus 是导入行状态：预检未通过、待导入、已创建、导入失败。 */
+export type LibraryImportRowStatus = 'invalid' | 'pending' | 'created' | 'failed';
+
+/** LibraryImportProgressRow 是导入进度中的一行。 */
+export interface LibraryImportProgressRow {
+  /** rowNo 是表格行号。 */
+  rowNo: number;
+  /** status 是行状态。 */
+  status: LibraryImportRowStatus;
+  /** templateId 是已创建模板主键，未创建时为 0。 */
+  templateId: number;
+  /** errors 是预检或导入失败原因。 */
+  errors: string[];
+}
+
+/** LibraryImportProgress 是一次分段提交后的导入进度。 */
+export interface LibraryImportProgress {
+  /** importId 是导入任务标识。 */
+  importId: string;
+  /** done 表示已没有待导入的行。 */
+  done: boolean;
+  /** created 是已创建模板的行数。 */
+  created: number;
+  /** failed 是导入时失败的行数。 */
+  failed: number;
+  /** pending 是尚未导入的行数。 */
+  pending: number;
+  /** invalid 是预检未通过的行数。 */
+  invalid: number;
+  /** createdTemplateIds 是至今创建的全部模板主键。 */
+  createdTemplateIds: number[];
+  /** rows 是逐行进度。 */
+  rows: LibraryImportProgressRow[];
+}

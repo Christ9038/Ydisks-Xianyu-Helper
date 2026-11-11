@@ -1,4 +1,4 @@
-import { ImageIcon, Package, Plus, Rocket, Trash2 } from 'lucide-react';
+import { FileSpreadsheet, ImageIcon, Package, Plus, Rocket, Trash2 } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { ImageGrid } from '../components/ImageGrid';
 import { ImageUploadButton } from '../components/ImageUploadButton';
@@ -6,6 +6,7 @@ import { ListToolbar } from '../components/ListToolbar';
 import { SelectAllCheckbox } from '../components/SelectAllCheckbox';
 import { TemplateCard } from '../components/TemplateCard';
 import { TemplateEditorDialog } from '../components/TemplateEditorDialog';
+import { TemplateImportDialog } from '../components/TemplateImportDialog';
 import { TemplatePublishDialog } from '../components/TemplatePublishDialog';
 import { type BatchDeleteResult, useAutomationOptions, useLibraryImages, useProductTemplates } from '../hooks';
 import { defaultImageFilters, imageUsage, isImageFilterActive, queryImages, type ImageFilters } from '../imageQuery';
@@ -63,6 +64,8 @@ const ResourceLibrary: React.FC<ResourceLibraryProps> = ({ onBatchStarted, locat
   const [checkedImageIds, setCheckedImageIds] = useState<number[]>([]);
   // publishing 表示发布弹窗是否打开。
   const [publishing, setPublishing] = useState(false);
+  // importing 表示 Excel 导入弹窗是否打开。
+  const [importing, setImporting] = useState(false);
   // notice 是上传摘要或操作结果，tone 为 warn 时表示存在失败项。
   const [notice, setNotice] = useState<{ /** text 是提示文字。 */ text: string; /** tone 是提示语气。 */ tone: 'ok' | 'warn' }>({ text: '', tone: 'ok' });
   // batchControllerRef 取消进行中的批量删除；页面卸载时停止剩余请求。
@@ -130,6 +133,13 @@ const ResourceLibrary: React.FC<ResourceLibraryProps> = ({ onBatchStarted, locat
     if (await templates.duplicate(template)) setNotice({ text: `已复制模板“${template.name}”。`, tone: 'ok' });
   };
 
+  /** acceptImported 刷新模板列表并勾选新导入的模板，用户可直接“发布所选”选择账号发布。 */
+  const acceptImported = async (ids: number[]): Promise<void> => {
+    await templates.reload();
+    setTemplateFilters(/* previous 是导入前的条件，清空搜索与筛选以免新模板被隐藏，保留排序。 */ previous => ({ ...defaultTemplateFilters, sort: previous.sort }));
+    setSelectedIds(ids);
+    setNotice({ text: `已导入 ${ids.length} 个商品模板并已勾选，可点击“发布所选”选择账号发布。`, tone: 'ok' });
+  };
   /** removeTemplate 经确认后删除模板。 */
   const removeTemplate = async (template: ProductTemplate): Promise<void> => {
     if (!confirm(`确定删除模板“${template.name}”吗？已发布的商品不受影响。`)) return;
@@ -152,6 +162,7 @@ const ResourceLibrary: React.FC<ResourceLibraryProps> = ({ onBatchStarted, locat
           {templates.error && <div role="alert" className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">{templates.error}</div>}
           <div className="flex flex-wrap gap-3">
             <button type="button" onClick={/* 打开空白编辑器。 */ () => setEditing(null)} className="inline-flex items-center gap-2 rounded-xl ios-btn-primary px-4 py-3 text-sm font-bold "><Plus className="h-4 w-4" />新建模板</button>
+            <button type="button" onClick={/* 打开 Excel 导入弹窗。 */ () => setImporting(true)} className="inline-flex items-center gap-2 rounded-xl ios-btn-secondary px-4 py-3 text-sm font-bold "><FileSpreadsheet className="h-4 w-4" />从 Excel 导入</button>
             <button type="button" disabled={selectedTemplates.length === 0} onClick={/* 打开发布弹窗。 */ () => setPublishing(true)} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white disabled:opacity-50"><Rocket className="h-4 w-4" />发布所选（{selectedTemplates.length}）</button>
             <button type="button" disabled={selectedTemplates.length === 0 || templates.busy} onClick={/* 批量删除勾选的模板。 */ () => void removeSelectedTemplates()} className="inline-flex items-center gap-2 rounded-xl ios-btn-danger px-4 py-3 text-sm font-bold  disabled:opacity-50"><Trash2 className="h-4 w-4" />删除所选</button>
           </div>
@@ -207,6 +218,9 @@ const ResourceLibrary: React.FC<ResourceLibraryProps> = ({ onBatchStarted, locat
         <TemplateEditorDialog key={editing?.id ?? 'new'} template={editing} busy={templates.busy} options={options} categoryField={categoryField}
           onClose={/* 关闭并丢弃草稿。 */ () => setEditing(undefined)}
           onSave={/* 保存成功后关闭编辑器。 */ async body => { if (await templates.save(editing?.id ?? null, body)) setEditing(undefined); }} />
+      )}
+      {importing && (
+        <TemplateImportDialog onClose={/* 关闭导入弹窗。 */ () => setImporting(false)} onImported={/* 刷新列表并勾选新模板。 */ ids => void acceptImported(ids)} />
       )}
       {publishing && (
         <TemplatePublishDialog templates={selectedTemplates} accounts={options.accounts} locationField={locationField} onClose={/* 关闭发布弹窗。 */ () => setPublishing(false)}

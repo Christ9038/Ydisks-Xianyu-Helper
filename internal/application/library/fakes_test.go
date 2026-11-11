@@ -202,6 +202,8 @@ type fakeTemplateRepository struct {
 	nextID int64
 	// err 非空时写方法返回该错误。
 	err error
+	// listErr 非空时 List 返回该错误。
+	listErr error
 }
 
 // newFakeTemplateRepository 创建空仓储。
@@ -211,6 +213,9 @@ func newFakeTemplateRepository() *fakeTemplateRepository {
 
 // List 返回用户模板。
 func (f *fakeTemplateRepository) List(_ context.Context, userID int64) ([]Template, error) {
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
 	// out 保存当前用户的模板。
 	var out []Template
 	// template 是遍历 f.templates 时的当前元素。

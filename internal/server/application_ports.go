@@ -17,7 +17,6 @@ import (
 	itemgreetingapp "xianyu-go/internal/application/itemgreeting"
 	itemapp "xianyu-go/internal/application/items"
 	keywordsapp "xianyu-go/internal/application/keywords"
-	libraryapp "xianyu-go/internal/application/library"
 	logsapp "xianyu-go/internal/application/logs"
 	notificationsapp "xianyu-go/internal/application/notifications"
 	orderapp "xianyu-go/internal/application/orders"
@@ -378,20 +377,6 @@ type AgentReplyPort interface {
 	Get(context.Context, int64, string) (agentreplyapp.Settings, error)
 	Update(context.Context, int64, string, agentreplyapp.Draft) (agentreplyapp.Settings, error)
 	Test(context.Context, int64, string, agentreplyapp.TestInput) (agentreplyapp.TestResult, error)
-}
-
-// LibraryPort 定义本地资源库能力：图片库、商品模板，以及「模板 × 账号」发布预检。
-type LibraryPort interface {
-	ListImages(context.Context, int64) ([]libraryapp.Image, error)
-	UploadImages(context.Context, int64, []libraryapp.ImageUpload) ([]libraryapp.UploadResult, error)
-	ImageContent(context.Context, int64, int64) (libraryapp.Image, []byte, error)
-	DeleteImage(context.Context, int64, int64) error
-	ListTemplates(context.Context, int64) ([]libraryapp.Template, error)
-	GetTemplate(context.Context, int64, int64) (libraryapp.Template, error)
-	CreateTemplate(context.Context, libraryapp.Template) (libraryapp.Template, error)
-	UpdateTemplate(context.Context, libraryapp.Template) (libraryapp.Template, error)
-	DeleteTemplate(context.Context, int64, int64) error
-	PreviewPublish(context.Context, libraryapp.PublishPreviewInput) (itemapp.BatchPreviewPersistenceResult, error)
 }
 
 // KeywordsPort 定义关键词与指定商品回复能力。

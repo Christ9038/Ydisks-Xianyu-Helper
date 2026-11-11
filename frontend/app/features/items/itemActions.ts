@@ -3,6 +3,7 @@ import type { Item } from './api';
 import type { PublishLocation } from './api';
 import { createItem,deleteItem,getPublishLocations,itemErrorMessage,publishItem,recommendPublishCategory as recommendItemPublishCategory,syncItemsFromAccount,updateItem } from './api';
 import type { PublishSkuRow, PublishSpec } from '../../../shared/ui/publish/publishSpecs';
+import { downloadCsv } from '../../../shared/browser/csvDownload';
 import { categoryCandidatesOf } from './batchState';
 import type { PublishCategory } from './types';
 
@@ -410,20 +411,7 @@ export const useItemActions = ({ selectedAccount, setSelectedAccount, setItems, 
       ['', '普通商品', '仅发布商品，不创建自动化规则。', '49.90', '', '10', 'fixed', '8.00', 'https://example.com/product.jpg', '', '', '', '', '否', '', '否', '', '否', '', '', '', ''],
       ['', '网盘资源自动发链接', '付款后自动发送网盘链接。', '9.90', '', '99', 'none', '', 'images/resource.jpg', '', '', '', '', '是', 'T1', '否', '', '否', '', '', '', 'https://pan.example.com/s/xxxx'],
     ];
-    // csv 保存转义后的模板文本。
-    const csv = [headers, ...rows].map(/* 当前回调处理模板行。 */ row => row.map(/* 当前回调处理模板单元格。 */ cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
-    // blob 保存生成的 CSV 文件对象。
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
-    // url 保存模板文件临时地址。
-    const url = URL.createObjectURL(blob);
-    // link 保存触发下载的临时链接。
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = '批量铺货模板.csv';
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
+    downloadCsv('批量铺货模板.csv', [headers, ...rows]);
   }, []);
 
   // openAddModal 打开添加商品弹窗并回填当前账号。

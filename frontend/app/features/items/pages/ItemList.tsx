@@ -13,7 +13,7 @@ import { BatchPhaseIndicator } from '../components/BatchPhaseIndicator';
 import { CategoryCandidatePicker } from '../components/CategoryCandidatePicker';
 import ItemTable from '../components/ItemTable';
 import { ManualLocationPicker } from '../components/ManualLocationPicker';
-import { consumeSelectedFile } from '../fileInput';
+import { consumeSelectedFile } from '../../../../shared/browser/fileInput';
 import { useItemPublishBatch } from '../hooks';
 import { useItemActions } from '../itemActions';
 import { matchesRuleCoverageFilter,paginateItems,TRADE_AUTOMATION_TRIGGERS,type RuleCoverageFilter } from '../ruleCoverage';

@@ -63,16 +63,16 @@ type TemplatePublishService struct {
 	persister PreviewPersister
 	// newBatchID 生成批次标识。
 	newBatchID func() string
-	// maxRows 是单批最大行数，与批量铺货上限保持一致。
-	maxRows int
 }
 
 // NewTemplatePublishService 创建发布预检服务并校验必需依赖。
-func NewTemplatePublishService(templates TemplateRepository, images ImageRepository, snapshots PublishSnapshotStore, validator PreviewRowsValidator, persister PreviewPersister, newBatchID func() string, maxRows int) (*TemplatePublishService, error) {
-	if templates == nil || images == nil || snapshots == nil || validator == nil || persister == nil || newBatchID == nil || maxRows <= 0 {
+// 「模板 × 账号」展开不设行数上限：批次由既有 worker 逐行串行发布，平台请求受发布间隔与账号级节流器约束，
+// 遇风控、会话失效或 Token 耗尽立即中止整批，因此行数只影响排队时长而不会提高请求频率。
+func NewTemplatePublishService(templates TemplateRepository, images ImageRepository, snapshots PublishSnapshotStore, validator PreviewRowsValidator, persister PreviewPersister, newBatchID func() string) (*TemplatePublishService, error) {
+	if templates == nil || images == nil || snapshots == nil || validator == nil || persister == nil || newBatchID == nil {
 		return nil, errors.New("模板发布依赖不能为空")
 	}
-	return &TemplatePublishService{templates: templates, images: images, snapshots: snapshots, validator: validator, persister: persister, newBatchID: newBatchID, maxRows: maxRows}, nil
+	return &TemplatePublishService{templates: templates, images: images, snapshots: snapshots, validator: validator, persister: persister, newBatchID: newBatchID}, nil
 }
 
 // PreviewPublish 展开「模板 × 账号」并生成 preview 状态的批次；预检阶段不访问任何平台接口。
@@ -88,10 +88,6 @@ func (s *TemplatePublishService) PreviewPublish(ctx context.Context, input Publi
 	// locationErr 保存发货地完整性校验结果：未指定允许（虚拟商品沿用平台默认），指定则必须带坐标。
 	if locationErr := validateLocation(input.Location); locationErr != nil {
 		return itemapp.BatchPreviewPersistenceResult{}, locationErr
-	}
-	// total 保存 len 的返回结果。
-	if total := len(templateIDs) * len(cookieIDs); total > s.maxRows {
-		return itemapp.BatchPreviewPersistenceResult{}, invalid(fmt.Sprintf("单次最多发布 %d 条商品，当前选择 %d 条", s.maxRows, total))
 	}
 	// templates 按选择顺序读取，任何一个不属于用户都整体失败。
 	templates := make([]Template, 0, len(templateIDs))

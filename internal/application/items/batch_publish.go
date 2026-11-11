@@ -226,8 +226,9 @@ type BatchRunOptions struct {
 	Wait func(context.Context, time.Duration) error
 	// Now 提供当前时间，用于计算并持久化最终发布请求的强制间隔。
 	Now func() time.Time
-	// IsSessionExpired 判断错误是否要求立即中断剩余明细。
-	IsSessionExpired func(error) bool
+	// ShouldAbortBatch 判断错误是否要求立即中断本批次剩余明细：会话失效、平台风控验证或 Token 刷新耗尽时
+	// 继续请求其余行只会加重风控，必须终止本批次，不得依赖冷却后自动重放。
+	ShouldAbortBatch func(error) bool
 	// ClassifyFailure 生成失败明细的消息和分类。
 	ClassifyFailure FailureClassifier
 }
@@ -259,8 +260,8 @@ func NewBatchRunner(repository BatchRepository, publisher BatchPublisher, option
 	if options.Now == nil {
 		options.Now = time.Now
 	}
-	if options.IsSessionExpired == nil {
-		options.IsSessionExpired = func(error) bool { return false }
+	if options.ShouldAbortBatch == nil {
+		options.ShouldAbortBatch = func(error) bool { return false }
 	}
 	if options.ClassifyFailure == nil {
 		options.ClassifyFailure = defaultFailureClassifier
@@ -319,7 +320,7 @@ func (runner *BatchRunner) Run(ctx context.Context, userID int64, batchID, worke
 			if markErr != nil || !marked {
 				return errors.Join(fmt.Errorf("保存批量发布失败状态失败: %w", firstNonNil(markErr, ErrBatchLeaseLost)), runner.finishInterrupted(ctx, userID, batchID, workerToken))
 			}
-			if runner.options.IsSessionExpired(rowErr) {
+			if runner.options.ShouldAbortBatch(rowErr) {
 				return errors.Join(rowErr, runner.finishInterrupted(ctx, userID, batchID, workerToken))
 			}
 		}

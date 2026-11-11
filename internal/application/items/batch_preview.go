@@ -160,6 +160,9 @@ type BatchPreviewInput struct {
 	FallbackCategory BatchPreviewCategory
 	// Rows 是表格解析得到的字段行。
 	Rows []map[string]any
+	// templateImport 表示本次解析用于导入资源库商品模板：跳过账号归属与上传目录图片文件校验，
+	// 其余字段、类目与自动化规则校验保持不变；仅由 PreviewTemplateRows 设置。
+	templateImport bool
 }
 
 // BatchPreviewOwnershipPort 定义预检所需的非敏感归属查询。
@@ -274,9 +277,12 @@ func (service *BatchPreviewService) parseRow(ctx context.Context, input BatchPre
 
 // validateRow 将归属、金额、库存、图片和自动化规则错误写入当前行。
 func (service *BatchPreviewService) validateRow(ctx context.Context, input BatchPreviewInput, row *BatchPreviewRow) {
-	if row.CookieID == "" {
+	switch {
+	case input.templateImport:
+		// 导入为资源库模板时账号在发布阶段才选择，不做账号归属校验。
+	case row.CookieID == "":
 		row.Errors = append(row.Errors, "缺少账号ID")
-	} else { // owned 和 err 表示账号归属查询结果。
+	default: // owned 和 err 表示账号归属查询结果。
 		owned, err := service.ownership.CookieOwned(ctx, input.UserID, row.CookieID)
 		if err != nil || !owned {
 			row.Errors = append(row.Errors, "账号不存在或不属于当前用户")
@@ -313,8 +319,11 @@ func (service *BatchPreviewService) validateRow(ctx context.Context, input Batch
 	if len(row.Images) > 9 {
 		row.Errors = append(row.Errors, "商品图片最多 9 张")
 	}
-	// reference 表示当前待校验的图片引用。
+	// reference 表示当前待校验的图片引用；模板导入的图片由资源库按压缩包与网址另行核对。
 	for _, reference := range row.Images {
+		if input.templateImport {
+			break
+		}
 		// err 表示图片引用安全校验错误。
 		if err := service.images.ValidateImageReference(input.UploadDir, reference); err != nil {
 			row.Errors = append(row.Errors, err.Error())

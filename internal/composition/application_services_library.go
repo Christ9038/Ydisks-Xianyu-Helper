@@ -13,9 +13,6 @@ import (
 	"xianyu-go/internal/uploadroot"
 )
 
-// maxLibraryPublishRows 是单次模板发布展开的最大行数，与批量铺货表格导入的单批上限保持一致。
-const maxLibraryPublishRows = 50
-
 // buildLibraryService 构造本地资源库应用服务：图片库、商品模板和「模板 × 账号」发布预检。
 // 发布预检直接复用批量铺货的预检校验与批次落库，因此模板发布后的 worker、进度和重试与表格导入完全一致。
 func buildLibraryService(dependencies Dependencies, batchPreview *itemapp.BatchPreviewService, previewPersistence *itemapp.BatchPreviewPersistenceService) (*libraryapp.Service, error) {
@@ -39,11 +36,32 @@ func buildLibraryService(dependencies Dependencies, batchPreview *itemapp.BatchP
 		return nil, fmt.Errorf("构造商品模板服务失败: %w", templatesErr)
 	}
 	// publish 是模板发布预检用例。
-	publish, publishErr := libraryapp.NewTemplatePublishService(templateRepository, imageRepository, fileStore, batchPreview, previewPersistence, newLibraryBatchID, maxLibraryPublishRows)
+	publish, publishErr := libraryapp.NewTemplatePublishService(templateRepository, imageRepository, fileStore, batchPreview, previewPersistence, newLibraryBatchID)
 	if publishErr != nil {
 		return nil, fmt.Errorf("构造模板发布服务失败: %w", publishErr)
 	}
-	return libraryapp.NewService(images, templates, publish), nil
+	// importStore 把 Excel 导入暂存保存在上传根目录的 library_imports 子目录。
+	importStore, importStoreErr := adapter.NewLibraryImportStore(uploadroot.Dir())
+	if importStoreErr != nil {
+		return nil, fmt.Errorf("构造模板导入暂存失败: %w", importStoreErr)
+	}
+	// imports 是 Excel 导入商品模板用例：行解析复用批量预检，网址图片经 netguard 出站策略下载。
+	imports, importsErr := libraryapp.NewTemplateImportService(batchPreview, adapter.NewLibraryRemoteImageFetcher(), importStore, images, templates, newLibraryImportID, time.Now)
+	if importsErr != nil {
+		return nil, fmt.Errorf("构造模板导入服务失败: %w", importsErr)
+	}
+	return libraryapp.NewService(images, templates, publish, imports), nil
+}
+
+// newLibraryImportID 生成 Excel 导入任务标识；随机源不可用时退化为时间戳。
+func newLibraryImportID() string {
+	// buf 保存 12 字节随机数。
+	buf := make([]byte, 12)
+	// err 保存 Read 调用的失败原因。
+	if _, err := rand.Read(buf); err != nil {
+		return "import_" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	}
+	return "import_" + hex.EncodeToString(buf)
 }
 
 // newLibraryBatchID 生成批次标识，格式与表格导入一致；随机源不可用时退化为时间戳。
