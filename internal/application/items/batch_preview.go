@@ -109,6 +109,9 @@ type BatchPreviewAutomation struct {
 	ReviewGift BatchPreviewCardAutomation `json:"review_gift"`
 	// ReviewRequest 是超时求评价配置。
 	ReviewRequest BatchPreviewReviewRequest `json:"review_request"`
+	// sheetTemplateInputs 是表格行通过「变量.xxx」「模板卡密.xxx」列提供的模板输入；
+	// 仅表格导入路径非 nil，预检时按模板实际需要的键分发给该行的模板动作，不参与 JSON 持久化。
+	sheetTemplateInputs *sheetTemplateInputs
 }
 
 // BatchPreviewRow 是表格一行经归一化和校验后的应用模型。
@@ -317,6 +320,7 @@ func (service *BatchPreviewService) validateRow(ctx context.Context, input Batch
 			row.Errors = append(row.Errors, err.Error())
 		}
 	}
+	row.Automation = service.resolveSheetTemplateActions(ctx, input.UserID, row.Automation)
 	row.Errors = append(row.Errors, service.validateAutomation(ctx, input.UserID, row.Automation)...)
 }
 
@@ -652,59 +656,6 @@ func parseCategory(fields map[string]any, fallback BatchPreviewCategory) BatchPr
 // hasCategoryFields 判断原始行是否显式提供了类目字段。
 func hasCategoryFields(fields map[string]any) bool {
 	return firstString(fields, "category_id", "类目ID", "商品类目ID") != "" || firstString(fields, "category_name", "类目名称", "商品类目名称", "类目") != "" || firstString(fields, "channel_category_id", "频道类目ID") != "" || firstString(fields, "tb_category_id", "淘宝类目ID") != ""
-}
-
-// parseAutomation 解析表格中的自动化配置文本。
-func parseAutomation(fields map[string]any) BatchPreviewAutomation {
-	// paidActions 和 paidError 表示付款发货动作及解析错误。
-	paidActions, paidError := parseCardActions(firstString(fields, "paid_delivery_contents", "付款发货内容"))
-	// reviewActions 和 reviewError 表示评价赠品动作及解析错误。
-	reviewActions, reviewError := parseCardActions(firstString(fields, "review_gift_contents", "评价赠品内容"))
-	return BatchPreviewAutomation{
-		PaidDelivery:  BatchPreviewCardAutomation{Enabled: parseBool(firstString(fields, "paid_delivery_enabled", "付款发货启用")), Actions: paidActions, ParseError: paidError},
-		ReviewGift:    BatchPreviewCardAutomation{Enabled: parseBool(firstString(fields, "review_gift_enabled", "评价赠品启用")), Actions: reviewActions, ParseError: reviewError},
-		ReviewRequest: BatchPreviewReviewRequest{Enabled: parseBool(firstString(fields, "review_request_enabled", "求评价启用")), AfterShippedHours: parseIntDefault(firstString(fields, "review_request_after_hours", "求评价等待小时"), 72), Message: firstString(fields, "review_request_message", "求评价文案"), MaxAttempts: parseIntDefault(firstString(fields, "review_request_max_attempts", "求评价最多次数"), 1), DelaySeconds: parseIntDefault(firstString(fields, "review_request_delay_seconds", "求评价延迟秒"), 0)},
-	}
-}
-
-// parseCardActions 解析卡券组 ID、数量和延迟秒组成的动作文本。
-func parseCardActions(raw string) ([]BatchPreviewCardAction, string) {
-	// entries 保存按分隔符拆出的卡券动作文本。
-	entries := strings.FieldsFunc(strings.TrimSpace(raw), func(char rune) bool { return char == ';' || char == '；' || char == '\n' || char == '\r' })
-	if len(entries) == 0 {
-		return nil, ""
-	}
-	// actions 保存解析后的卡券动作。
-	actions := make([]BatchPreviewCardAction, 0, len(entries))
-	// index 和 entry 表示动作序号及原始动作文本。
-	for index, entry := range entries {
-		// parts 保存动作的 ID、数量和延迟字段。
-		parts := strings.Split(strings.ReplaceAll(strings.TrimSpace(entry), "：", ":"), ":")
-		if len(parts) < 1 || len(parts) > 3 || strings.TrimSpace(parts[0]) == "" {
-			return nil, fmt.Sprintf("第%d项格式错误，应为 卡密组ID:每件份数:延迟秒", index+1)
-		}
-		// cardID 和 err 表示卡券组标识及解析错误。
-		cardID, err := strconv.ParseInt(strings.TrimSpace(parts[0]), 10, 64)
-		if err != nil || cardID <= 0 {
-			return nil, fmt.Sprintf("第%d项卡密组ID无效", index+1)
-		}
-		// count 和 delay 保存默认的每件数量及延迟秒数。
-		count, delay := 1, 0
-		if len(parts) >= 2 && strings.TrimSpace(parts[1]) != "" {
-			count, err = strconv.Atoi(strings.TrimSpace(parts[1]))
-			if err != nil || count <= 0 {
-				return nil, fmt.Sprintf("第%d项每件份数必须大于0", index+1)
-			}
-		}
-		if len(parts) == 3 && strings.TrimSpace(parts[2]) != "" {
-			delay, err = strconv.Atoi(strings.TrimSpace(parts[2]))
-			if err != nil || delay < 0 {
-				return nil, fmt.Sprintf("第%d项延迟秒不能小于0", index+1)
-			}
-		}
-		actions = append(actions, BatchPreviewCardAction{CardID: cardID, DeliveryCount: count, DelaySeconds: delay})
-	}
-	return actions, ""
 }
 
 // parseBool 将常见真值文本转换为布尔值。

@@ -41,24 +41,45 @@ func (port *ItemBatchPreviewPort) CardOwned(ctx context.Context, userID, cardID 
 	return port.store.Cards.ExistsOwned(ctx, cardID, userID)
 }
 
-// DeliveryTemplateUsable 判断发货模板是否属于用户且已启用，不暴露模板内容。
-func (port *ItemBatchPreviewPort) DeliveryTemplateUsable(ctx context.Context, userID, templateID int64) (bool, error) {
+// DeliveryTemplateRequirements 返回发货模板的归属、启用状态与变量键，不向应用层暴露模板消息正文。
+// 模板不存在或属于他人时返回 Usable=false 且无错误，与其他归属查询的“不可见即不存在”语义一致。
+func (port *ItemBatchPreviewPort) DeliveryTemplateRequirements(ctx context.Context, userID, templateID int64) (itemapp.BatchTemplateRequirements, error) {
 	// err 表示适配器依赖校验错误。
 	if err := port.validate(); err != nil {
-		return false, err
+		return itemapp.BatchTemplateRequirements{}, err
 	}
 	if port.store.DeliveryTemplates == nil {
-		return false, errors.New("发货模板存储未初始化")
+		return itemapp.BatchTemplateRequirements{}, errors.New("发货模板存储未初始化")
 	}
 	// template、err 保存模板摘要及读取错误；不属于用户时视为不可用。
 	template, err := port.store.DeliveryTemplates.GetForUser(ctx, userID, templateID)
 	if errors.Is(err, db.ErrNotFound) {
+		return itemapp.BatchTemplateRequirements{}, nil
+	}
+	if err != nil {
+		return itemapp.BatchTemplateRequirements{}, err
+	}
+	return itemapp.BatchTemplateRequirements{Usable: template.Enabled, CardKeys: append([]string(nil), template.Keys...), CustomKeys: append([]string(nil), template.CustomKeys...)}, nil
+}
+
+// TemplateCardBindable 判断卡密组能否被发货模板绑定：属于用户、已启用，且为文本、批量数据或配置有效的 API 类型。
+// 判断规则与自动化规则保存时的模板绑定校验一致；只读取卡密组摘要，不读取卡密内容或 API 密钥。
+func (port *ItemBatchPreviewPort) TemplateCardBindable(ctx context.Context, userID, cardID int64) (bool, error) {
+	// err 表示适配器依赖校验错误。
+	if err := port.validate(); err != nil {
+		return false, err
+	}
+	// card、err 保存卡密组摘要及读取错误；不存在或属于他人时视为不可绑定。
+	card, err := port.store.Cards.GetSummary(ctx, cardID)
+	if errors.Is(err, db.ErrNotFound) || (err == nil && (card == nil || card.UserID != userID)) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
-	return template.Enabled, nil
+	// apiReady 表示非 API 卡密组或 API 配置已通过校验。
+	apiReady := card.Type != "api" || card.APIConfigSummary != nil && card.APIConfigSummary.Ready
+	return card.Enabled && apiReady && (card.Type == "text" || card.Type == "data" || card.Type == "api"), nil
 }
 
 // ValidateImageReference 校验本地图片路径位于指定上传目录内且对应普通文件。
@@ -115,3 +136,6 @@ func safePreviewPath(raw string) (string, error) {
 // 确保适配器实现批量预检的所有基础设施 Port。
 var _ itemapp.BatchPreviewOwnershipPort = (*ItemBatchPreviewPort)(nil)
 var _ itemapp.BatchPreviewImagePort = (*ItemBatchPreviewPort)(nil)
+
+// 确保适配器实现发货模板预检端口，否则 Excel 与资源库模板动作会被判为不可用。
+var _ itemapp.BatchPreviewTemplatePort = (*ItemBatchPreviewPort)(nil)

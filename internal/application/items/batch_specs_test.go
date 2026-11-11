@@ -170,9 +170,14 @@ type templatePreviewOwnershipFake struct {
 	usableTemplate int64
 }
 
-// DeliveryTemplateUsable 只承认预置的模板。
-func (fake templatePreviewOwnershipFake) DeliveryTemplateUsable(_ context.Context, _ int64, templateID int64) (bool, error) {
-	return templateID == fake.usableTemplate, fake.err
+// DeliveryTemplateRequirements 只承认预置的模板，并声明模板引用卡密变量 k。
+func (fake templatePreviewOwnershipFake) DeliveryTemplateRequirements(_ context.Context, _ int64, templateID int64) (BatchTemplateRequirements, error) {
+	return BatchTemplateRequirements{Usable: templateID == fake.usableTemplate, CardKeys: []string{"k"}}, fake.err
+}
+
+// TemplateCardBindable 只承认替身中归属当前用户的卡密组可被模板绑定。
+func (fake templatePreviewOwnershipFake) TemplateCardBindable(_ context.Context, _ int64, cardID int64) (bool, error) {
+	return cardID == fake.cardOwned, fake.err
 }
 
 // previewRowForSpecs 构造带多规格快照和按 SKU 覆盖发货动作的合法预检行。

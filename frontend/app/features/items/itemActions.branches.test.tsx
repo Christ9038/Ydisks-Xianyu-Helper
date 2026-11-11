@@ -176,15 +176,24 @@ describe('useItemActions 分支', /* 当前套件覆盖校验提示、异常路�
     hook.unmount();
   });
 
-  test('下载模板、打开弹窗回填账号', /* 当前回调覆盖模板下载与弹窗回填。 */ () => {
-    URL.createObjectURL = vi.fn(/* fakeObjectUrl 返回固定临时地址。 */ () => 'blob:x');
+  test('下载模板、打开弹窗回填账号', /* 当前回调覆盖模板下载与弹窗回填。 */ async () => {
+    // createObjectURL 记录下载的模板文件，便于读取 CSV 文本。
+    const createObjectURL = vi.fn(/* fakeObjectUrl 返回固定临时地址。 */ (_blob: Blob) => 'blob:x');
+    URL.createObjectURL = createObjectURL;
     URL.revokeObjectURL = vi.fn();
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(/* silenceConsole 屏蔽预期内的错误日志。 */ () => undefined);
     // hook 是商品动作。
     const hook = renderHook(/* renderActions 渲染商品动作 Hook。 */ () => useHarness('account-1'));
     act(/* 当前回调下载模板。 */ () => hook.result.current.downloadPublishTemplate());
-    expect(URL.createObjectURL).toHaveBeenCalled();
+    expect(createObjectURL).toHaveBeenCalled();
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:x');
+    // csvLines 是下载模板的逐行文本，去掉 Excel 兼容的 BOM。
+    const csvLines = (await createObjectURL.mock.calls[0][0].text()).replace(/^﻿/, '').split('\n');
+    expect(csvLines[0].startsWith('"账号ID","标题","描述","价格","原价","库存","邮费模式","邮费","图片"')).toBe(true);
+    expect(csvLines[0].endsWith('"求评价最多次数","变量.link"')).toBe(true);
+    expect(csvLines[3]).toContain('"none"');
+    expect(csvLines[3]).toContain('"T1"');
+    expect(csvLines[3].endsWith('"https://pan.example.com/s/xxxx"')).toBe(true);
     act(/* 当前回调打开添加与发布弹窗。 */ () => { hook.result.current.openAddModal(); hook.result.current.openPublishModal(); });
     expect(hook.result.current.addForm.cookie_id).toBe('account-1');
     expect(hook.result.current.publishForm.cookie_id).toBe('account-1');
