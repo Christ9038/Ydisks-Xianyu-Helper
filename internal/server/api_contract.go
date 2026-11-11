@@ -38,6 +38,10 @@ type cookieSummaryResponse struct {
 	AutoConsign bool `json:"auto_consign"`
 	// AutoBargain 表示砍价“待刀成”阶段是否自动免拼。
 	AutoBargain bool `json:"auto_bargain"`
+	// ConsignProofMode 是确认发货携带凭证的模式：delivery 卡密/模板全文，fixed 固定文字，none 不携带。
+	ConsignProofMode string `json:"consign_proof_mode"`
+	// ConsignProofText 是固定文字模式下提交给平台的用户自填文字。
+	ConsignProofText string `json:"consign_proof_text"`
 	// Remark 是账号备注。
 	Remark string `json:"remark"`
 	// PauseDuration 是自动回复暂停时长，单位为分钟。

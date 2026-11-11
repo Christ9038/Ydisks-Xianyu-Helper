@@ -3,6 +3,9 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import type { NotificationChannel } from '../api';
 import type { AccountEditForm,AccountEditModalProps } from '../types';
+import { consignProofFormError } from '../consignProof';
+import type { ConsignProofMode } from '../models';
+import { ConsignProofSettings } from './ConsignProofSettings';
 import { SquareQRCode } from './SquareQRCode';
 
 // AccountEditModal 负责账号备注、暂停、登录信息和通知绑定的编辑界面。
@@ -48,6 +51,12 @@ export const AccountEditModal: React.FC<AccountEditModalProps> = ({
   const handleAutoConfirmToggle = () => updateField('auto_confirm', !editForm.auto_confirm);
   // handleAutoConsignToggle 切换自动确认发货（转已发货）设置。
   const handleAutoConsignToggle = () => updateField('auto_consign', !editForm.auto_consign);
+  // handleConsignProofModeChange 切换确认发货凭证模式，保留已填写的固定文字以便切回。
+  const handleConsignProofModeChange = (mode: ConsignProofMode) => updateField('consign_proof_mode', mode);
+  // handleConsignProofTextChange 更新固定文字模式的凭证文本。
+  const handleConsignProofTextChange = (text: string) => updateField('consign_proof_text', text);
+  // consignProofError 是由当前表单派生的凭证校验错误，非空时禁止保存。
+  const consignProofError = consignProofFormError(editForm);
   // handleAutoBargainToggle 切换砍价“待刀成”阶段的独立自动免拼设置。
   const handleAutoBargainToggle = () => updateField('auto_bargain', !editForm.auto_bargain);
   // handlePauseDurationChange 更新账号暂停时长。
@@ -181,6 +190,14 @@ export const AccountEditModal: React.FC<AccountEditModalProps> = ({
               <span className={`absolute left-1 top-1 w-6 h-6 bg-white rounded-full shadow-md transition-transform duration-300 ${editForm.auto_consign ? 'translate-x-6' : 'translate-x-0'}`} />
             </button>
           </div>
+
+          <ConsignProofSettings
+            mode={editForm.consign_proof_mode}
+            text={editForm.consign_proof_text}
+            error={consignProofError}
+            onModeChange={handleConsignProofModeChange}
+            onTextChange={handleConsignProofTextChange}
+          />
 
           <div className="flex items-center justify-between gap-4 p-4 bg-gray-50 rounded-xl">
             <div className="min-w-0">
@@ -324,7 +341,7 @@ export const AccountEditModal: React.FC<AccountEditModalProps> = ({
         <div className="modal-footer">
           <div className="flex gap-3 w-full">
             <button onClick={handleClose} className="flex-1 px-6 py-3 rounded-xl font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors" disabled={saving}>取消</button>
-            <button onClick={handleSave} className="flex-1 ios-btn-primary px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2" disabled={saving}>
+            <button onClick={handleSave} className="flex-1 ios-btn-primary px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2" disabled={saving || consignProofError !== ''}>
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
               {saving ? '保存中...' : '保存'}
             </button>

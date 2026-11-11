@@ -166,7 +166,8 @@ func (e *automationActionExecutor) confirmShipment(ctx context.Context, task Tas
 	return e.confirmShipmentWithProof(ctx, task, shipmentDeliveryProof{})
 }
 
-// confirmShipmentWithProof 使用已成功投递的凭证确认订单发货；会话恢复重试沿用同一份短暂凭证。
+// confirmShipmentWithProof 按账号确认发货凭证设置（卡密/模板全文、固定文字或不携带）从已投递凭证得出提交内容并确认订单发货；
+// 会话恢复重试沿用同一份提交内容，proof 本身不被修改。
 func (e *automationActionExecutor) confirmShipmentWithProof(ctx context.Context, task Task, proof shipmentDeliveryProof) error {
 	// executionErr 在平台副作用前拒绝已取消或失去数据库执行权的旧动作。
 	if executionErr := checkRunExecution(ctx); executionErr != nil {
@@ -184,7 +185,12 @@ func (e *automationActionExecutor) confirmShipmentWithProof(ctx context.Context,
 	if !enabled && !task.ForceConfirmShipment {
 		return nil
 	}
-	return e.confirmShipmentAttempt(ctx, task, proof, true)
+	// proofSetting 是账号确认发货凭证设置；settingErr 表示读取失败，此时尚未调用平台，按未执行返回。
+	proofSetting, settingErr := e.store.Cookies.GetConsignProofSetting(ctx, task.AccountID)
+	if settingErr != nil {
+		return fmt.Errorf("读取确认发货凭证设置: %w", settingErr)
+	}
+	return e.confirmShipmentAttempt(ctx, task, resolveConsignProof(proofSetting, proof), true)
 }
 
 // confirmShipmentAttempt 使用凭证快照调用 Consign，并以指纹条件写回 Cookie；远端成功但订单事实落库失败时创建可重试补偿记录。

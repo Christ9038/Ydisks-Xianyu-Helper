@@ -112,17 +112,21 @@ func (s *Server) updateRunningCookie(ctx context.Context, cookieID, value string
 
 // updateCookieSettingsRequest 用于本次流程后续判断的update登录凭证设置请求
 type updateCookieSettingsRequest struct {
-	Cookie        *string  `json:"cookie"`
-	Remark        *string  `json:"remark"`
-	AutoConfirm   *bool    `json:"auto_confirm"`
-	AutoConsign   *bool    `json:"auto_consign"`
-	AutoBargain   *bool    `json:"auto_bargain"`
-	PauseDuration *int     `json:"pause_duration"`
-	Username      *string  `json:"username"`
-	LoginPassword *string  `json:"login_password"`
-	ClearPassword bool     `json:"clear_password"`
-	ShowBrowser   *bool    `json:"show_browser"`
-	ChannelIDs    *[]int64 `json:"channel_ids"`
+	Cookie      *string `json:"cookie"`
+	Remark      *string `json:"remark"`
+	AutoConfirm *bool   `json:"auto_confirm"`
+	AutoConsign *bool   `json:"auto_consign"`
+	AutoBargain *bool   `json:"auto_bargain"`
+	// ConsignProofMode 是确认发货凭证模式（delivery/fixed/none），省略时保持原值。
+	ConsignProofMode *string `json:"consign_proof_mode"`
+	// ConsignProofText 是固定文字模式的凭证文本，省略时保持原值。
+	ConsignProofText *string  `json:"consign_proof_text"`
+	PauseDuration    *int     `json:"pause_duration"`
+	Username         *string  `json:"username"`
+	LoginPassword    *string  `json:"login_password"`
+	ClearPassword    bool     `json:"clear_password"`
+	ShowBrowser      *bool    `json:"show_browser"`
+	ChannelIDs       *[]int64 `json:"channel_ids"`
 }
 
 // longLoginSettingsRequest 是更新账号长登录开关的 HTTP 请求 DTO。
@@ -228,6 +232,7 @@ func (s *Server) updateCookieSettings(w http.ResponseWriter, r *http.Request) {
 	settingsResult, err := s.accountSettingsApplication().UpdateSettings(r.Context(), accountapp.SettingsUpdateInput{
 		UserID: ownedDetail.UserID, AccountID: cid, Cookie: req.Cookie, Remark: req.Remark,
 		AutoConfirm: req.AutoConfirm, AutoConsign: req.AutoConsign, AutoBargain: req.AutoBargain, PauseDuration: req.PauseDuration, Username: req.Username,
+		ConsignProofMode: req.ConsignProofMode, ConsignProofText: req.ConsignProofText,
 		Password: password, ShowBrowser: req.ShowBrowser, ChannelIDs: req.ChannelIDs,
 	})
 	if err != nil {
@@ -296,6 +301,8 @@ func (s *Server) listCookieDetails(w http.ResponseWriter, r *http.Request) {
 			AutoConfirm:       summary.AutoConfirm,
 			AutoConsign:       summary.AutoConsign,
 			AutoBargain:       summary.AutoBargain,
+			ConsignProofMode:  summary.ConsignProofMode,
+			ConsignProofText:  summary.ConsignProofText,
 			Remark:            summary.Remark,
 			PauseDuration:     summary.PauseDuration,
 			PausedUntil:       summary.PausedUntil,
@@ -343,9 +350,10 @@ func (s *Server) getCookieDetails(w http.ResponseWriter, r *http.Request) {
 	enabled, statusErr := s.accountSummaryApplication().StatusOwned(r.Context(), sess.UserID, cid)
 	writeJSON(w, http.StatusOK, cookieDetailResponse{
 		ID: summary.ID, Enabled: statusErr == nil && enabled, AutoConfirm: summary.AutoConfirm,
-		AutoConsign: summary.AutoConsign,
-		AutoBargain: summary.AutoBargain,
-		Remark:      summary.Remark, PauseDuration: summary.PauseDuration, PausedUntil: summary.PausedUntil,
+		AutoConsign:      summary.AutoConsign,
+		AutoBargain:      summary.AutoBargain,
+		ConsignProofMode: summary.ConsignProofMode, ConsignProofText: summary.ConsignProofText,
+		Remark: summary.Remark, PauseDuration: summary.PauseDuration, PausedUntil: summary.PausedUntil,
 		Paused: summary.PausedUntil > time.Now().UTC().Unix(), ShowBrowser: summary.ShowBrowser,
 		Username: summary.Username, Nickname: cachedCookieSummaryNickname(summary), AvatarURL: summary.AvatarURL,
 		LoginMethod: summary.LoginMethod, LastLoginAt: summary.LastLoginAt, ProfileError: "", HasCookie: true,

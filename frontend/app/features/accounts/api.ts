@@ -6,6 +6,7 @@ AccountDetail,AccountSummaryResponse,
 AccountTaskRunResponseEnvelope,
 AccountTaskSettings,
 AccountTaskSettingsResponse,
+ConsignProofMode,
 CookieProfileResponse,
 CookieSettingsResponse,
 NotificationChannel,
@@ -17,6 +18,7 @@ QRLoginGenerateResponse,QRLoginStatusResponse,QRLoginVerificationResponse
 import { contractClient, runContractRequest } from '../../../shared/api-contract/client';
 import { type RequestControlOptions } from '../../../shared/http/client';
 import { collectionFrom,objectFrom } from '../../../shared/http/contract';
+import { normalizeConsignProofMode } from './consignProof';
 export type * from './models';
 
 // QRLoginStatusResult 描述账号 feature 消费的非敏感二维码状态字段。
@@ -67,6 +69,8 @@ export const getAccountDetails = async (options?: RequestControlOptions): Promis
     auto_confirm: item.auto_confirm,
     auto_consign: item.auto_consign === true,
     auto_bargain: item.auto_bargain === true,
+    consign_proof_mode: normalizeConsignProofMode(item.consign_proof_mode),
+    consign_proof_text: item.consign_proof_text || '',
     remark: item.remark,
     pause_duration: item.pause_duration,
     paused_until: Number(item.paused_until || 0),
@@ -213,6 +217,8 @@ export interface AccountSettingsUpdate {
   /** auto_confirm 表示自动发货状态。 */ auto_confirm?: boolean;
   /** auto_consign 表示自动发货后是否自动转已发货。 */ auto_consign?: boolean;
   /** auto_bargain 表示砍价“待刀成”阶段是否自动免拼。 */ auto_bargain?: boolean;
+  /** consign_proof_mode 表示确认发货凭证模式。 */ consign_proof_mode?: ConsignProofMode;
+  /** consign_proof_text 表示固定文字模式的凭证文本。 */ consign_proof_text?: string;
   /** pause_duration 表示暂停时长。 */ pause_duration?: number;
   /** username 表示用户名。 */ username?: string;
   /** login_password 表示登录密码。 */ login_password?: string;

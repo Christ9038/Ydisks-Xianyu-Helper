@@ -227,6 +227,8 @@ type PendingShipResume struct {
 // 用它判定会把数字游标套用到改过的规则上，从而改变历史订单的发货义务。
 // 订单退款撤回后，带 ObsoleteRunReasonMarker 且游标已推进的已取消运行同样纳入，由调用方的冻结计划检查
 // 保证只会补做确认发货，不会重发内容。
+// 动作已开始（action_started=1，外部结果不确定、禁止自动重放）的运行不纳入：ReopenRunForRecovery 必然拒绝它们，
+// 纳入只会让调度器每轮重复尝试并输出“重开失败”告警（#113）；这类运行只能由人工核对处理。
 // 因此本方法额外返回 RawEventJSON，供调用方恢复冻结计划。
 func (a *AutomationRules) PendingShipResumableRunsAfter(ctx context.Context, afterOrderID string, maxAttempts, limit int) ([]PendingShipResume, error) {
 	if limit <= 0 {
@@ -261,7 +263,7 @@ WHERE o.order_status IN `+pendingShipStatusSQLList()+`
    AND (o.is_bargain=0 OR EXISTS (SELECT 1 FROM bargain_free_shipping_stages bfs
                                   WHERE bfs.order_id=o.order_id AND bfs.cookie_id=o.cookie_id AND bfs.status IN ('ready','succeeded')))
    AND r.cookie_id=o.cookie_id
-   AND (r.status IN ('needs_review','failed') AND r.error_message NOT LIKE '`+MissingProofReasonMarker+`%'
+   AND (r.status IN ('needs_review','failed') AND r.action_started=0 AND r.error_message NOT LIKE '`+MissingProofReasonMarker+`%'
         OR (r.status='canceled' AND r.error_message LIKE '`+ObsoleteRunReasonMarker+`%'
             AND r.action_started=0 AND r.action_cursor>0))
    AND r.attempt_count<?

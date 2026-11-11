@@ -65,6 +65,10 @@ type CookieSummary struct {
 	AutoConsign bool
 	// AutoBargain 表示砍价“待刀成”阶段是否自动调用免拼接口。
 	AutoBargain bool
+	// ConsignProofMode 是确认发货携带凭证的模式（delivery/fixed/none），已归一化，不含敏感内容。
+	ConsignProofMode string
+	// ConsignProofText 是固定文字模式下提交给平台的用户自填文字，不含卡密或平台凭证。
+	ConsignProofText string
 	// Remark 是用户为账号设置的备注。
 	Remark string
 	// PauseDuration 是账号暂停时长，单位为分钟。
@@ -100,7 +104,8 @@ func (c *Cookies) ListSummaries(ctx context.Context, userID int64) ([]CookieSumm
 		SELECT id, user_id, auto_confirm, COALESCE(remark,''), pause_duration,
 		       COALESCE(paused_until,0), COALESCE(username,''), show_browser,
 		       COALESCE(nickname,''), COALESCE(avatar_url,''), COALESCE(last_refresh_at,0),
-		       COALESCE(login_method,''), COALESCE(last_login_at,0), COALESCE(auto_consign,0), COALESCE(auto_bargain,0), created_at
+		       COALESCE(login_method,''), COALESCE(last_login_at,0), COALESCE(auto_consign,0), COALESCE(auto_bargain,0),
+		       COALESCE(consign_proof_mode,''), COALESCE(consign_proof_text,''), created_at
 		FROM cookies WHERE user_id=? ORDER BY created_at DESC, id DESC`, userID)
 	if err != nil {
 		return nil, err
@@ -120,13 +125,14 @@ func (c *Cookies) ListSummaries(ctx context.Context, userID int64) ([]CookieSumm
 			&summary.ID, &summary.UserID, &autoConfirm, &summary.Remark, &pauseDuration,
 			&summary.PausedUntil, &summary.Username, &showBrowser, &summary.Nickname,
 			&summary.AvatarURL, &summary.LastRefreshAt, &summary.LoginMethod,
-			&summary.LastLoginAt, &autoConsign, &autoBargain, &summary.CreatedAt,
+			&summary.LastLoginAt, &autoConsign, &autoBargain, &summary.ConsignProofMode, &summary.ConsignProofText, &summary.CreatedAt,
 		); scanErr != nil {
 			return nil, scanErr
 		}
 		summary.AutoConfirm = autoConfirm != 0
 		summary.AutoConsign = autoConsign != 0
 		summary.AutoBargain = autoBargain != 0
+		summary.ConsignProofMode = NormalizeConsignProofMode(summary.ConsignProofMode)
 		summary.ShowBrowser = showBrowser != 0
 		summary.PauseDuration = 10
 		if pauseDuration.Valid {
@@ -154,12 +160,13 @@ func (c *Cookies) GetSummaryOwned(ctx context.Context, userID int64, cookieID st
 		SELECT id, user_id, auto_confirm, COALESCE(remark,''), pause_duration,
 		       COALESCE(paused_until,0), COALESCE(username,''), show_browser,
 		       COALESCE(nickname,''), COALESCE(avatar_url,''), COALESCE(last_refresh_at,0),
-		       COALESCE(login_method,''), COALESCE(last_login_at,0), COALESCE(auto_consign,0), COALESCE(auto_bargain,0), created_at
+		       COALESCE(login_method,''), COALESCE(last_login_at,0), COALESCE(auto_consign,0), COALESCE(auto_bargain,0),
+		       COALESCE(consign_proof_mode,''), COALESCE(consign_proof_text,''), created_at
 		FROM cookies WHERE id=? AND user_id=?`, cookieID, userID).Scan(
 		&summary.ID, &summary.UserID, &autoConfirm, &summary.Remark, &pauseDuration,
 		&summary.PausedUntil, &summary.Username, &showBrowser, &summary.Nickname,
 		&summary.AvatarURL, &summary.LastRefreshAt, &summary.LoginMethod,
-		&summary.LastLoginAt, &autoConsign, &autoBargain, &summary.CreatedAt)
+		&summary.LastLoginAt, &autoConsign, &autoBargain, &summary.ConsignProofMode, &summary.ConsignProofText, &summary.CreatedAt)
 	if queryErr != nil {
 		if errors.Is(queryErr, sql.ErrNoRows) {
 			return CookieSummary{}, ErrNotFound
@@ -169,6 +176,7 @@ func (c *Cookies) GetSummaryOwned(ctx context.Context, userID int64, cookieID st
 	summary.AutoConfirm = autoConfirm != 0
 	summary.AutoConsign = autoConsign != 0
 	summary.AutoBargain = autoBargain != 0
+	summary.ConsignProofMode = NormalizeConsignProofMode(summary.ConsignProofMode)
 	summary.ShowBrowser = showBrowser != 0
 	summary.PauseDuration = 10
 	if pauseDuration.Valid {

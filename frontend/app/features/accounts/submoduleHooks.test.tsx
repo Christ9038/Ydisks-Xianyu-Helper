@@ -59,7 +59,7 @@ const updateAccountMock = vi.mocked(updateAccountSettings);
 // accountFixture 是账号编辑和登录流程使用的账号对象。
 const accountFixture = { id: 'account-1', enabled: true, value: 'old-cookie', remark: '旧备注', auto_confirm: false, auto_consign: false, auto_bargain: false, pause_duration: 0, username: 'user@example.com', login_password: 'old-password', show_browser: false } as AccountDetail;
 // editFormFixture 是账号编辑弹窗的初始表单。
-const editFormFixture: AccountEditForm = { remark: '新备注', cookie: 'new-cookie', auto_confirm: true, auto_consign: false, auto_bargain: true, pause_duration: 60, username: 'user@example.com', login_password: 'new-password', show_browser: true, showLoginPassword: false, clear_password: false };
+const editFormFixture: AccountEditForm = { remark: '新备注', cookie: 'new-cookie', auto_confirm: true, auto_consign: false, auto_bargain: true, consign_proof_mode: 'delivery', consign_proof_text: '', pause_duration: 60, username: 'user@example.com', login_password: 'new-password', show_browser: true, showLoginPassword: false, clear_password: false };
 // aiFixture 是账号 AI 设置的服务端配置。
 const aiFixture: AIReplySettings = { ai_enabled: true, auto_adjust_price_enabled: true, max_discount_percent: 20, max_discount_amount: 50, max_bargain_rounds: 2, custom_prompts: '请礼貌回复', ai_mode: 'full_service' };
 
@@ -440,5 +440,38 @@ describe('useAccountSubmodules', /* 当前回调处理账号编辑、AI、通知
     expect(pauseMock).not.toHaveBeenCalled();
     expect(passwordLoginMock).not.toHaveBeenCalled();
     hook.unmount();
+  });
+
+  test('确认发货凭证：未修改不提交、修改时模式与文字一起提交、固定文字为空时阻止保存', /* 当前回调验证凭证设置的保存补丁与提交前拦截。 */ async () => {
+    // savedAccount 是服务端已保存固定文字模式的账号。
+    const savedAccount = { ...accountFixture, consign_proof_mode: 'fixed', consign_proof_text: '已发送' } as AccountDetail;
+    // renderWith 用指定表单渲染 Hook 并执行一次保存，返回保存时提交的补丁。
+    const renderWith = async (form: AccountEditForm): Promise<unknown> => {
+      updateAccountMock.mockClear();
+      // hook 是本次渲染的子模块 Hook。
+      const hook = renderHook(
+        // consignHookFactory 创建凭证保存场景的子模块 Hook。
+        () => useAccountSubmodules({ editingAccount: savedAccount, setEditingAccount: vi.fn(), setActiveModal: vi.fn(), editForm: form, setEditForm: vi.fn(), loadAccounts: vi.fn().mockResolvedValue(undefined) }),
+      );
+      await act(
+        // consignSaveAction 触发一次编辑保存。
+        async () => hook.result.current.handleSaveEdit(),
+      );
+      hook.unmount();
+      return updateAccountMock.mock.calls[0]?.[1];
+    };
+    // unchangedForm 只修改备注，凭证字段与服务端一致。
+    const unchangedForm: AccountEditForm = { ...editFormFixture, cookie: '', consign_proof_mode: 'fixed', consign_proof_text: '已发送' };
+    // unchangedPayload 不应包含凭证字段。
+    const unchangedPayload = await renderWith(unchangedForm);
+    expect(unchangedPayload).not.toHaveProperty('consign_proof_mode');
+    expect(unchangedPayload).not.toHaveProperty('consign_proof_text');
+
+    // noneForm 切换到不携带，必须连同保留的固定文字一起提交。
+    expect(await renderWith({ ...unchangedForm, consign_proof_mode: 'none' })).toEqual(expect.objectContaining({ consign_proof_mode: 'none', consign_proof_text: '已发送' }));
+
+    // emptyFixedForm 是固定文字为空的非法草稿，保存必须被拦截。
+    expect(await renderWith({ ...unchangedForm, consign_proof_text: '  ' })).toBeUndefined();
+    expect(updateAccountMock).not.toHaveBeenCalled();
   });
 });

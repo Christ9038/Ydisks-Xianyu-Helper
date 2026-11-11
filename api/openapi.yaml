@@ -9717,7 +9717,7 @@ components:
           type: string
     AccountDetailResponse:
       type: object
-      required: [id, has_cookie, enabled, auto_confirm, auto_consign, auto_bargain, remark, pause_duration, paused_until, paused, show_browser, username, nickname, avatar_url, login_method, last_login_at, profile_error, auto_rate_enabled, rate_content, auto_polish_enabled, polish_time, last_rate_scan_at, last_polish_date, last_polish_at]
+      required: [id, has_cookie, enabled, auto_confirm, auto_consign, auto_bargain, consign_proof_mode, consign_proof_text, remark, pause_duration, paused_until, paused, show_browser, username, nickname, avatar_url, login_method, last_login_at, profile_error, auto_rate_enabled, rate_content, auto_polish_enabled, polish_time, last_rate_scan_at, last_polish_date, last_polish_at]
       properties:
         id:
           type: string
@@ -9731,6 +9731,13 @@ components:
           type: boolean
         auto_bargain:
           type: boolean
+        consign_proof_mode:
+          type: string
+          enum: [delivery, fixed, none]
+          description: 确认发货携带凭证的模式：delivery 卡密/模板全文，fixed 固定文字，none 不携带。
+        consign_proof_text:
+          type: string
+          description: 固定文字模式下提交给平台的用户自填文字。
         remark:
           type: string
         pause_duration:
@@ -9790,6 +9797,14 @@ components:
           type: boolean
         auto_bargain:
           type: boolean
+        consign_proof_mode:
+          type: string
+          enum: [delivery, fixed, none]
+          description: 确认发货携带凭证的模式；省略时保持原值。
+        consign_proof_text:
+          type: string
+          maxLength: 200
+          description: 固定文字模式的凭证文本；省略时保持原值，选择 fixed 时最终值不能为空。
         pause_duration:
           type: integer
           minimum: 0

@@ -139,6 +139,7 @@ func (r *AccountSummaryRepository) validateCookies() error {
 func accountSummaryModel(record db.CookieSummary) accountapp.AccountSummary {
 	return accountapp.AccountSummary{
 		ID: record.ID, UserID: record.UserID, AutoConfirm: record.AutoConfirm, AutoConsign: record.AutoConsign, AutoBargain: record.AutoBargain,
+		ConsignProofMode: record.ConsignProofMode, ConsignProofText: record.ConsignProofText,
 		Remark: record.Remark, PauseDuration: record.PauseDuration, PausedUntil: record.PausedUntil,
 		Username: record.Username, ShowBrowser: record.ShowBrowser, Nickname: record.Nickname,
 		AvatarURL: record.AvatarURL, LastRefreshAt: record.LastRefreshAt, LoginMethod: record.LoginMethod,

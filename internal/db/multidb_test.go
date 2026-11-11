@@ -477,6 +477,20 @@ func TestMultiDB_CookiesUpsertBool(t *testing.T) {
 			if bargainEnabled, bargainErr := s.Cookies.GetAutoBargain(ctx, cid); bargainErr != nil || !bargainEnabled {
 				t.Fatalf("enabled auto_bargain=%v err=%v want true", bargainEnabled, bargainErr)
 			}
+			// proofSetting、proofErr 验证三方言确认发货凭证默认携带卡密/模板全文。
+			if proofSetting, proofErr := s.Cookies.GetConsignProofSetting(ctx, cid); proofErr != nil || proofSetting.Mode != ConsignProofModeDelivery {
+				t.Fatalf("default consign proof=%#v err=%v want delivery", proofSetting, proofErr)
+			}
+			// proofMode、proofText 是写入固定文字模式的设置值。
+			proofMode, proofText := ConsignProofModeFixed, "已通过聊天发送"
+			// updateErr 保存当前方言写入确认发货凭证设置的错误。
+			if _, updateErr := s.Cookies.UpdateSettings(ctx, cid, AccountSettingsUpdate{UserID: user.ID, ConsignProofMode: &proofMode, ConsignProofText: &proofText}); updateErr != nil {
+				t.Fatalf("update consign proof: %v", updateErr)
+			}
+			// proofSetting、proofErr 保存写入后的读取结果，中文文本必须在三方言中原样往返。
+			if proofSetting, proofErr := s.Cookies.GetConsignProofSetting(ctx, cid); proofErr != nil || proofSetting.Mode != proofMode || proofSetting.FixedText != proofText {
+				t.Fatalf("updated consign proof=%#v err=%v", proofSetting, proofErr)
+			}
 			if // err 用于本次流程后续判断的err
 			_, err := s.DB.ExecContext(ctx,
 				`UPDATE cookies SET auto_confirm=0 WHERE id=?`, cid); err != nil {

@@ -3,6 +3,7 @@ package adapter
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	accountapp "xianyu-go/internal/application/account"
 	"xianyu-go/internal/db"
@@ -50,6 +51,7 @@ func (r *AccountSettingsRepository) UpdateSettings(ctx context.Context, input ac
 	databaseInput := db.AccountSettingsUpdate{
 		UserID: input.UserID, Value: input.Cookie, Remark: input.Remark,
 		AutoConfirm: input.AutoConfirm, AutoConsign: input.AutoConsign, AutoBargain: input.AutoBargain, PauseDuration: input.PauseDuration,
+		ConsignProofMode: input.ConsignProofMode, ConsignProofText: input.ConsignProofText,
 		Username: input.Username, Password: input.Password,
 		ShowBrowser: input.ShowBrowser, ChannelIDs: input.ChannelIDs,
 	}
@@ -172,6 +174,9 @@ func normalizeAccountSettingsError(err error) error {
 	}
 	if errors.Is(err, db.ErrForbidden) {
 		return accountapp.ErrForbidden
+	}
+	if errors.Is(err, db.ErrConsignProofTextRequired) {
+		return fmt.Errorf("%w: %s", accountapp.ErrInvalidConsignProof, db.ErrConsignProofTextRequired.Error())
 	}
 	return err
 }

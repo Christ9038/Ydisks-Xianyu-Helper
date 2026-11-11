@@ -30,6 +30,10 @@ type Summary struct {
 	AutoConsign bool
 	// AutoBargain 表示砍价“待刀成”阶段是否自动调用免拼接口。
 	AutoBargain bool
+	// ConsignProofMode 是确认发货携带凭证的模式（delivery/fixed/none）。
+	ConsignProofMode string
+	// ConsignProofText 是固定文字模式下提交给平台的用户自填文字，不含卡密或平台凭证。
+	ConsignProofText string
 	// PauseDuration 是账号暂停时长，单位为分钟。
 	PauseDuration int
 	// PausedUntil 是暂停结束时间的 Unix 秒；零值表示当前未暂停。

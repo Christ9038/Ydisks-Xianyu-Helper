@@ -223,6 +223,7 @@ func (r *AccountLoginRepository) GetOwnedSummary(ctx context.Context, userID int
 		ID: summary.ID, UserID: summary.UserID, Remark: summary.Remark,
 		Nickname: summary.Nickname, AvatarURL: summary.AvatarURL,
 		AutoConfirm: summary.AutoConfirm, AutoConsign: summary.AutoConsign, AutoBargain: summary.AutoBargain, PauseDuration: summary.PauseDuration,
+		ConsignProofMode: summary.ConsignProofMode, ConsignProofText: summary.ConsignProofText,
 		PausedUntil: summary.PausedUntil, Username: summary.Username,
 		ShowBrowser: summary.ShowBrowser, LastRefreshAt: summary.LastRefreshAt,
 		LoginMethod: summary.LoginMethod,

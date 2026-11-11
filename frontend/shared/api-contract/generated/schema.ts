@@ -3229,6 +3229,13 @@ export interface components {
             auto_confirm: boolean;
             auto_consign: boolean;
             auto_bargain: boolean;
+            /**
+             * @description 确认发货携带凭证的模式：delivery 卡密/模板全文，fixed 固定文字，none 不携带。
+             * @enum {string}
+             */
+            consign_proof_mode: "delivery" | "fixed" | "none";
+            /** @description 固定文字模式下提交给平台的用户自填文字。 */
+            consign_proof_text: string;
             remark: string;
             pause_duration: number;
             paused_until: number;
@@ -3258,6 +3265,13 @@ export interface components {
             auto_confirm?: boolean;
             auto_consign?: boolean;
             auto_bargain?: boolean;
+            /**
+             * @description 确认发货携带凭证的模式；省略时保持原值。
+             * @enum {string}
+             */
+            consign_proof_mode?: "delivery" | "fixed" | "none";
+            /** @description 固定文字模式的凭证文本；省略时保持原值，选择 fixed 时最终值不能为空。 */
+            consign_proof_text?: string;
             pause_duration?: number;
             username?: string;
             login_password?: string;

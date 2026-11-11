@@ -30,6 +30,10 @@ type SettingsUpdateInput struct {
 	AutoConsign *bool
 	// AutoBargain 是可选的砍价“待刀成”阶段自动免拼开关。
 	AutoBargain *bool
+	// ConsignProofMode 是可选的确认发货凭证模式（delivery/fixed/none）。
+	ConsignProofMode *string
+	// ConsignProofText 是可选的固定文字模式凭证文本，不得填写卡密或平台凭证。
+	ConsignProofText *string
 	// PauseDuration 是可选的暂停时长，单位为分钟；零表示立即恢复。
 	PauseDuration *int
 	// Username 是可选的密码登录用户名更新值。
@@ -154,6 +158,10 @@ func (s *SettingsService) UpdateSettings(ctx context.Context, input SettingsUpda
 	}
 	if input.AccountID == "" {
 		return SettingsResult{}, errors.New("缺少账号 ID")
+	}
+	// proofErr 在取锁前拒绝非法的确认发货凭证输入，避免无效请求占用账号凭证锁。
+	if proofErr := validateConsignProofInput(input.ConsignProofMode, input.ConsignProofText); proofErr != nil {
+		return SettingsResult{}, proofErr
 	}
 	// unlock 负责释放本次账号设置写入的凭证锁，锁覆盖 Cookie、metadata 和旧 Token 的完整替换。
 	unlock := s.repository.LockCredentials(input.AccountID)

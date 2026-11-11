@@ -1,5 +1,5 @@
 import type { Dispatch,SetStateAction } from 'react';
-import type { AccountDetail,AIReplySettings,NotificationChannel } from './api';
+import type { AccountDetail,AIReplySettings,ConsignProofMode,NotificationChannel } from './api';
 
 // AccountEditForm 描述账号编辑弹窗中的可编辑字段。
 export interface AccountEditForm {
@@ -13,6 +13,10 @@ export interface AccountEditForm {
   auto_consign: boolean;
   // auto_bargain 表示砍价“待刀成”阶段是否自动免拼。
   auto_bargain: boolean;
+  // consign_proof_mode 是确认发货携带凭证的模式草稿。
+  consign_proof_mode: ConsignProofMode;
+  // consign_proof_text 是固定文字模式的凭证文本草稿；切换到其他模式时保留，便于切回。
+  consign_proof_text: string;
   // pause_duration 是账号订单处理暂停时长，单位为分钟。
   pause_duration: number;
   // username 是用于密码登录的闲鱼账号。

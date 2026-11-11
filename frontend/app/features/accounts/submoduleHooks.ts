@@ -1,6 +1,7 @@
 import { useCallback,useEffect,useRef,useState,type Dispatch,type SetStateAction } from 'react';
 import type { AccountDetail,AIReplySettings,NotificationChannel } from './api';
 import { shouldSaveNotificationBindings } from './accountBindings';
+import { buildConsignProofUpdate,consignProofFormError,normalizeConsignProofMode } from './consignProof';
 import { cancelPasswordLogin,checkPasswordLoginStatus,getAccountAISettings,getAccountBindings,getLongLoginSettings,getNotificationChannels,passwordLogin,setLongLoginSettings,updateAccountAISettings,updateAccountPauseDuration,updateAccountSettings } from './api';
 import { buildAccountLoginInfoUpdate,isCurrentAccountRequest,passwordLoginViewFromStatus,shouldUpdateAccountPause } from './state';
 import type { AccountEditForm,LongLoginState,PasswordLoginView } from './types';
@@ -125,7 +126,7 @@ export const useAccountSubmodules = ({ editingAccount, setEditingAccount, setAct
     setPasswordLoginView({ sessionId: '', status: 'idle', message: '', qrCodeUrl: '' });
     setEditingAccount(account);
     // 摘要接口不会返回 Cookie 或密码明文；编辑表单只接收本次用户主动输入的秘密。
-    setEditForm({ remark: account.remark || '', cookie: '', auto_confirm: account.auto_confirm || false, auto_consign: account.auto_consign || false, auto_bargain: account.auto_bargain || false, pause_duration: account.pause_duration || 0, username: account.username || '', login_password: '', show_browser: account.show_browser || false, showLoginPassword: false, clear_password: false });
+    setEditForm({ remark: account.remark || '', cookie: '', auto_confirm: account.auto_confirm || false, auto_consign: account.auto_consign || false, auto_bargain: account.auto_bargain || false, consign_proof_mode: normalizeConsignProofMode(account.consign_proof_mode), consign_proof_text: account.consign_proof_text || '', pause_duration: account.pause_duration || 0, username: account.username || '', login_password: '', show_browser: account.show_browser || false, showLoginPassword: false, clear_password: false });
     setActiveModal('edit');
     setLongLogin({ loading: true, saving: false, canOpen: false, enabled: false, error: '' });
     // longLoginResult 保存长登录设置读取结果。
@@ -196,6 +197,8 @@ export const useAccountSubmodules = ({ editingAccount, setEditingAccount, setAct
   // handleSaveEditCallback 是账号编辑表单保存回调。
   const handleSaveEdit = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ async (): Promise<void> => {
     if (!editingAccount || saving) return;
+    // 凭证设置不合法时不提交，弹窗内已就地提示原因。
+    if (consignProofFormError(editForm)) return;
     setSaving(true);
     try {
       // payload 保存需要提交的账号编辑补丁。
@@ -206,6 +209,9 @@ export const useAccountSubmodules = ({ editingAccount, setEditingAccount, setAct
       if (editForm.auto_confirm !== editingAccount.auto_confirm) payload.auto_confirm = editForm.auto_confirm;
       if (editForm.auto_consign !== (editingAccount.auto_consign || false)) payload.auto_consign = editForm.auto_consign;
       if (editForm.auto_bargain !== (editingAccount.auto_bargain || false)) payload.auto_bargain = editForm.auto_bargain;
+      // consignProof 保存确认发货凭证补丁；模式或文字变化时两者一起提交。
+      const consignProof = buildConsignProofUpdate(editingAccount, editForm);
+      if (consignProof) Object.assign(payload, consignProof);
       if (shouldUpdateAccountPause(editForm.pause_duration, editingAccount)) payload.pause_duration = editForm.pause_duration;
       // loginInfo 保存登录字段变更补丁。
       const loginInfo = buildAccountLoginInfoUpdate(editingAccount, editForm);

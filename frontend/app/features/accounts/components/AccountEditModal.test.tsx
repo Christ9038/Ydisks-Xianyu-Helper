@@ -13,6 +13,8 @@ const baseForm: AccountEditForm = {
   auto_confirm: false,
   auto_consign: false,
   auto_bargain: false,
+  consign_proof_mode: 'delivery',
+  consign_proof_text: '',
   pause_duration: 0,
   username: '',
   login_password: '',
@@ -95,5 +97,29 @@ describe('AccountEditModal 业务开关', /* 验证三个开关互不串联且�
       expect(item.className).toContain('bg-brand');
       expect(item.querySelector('span')?.className).toContain('translate-x-6');
     }
+  });
+
+  test('确认发货凭证三选一，固定文字为空时提示并禁用保存', /* 凭证区块位于自动确认发货下方，选择与输入只影响凭证字段。 */ () => {
+    // latest 保存最近一次渲染得到的表单。
+    let latest = baseForm;
+    render(<Harness onForm={/* 记录最新表单快照。 */ form => { latest = form; }} />);
+    // radios 是凭证模式单选按钮。
+    const radios = screen.getAllByRole('radio');
+    expect(radios.map(/* 读取每个选项的文字。 */ item => item.textContent)).toEqual(['卡密/模板全文', '固定文字', '不携带']);
+    expect(radios[0].getAttribute('aria-checked')).toBe('true');
+    expect(screen.queryByLabelText('确认发货固定文字')).toBeNull();
+
+    fireEvent.click(radios[1]);
+    expect(latest).toMatchObject({ consign_proof_mode: 'fixed', auto_consign: false });
+    expect(screen.getByText('选择固定文字时，请填写固定文字')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '保存' }).hasAttribute('disabled')).toBe(true);
+
+    fireEvent.change(screen.getByLabelText('确认发货固定文字'), { target: { value: '已通过聊天发送' } });
+    expect(latest.consign_proof_text).toBe('已通过聊天发送');
+    expect(screen.getByRole('button', { name: '保存' }).hasAttribute('disabled')).toBe(false);
+
+    fireEvent.click(screen.getAllByRole('radio')[2]);
+    expect(latest).toMatchObject({ consign_proof_mode: 'none', consign_proof_text: '已通过聊天发送' });
+    expect(screen.queryByLabelText('确认发货固定文字')).toBeNull();
   });
 });

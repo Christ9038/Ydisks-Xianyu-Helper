@@ -391,13 +391,26 @@ func (c *ClientImpl) mtopResponseFailureWithCause(api string, status int, ret []
 	return failure
 }
 
-// isMTopBusinessRet 判断 ret 是否用 FAIL_BIZ 前缀明确声明平台普通业务结果。
+// mtopDefiniteRejectionCodes 是不带 FAIL_BIZ 前缀、但同样表示平台已明确拒绝且未执行请求的返回码（大写形式）。
+// HIT_SENSITIVE_WORD 是请求内容（如确认发货的 tradeText、商品文案）命中平台敏感词审核，请求被原样拒绝，订单或商品状态不变（#113）。
+// 只能加入经平台确认不会产生副作用的拒绝码；网关、限流、风控和未知系统错误不得加入。
+var mtopDefiniteRejectionCodes = []string{"HIT_SENSITIVE_WORD"}
+
+// isMTopBusinessRet 判断 ret 是否明确声明平台普通业务结果：FAIL_BIZ 前缀，或 mtopDefiniteRejectionCodes 中的确定拒绝码。
 // 只有明确业务码可以进入终态业务语义；网关和未知 FAIL_SYS 错误仍保持 HTTP 或系统错误分类。
 func isMTopBusinessRet(ret []string) bool {
 	// value 表示当前待判断的 MTOP 返回标记。
 	for _, value := range ret {
-		if strings.Contains(strings.ToUpper(value), "FAIL_BIZ_") {
+		// upper 是大小写归一后的返回标记，平台大小写不稳定时仍能识别。
+		upper := strings.ToUpper(value)
+		if strings.Contains(upper, "FAIL_BIZ_") {
 			return true
+		}
+		// code 表示当前比较的确定拒绝码；返回标记形如 "CODE::说明"，按前缀匹配避免误伤说明文字中的子串。
+		for _, code := range mtopDefiniteRejectionCodes {
+			if strings.HasPrefix(upper, code+"::") || upper == code {
+				return true
+			}
 		}
 	}
 	return false

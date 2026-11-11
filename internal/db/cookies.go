@@ -33,12 +33,16 @@ type AccountSettingsUpdate struct {
 	AutoConfirm *bool
 	AutoConsign *bool
 	// AutoBargain 是砍价“待刀成”阶段是否自动免拼的独立开关，不从自动发货开关派生。
-	AutoBargain   *bool
-	PauseDuration *int
-	Username      *string
-	Password      *string
-	ShowBrowser   *bool
-	ChannelIDs    *[]int64
+	AutoBargain *bool
+	// ConsignProofMode 是确认发货携带凭证的模式（delivery/fixed/none）；nil 保持原值。
+	ConsignProofMode *string
+	// ConsignProofText 是固定文字模式提交给平台的文本；nil 保持原值。
+	ConsignProofText *string
+	PauseDuration    *int
+	Username         *string
+	Password         *string
+	ShowBrowser      *bool
+	ChannelIDs       *[]int64
 }
 
 // UpdateSettings 在一个事务中更新账号字段及通知绑定，避免前端并行请求只成功一部分。
@@ -53,8 +57,10 @@ func (c *Cookies) UpdateSettings(ctx context.Context, cookieID string, input Acc
 	var ownerID int64
 	// metadataJSON 用于本次流程后续判断的metadataJSON
 	var metadataJSON string
+	// currentProofMode、currentProofText 是加锁读取的当前确认发货凭证配置，用于校验本次保存后的最终状态。
+	var currentProofMode, currentProofText string
 	if // err 用于本次流程后续判断的err
-	err := tx.QueryRowContext(ctx, c.cookieSelectForUpdate(`user_id,COALESCE(metadata_json,'')`), cookieID).Scan(&ownerID, &metadataJSON); err != nil {
+	err := tx.QueryRowContext(ctx, c.cookieSelectForUpdate(`user_id,COALESCE(metadata_json,''),COALESCE(consign_proof_mode,''),COALESCE(consign_proof_text,'')`), cookieID).Scan(&ownerID, &metadataJSON, &currentProofMode, &currentProofText); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return 0, ErrNotFound
 		}
@@ -104,6 +110,12 @@ func (c *Cookies) UpdateSettings(ctx context.Context, cookieID string, input Acc
 	if input.AutoBargain != nil {
 		assignments = append(assignments, "auto_bargain=?")
 		args = append(args, boolToInt(*input.AutoBargain))
+	}
+	// proofErr 保存确认发货凭证最终状态校验错误；固定文字模式下文字为空时整笔保存回滚。
+	var proofErr error
+	assignments, args, proofErr = appendConsignProofAssignments(assignments, args, input, currentProofMode, currentProofText)
+	if proofErr != nil {
+		return 0, proofErr
 	}
 	// pausedUntil 用于本次流程后续判断的pausedUntil
 	pausedUntil := int64(0)
