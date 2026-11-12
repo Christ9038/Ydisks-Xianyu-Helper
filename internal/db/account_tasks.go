@@ -135,6 +135,7 @@ func (s *AccountTaskStore) Enabled(ctx context.Context) ([]AccountTaskSettings, 
 
 // DueAutoRateOrderIDs 返回由买家确认收货 WebSocket 标记、尚可由本地自动评价任务消费的订单号。
 // 它只读取本地 orders 表，绝不为了发现待评价订单向平台发起列表请求。
+// 状态条件同时接受规范值 completed 与存量数字码（见 completedStatuses），否则被订单详情写成数字码的已完成订单永远不会被评价。
 //
 // 候选必须排除 claimRun 永远无法再领取的订单，否则评价成功后 completed_at 仍保留，已办完的订单会按时间升序
 // 永久占满 limit 个名额，更新的订单进不了窗口（issue #96）。仍可领取的订单只有：尚无运行记录，或运行为 failed、
@@ -145,7 +146,7 @@ func (s *AccountTaskStore) DueAutoRateOrderIDs(ctx context.Context, cookieID str
 	}
 	// rows、err 分别保存按确认收货时间排序的本地候选订单和查询错误。
 	rows, err := s.DB.QueryContext(ctx, `SELECT o.order_id FROM orders o
-		WHERE o.cookie_id=? AND o.deleted_at IS NULL AND o.order_status='completed' AND o.completed_at<>''
+		WHERE o.cookie_id=? AND o.deleted_at IS NULL AND o.order_status IN `+completedStatusSQLList()+` AND o.completed_at<>''
 		AND NOT EXISTS (SELECT 1 FROM account_task_runs r
 			WHERE r.cookie_id=o.cookie_id AND r.task_type='auto_rate' AND r.target_id=o.order_id
 			AND (r.status<>'failed' OR r.attempt_count>=? OR r.error_message LIKE ? OR r.next_retry_at>?))

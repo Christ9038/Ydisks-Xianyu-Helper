@@ -162,7 +162,8 @@ func (c *ClientImpl) PolishItem(ctx context.Context, cookiesStr, itemID string) 
 	if duplicatePolishError(err) {
 		return &AccountTaskResult{Success: true, Message: "商品今天已经擦亮", UpdatedCookies: updated}, nil
 	}
-	if IsSessionExpiredErr(err) || IsRiskVerificationErr(err) {
+	// 会话失效、风控验证或签名 Token 重试耗尽都与具体接口无关，备用接口必然同样失败，再请求只会加重平台压力。
+	if IsSessionExpiredErr(err) || IsRiskVerificationErr(err) || IsMTopTokenExpiredErr(err) {
 		return nil, err
 	}
 	// primaryErr 用于本次流程后续判断的primaryErr

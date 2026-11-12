@@ -216,6 +216,11 @@ func (r automationRunCoordinator) prepareRuleRun(ctx context.Context, task Task,
 	if len(task.ActionPlan) == 0 && task.TriggerType != TriggerOrderPaid {
 		task.ActionPlan = r.planner.plan(task, rule.Actions)
 	}
+	if r.paidEventAlreadySettled(ctx, task, rule) {
+		// 同一规则已对这条付款事件收口（成功或转人工），重复推送不再补全订单事实，也就不会再请求平台订单详情。
+		r.audit.skipped(ctx, task, "同一规则的同一事件已处理，重复事件已忽略")
+		return task, nil, true, nil
+	}
 	// preparedTask 是订单事实和凭证上下文补全后的任务；prepareErr 表示准备阶段的可见失败。
 	preparedTask, prepareErr := r.prepareTask(ctx, task)
 	if prepareErr != nil {
@@ -361,6 +366,26 @@ func (r automationRunCoordinator) prepareRuleRun(ctx context.Context, task Task,
 		return Task{}, nil, false, getErr
 	}
 	return preparedTask, createdRun, false, nil
+}
+
+// paidEventAlreadySettled 判断新到的付款事件是否已由同一规则处理到不可重领的终态（success 或 needs_review）。
+// 它只读本地运行记录，用于在补全订单事实（可能请求平台订单详情）之前拦截平台重复推送；
+// 携带运行 ID 的续跑任务、缺少订单号的事件、尚无运行或运行仍可能被重领（running、failed、canceled）时一律返回 false，
+// 交回原有的准备与原子创建流程判断，读取失败同样返回 false，不改变既有的幂等语义。
+func (r automationRunCoordinator) paidEventAlreadySettled(ctx context.Context, task Task, rule db.AutomationRule) bool {
+	if task.TriggerType != TriggerOrderPaid || task.OrderID == "" || taskAutomationRunID(task) != 0 {
+		return false
+	}
+	// settledRun、readErr 是同一规则同一事件的既有运行及读取错误；未找到说明这是首次事件。
+	// 幂等键在订单号已知时必然非空，且准备阶段不会改变它，因此可以在准备之前用它查询。
+	settledRun, readErr := r.store.Automation.GetRunByRuleAndTrigger(ctx, rule.ID, buildTriggerKey(task))
+	if readErr != nil || settledRun == nil {
+		return false
+	}
+	if settledRun.CookieID != task.AccountID || settledRun.OrderID != task.OrderID {
+		return false
+	}
+	return settledRun.Status == "success" || settledRun.Status == "needs_review"
 }
 
 // executeRunActions 按动作游标执行计划，并在每个外部动作前后保存检查点。

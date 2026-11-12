@@ -77,6 +77,16 @@ func bizTaskName(raw string) string {
 
 // orderRoleFromTaskName 封装订单RoleFrom任务名称业务协调。
 func orderRoleFromTaskName(taskName string) string {
+	// sellerMarker、buyerMarker 是平台任务名中明确标注接收方的“_卖家”“_买家”后缀所在位置；-1 表示没有该标注。
+	sellerMarker, buyerMarker := strings.LastIndex(taskName, "_卖家"), strings.LastIndex(taskName, "_买家")
+	if sellerMarker >= 0 || buyerMarker >= 0 {
+		// 明确标注优先于正文中的字样：如“买家已付款_卖家”是发给卖家的副本，不能因为正文含“买家”而被当作买家副本丢弃。
+		// 两种标注同时出现时以靠后的为准，平台把接收方放在任务名末尾。
+		if sellerMarker > buyerMarker {
+			return "seller"
+		}
+		return "buyer"
+	}
 	switch {
 	case strings.Contains(taskName, "买家"):
 		return "buyer"

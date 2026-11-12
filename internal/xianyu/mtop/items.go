@@ -55,6 +55,10 @@ func (c *ClientImpl) fetchItemsPage(ctx context.Context, cookiesStr string, page
 				return nil, failure
 			}
 		}
+		if attempt == 3 {
+			// 最后一次尝试已失败，循环即将结束；此时再等待或刷新 Token 只会多发一次无人使用的平台请求。
+			break
+		}
 		if updatedCookies != "" {
 			// tokenChanged 表示响应 Cookie 是否真的轮换了签名令牌；普通 Cookie 变化不能跳过主动刷新。
 			tokenChanged := mtopTokenCookieChanged(currentCookies, updatedCookies)

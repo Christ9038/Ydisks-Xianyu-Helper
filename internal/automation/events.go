@@ -8,6 +8,8 @@ package automation
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net/url"
 	"sort"
 	"strconv"
@@ -395,12 +397,40 @@ func supplementEventFacts(fields *rawFields, value any, depth int) {
 		if !strings.HasPrefix(text, "{") && !strings.HasPrefix(text, "[") {
 			return
 		}
-		// nestedValue 是内嵌 JSON 反序列化后的节点；解析失败时该字符串不携带可安全识别的结构化事实。
-		var nestedValue any
-		if json.Unmarshal([]byte(text), &nestedValue) == nil {
+		// nestedValue、decoded 是内嵌 JSON 反序列化后的节点及是否解析成功；解析失败时该字符串不携带可安全识别的结构化事实。
+		if nestedValue, decoded := decodeEventJSONPreservingNumbers(text); decoded {
 			supplementEventFacts(fields, nestedValue, depth+1)
 		}
 	}
+}
+
+// maxExactEventFloat 是 float64 能精确表示的最大连续整数（2^53）；超过它的数值已丢失低位，不能再当作标识使用。
+const maxExactEventFloat = float64(1 << 53)
+
+// decodeEventJSONPreservingNumbers 解析报文中的内嵌 JSON，并把数字保留为 json.Number 十进制原文。
+// 闲鱼订单号是 19 位数字，按默认 float64 解码会被舍入成另一个合法订单号；text 之后若还有多余内容则视为解析失败。
+// 返回值 decoded 为 false 表示 text 不是单个完整的 JSON 值。
+func decodeEventJSONPreservingNumbers(text string) (value any, decoded bool) {
+	// decoder 是只读取 text 的一次性解码器，UseNumber 禁止数字经过浮点中转。
+	decoder := json.NewDecoder(strings.NewReader(text))
+	decoder.UseNumber()
+	if decoder.Decode(&value) != nil {
+		return nil, false
+	}
+	// trailing 用于探测首个 JSON 值之后是否还有内容；只有读到 EOF 才与 json.Unmarshal 的严格语义一致。
+	var trailing any
+	if !errors.Is(decoder.Decode(&trailing), io.EOF) {
+		return nil, false
+	}
+	return value, true
+}
+
+// impreciseEventNumber 判断 value 是否是已经丢失精度的浮点数：上游解码器把大整数转成 float64 后，
+// 末几位已被舍入，按它生成的订单号会指向另一笔订单，必须放弃采用并等待其他可靠字段。
+func impreciseEventNumber(value any) bool {
+	// number、isFloat 是 value 按浮点数断言的结果；字符串和 json.Number 保留原文，不受影响。
+	number, isFloat := value.(float64)
+	return isFloat && (number >= maxExactEventFloat || number <= -maxExactEventFloat)
 }
 
 // supplementEventFactByKey 按平台字段名补齐一项交易事实，并保留固定路径优先的已有值。
@@ -410,11 +440,11 @@ func supplementEventFactByKey(fields *rawFields, key string, value any) {
 	}
 	// normalizedKey 是移除大小写、下划线和短横线差异后的平台字段名。
 	normalizedKey := normalizeEventFactKey(key)
-	// text 是当前字段的字符串形式；数字订单号会由 JSON 解码后的数值统一转换。
+	// text 是当前字段的字符串形式；内嵌 JSON 中的数字订单号由 json.Number 原样保留十进制文本。
 	text := strings.TrimSpace(strAny(value))
 	switch normalizedKey {
 	case "orderid", "bizorderid", "tradeid", "orderno", "tradeno":
-		if fields.orderID == "" {
+		if fields.orderID == "" && !impreciseEventNumber(value) {
 			fields.orderID = directOrderID(text)
 		}
 	case "updatekey":
@@ -668,6 +698,8 @@ func strAny(v any) string {
 		return x
 	case nil:
 		return ""
+	case json.Number:
+		return x.String()
 	default:
 		// b 用于本次流程后续判断的b
 		b, _ := json.Marshal(x)

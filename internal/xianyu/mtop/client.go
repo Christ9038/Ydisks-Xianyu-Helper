@@ -393,8 +393,10 @@ func (c *ClientImpl) mtopResponseFailureWithCause(api string, status int, ret []
 
 // mtopDefiniteRejectionCodes 是不带 FAIL_BIZ 前缀、但同样表示平台已明确拒绝且未执行请求的返回码（大写形式）。
 // HIT_SENSITIVE_WORD 是请求内容（如确认发货的 tradeText、商品文案）命中平台敏感词审核，请求被原样拒绝，订单或商品状态不变（#113）。
+// ORDER_ALREADY_DELIVERY 是确认发货时平台回答“订单已发货”，本次请求没有再次执行发货；调用方据此按幂等成功收口，
+// 若归为系统错误会被当作“结果未知”转人工核对，使幂等分支永远不可达。
 // 只能加入经平台确认不会产生副作用的拒绝码；网关、限流、风控和未知系统错误不得加入。
-var mtopDefiniteRejectionCodes = []string{"HIT_SENSITIVE_WORD"}
+var mtopDefiniteRejectionCodes = []string{"HIT_SENSITIVE_WORD", "ORDER_ALREADY_DELIVERY"}
 
 // isMTopBusinessRet 判断 ret 是否明确声明平台普通业务结果：FAIL_BIZ 前缀，或 mtopDefiniteRejectionCodes 中的确定拒绝码。
 // 只有明确业务码可以进入终态业务语义；网关和未知 FAIL_SYS 错误仍保持 HTTP 或系统错误分类。

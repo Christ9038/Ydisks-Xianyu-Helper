@@ -423,6 +423,20 @@ func pendingShipStatusSQLList() string {
 	return "(" + strings.Join(quoted, ",") + ")"
 }
 
+// completedStatuses 是库内可能出现的全部“交易成功”存量取值：规范文本，以及历史上由订单详情原样写入的平台数字码 4、11。
+var completedStatuses = []string{"completed", "4", "11"}
+
+// completedStatusSQLList 返回交易成功取值的 SQL 字面量列表（含括号），内容全部来自 completedStatuses 常量，不含用户输入。
+func completedStatusSQLList() string {
+	// quoted 保存逐项加单引号后的取值。
+	quoted := make([]string, 0, len(completedStatuses))
+	// status 是交易成功存量取值之一。
+	for _, status := range completedStatuses {
+		quoted = append(quoted, "'"+status+"'")
+	}
+	return "(" + strings.Join(quoted, ",") + ")"
+}
+
 // IsPendingShipStatus 判断订单状态（含历史别名与数字码）是否表示付款后待发货。
 func IsPendingShipStatus(status string) bool {
 	return NormalizeOrderStatus(strings.TrimSpace(status)) == "pending_ship"

@@ -586,6 +586,12 @@ func (c *Center) prepareTask(ctx context.Context, task Task) (Task, error) {
 	if // existing、err 用于本次流程后续判断的existing、err
 	existing, err := c.store.Orders.Get(ctx, task.OrderID); err == nil && existing != nil {
 		task = mergeOrderIntoTask(task, existing)
+		if task.TriggerType == TriggerOrderPaid && taskAutomationRunID(task) == 0 && paidDeliveryBlockedReason(existing) != "" {
+			// 订单在本地已发货、完成、取消或退款时，新到的付款消息（平台重复推送或迟到）必然被付款门禁跳过，
+			// 订单详情不会被使用；此处直接返回，避免每条重复消息都向平台多发一次订单详情请求。
+			// 携带运行 ID 的续跑任务仍走完整准备流程，由运行协调器按进度取消或转人工。
+			return task, nil
+		}
 	}
 	// needsDetail 表示是否需要向平台补齐订单详情：只有付款发货且本地事实不齐全时才请求，
 	// 事实已齐全（WS 事件与本地订单合并后）则跳过，避免每次付款事件和每次续跑都多一次平台请求。
@@ -625,8 +631,9 @@ func (c *Center) prepareTask(ctx context.Context, task Task) (Task, error) {
 	if detail.Amount != "" {
 		task.Amount = detail.Amount
 	}
-	if detail.OrderStatus != "" {
-		task.OrderStatus = detail.OrderStatus
+	if strings.TrimSpace(detail.OrderStatus) != "" {
+		// 订单详情返回的是平台数字状态码，任务快照与订单表统一使用归一后的规范文本。
+		task.OrderStatus = db.NormalizeOrderStatus(strings.TrimSpace(detail.OrderStatus))
 	}
 	// upsertErr 保存补齐订单详情后的事实写入结果，失败时不允许进入动作执行阶段。
 	if err := c.store.Orders.Upsert(ctx, task.OrderID, db.OrderUpsertOpts{

@@ -22,6 +22,19 @@ const (
 	polishItemMaxPages = 20
 )
 
+// accountTaskRiskMinHold 是账号任务遇到平台风控后必须保持阻断的最短时长。
+// 它不是“冷却到点自动重放”的触发条件：解除阻断还要求账号凭证已经变化（用户通过验证后更新了 Cookie），
+// 该下限只用于防止例行 Cookie 轮换在风控刚发生时就放行后台批量任务。
+const accountTaskRiskMinHold = 30 * time.Minute
+
+// accountTaskRiskBlock 记录一个账号因平台风控验证被暂停后台批量任务时的事实。
+type accountTaskRiskBlock struct {
+	// fingerprint 是遇到风控时的凭证指纹（不含凭证原文）；为空表示当时无法读取凭证，只能由用户手动执行任务解除。
+	fingerprint string
+	// blockedAt 是进入阻断的时间，用于计算最短保持时长。
+	blockedAt time.Time
+}
+
 // errAccountTaskCredentialRenewed 表示本轮任务因凭证已续期而提前结束，等待后续扫描使用新凭证重试。
 var errAccountTaskCredentialRenewed = errors.New("账号任务凭证已续期，等待下一轮重试")
 
@@ -82,6 +95,50 @@ type accountTaskCoordinator struct {
 	}
 	// sessionExpired 保存 Session 失效时的凭证指纹，阻止同一凭证继续调用平台 API；仅 Token 失效不进入该阻断表。
 	sessionExpired sync.Map
+	// riskBlocked 保存遇到平台风控验证的账号（accountID → accountTaskRiskBlock），阻止调度扫描继续为该账号发起评价、擦亮请求。
+	// 该表只在内存中维护，由 sync.Map 自身保证并发安全；进程重启后清空，届时最多再探测一次。
+	riskBlocked sync.Map
+}
+
+// noteAccountTaskRisk 在账号任务返回平台风控验证错误时登记账号级阻断；其他错误不做任何处理。
+// ctx 仅用于读取凭证指纹；taskErr 是任务返回的原始错误。阻断后调度扫描不再为该账号请求平台，
+// 直到用户更新凭证（且超过最短保持时长）或手动执行一次任务。
+func (c *accountTaskCoordinator) noteAccountTaskRisk(ctx context.Context, accountID string, taskErr error) {
+	if taskErr == nil || !mtop.IsRiskVerificationErr(taskErr) {
+		return
+	}
+	// fingerprint 是当前凭证指纹；读取失败时留空，阻断只能由手动执行解除，避免在无法判断凭证是否变化时误放行。
+	fingerprint, fingerprintErr := c.accountCredentialFingerprint(ctx, accountID)
+	if fingerprintErr != nil {
+		fingerprint = ""
+	}
+	c.riskBlocked.Store(accountID, accountTaskRiskBlock{fingerprint: fingerprint, blockedAt: time.Now()})
+	c.logger.Warn("账号任务命中平台风控验证，已暂停该账号的自动评价与擦亮；请通过验证并更新 Cookie，或在确认恢复后手动执行任务", "account", accountID)
+}
+
+// accountTaskRiskBlocked 判断账号是否仍因平台风控验证被暂停后台批量任务。
+// 只有同时满足“凭证已变化”和“超过最短保持时长”才解除阻断；读取凭证失败时保持阻断并返回错误。
+func (c *accountTaskCoordinator) accountTaskRiskBlocked(ctx context.Context, accountID string) (bool, error) {
+	// stored、found 是该账号登记的风控阻断事实；未登记表示没有阻断。
+	stored, found := c.riskBlocked.Load(accountID)
+	if !found {
+		return false, nil
+	}
+	// block 是登记时保存的凭证指纹与阻断时间。
+	block := stored.(accountTaskRiskBlock)
+	if block.fingerprint == "" || time.Since(block.blockedAt) < accountTaskRiskMinHold {
+		return true, nil
+	}
+	// current、fingerprintErr 是当前凭证指纹及读取错误；无法确认凭证变化时不得放行。
+	current, fingerprintErr := c.accountCredentialFingerprint(ctx, accountID)
+	if fingerprintErr != nil {
+		return true, fingerprintErr
+	}
+	if current == block.fingerprint {
+		return true, nil
+	}
+	c.riskBlocked.Delete(accountID)
+	return false, nil
 }
 
 // accountAutomationAllowed 判断账号是否未暂停且仍处于启用状态。
@@ -116,6 +173,8 @@ func (c *accountTaskCoordinator) runAccountTask(ctx context.Context, accountID, 
 	if !allowed {
 		return AccountTaskSummary{TaskType: taskType}, fmt.Errorf("账号已停用或暂停，无法执行任务")
 	}
+	// 手动执行是用户明确发起的单次操作，视为用户已确认风控解除；若平台仍要求验证，本次执行会重新登记阻断。
+	c.riskBlocked.Delete(accountID)
 	// settings、err 用于本次流程后续判断的settings、err
 	settings, err := c.repository.Get(ctx, accountID)
 	if err != nil {
@@ -146,6 +205,7 @@ func (c *accountTaskCoordinator) runConfiguredAccountTask(ctx context.Context, s
 	default:
 		return AccountTaskSummary{TaskType: taskType}, fmt.Errorf("不支持的账号任务: %s", taskType)
 	}
+	c.noteAccountTaskRisk(ctx, settings.CookieID, err)
 	if err != nil && mtop.IsSessionExpiredErr(err) {
 		err = c.recoverAccountTaskCredential(ctx, settings.CookieID, err)
 	}
@@ -185,6 +245,15 @@ func (c *accountTaskCoordinator) scanAccountTasks(ctx context.Context) {
 			}
 			continue
 		}
+		if // riskBlocked、riskErr 表示账号是否仍因平台风控验证暂停后台任务，以及读取凭证指纹的错误。
+		riskBlocked, riskErr := c.accountTaskRiskBlocked(ctx, setting.CookieID); riskErr != nil || riskBlocked {
+			if riskErr != nil {
+				c.logger.Warn("检查账号任务风控状态失败", "account", setting.CookieID, "err", riskErr)
+			} else {
+				c.logger.Debug("账号任务因平台风控验证暂停，等待凭证更新或手动执行", "account", setting.CookieID)
+			}
+			continue
+		}
 		if setting.AutoRateEnabled {
 			// summary、err 保存本轮自动评价扫描结果及其错误；成功结果必须落一条可检索日志。
 			summary, err := c.runConfiguredAccountTask(ctx, setting, TaskAutoRate)
@@ -204,8 +273,13 @@ func (c *accountTaskCoordinator) scanAccountTasks(ctx context.Context) {
 			blocked, _ := c.accountTaskSessionBlocked(ctx, setting.CookieID); blocked {
 				continue
 			}
+			if // riskBlocked 表示本轮自动评价刚刚命中风控；同一轮扫描不得再为该账号发起擦亮请求。
+			riskBlocked, _ := c.accountTaskRiskBlocked(ctx, setting.CookieID); riskBlocked {
+				continue
+			}
 			// polishSummary、taskErr 保存本轮擦亮结果及其错误；成功结果必须落一条可检索日志。
 			polishSummary, taskErr := c.runAutoPolish(ctx, setting, now, false)
+			c.noteAccountTaskRisk(ctx, setting.CookieID, taskErr)
 			if taskErr != nil && mtop.IsSessionExpiredErr(taskErr) {
 				taskErr = c.recoverAccountTaskCredential(ctx, setting.CookieID, taskErr)
 			}
@@ -547,7 +621,10 @@ func (c *accountTaskCoordinator) runAutoPolish(ctx context.Context, settings db.
 			}
 			// Token 内部刷新耗尽或平台要求风控验证后立即停止当前批次，不再向平台发送后续请求。
 			if mtop.IsSessionExpiredErr(polishErr) || mtop.IsMTopTokenExpiredErr(polishErr) || mtop.IsRiskVerificationErr(polishErr) {
-				return summary, errors.Join(polishErr, persistErr, c.finishAccountTaskRun(ctx, runKey, "failed", summary.Success, summary.Failed, lastError, 0))
+				// abortRetryAt 是中止批次的最早重试时间。领取条件是“重试时间 <= 当前时间”，写 0 等于立即可重领，
+				// 下一轮扫描就会重新拉取商品列表并从头擦亮；这里与其他失败路径一致延后 10 分钟，风控另由账号级阻断拦截。
+				abortRetryAt := time.Now().UTC().Add(10 * time.Minute).Unix()
+				return summary, errors.Join(polishErr, persistErr, c.finishAccountTaskRun(ctx, runKey, "failed", summary.Success, summary.Failed, lastError, abortRetryAt))
 			}
 			if persistErr != nil {
 				// isolateErr 将平台失败与凭证落库失败后的运行记录收口到人工核对，避免运行永久停留在 running。
