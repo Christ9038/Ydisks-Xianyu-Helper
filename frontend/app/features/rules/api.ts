@@ -451,6 +451,8 @@ type KeywordRowPayload = {
     image_url: string;
     /** 图片库图片主键；0 表示未使用。 */
     library_image_id: number;
+    /** 命中时是否通知人工客服；旧后端缺失时为 false。 */
+    notify_manual: boolean;
 };
 
 // normalizeKeywordExpressions 归一化服务端关键词表达式，并为历史单关键词响应提供回退值。
@@ -509,6 +511,7 @@ const normalizeKeywordRow = (item: any): KeywordRowPayload => {
         type: item?.type === 'image' ? 'image' : 'text',
         image_url: typeof item?.image_url === 'string' ? item.image_url : '',
         library_image_id: typeof item?.library_image_id === 'number' ? item.library_image_id : 0,
+        notify_manual: item?.notify_manual === true,
     };
 };
 
@@ -536,6 +539,7 @@ export const getReplyRules = async (cookieId?: string): Promise<ReplyRule[]> => 
         type: item.type === 'image' ? 'image' : 'text',
         image_url: item.image_url || '',
         library_image_id: item.library_image_id || 0,
+        notify_manual: item.notify_manual,
     }));
 };
 
@@ -593,6 +597,7 @@ export const updateReplyRule = async (rule: Partial<ReplyRule>, cookieId: string
         type,
         image_url: type === 'image' && !rule.library_image_id ? (rule.image_url || '') : '',
         library_image_id: type === 'image' ? (rule.library_image_id || 0) : 0,
+        notify_manual: rule.notify_manual === true,
     };
     return rule.id
         ? runContractRequest(/* signal 控制关键词规则更新请求的取消和超时。 */ signal => contractClient.PUT('/api/v1/reply-rules/{cid}/typed/{id}', { params: { path: { cid: cookieId, id: String(rule.id) } }, body: payload as never, signal }))

@@ -26,6 +26,8 @@ type Keyword struct {
 	ImageURL string
 	// LibraryImageID 是图片库图片主键；与 ImageURL 互斥，0 表示未使用图片库。
 	LibraryImageID int64
+	// NotifyManual 表示命中本规则时是否通知人工客服，并让会话进入人工介入暂停窗口。
+	NotifyManual bool
 }
 
 // decodeKeywordExpressions 从 JSON 文本读取表达式集合；非法或空数据回退兼容首表达式。
@@ -177,7 +179,7 @@ func (k *Keywords) AllWithType(ctx context.Context, cookieID string) ([]Keyword,
 	// rows、err 保存数据库查询结果。
 	rows, err := k.DB.QueryContext(ctx,
 		`SELECT keyword, reply, COALESCE(item_id,''), COALESCE(type,'text'), COALESCE(image_url,''),
-				COALESCE(keyword_expressions,''), COALESCE(match_type,'contains'), library_image_id
+				COALESCE(keyword_expressions,''), COALESCE(match_type,'contains'), library_image_id, COALESCE(notify_manual,0)
 			 FROM keywords WHERE cookie_id=? ORDER BY LENGTH(keyword) DESC,id ASC`, cookieID)
 	if err != nil {
 		return nil, err
@@ -190,10 +192,13 @@ func (k *Keywords) AllWithType(ctx context.Context, cookieID string) ([]Keyword,
 		var kw Keyword
 		// rawExpressions 保存数据库中的表达式 JSON 文本。
 		var rawExpressions string
+		// notifyManual 保存数据库中的转人工通知标记；三种方言统一以整数 0/1 存储。
+		var notifyManual int
 		if // err 表示当前行扫描错误。
-		err := rows.Scan(&kw.Keyword, &kw.Reply, &kw.ItemID, &kw.Type, &kw.ImageURL, &rawExpressions, &kw.MatchType, &kw.LibraryImageID); err != nil {
+		err := rows.Scan(&kw.Keyword, &kw.Reply, &kw.ItemID, &kw.Type, &kw.ImageURL, &rawExpressions, &kw.MatchType, &kw.LibraryImageID, &notifyManual); err != nil {
 			return nil, err
 		}
+		kw.NotifyManual = notifyManual != 0
 		kw.Expressions = decodeKeywordExpressions(rawExpressions, kw.Keyword)
 		if len(kw.Expressions) > 0 {
 			kw.Keyword = kw.Expressions[0]

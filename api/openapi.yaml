@@ -9103,6 +9103,7 @@ components:
         type: {type: string}
         image_url: {type: string}
         library_image_id: {type: integer, minimum: 0, description: 图片库图片主键；与 image_url 互斥，0 或省略表示未使用图片库}
+        notify_manual: {type: boolean, description: 命中本规则时是否通知人工客服并让会话进入人工介入暂停窗口；旧数据缺省为 false}
     KeywordTypedListResponse:
       type: array
       items: {$ref: '#/components/schemas/KeywordTypedResponse'}
@@ -9119,6 +9120,7 @@ components:
         type: {type: string}
         image_url: {type: string}
         library_image_id: {type: integer, minimum: 0, description: 图片库图片主键；与 image_url 互斥，0 或省略表示未使用图片库}
+        notify_manual: {type: boolean, default: false, description: 命中本规则时通知人工客服（通知类别 chat_manual_requested），并让会话进入人工介入暂停窗口；省略视为 false}
     DefaultReplyMapResponse:
       type: object
       additionalProperties:
@@ -9851,7 +9853,7 @@ components:
           type: string
     AccountDetailResponse:
       type: object
-      required: [id, has_cookie, enabled, auto_confirm, auto_consign, auto_bargain, consign_proof_mode, consign_proof_text, remark, pause_duration, paused_until, paused, show_browser, username, nickname, avatar_url, login_method, last_login_at, profile_error, auto_rate_enabled, rate_content, auto_polish_enabled, polish_time, last_rate_scan_at, last_polish_date, last_polish_at]
+      required: [id, has_cookie, enabled, auto_confirm, auto_consign, auto_bargain, consign_proof_mode, consign_proof_text, manual_takeover_minutes, manual_takeover_scope, remark, pause_duration, paused_until, paused, show_browser, username, nickname, avatar_url, login_method, last_login_at, profile_error, auto_rate_enabled, rate_content, auto_polish_enabled, polish_time, last_rate_scan_at, last_polish_date, last_polish_at]
       properties:
         id:
           type: string
@@ -9872,6 +9874,15 @@ components:
         consign_proof_text:
           type: string
           description: 固定文字模式下提交给平台的用户自填文字。
+        manual_takeover_minutes:
+          type: integer
+          minimum: 0
+          maximum: 1440
+          description: 人工回复买家后，该会话暂停自动回复的分钟数；0 表示关闭。
+        manual_takeover_scope:
+          type: string
+          enum: [ai, all]
+          description: 人工介入暂停范围：ai 只暂停外部 Agent 与 AI 回复，all 暂停全部自动回复。
         remark:
           type: string
         pause_duration:
@@ -9939,6 +9950,15 @@ components:
           type: string
           maxLength: 200
           description: 固定文字模式的凭证文本；省略时保持原值，选择 fixed 时最终值不能为空。
+        manual_takeover_minutes:
+          type: integer
+          minimum: 0
+          maximum: 1440
+          description: 人工回复后会话暂停自动回复的分钟数（0 关闭）；省略时保持原值。
+        manual_takeover_scope:
+          type: string
+          enum: [ai, all]
+          description: 人工介入暂停范围（ai 只暂停 Agent 与 AI，all 暂停全部自动回复）；省略时保持原值。
         pause_duration:
           type: integer
           minimum: 0

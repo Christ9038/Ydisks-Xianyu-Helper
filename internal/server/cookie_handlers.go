@@ -120,13 +120,17 @@ type updateCookieSettingsRequest struct {
 	// ConsignProofMode 是确认发货凭证模式（delivery/fixed/none），省略时保持原值。
 	ConsignProofMode *string `json:"consign_proof_mode"`
 	// ConsignProofText 是固定文字模式的凭证文本，省略时保持原值。
-	ConsignProofText *string  `json:"consign_proof_text"`
-	PauseDuration    *int     `json:"pause_duration"`
-	Username         *string  `json:"username"`
-	LoginPassword    *string  `json:"login_password"`
-	ClearPassword    bool     `json:"clear_password"`
-	ShowBrowser      *bool    `json:"show_browser"`
-	ChannelIDs       *[]int64 `json:"channel_ids"`
+	ConsignProofText *string `json:"consign_proof_text"`
+	// ManualTakeoverMinutes 是人工介入暂停分钟数（0 关闭，最大 1440），省略时保持原值。
+	ManualTakeoverMinutes *int `json:"manual_takeover_minutes"`
+	// ManualTakeoverScope 是人工介入暂停范围（ai/all），省略时保持原值。
+	ManualTakeoverScope *string  `json:"manual_takeover_scope"`
+	PauseDuration       *int     `json:"pause_duration"`
+	Username            *string  `json:"username"`
+	LoginPassword       *string  `json:"login_password"`
+	ClearPassword       bool     `json:"clear_password"`
+	ShowBrowser         *bool    `json:"show_browser"`
+	ChannelIDs          *[]int64 `json:"channel_ids"`
 }
 
 // longLoginSettingsRequest 是更新账号长登录开关的 HTTP 请求 DTO。
@@ -233,6 +237,7 @@ func (s *Server) updateCookieSettings(w http.ResponseWriter, r *http.Request) {
 		UserID: ownedDetail.UserID, AccountID: cid, Cookie: req.Cookie, Remark: req.Remark,
 		AutoConfirm: req.AutoConfirm, AutoConsign: req.AutoConsign, AutoBargain: req.AutoBargain, PauseDuration: req.PauseDuration, Username: req.Username,
 		ConsignProofMode: req.ConsignProofMode, ConsignProofText: req.ConsignProofText,
+		ManualTakeoverMinutes: req.ManualTakeoverMinutes, ManualTakeoverScope: req.ManualTakeoverScope,
 		Password: password, ShowBrowser: req.ShowBrowser, ChannelIDs: req.ChannelIDs,
 	})
 	if err != nil {
@@ -295,33 +300,35 @@ func (s *Server) listCookieDetails(w http.ResponseWriter, r *http.Request) {
 		// enabled、statusErr 保存当前账号启用状态及查询错误。
 		enabled, statusErr := s.accountSummaryApplication().StatusOwned(r.Context(), sess.UserID, summary.ID)
 		result = append(result, cookieSummaryResponse{
-			ID:                summary.ID,
-			HasCookie:         true,
-			Enabled:           statusErr == nil && enabled,
-			AutoConfirm:       summary.AutoConfirm,
-			AutoConsign:       summary.AutoConsign,
-			AutoBargain:       summary.AutoBargain,
-			ConsignProofMode:  summary.ConsignProofMode,
-			ConsignProofText:  summary.ConsignProofText,
-			Remark:            summary.Remark,
-			PauseDuration:     summary.PauseDuration,
-			PausedUntil:       summary.PausedUntil,
-			Paused:            summary.PausedUntil > time.Now().UTC().Unix(),
-			ShowBrowser:       summary.ShowBrowser,
-			Username:          summary.Username,
-			Nickname:          cachedCookieSummaryNickname(summary),
-			AvatarURL:         summary.AvatarURL,
-			LoginMethod:       summary.LoginMethod,
-			LastLoginAt:       summary.LastLoginAt,
-			ProfileError:      "",
-			AIEnabled:         false,
-			AutoRateEnabled:   tasks.AutoRateEnabled,
-			RateContent:       tasks.RateContent,
-			AutoPolishEnabled: tasks.AutoPolishEnabled,
-			PolishTime:        tasks.PolishTime,
-			LastRateScanAt:    tasks.LastRateScanAt,
-			LastPolishDate:    tasks.LastPolishDate,
-			LastPolishAt:      tasks.LastPolishAt,
+			ID:                    summary.ID,
+			HasCookie:             true,
+			Enabled:               statusErr == nil && enabled,
+			AutoConfirm:           summary.AutoConfirm,
+			AutoConsign:           summary.AutoConsign,
+			AutoBargain:           summary.AutoBargain,
+			ConsignProofMode:      summary.ConsignProofMode,
+			ConsignProofText:      summary.ConsignProofText,
+			ManualTakeoverMinutes: summary.ManualTakeoverMinutes,
+			ManualTakeoverScope:   summary.ManualTakeoverScope,
+			Remark:                summary.Remark,
+			PauseDuration:         summary.PauseDuration,
+			PausedUntil:           summary.PausedUntil,
+			Paused:                summary.PausedUntil > time.Now().UTC().Unix(),
+			ShowBrowser:           summary.ShowBrowser,
+			Username:              summary.Username,
+			Nickname:              cachedCookieSummaryNickname(summary),
+			AvatarURL:             summary.AvatarURL,
+			LoginMethod:           summary.LoginMethod,
+			LastLoginAt:           summary.LastLoginAt,
+			ProfileError:          "",
+			AIEnabled:             false,
+			AutoRateEnabled:       tasks.AutoRateEnabled,
+			RateContent:           tasks.RateContent,
+			AutoPolishEnabled:     tasks.AutoPolishEnabled,
+			PolishTime:            tasks.PolishTime,
+			LastRateScanAt:        tasks.LastRateScanAt,
+			LastPolishDate:        tasks.LastPolishDate,
+			LastPolishAt:          tasks.LastPolishAt,
 		})
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -353,6 +360,7 @@ func (s *Server) getCookieDetails(w http.ResponseWriter, r *http.Request) {
 		AutoConsign:      summary.AutoConsign,
 		AutoBargain:      summary.AutoBargain,
 		ConsignProofMode: summary.ConsignProofMode, ConsignProofText: summary.ConsignProofText,
+		ManualTakeoverMinutes: summary.ManualTakeoverMinutes, ManualTakeoverScope: summary.ManualTakeoverScope,
 		Remark: summary.Remark, PauseDuration: summary.PauseDuration, PausedUntil: summary.PausedUntil,
 		Paused: summary.PausedUntil > time.Now().UTC().Unix(), ShowBrowser: summary.ShowBrowser,
 		Username: summary.Username, Nickname: cachedCookieSummaryNickname(summary), AvatarURL: summary.AvatarURL,

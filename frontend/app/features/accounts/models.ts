@@ -2,6 +2,9 @@
 /** 确认发货携带凭证的模式：delivery 卡密/模板全文，fixed 固定文字，none 不携带。 */
 export type ConsignProofMode = 'delivery' | 'fixed' | 'none';
 
+/** 人工介入暂停范围：ai 只暂停 Agent 与 AI 回复，all 暂停全部自动回复。 */
+export type ManualTakeoverScope = 'ai' | 'all';
+
 /** 由当前 feature adapter 归一后的 AccountDetail UI 模型；不直接暴露 HTTP DTO。 */
 export interface AccountDetail {
   /** 闲鱼账号稳定标识。 */
@@ -20,6 +23,10 @@ export interface AccountDetail {
   consign_proof_mode?: ConsignProofMode;
   /** 固定文字模式下提交给平台的用户自填文字。 */
   consign_proof_text?: string;
+  /** 人工回复买家后该会话暂停自动回复的分钟数；adapter 已归一，0 表示关闭。 */
+  manual_takeover_minutes?: number;
+  /** 人工介入暂停范围；adapter 已归一，缺失时按 ai 处理。 */
+  manual_takeover_scope?: ManualTakeoverScope;
   /** 用户为账号设置的备注。 */
   remark?: string;
   /** 自动回复暂停时长，单位为分钟。 */
@@ -145,6 +152,7 @@ export type NotificationEventType =
   | 'token_renewal'
   | 'delivery_result'
   | 'manual_intervention_required'
+  | 'chat_manual_requested'
   | 'system_error';
 
 /** 由当前 feature adapter 归一后的 NotificationChannel UI 模型；不直接暴露 HTTP DTO。 */
@@ -195,6 +203,10 @@ export interface AccountSummaryResponse {
   consign_proof_mode?: string;
   /** 固定文字模式的凭证文本；旧后端可能缺失。 */
   consign_proof_text?: string;
+  /** 人工介入暂停分钟数；旧后端可能缺失。 */
+  manual_takeover_minutes?: number;
+  /** 人工介入暂停范围；旧后端可能缺失。 */
+  manual_takeover_scope?: string;
   /** 账号备注。 */
   remark: string;
   /** 自动回复暂停时长，单位为分钟。 */

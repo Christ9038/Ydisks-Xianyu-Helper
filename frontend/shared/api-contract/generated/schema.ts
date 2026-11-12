@@ -2679,6 +2679,8 @@ export interface components {
             image_url: string;
             /** @description 图片库图片主键；与 image_url 互斥，0 或省略表示未使用图片库 */
             library_image_id?: number;
+            /** @description 命中本规则时是否通知人工客服并让会话进入人工介入暂停窗口；旧数据缺省为 false */
+            notify_manual?: boolean;
         };
         KeywordTypedListResponse: components["schemas"]["KeywordTypedResponse"][];
         KeywordCreateRequest: {
@@ -2701,6 +2703,11 @@ export interface components {
             image_url: string;
             /** @description 图片库图片主键；与 image_url 互斥，0 或省略表示未使用图片库 */
             library_image_id?: number;
+            /**
+             * @description 命中本规则时通知人工客服（通知类别 chat_manual_requested），并让会话进入人工介入暂停窗口；省略视为 false
+             * @default false
+             */
+            notify_manual: boolean;
         };
         DefaultReplyMapResponse: {
             [key: string]: components["schemas"]["DefaultReplyResponse"];
@@ -3287,6 +3294,13 @@ export interface components {
             consign_proof_mode: "delivery" | "fixed" | "none";
             /** @description 固定文字模式下提交给平台的用户自填文字。 */
             consign_proof_text: string;
+            /** @description 人工回复买家后，该会话暂停自动回复的分钟数；0 表示关闭。 */
+            manual_takeover_minutes: number;
+            /**
+             * @description 人工介入暂停范围：ai 只暂停外部 Agent 与 AI 回复，all 暂停全部自动回复。
+             * @enum {string}
+             */
+            manual_takeover_scope: "ai" | "all";
             remark: string;
             pause_duration: number;
             paused_until: number;
@@ -3323,6 +3337,13 @@ export interface components {
             consign_proof_mode?: "delivery" | "fixed" | "none";
             /** @description 固定文字模式的凭证文本；省略时保持原值，选择 fixed 时最终值不能为空。 */
             consign_proof_text?: string;
+            /** @description 人工回复后会话暂停自动回复的分钟数（0 关闭）；省略时保持原值。 */
+            manual_takeover_minutes?: number;
+            /**
+             * @description 人工介入暂停范围（ai 只暂停 Agent 与 AI，all 暂停全部自动回复）；省略时保持原值。
+             * @enum {string}
+             */
+            manual_takeover_scope?: "ai" | "all";
             pause_duration?: number;
             username?: string;
             login_password?: string;

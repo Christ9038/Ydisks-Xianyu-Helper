@@ -43,6 +43,8 @@ const (
 	// EventManualInterventionRequired 表示自动化已停止且必须由用户人工判断或处理。
 	EventManualInterventionRequired = "manual_intervention_required"
 	EventSystemError                = "system_error"
+	// EventChatManualRequested 表示买家消息命中“通知人工”关键词规则，需要人工客服接手会话。
+	EventChatManualRequested = "chat_manual_requested"
 	// legacyNotifierOperationTimeout 是兼容无 Context 通知与等待入口的最长数据库或网络预算。
 	legacyNotifierOperationTimeout = 10 * time.Second
 )

@@ -40,6 +40,9 @@ test('旧版统一交易开关归一为自动化与人工处理开关',
     event => event.value.startsWith('automation_'),
   )).toHaveLength(4);
   expect(notificationEventSummary(['manual_intervention_required'])).toBe('需要人工处理');
+  // 买家请求人工客服是独立类别，不属于自动化任务，也不被旧版统一交易开关展开。
+  expect(notificationEventSummary(['chat_manual_requested'])).toBe('人工客服');
+  expect(normalized.event_types).not.toContain('chat_manual_requested');
   });
 
 test('通知请求代次拒绝过期响应',

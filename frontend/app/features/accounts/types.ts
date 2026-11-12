@@ -1,5 +1,11 @@
-import type { Dispatch,SetStateAction } from 'react';
-import type { AccountDetail,AIReplySettings,ConsignProofMode,NotificationChannel } from './api';
+import type { ComponentType,Dispatch,SetStateAction } from 'react';
+import type { AccountDetail,AIReplySettings,ConsignProofMode,ManualTakeoverScope,NotificationChannel } from './api';
+
+// AccountListProps 描述账号页面从应用壳接收的按需加载组件。
+export interface AccountListProps {
+  // accountEditModal 是应用壳按需注入的账号编辑弹窗；只在首次打开编辑时下载，保持账号页分片在预算内。
+  accountEditModal: ComponentType<AccountEditModalProps>;
+}
 
 // AccountEditForm 描述账号编辑弹窗中的可编辑字段。
 export interface AccountEditForm {
@@ -17,6 +23,10 @@ export interface AccountEditForm {
   consign_proof_mode: ConsignProofMode;
   // consign_proof_text 是固定文字模式的凭证文本草稿；切换到其他模式时保留，便于切回。
   consign_proof_text: string;
+  // manual_takeover_minutes 是人工介入暂停分钟数草稿，0 表示关闭。
+  manual_takeover_minutes: number;
+  // manual_takeover_scope 是人工介入暂停范围草稿。
+  manual_takeover_scope: ManualTakeoverScope;
   // pause_duration 是账号订单处理暂停时长，单位为分钟。
   pause_duration: number;
   // username 是用于密码登录的闲鱼账号。

@@ -25,6 +25,7 @@ func TestNotificationPureMappings(t *testing.T) {
 		EventAutomationOrderCreated: "拍下改价", EventAutomationOrderPaid: "付款发货", EventAutomationBuyerReviewed: "评价赠品",
 		EventAutomationReviewMissingTimeout: "求评价", EventManualDeliveryResult: "手动发货",
 		EventManualInterventionRequired: "需要人工处理",
+		EventChatManualRequested:        "人工客服",
 		EventSystemError:                "系统错误", "": "通知", "custom": "custom",
 	}
 	// event、want 表示当前事件及预期展示标签。

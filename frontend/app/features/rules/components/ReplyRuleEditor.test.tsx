@@ -72,4 +72,17 @@ describe('ReplyRuleEditor', /* 当前回调验证关键词回复编辑器的表�
     fireEvent.click(screen.getByText('取消'));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  test('“命中后通知人工”勾选只切换通知标记，不改动其他字段', /* 当前回调验证转人工勾选的函数式更新。 */ () => {
+    // latest 记录最近一次渲染得到的草稿。
+    let latest: Partial<ReplyRule> | null = null;
+    render(<EditorHarness initial={{ keyword: '人工', expressions: ['人工'], match_type: 'contains', type: 'text', reply_content: '稍等' }} onSave={vi.fn()} onClose={vi.fn()} onDraft={/* draft 是最新草稿。 */ draft => { latest = draft; }} />);
+    // checkbox 是通知人工勾选框，旧规则缺省为未勾选。
+    const checkbox = screen.getByLabelText('命中后通知人工') as HTMLInputElement;
+    expect(checkbox.checked).toBe(false);
+    fireEvent.click(checkbox);
+    expect(latest).toMatchObject({ notify_manual: true, reply_content: '稍等', expressions: ['人工'] });
+    fireEvent.click(checkbox);
+    expect(latest).toMatchObject({ notify_manual: false });
+  });
 });

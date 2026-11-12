@@ -928,6 +928,24 @@ test('getReplyRules 保留服务端多表达式正则配置', /* 当前回调验
   });
 });
 
+test('关键词规则“通知人工”标记读取时归一、保存时随请求提交', /* 当前回调验证 notify_manual 的读取归一与提交语义。 */ async () => {
+  // readFetch 返回一条开启通知与一条旧后端缺失该字段的规则。
+  const readFetch = vi.fn().mockResolvedValue(jsonResponse([
+    { id: 51, keyword: '转人工', expressions: ['转人工'], match_type: 'contains', reply: '已为您转接人工', type: 'text', item_ids: [], notify_manual: true },
+    { id: 52, keyword: '价格', expressions: ['价格'], match_type: 'contains', reply: '九块九', type: 'text', item_ids: [] },
+  ]));
+  stubContractFetch(readFetch);
+  // rules 是 adapter 归一后的规则集合。
+  const rules = await getReplyRules('acc1');
+  expect(rules.map(/* rule 是单条归一后的规则。 */ rule => rule.notify_manual)).toEqual([true, false]);
+
+  // saveFetch 是保存请求的网络替身。
+  const saveFetch = vi.fn().mockResolvedValue(jsonResponse({ success: true }));
+  stubContractFetch(saveFetch);
+  await updateReplyRule({ id: '51', keyword: '转人工', reply_content: '已为您转接人工', notify_manual: true }, 'acc1');
+  expect(JSON.parse(saveFetch.mock.calls[0][1].body)).toEqual(expect.objectContaining({ notify_manual: true }));
+});
+
 test('getReplyRules 没有账号时直接返回空列表', /* 当前回调验证关键词规则的账号守卫。 */ async () => {
   await expect(getReplyRules()).resolves.toEqual([]);
 });
@@ -1019,7 +1037,7 @@ test('updateReplyRule preserves keyword image metadata when saving text edits', 
     credentials: 'include',
   }));
   expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
-    keyword: '发货', expressions: ['发货'], match_type: 'contains', reply: '稍后安排', item_id: 'item-1', item_ids: ['item-1'], type: 'text', image_url: '', library_image_id: 0,
+    keyword: '发货', expressions: ['发货'], match_type: 'contains', reply: '稍后安排', item_id: 'item-1', item_ids: ['item-1'], type: 'text', image_url: '', library_image_id: 0, notify_manual: false,
   });
 
 } /* 测试回调验证：updateReplyRule preserves keyword image metadata when saving text edits。 */);
@@ -1032,7 +1050,7 @@ test('updateReplyRule sends every selected item id for multi-select rules', asyn
 
   expect(fetchMock).toHaveBeenCalledTimes(1);
   expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
-    keyword: '发货', expressions: ['发货'], match_type: 'contains', reply: '稍后安排', item_id: 'item-1', item_ids: ['item-1', 'item-2'], type: 'text', image_url: '', library_image_id: 0,
+    keyword: '发货', expressions: ['发货'], match_type: 'contains', reply: '稍后安排', item_id: 'item-1', item_ids: ['item-1', 'item-2'], type: 'text', image_url: '', library_image_id: 0, notify_manual: false,
   });
 } /* 测试回调验证：多选规则保存为一条规则并提交全部关联商品。 */);
 
@@ -1047,7 +1065,7 @@ test('createReplyRule keeps multi-select items in one rule request', async () =>
     credentials: 'include',
   }));
   expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
-    keyword: '发货', expressions: ['发货'], match_type: 'contains', reply: '稍后安排', item_id: 'item-1', item_ids: ['item-1', 'item-2'], type: 'text', image_url: '', library_image_id: 0,
+    keyword: '发货', expressions: ['发货'], match_type: 'contains', reply: '稍后安排', item_id: 'item-1', item_ids: ['item-1', 'item-2'], type: 'text', image_url: '', library_image_id: 0, notify_manual: false,
   });
 } /* 测试回调验证：新建多选规则只提交一次请求。 */);
 
@@ -1074,7 +1092,7 @@ test('updateReplyRule clears stale content when switching reply type', async () 
 
   await updateReplyRule({ id: '42', keyword: '发货', type: 'image', image_url: 'https://img.example/new.png' }, 'acc1');
   expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
-    keyword: '发货', expressions: ['发货'], match_type: 'contains', reply: '', item_id: '', item_ids: [], type: 'image', image_url: 'https://img.example/new.png', library_image_id: 0,
+    keyword: '发货', expressions: ['发货'], match_type: 'contains', reply: '', item_id: '', item_ids: [], type: 'image', image_url: 'https://img.example/new.png', library_image_id: 0, notify_manual: false,
   });
 } /* 测试回调验证：updateReplyRule clears stale content when switching reply type。 */);
 

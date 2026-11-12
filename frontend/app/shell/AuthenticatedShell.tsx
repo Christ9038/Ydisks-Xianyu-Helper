@@ -41,6 +41,8 @@ export interface AuthenticatedShellProps {
 const Dashboard = lazy(/* Dashboard 页面按路由激活时加载。 */ () => import('../features/dashboard/pages/Dashboard'));
 // AccountList 是按需加载的账号管理页面，避免未访问时载入账号弹窗和二维码代码。
 const AccountList = lazy(/* AccountList 页面按路由激活时加载。 */ () => import('../features/accounts/pages/AccountList'));
+// AccountEditModal 在账号页面首次打开编辑时按需加载，保持账号页主分片在预算内。
+const AccountEditModal = lazy(/* 账号编辑弹窗随账号页面按需加载。 */ () => import('../features/accounts/components/AccountEditModal').then(/* module 提供账号编辑弹窗的具名导出。 */ module => ({ default: module.AccountEditModal })));
 // OrderList 是按需加载的订单页面，避免首屏载入订单导入与刷新代码。
 const OrderList = lazy(/* OrderList 页面按路由激活时加载。 */ () => import('../features/orders/pages/OrderList'));
 // SalesStats 是按需加载的销售统计页面，避免首屏载入图表代码。
@@ -127,7 +129,7 @@ export const AppContent: React.FC<AppContentProps> = ({
   const renderPage = () => {
     switch (activeTab) {
       case 'dashboard': return <Dashboard />;
-      case 'accounts': return <AccountList />;
+      case 'accounts': return <AccountList accountEditModal={AccountEditModal} />;
       case 'chat': return <Chat libraryImageChooser={LibraryImageChooser} />;
       case 'orders': return <OrderList />;
       case 'sales': return <SalesStats />;

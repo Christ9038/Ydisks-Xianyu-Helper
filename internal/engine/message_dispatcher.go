@@ -35,6 +35,8 @@ type messageDispatcher struct {
 	observeOutgoing func(OutgoingChatMessage)
 	// reply 负责自动回复链，可能为空。
 	reply *ReplyService
+	// manualTakeover 是账号级人工介入跟踪器，判定自身回显是否为人工发送；为空时不识别人工介入。
+	manualTakeover *manualTakeoverTracker
 	// logger 记录消息分发和防抖错误。
 	logger *slog.Logger
 	// beginTask 登记账号生命周期任务，并返回该任务唯一的释放函数。
@@ -55,6 +57,8 @@ type messageDispatcherConfig struct {
 	ObserveOutgoing func(OutgoingChatMessage)
 	// Reply 是自动回复服务。
 	Reply *ReplyService
+	// ManualTakeover 是账号级人工介入跟踪器；为空时自身回显只用于发送确认和落库。
+	ManualTakeover *manualTakeoverTracker
 	// Logger 记录分发过程中的错误和诊断信息。
 	Logger *slog.Logger
 	// BeginTask 登记账号生命周期任务，并返回该任务唯一的释放函数。
@@ -109,6 +113,7 @@ func newMessageDispatcher(config messageDispatcherConfig) messageDispatcher {
 		currentHandler:  currentHandler,
 		observeOutgoing: observeOutgoing,
 		reply:           config.Reply,
+		manualTakeover:  config.ManualTakeover,
 		logger:          logger,
 		beginTask:       beginTask,
 		recordMessage:   recordMessage,
@@ -205,6 +210,10 @@ func (d *messageDispatcher) handleMessageContext(ctx context.Context, decrypted 
 		ownEcho.ObservedAt = observedAt
 		// observeOutgoing 先于业务旁路执行，确保等待中的自动化发送不受数据库写入延迟影响。
 		d.observeOutgoing(*ownEcho)
+		// 未被本系统出站登记消费的新鲜自身回显来自官方客户端的人工发送，会话进入人工介入暂停窗口；判定只读写内存。
+		if d.manualTakeover.observeOwnEcho(*ownEcho, echoCreatedAt(decrypted)) {
+			d.logger.InfoContext(ctx, "检测到人工回复，会话进入人工介入暂停窗口", "chat_id", ownEcho.ChatID)
+		}
 		// handler 保存当前可选业务处理器；旧集成未实现出站观察能力时保持原有仅过滤语义。
 		if handler := d.currentHandler(); handler != nil {
 			// observer、supported 保存出站观察接口及其实现判断，避免扩大基础 Handler 的必选职责。

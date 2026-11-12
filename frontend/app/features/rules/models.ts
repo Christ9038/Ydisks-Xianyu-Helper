@@ -340,6 +340,8 @@ export interface ReplyRule {
   image_url?: string;
   /** 图片库图片主键；0 或缺省表示未使用图片库，与 image_url 互斥。 */
   library_image_id?: number;
+  /** 命中时是否通知人工客服，并让会话进入人工介入暂停窗口；缺省视为 false。 */
+  notify_manual?: boolean;
 }
 
 /** 由当前 feature adapter 归一后的 DefaultReply UI 模型；不直接暴露 HTTP DTO。 */

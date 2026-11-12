@@ -7,6 +7,7 @@ import (
 
 	chatapp "xianyu-go/internal/application/chat"
 	"xianyu-go/internal/automation"
+	"xianyu-go/internal/engine"
 )
 
 // coverageAutomationSender 是自动化图片发送测试使用的内存发送器。
@@ -21,13 +22,16 @@ type coverageAutomationSender struct {
 	cookie string
 	// sendErr 控制发送器返回的模拟错误。
 	sendErr error
+	// automaticReply 记录最近一次文本发送上下文是否带自动回复标记。
+	automaticReply bool
 }
 
 // SendText 记录自动化文本发送参数。
 
 // SendText 记录自动化文本发送参数并返回模拟错误。
-func (s *coverageAutomationSender) SendText(_ context.Context, _ string, _ string, text string) error {
+func (s *coverageAutomationSender) SendText(ctx context.Context, _ string, _ string, text string) error {
 	s.text = text
+	s.automaticReply = engine.IsAutomaticReply(ctx)
 	return s.sendErr
 }
 

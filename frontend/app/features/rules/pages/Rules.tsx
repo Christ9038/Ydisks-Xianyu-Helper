@@ -579,6 +579,9 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                     {additionalExpressionCount > 0 && (
                       <span className="px-3 py-1 bg-amber-50 text-amber-700 rounded-lg text-xs font-bold">+{additionalExpressionCount} 个表达式</span>
                     )}
+                    {rule.notify_manual && (
+                      <span className="px-3 py-1 bg-orange-50 text-orange-700 rounded-lg text-xs font-bold">通知人工</span>
+                    )}
                     {itemLabels.length === 0 ? (
                       <span className="px-3 py-1 bg-gray-100 text-gray-600 rounded-lg text-xs font-bold">账号级</span>
                     ) : (

@@ -165,6 +165,20 @@ const ReplyRuleEditor: React.FC<ReplyRuleEditorProps> = ({ rule,setRule,items,on
             </div>
           )}
 
+          <label className="flex items-start gap-3 p-4 bg-orange-50 rounded-xl cursor-pointer">
+            <input
+              type="checkbox"
+              checked={rule.notify_manual === true}
+              onChange={/* 当前回调切换命中后通知人工；current 是当前关键词回复草稿。 */ event => setRule(/* current 表示当前关键词回复草稿；函数式更新避免覆盖其他字段。 */ current => current ? { ...current, notify_manual: event.target.checked } : current)}
+              className="mt-1 w-4 h-4"
+              aria-label="命中后通知人工"
+            />
+            <span>
+              <span className="block text-sm font-bold text-gray-900">命中后通知人工</span>
+              <span className="block text-xs text-gray-500">照常发送上面的回复，同时通过“人工客服”通知类别提醒你；该会话按账号“人工介入暂停”设置暂停 AI 回复。同一会话 10 分钟内只通知一次</span>
+            </span>
+          </label>
+
           <div className="flex gap-3 pt-4">
             <button
               onClick={/* 当前回调取消关键词回复编辑并关闭弹窗。 */ onClose}

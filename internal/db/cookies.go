@@ -38,11 +38,15 @@ type AccountSettingsUpdate struct {
 	ConsignProofMode *string
 	// ConsignProofText 是固定文字模式提交给平台的文本；nil 保持原值。
 	ConsignProofText *string
-	PauseDuration    *int
-	Username         *string
-	Password         *string
-	ShowBrowser      *bool
-	ChannelIDs       *[]int64
+	// ManualTakeoverMinutes 是人工回复后会话暂停自动回复的分钟数（0 关闭）；nil 保持原值。
+	ManualTakeoverMinutes *int
+	// ManualTakeoverScope 是人工介入暂停范围（ai/all）；nil 保持原值。
+	ManualTakeoverScope *string
+	PauseDuration       *int
+	Username            *string
+	Password            *string
+	ShowBrowser         *bool
+	ChannelIDs          *[]int64
 }
 
 // UpdateSettings 在一个事务中更新账号字段及通知绑定，避免前端并行请求只成功一部分。
@@ -117,6 +121,7 @@ func (c *Cookies) UpdateSettings(ctx context.Context, cookieID string, input Acc
 	if proofErr != nil {
 		return 0, proofErr
 	}
+	assignments, args = appendManualTakeoverAssignments(assignments, args, input)
 	// pausedUntil 用于本次流程后续判断的pausedUntil
 	pausedUntil := int64(0)
 	if input.PauseDuration != nil {

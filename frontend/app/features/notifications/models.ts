@@ -54,6 +54,7 @@ export type NotificationEventType =
   | 'automation_review_missing_timeout'
   | 'manual_delivery_result'
   | 'manual_intervention_required'
+  | 'chat_manual_requested'
   | 'system_error';
 
 /** automationNotificationEventTypes 是四类自动化任务使用的独立通知开关编码。 */

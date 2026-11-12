@@ -48,4 +48,6 @@ type keywordTypedResponse struct {
 	ImageURL string `json:"image_url"`
 	// LibraryImageID 是图片库图片主键；与 image_url 互斥，0 或省略表示未使用图片库。
 	LibraryImageID int64 `json:"library_image_id,omitempty"`
+	// NotifyManual 表示命中本规则时通知人工客服并让会话进入人工介入暂停窗口。
+	NotifyManual bool `json:"notify_manual"`
 }

@@ -30,6 +30,8 @@ type KeywordRow struct {
 	ImageURL string
 	// LibraryImageID 是图片库图片主键；与 ImageURL 互斥，0 表示未使用图片库。
 	LibraryImageID int64
+	// NotifyManual 表示命中本规则时是否通知人工客服并让会话进入人工介入暂停窗口。
+	NotifyManual bool
 }
 
 // UpdateByID 更新指定账号的一条关键词规则。
@@ -43,9 +45,9 @@ func (k *Keywords) UpdateByID(ctx context.Context, row KeywordRow) error {
 	}
 	// res、err 保存数据库更新结果。
 	res, err := k.DB.ExecContext(ctx, `UPDATE keywords
-		SET keyword=?,reply=?,item_id=?,type=?,image_url=?,library_image_id=?,keyword_expressions=?,match_type=?
+		SET keyword=?,reply=?,item_id=?,type=?,image_url=?,library_image_id=?,keyword_expressions=?,match_type=?,notify_manual=?
 		WHERE id=? AND cookie_id=?`,
-		keyword, row.Reply, nullable(row.ItemID), kwType, nullable(row.ImageURL), row.LibraryImageID, expressionsJSON, matchType, row.ID, row.CookieID)
+		keyword, row.Reply, nullable(row.ItemID), kwType, nullable(row.ImageURL), row.LibraryImageID, expressionsJSON, matchType, boolToInt(row.NotifyManual), row.ID, row.CookieID)
 	if err != nil {
 		return err
 	}
@@ -85,7 +87,7 @@ func (k *Keywords) AllRows(ctx context.Context, cookieID string) ([]KeywordRow, 
 	// rows、err 保存数据库查询结果。
 	rows, err := k.DB.QueryContext(ctx,
 		`SELECT id, keyword, reply, COALESCE(item_id,''), COALESCE(type,'text'), COALESCE(image_url,''),
-				COALESCE(keyword_expressions,''), COALESCE(match_type,'contains'), library_image_id
+				COALESCE(keyword_expressions,''), COALESCE(match_type,'contains'), library_image_id, COALESCE(notify_manual,0)
 		 FROM keywords WHERE cookie_id=? ORDER BY id`, cookieID)
 	if err != nil {
 		return nil, err
@@ -98,10 +100,13 @@ func (k *Keywords) AllRows(ctx context.Context, cookieID string) ([]KeywordRow, 
 		var r KeywordRow
 		// rawExpressions 保存当前行的表达式 JSON 文本。
 		var rawExpressions string
+		// notifyManual 保存当前行以整数 0/1 存储的转人工通知标记。
+		var notifyManual int
 		if // err 表示当前行扫描错误。
-		err := rows.Scan(&r.ID, &r.Keyword, &r.Reply, &r.ItemID, &r.Type, &r.ImageURL, &rawExpressions, &r.MatchType, &r.LibraryImageID); err != nil {
+		err := rows.Scan(&r.ID, &r.Keyword, &r.Reply, &r.ItemID, &r.Type, &r.ImageURL, &rawExpressions, &r.MatchType, &r.LibraryImageID, &notifyManual); err != nil {
 			return nil, err
 		}
+		r.NotifyManual = notifyManual != 0
 		r.Expressions = decodeKeywordExpressions(rawExpressions, r.Keyword)
 		if len(r.Expressions) > 0 {
 			r.Keyword = r.Expressions[0]
@@ -138,8 +143,8 @@ func (k *Keywords) AddRow(ctx context.Context, row KeywordRow) (int64, error) {
 		kwType = "text"
 	}
 	return insertReturningID(ctx, k.DB, k.Dialect,
-		`INSERT INTO keywords (cookie_id, keyword, reply, item_id, type, image_url, library_image_id, keyword_expressions, match_type) VALUES (?,?,?,?,?,?,?,?,?)`,
-		cookieID, keyword, reply, nullable(itemID), kwType, nullable(imageURL), row.LibraryImageID, expressionsJSON, normalizedMatchType)
+		`INSERT INTO keywords (cookie_id, keyword, reply, item_id, type, image_url, library_image_id, keyword_expressions, match_type, notify_manual) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		cookieID, keyword, reply, nullable(itemID), kwType, nullable(imageURL), row.LibraryImageID, expressionsJSON, normalizedMatchType, boolToInt(row.NotifyManual))
 }
 
 // ReplaceForCookie 原子覆盖某账号的全部关键词规则。
@@ -165,8 +170,8 @@ func (k *Keywords) ReplaceForCookie(ctx context.Context, cookieID string, rows [
 		}
 		if // err 表示写入当前规则的事务错误。
 		_, err := tx.ExecContext(ctx,
-			`INSERT INTO keywords (cookie_id, keyword, reply, item_id, type, image_url, library_image_id, keyword_expressions, match_type) VALUES (?,?,?,?,?,?,?,?,?)`,
-			cookieID, keyword, row.Reply, nullable(row.ItemID), kwType, nullable(row.ImageURL), row.LibraryImageID, expressionsJSON, matchType); err != nil {
+			`INSERT INTO keywords (cookie_id, keyword, reply, item_id, type, image_url, library_image_id, keyword_expressions, match_type, notify_manual) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+			cookieID, keyword, row.Reply, nullable(row.ItemID), kwType, nullable(row.ImageURL), row.LibraryImageID, expressionsJSON, matchType, boolToInt(row.NotifyManual)); err != nil {
 			return err
 		}
 	}

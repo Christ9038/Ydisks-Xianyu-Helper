@@ -67,6 +67,7 @@ export const notificationEvents: NotificationEventMeta[] = [
   { value: 'automation_review_missing_timeout', label: '求评价', description: '订单超时未评价时，求评价任务的成功或失败结果' },
   { value: 'manual_delivery_result', label: '手动发货结果', description: '人工发货或确认发货的结果，不属于自动化任务分类' },
   { value: 'manual_intervention_required', label: '需要人工处理', description: '自动化因结果不确定、状态缺失或无法安全续跑而停止，需要用户检查订单' },
+  { value: 'chat_manual_requested', label: '人工客服', description: '买家消息命中勾选了“命中后通知人工”的关键词规则，需要人工接手会话' },
   { value: 'token_renewal', label: '续期通知', description: 'Cookie/token 续期和自动恢复过程' },
   { value: 'system_error', label: '系统错误', description: '后台任务或系统级异常' },
 ];

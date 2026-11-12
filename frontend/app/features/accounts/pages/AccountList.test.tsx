@@ -36,7 +36,7 @@ vi.mock('../hooks', /* accountsHookMockFactory 提供账号列表数据 Hook 替
 }));
 
 vi.mock('../submoduleHooks', /* submoduleHookMockFactory 提供账号弹窗状态 Hook 替身。 */ () => ({
-  useAccountSubmodules: /* useAccountSubmodulesMock 返回不阻断页面渲染的子模块状态。 */ () => ({
+  useAccountSubmodules: /* useAccountSubmodulesMock 返回不阻断页面渲染的子模块状态；params 是页面传入的弹窗状态 setter。 */ (params: any) => ({
     longLogin: false,
     notifChannels: [],
     selectedChannelIds: [],
@@ -48,7 +48,7 @@ vi.mock('../submoduleHooks', /* submoduleHookMockFactory 提供账号弹窗状�
     passwordLoginView: { status: 'idle', message: '' },
     setAiSettings: vi.fn(),
     setBindingsDirty: vi.fn(),
-    openEditModal: vi.fn(),
+    openEditModal: /* openEditModalMock 复现真实 Hook 打开编辑弹窗的状态切换；account 是被编辑账号。 */ (account: AccountDetail) => { params.setEditingAccount(account); params.setActiveModal('edit'); },
     closeEditModal: vi.fn(),
     openAIModal: vi.fn(),
     closeAIModal: vi.fn(),
@@ -93,6 +93,7 @@ vi.mock('../components/AccountCard', /* accountCardMockFactory 提供账号卡�
       <button onClick={/* toggleAction 切换账号启用状态。 */ () => props.onToggle(props.account.id, props.account.enabled)}>切换</button>
       <button onClick={/* refreshAction 刷新账号资料。 */ () => props.onRefreshProfile(props.account)}>刷新资料</button>
       <button onClick={/* reauthorizeAction 启动账号二维码重新授权。 */ () => props.onReauthorize(props.account)}>重新授权</button>
+      <button onClick={/* editAction 打开账号编辑弹窗。 */ () => props.onEdit(props.account)}>编辑</button>
     </div>
   );
   return { AccountCard: AccountCardMock };
@@ -121,10 +122,6 @@ vi.mock('../components/AccountQRCodeModal', /* qrModalMockFactory 提供二维�
   return { AccountQRCodeModal: AccountQRCodeModalMock };
 });
 
-vi.mock('../components/AccountEditModal', /* editModalMockFactory 提供账号编辑弹窗替身。 */ () => ({
-  AccountEditModal: /* AccountEditModalMock 表示账号编辑弹窗替身。 */ () => null,
-}));
-
 vi.mock('../components/AccountAISettingsModal', /* aiModalMockFactory 提供 AI 设置弹窗替身。 */ () => ({
   AccountAISettingsModal: /* AccountAISettingsModalMock 表示 AI 设置弹窗替身。 */ () => null,
 }));
@@ -133,7 +130,13 @@ vi.mock('../components/AccountAutomationModal', /* automationModalMockFactory �
   default: /* AccountAutomationModalMock 表示账号自动化弹窗替身。 */ () => null,
 }));
 
-import AccountList from './AccountList';
+import AccountListPage from './AccountList';
+
+// InjectedEditModal 是应用壳注入的编辑弹窗替身，展示当前编辑账号以验证注入与 props 透传。
+const InjectedEditModal: React.FC<any> = (props /* props 表示编辑弹窗收到的账号与回调。 */) => <div data-testid="edit-modal">{props.account.nickname}</div>;
+
+// AccountList 是注入编辑弹窗替身后的被测页面，保持既有用例的渲染写法不变。
+const AccountList: React.FC = () => <AccountListPage accountEditModal={InjectedEditModal} />;
 
 describe('AccountList 页面组合行为', /* 当前回调验证账号列表页面的搜索、删除、资料和二维码流程。 */ () => {
   beforeEach(/* 当前回调重置账号页面 API、请求门禁和浏览器提示替身。 */ () => {
@@ -154,6 +157,26 @@ describe('AccountList 页面组合行为', /* 当前回调验证账号列表页�
   afterEach(/* 当前回调清理页面 DOM 和浏览器提示替身。 */ () => {
     cleanup();
     vi.restoreAllMocks();
+  });
+
+  test('点击编辑后渲染应用壳注入的编辑弹窗', /* 当前回调验证按需加载的编辑弹窗通过 props 注入并收到当前账号。 */ () => {
+    render(<AccountList />);
+    expect(screen.queryByTestId('edit-modal')).toBeNull();
+    fireEvent.click(screen.getAllByText('编辑')[1]);
+    expect(screen.getByTestId('edit-modal').textContent).toBe('Beta');
+  });
+
+  test('编辑弹窗分片加载期间显示加载遮罩', /* 当前回调验证懒加载组件挂起时的 Suspense 占位。 */ async () => {
+    // PendingModalModule 是懒加载模块形状；default 是加载完成后才会渲染的弹窗组件。
+    type PendingModalModule = {
+      // default 是模块默认导出的弹窗组件，本用例中永远不会到达。
+      default: React.FC<any>;
+    };
+    // PendingModal 是永不完成加载的懒加载组件，用于停留在 Suspense 占位状态。
+    const PendingModal = React.lazy(/* 加载永不完成。 */ () => new Promise<PendingModalModule>(/* 不 resolve 以保持挂起。 */ () => undefined));
+    render(<AccountListPage accountEditModal={PendingModal} />);
+    fireEvent.click(screen.getAllByText('编辑')[0]);
+    expect(await screen.findByRole('status', { name: '正在加载编辑弹窗' })).toBeTruthy();
   });
 
   test('搜索只展示匹配账号并保留总数提示', /* 当前回调验证账号搜索过滤行为。 */ () => {

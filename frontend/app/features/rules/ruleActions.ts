@@ -473,7 +473,7 @@ export const useRuleActions = ({
     if (!selectedAccountId) return showReplyToast('error', '请先选择账号');
     // expressions 保存至少一行可编辑表达式，避免新建表单丢失 OR 语义入口。
     const expressions = [''];
-    setEditingReplyRule({ keyword: '', expressions, reply_content: '', image_url: '', library_image_id: 0, item_id: '', item_ids: [], type: 'text', match_type: 'contains', enabled: true });
+    setEditingReplyRule({ keyword: '', expressions, reply_content: '', image_url: '', library_image_id: 0, item_id: '', item_ids: [], type: 'text', match_type: 'contains', enabled: true, notify_manual: false });
     setShowReplyModal(true);
   }, [selectedAccountId, showReplyToast]);
 

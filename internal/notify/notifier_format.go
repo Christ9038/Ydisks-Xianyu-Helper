@@ -45,6 +45,8 @@ func eventLabel(eventType string) string {
 		return "需要人工处理"
 	case EventSystemError:
 		return "系统错误"
+	case EventChatManualRequested:
+		return "人工客服"
 	default:
 		if eventType == "" {
 			return "通知"

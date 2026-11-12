@@ -69,6 +69,8 @@ type Keyword struct {
 	ImageURL string
 	// LibraryImageID 是 image 类型回复引用的图片库图片主键；与 ImageURL 互斥，0 表示未使用。
 	LibraryImageID int64
+	// NotifyManual 表示命中本规则时通知人工客服并让会话进入人工介入暂停窗口。
+	NotifyManual bool
 }
 
 // SplitItemIDs 把持久化的商品范围字段拆分为去空白的商品标识集合。
@@ -123,6 +125,8 @@ type Draft struct {
 	ImageURL string
 	// LibraryImageID 是 image 类型回复引用的图片库图片主键；与 ImageURL 互斥，0 表示未使用。
 	LibraryImageID int64
+	// NotifyManual 表示命中本规则时通知人工客服并让会话进入人工介入暂停窗口。
+	NotifyManual bool
 }
 
 // ItemReply 是指定商品回复的应用层模型。

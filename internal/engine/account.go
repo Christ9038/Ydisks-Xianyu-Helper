@@ -66,6 +66,8 @@ const (
 	EventSecurityVerification = "security_verification"
 	EventTokenRenewal         = "token_renewal"
 	EventSystemError          = "system_error"
+	// EventChatManualRequested 表示买家消息命中“通知人工”关键词，需要人工客服接手会话。
+	EventChatManualRequested = "chat_manual_requested"
 )
 
 // Handler 是业务逻辑注入点（Phase 3 实现）。
@@ -376,6 +378,8 @@ func New(cfg Config) *Account {
 	echoTracker := newOutgoingEchoTracker()
 	// 诊断日志器在账号对外可见之前一次性设置，之后只读；用于记录迟到推送回显，便于核对“结果不确定”的发送是否实际送达。
 	echoTracker.logger = logger.With("account", cfg.CookieID, "subsys", "echo")
+	// manualTakeover 保存当前账号各会话的人工介入状态；生命周期与账号 facade 一致，只存内存。
+	manualTakeover := newManualTakeoverTracker()
 	if cfg.Store != nil {
 		// aiReplier 保存当前账号的 AI 回复生成能力。
 		aiReplier := NewAIReplier(cfg.CookieID, cfg.Store, logger)
@@ -383,6 +387,8 @@ func New(cfg Config) *Account {
 			// agentReplier 保存当前账号的外部 Agent 回复连接器，与回复服务共用同一消息投递端口。
 			agentReplier := NewAgentReplier(cfg.CookieID, cfg.Store, cfg.ReplyDelivery, logger)
 			a.reply = NewReplyService(cfg.CookieID, cfg.Store, cfg.ReplyDelivery, agentReplier, aiReplier, logger)
+			a.reply.manualTakeover = manualTakeover
+			a.reply.manualRequests = func() Handler { return a.handler }
 		}
 	}
 	a.messageDispatcher = newMessageDispatcher(messageDispatcherConfig{
@@ -391,6 +397,7 @@ func New(cfg Config) *Account {
 		CurrentHandler:  func() Handler { return a.handler },
 		ObserveOutgoing: echoTracker.observeMessage,
 		Reply:           a.reply,
+		ManualTakeover:  manualTakeover,
 		Logger:          logger,
 		BeginTask:       a.lifecycle.beginTask,
 		RecordMessage:   a.recordMessageReceived,
@@ -398,7 +405,7 @@ func New(cfg Config) *Account {
 	// connection 保存绑定当前账号 facade 的连接编排组件；它只在构造完成后才可被 Run 调用。
 	a.connection = connectionCoordinator{account: a}
 	// outgoing 保存绑定当前账号 facade 的出站消息协调器；它只读取连接快照后执行外部 I/O。
-	a.outgoing = outgoingMessageCoordinator{account: a, echoTracker: echoTracker}
+	a.outgoing = outgoingMessageCoordinator{account: a, echoTracker: echoTracker, manualTakeover: manualTakeover}
 	// credentials 保存绑定当前账号 facade 的凭证协调器；外部凭证 I/O 均由它控制锁边界。
 	a.credentials = credentialCoordinator{account: a}
 	return a

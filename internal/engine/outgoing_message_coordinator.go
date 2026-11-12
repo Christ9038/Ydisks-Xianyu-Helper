@@ -22,6 +22,20 @@ type outgoingMessageCoordinator struct {
 	echoTracker *outgoingEchoTracker
 	// echoWaitTimeout 是测试可覆盖的回显确认预算；生产默认使用固定的有限等待时间。
 	echoWaitTimeout time.Duration
+	// manualTakeover 是账号级人工介入跟踪器；每次出站在写入前登记，网页聊天的人工发送直接标记人工介入。为空时不参与。
+	manualTakeover *manualTakeoverTracker
+}
+
+// noteOutgoing 在写入 WebSocket 之前登记一条出站消息，使其自身回显不被误判为人工发送；
+// 没有自动回复或自动化标记的发送来自网页聊天的人工操作，直接让会话进入人工介入暂停窗口。只读写内存。
+func (c *outgoingMessageCoordinator) noteOutgoing(ctx context.Context, chatID, messageType, content string) {
+	if c == nil || c.manualTakeover == nil {
+		return
+	}
+	c.manualTakeover.recordSystemSend(chatID, messageType, content)
+	if !isAutomaticSend(ctx) {
+		c.manualTakeover.markManual(chatID, c.manualTakeover.now())
+	}
 }
 
 // sendText 使用当前已注册 WebSocket 发送文本，并在平台接受后通知可选的聊天旁路。
@@ -48,6 +62,7 @@ func (c *outgoingMessageCoordinator) sendText(ctx context.Context, chatID, toUse
 	requestID := protocol.GenerateMid()
 	// echoWaiter 必须在平台写入前登记，防止闲鱼回显先到而错过确认窗口。
 	echoWaiter := c.registerOutgoingEcho(ctx, chatID, toUserID, "text", text, requestID)
+	c.noteOutgoing(ctx, chatID, "text", text)
 	if echoWaiter != nil {
 		sendCtx = ws.WithOutgoingRequestID(sendCtx, requestID)
 	}
@@ -107,6 +122,7 @@ func (c *outgoingMessageCoordinator) sendImage(ctx context.Context, chatID, toUs
 	requestID := protocol.GenerateMid()
 	// echoWaiter 必须在图片写入前登记；图片回显使用平台返回的同类媒体正文进行匹配。
 	echoWaiter := c.registerOutgoingEcho(ctx, chatID, toUserID, "image", imageURL, requestID)
+	c.noteOutgoing(ctx, chatID, "image", imageURL)
 	if echoWaiter != nil {
 		sendCtx = ws.WithOutgoingRequestID(sendCtx, requestID)
 	}
@@ -197,6 +213,7 @@ func (c *outgoingMessageCoordinator) sendItemCard(ctx context.Context, chatID, t
 	// sendCtx 和 cancel 将单次卡片发送最长等待限制为八秒。
 	sendCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
+	c.noteOutgoing(ctx, chatID, "item", "")
 	// sendErr 表示底层 WebSocket 商品卡片投递是否失败。
 	if sendErr := itemSender.SendItemCard(sendCtx, myID, chatID, toUserID, itemID, title, imageURL, price); sendErr != nil {
 		return classifyPlatformSendError(sendErr)

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup,fireEvent,render,screen } from '@testing-library/react';
+import { cleanup,fireEvent,render,screen,within } from '@testing-library/react';
 import React from 'react';
 import { afterEach,describe,expect,test,vi } from 'vitest';
 import type { AccountDetail } from '../api';
@@ -15,6 +15,8 @@ const baseForm: AccountEditForm = {
   auto_bargain: false,
   consign_proof_mode: 'delivery',
   consign_proof_text: '',
+  manual_takeover_minutes: 0,
+  manual_takeover_scope: 'ai',
   pause_duration: 0,
   username: '',
   login_password: '',
@@ -104,7 +106,7 @@ describe('AccountEditModal 业务开关', /* 验证三个开关互不串联且�
     let latest = baseForm;
     render(<Harness onForm={/* 记录最新表单快照。 */ form => { latest = form; }} />);
     // radios 是凭证模式单选按钮。
-    const radios = screen.getAllByRole('radio');
+    const radios = within(screen.getByRole('radiogroup', { name: '确认发货凭证' })).getAllByRole('radio');
     expect(radios.map(/* 读取每个选项的文字。 */ item => item.textContent)).toEqual(['卡密/模板全文', '固定文字', '不携带']);
     expect(radios[0].getAttribute('aria-checked')).toBe('true');
     expect(screen.queryByLabelText('确认发货固定文字')).toBeNull();
@@ -118,8 +120,31 @@ describe('AccountEditModal 业务开关', /* 验证三个开关互不串联且�
     expect(latest.consign_proof_text).toBe('已通过聊天发送');
     expect(screen.getByRole('button', { name: '保存' }).hasAttribute('disabled')).toBe(false);
 
-    fireEvent.click(screen.getAllByRole('radio')[2]);
+    fireEvent.click(within(screen.getByRole('radiogroup', { name: '确认发货凭证' })).getAllByRole('radio')[2]);
     expect(latest).toMatchObject({ consign_proof_mode: 'none', consign_proof_text: '已通过聊天发送' });
     expect(screen.queryByLabelText('确认发货固定文字')).toBeNull();
+  });
+
+  test('人工介入暂停可设置分钟数与范围，越界分钟数提示并禁用保存', /* 区块只影响人工介入字段，空输入视为关闭。 */ () => {
+    // latest 保存最近一次渲染得到的表单。
+    let latest = baseForm;
+    render(<Harness onForm={/* 记录最新表单快照。 */ form => { latest = form; }} />);
+    // scopeRadios 是人工介入暂停范围单选按钮。
+    const scopeRadios = within(screen.getByRole('radiogroup', { name: '人工介入暂停范围' })).getAllByRole('radio');
+    expect(scopeRadios.map(/* 读取每个选项的文字。 */ item => item.textContent)).toEqual(['只暂停 AI', '暂停全部']);
+    expect(scopeRadios[0].getAttribute('aria-checked')).toBe('true');
+
+    fireEvent.change(screen.getByLabelText('人工介入暂停分钟数'), { target: { value: '15' } });
+    expect(latest).toMatchObject({ manual_takeover_minutes: 15, manual_takeover_scope: 'ai', pause_duration: 0 });
+    fireEvent.click(scopeRadios[1]);
+    expect(latest.manual_takeover_scope).toBe('all');
+
+    fireEvent.change(screen.getByLabelText('人工介入暂停分钟数'), { target: { value: '2000' } });
+    expect(screen.getByText(/暂停分钟数必须是 0 到 1440/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: '保存' }).hasAttribute('disabled')).toBe(true);
+
+    fireEvent.change(screen.getByLabelText('人工介入暂停分钟数'), { target: { value: '' } });
+    expect(latest.manual_takeover_minutes).toBe(0);
+    expect(screen.getByRole('button', { name: '保存' }).hasAttribute('disabled')).toBe(false);
   });
 });

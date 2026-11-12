@@ -16,6 +16,10 @@ type cookieDetailResponse struct {
 	ConsignProofMode string `json:"consign_proof_mode"`
 	// ConsignProofText 是固定文字模式下提交给平台的用户自填文字。
 	ConsignProofText string `json:"consign_proof_text"`
+	// ManualTakeoverMinutes 是人工回复后会话暂停自动回复的分钟数；0 表示关闭。
+	ManualTakeoverMinutes int `json:"manual_takeover_minutes"`
+	// ManualTakeoverScope 是人工介入暂停范围：ai 只暂停 Agent 与 AI，all 暂停全部自动回复。
+	ManualTakeoverScope string `json:"manual_takeover_scope"`
 	// Remark 是账号备注。
 	Remark string `json:"remark"`
 	// PauseDuration 是暂停时长，单位为分钟。

@@ -219,7 +219,8 @@ func (d chatReplyDelivery) SendReply(ctx context.Context, message engine.ReplyMe
 		return engine.ReplySendResult{}, chatapp.ErrUnavailable
 	}
 	// sent、sendErr 保存聊天应用统一发送结果及错误。
-	sent, sendErr := d.service.SendReply(ctx, chatapp.ReplyInput{
+	// 自动回复链发出的消息带自动标记，账号运行时据此区分网页聊天的人工发送，避免自动回复把自己判为人工介入。
+	sent, sendErr := d.service.SendReply(engine.WithAutomaticReply(ctx), chatapp.ReplyInput{
 		Session: chatapp.Session{AccountID: message.AccountID, ChatID: message.ChatID, PeerUserID: message.ToUserID},
 		Text:    message.Text, ImageURL: message.ImageURL, LibraryImageID: message.LibraryImageID,
 	})

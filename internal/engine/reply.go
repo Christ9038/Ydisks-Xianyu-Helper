@@ -32,6 +32,8 @@ type ReplyResult struct {
 	onceRecords onceRecordStore
 	// AutoPriceQuote 是 AI 已明确承诺且通过价格边界校验的可执行报价。
 	AutoPriceQuote *AIPriceQuoteProposal
+	// NotifyManual 表示命中的关键词规则要求通知人工客服，并让会话进入人工介入暂停窗口。
+	NotifyManual bool
 }
 
 // hasImage 判断回复是否携带图片（URL 或图片库图片），用于一次性投递记录的分段领取。
@@ -117,6 +119,95 @@ type ReplyService struct {
 	// delivery 是生产自动回复使用的聊天应用完整消息发送端口。
 	delivery ReplyDelivery
 	logger   *slog.Logger
+	// manualTakeover 是账号级人工介入跟踪器，在账号构造期间一次性设置后只读；为空时不做人工介入门禁。
+	manualTakeover *manualTakeoverTracker
+	// manualRequests 返回当前业务处理器，用于发送“买家请求人工客服”通知；为空或处理器未实现端口时只记录日志。
+	manualRequests func() Handler
+}
+
+// ChatManualRequest 是买家消息命中“通知人工”关键词规则后交给业务层的非敏感通知摘要。
+type ChatManualRequest struct {
+	// AccountID 是收到消息的卖家账号标识。
+	AccountID string
+	// ChatID 是平台会话标识。
+	ChatID string
+	// BuyerID 是买家平台用户标识。
+	BuyerID string
+	// BuyerName 是买家昵称，可能为空。
+	BuyerName string
+	// ItemID 是会话关联的商品标识，可能为空。
+	ItemID string
+	// Text 是买家原话，用于让人工客服判断紧急程度；不含任何凭证。
+	Text string
+}
+
+// chatManualRequestHandler 是业务处理器可选实现的“请求人工客服”通知端口；实现方负责通知渠道选择和失败降级。
+type chatManualRequestHandler interface {
+	RequestManualReply(ctx context.Context, request ChatManualRequest) error
+}
+
+// manualTakeoverGate 是一次回复处理读取到的人工介入暂停状态。
+type manualTakeoverGate struct {
+	// paused 表示会话当前处于人工介入暂停窗口内。
+	paused bool
+	// scopeAll 表示暂停范围为全部自动回复；false 时只暂停 Agent 与 AI。
+	scopeAll bool
+	// window 是账号配置的暂停窗口时长；非正表示功能关闭。
+	window time.Duration
+}
+
+// skipAll 判断本次是否跳过全部自动回复。
+func (g manualTakeoverGate) skipAll() bool { return g.paused && g.scopeAll }
+
+// skipGenerative 判断本次是否跳过 Agent 与 AI 生成式回复；两种暂停范围都包含它们。
+func (g manualTakeoverGate) skipGenerative() bool { return g.paused }
+
+// loadManualTakeoverGate 读取账号人工介入配置并判断会话是否处于暂停窗口；读取失败时降级为不暂停并记录告警。
+func (r *ReplyService) loadManualTakeoverGate(ctx context.Context, chatID string) manualTakeoverGate {
+	if r.manualTakeover == nil || r.store == nil || r.store.Cookies == nil || strings.TrimSpace(chatID) == "" {
+		return manualTakeoverGate{}
+	}
+	// setting、err 是账号级暂停分钟数与范围，只读取非敏感列。
+	setting, err := r.store.Cookies.GetManualTakeoverSetting(ctx, r.cookieID)
+	if err != nil {
+		r.logger.WarnContext(ctx, "读取人工介入暂停配置失败，本条消息不做人工介入暂停", "err", err)
+		return manualTakeoverGate{}
+	}
+	// window 是配置的暂停窗口时长。
+	window := time.Duration(setting.Minutes) * time.Minute
+	return manualTakeoverGate{paused: r.manualTakeover.isPaused(chatID, window), scopeAll: setting.Scope == db.ManualTakeoverScopeAll, window: window}
+}
+
+// requestManualReply 在命中“通知人工”关键词后让会话进入人工介入窗口，并在去重窗口内最多发送一次通知。
+// 通知失败只记录日志，不影响本条消息的回复结果。
+func (r *ReplyService) requestManualReply(ctx context.Context, m ChatMessage) {
+	if strings.TrimSpace(m.ChatID) == "" {
+		return
+	}
+	if r.manualTakeover != nil {
+		r.manualTakeover.markManual(m.ChatID, r.manualTakeover.now())
+		if !r.manualTakeover.claimManualNotification(m.ChatID) {
+			r.logger.DebugContext(ctx, "会话已在去重窗口内通知过人工客服，跳过重复通知")
+			return
+		}
+	}
+	// handler 是当前业务处理器；未装配或未实现通知端口时只记录日志。
+	var handler Handler
+	if r.manualRequests != nil {
+		handler = r.manualRequests()
+	}
+	// notifier、supported 是可选的人工客服通知端口及其实现判断。
+	notifier, supported := handler.(chatManualRequestHandler)
+	if !supported {
+		r.logger.WarnContext(ctx, "买家请求人工客服，但当前未装配通知端口")
+		return
+	}
+	// err 保存通知发送失败原因；通知是旁路，不阻断回复。
+	if err := notifier.RequestManualReply(ctx, ChatManualRequest{AccountID: r.cookieID, ChatID: m.ChatID, BuyerID: m.SenderUserID, BuyerName: m.SenderName, ItemID: m.ItemID, Text: m.Text}); err != nil {
+		r.logger.WarnContext(ctx, "发送买家请求人工客服通知失败", "err", err)
+		return
+	}
+	r.logger.InfoContext(ctx, "买家请求人工客服，已发送通知")
 }
 
 // NewReplyService 构造。
@@ -145,12 +236,31 @@ func newReplyService(cookieID string, store *db.Store, delivery ReplyDelivery, a
 // Handle 收到一条聊天消息：先尝试商品首次回复，再按 关键词 → Agent → AI → 默认 的优先级回复。
 // 由 Account 在防抖后调用。返回是否产生了回复。
 func (r *ReplyService) Handle(ctx context.Context, m ChatMessage) error {
+	// gate 是本条消息读取一次的人工介入暂停状态，后续各级回复复用它。
+	gate := r.loadManualTakeoverGate(ctx, m.ChatID)
+	if gate.skipAll() {
+		// 全部暂停时不发送任何自动回复，但买家再次要求人工仍需通知（受去重窗口限制）。
+		if res := r.keywordReply(ctx, m); res != nil && res.NotifyManual {
+			r.requestManualReply(ctx, m)
+		}
+		r.logger.DebugContext(ctx, "会话处于人工介入暂停窗口，跳过全部自动回复", "reply_skipped", "manual_takeover")
+		return nil
+	}
 	// 商品首次回复失败只记录日志，不得阻断买家本条消息的正常回复链路。
 	r.handleItemGreeting(ctx, m)
 	// res 用于本次流程后续判断的响应
-	res := r.resolve(ctx, m)
+	res := r.resolveWithGate(ctx, m, gate)
 	if res == nil {
 		r.logger.DebugContext(ctx, "自动回复未命中任何规则，不回复")
+		return nil
+	}
+	if res.NotifyManual {
+		// 先让会话进入人工介入窗口并通知人工，再发送规则回复；规则回复为空或发送失败都不影响通知。
+		r.requestManualReply(ctx, m)
+	}
+	if res.Source == "AI" && r.manualTakeover.isPaused(m.ChatID, gate.window) {
+		// AI 生成耗时期间人工可能已经回复；发送前只读内存再检查一次，避免与人工抢答。
+		r.logger.InfoContext(ctx, "AI 回复生成期间检测到人工介入，放弃发送", "reply_skipped", "manual_takeover")
 		return nil
 	}
 	if res.Skip {
@@ -327,11 +437,20 @@ func (r *ReplyService) markReplyUncertain(ctx context.Context, res *ReplyResult,
 	}
 }
 
-// resolve 按优先级确定回复内容（不发送）。
+// resolve 按优先级确定回复内容（不发送），不做人工介入门禁。
 func (r *ReplyService) resolve(ctx context.Context, m ChatMessage) *ReplyResult {
+	return r.resolveWithGate(ctx, m, manualTakeoverGate{})
+}
+
+// resolveWithGate 按优先级确定回复内容（不发送）；gate 处于暂停窗口时跳过 Agent 与 AI 两级。
+func (r *ReplyService) resolveWithGate(ctx context.Context, m ChatMessage, gate manualTakeoverGate) *ReplyResult {
 	// 优先级1：关键词匹配。人工配置的规则始终优先，命中（含空回复规则）后不再询问 Agent。
 	if res := r.keywordReply(ctx, m); res != nil {
 		return res
+	}
+	if gate.skipGenerative() {
+		r.logger.DebugContext(ctx, "会话处于人工介入暂停窗口，跳过 Agent 与 AI 回复", "reply_skipped", "manual_takeover")
+		return r.defaultReply(ctx, m)
 	}
 
 	// 优先级2：外部 Agent 回复。实现方可自行设置来源标签，未设置时沿用历史标签 "API"。
@@ -497,12 +616,12 @@ func containsItemID(rawItemIDs string, target string) bool {
 // keywordResult 封装关键词结果业务协调。
 func (r *ReplyService) keywordResult(kw db.Keyword, m ChatMessage) *ReplyResult {
 	if kw.Type == "image" && (kw.ImageURL != "" || kw.LibraryImageID > 0) {
-		return &ReplyResult{ImageURL: kw.ImageURL, LibraryImageID: kw.LibraryImageID, Source: "关键词"}
+		return &ReplyResult{ImageURL: kw.ImageURL, LibraryImageID: kw.LibraryImageID, Source: "关键词", NotifyManual: kw.NotifyManual}
 	}
 	if strings.TrimSpace(kw.Reply) == "" {
-		return &ReplyResult{Skip: true, Source: "关键词"} // EMPTY_REPLY
+		return &ReplyResult{Skip: true, Source: "关键词", NotifyManual: kw.NotifyManual} // EMPTY_REPLY
 	}
-	return &ReplyResult{Text: formatReply(kw.Reply, m), Source: "关键词"}
+	return &ReplyResult{Text: formatReply(kw.Reply, m), Source: "关键词", NotifyManual: kw.NotifyManual}
 }
 
 // defaultReply 默认回复。移植自 get_default_reply：

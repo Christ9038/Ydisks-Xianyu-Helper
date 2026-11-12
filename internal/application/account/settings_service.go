@@ -34,6 +34,10 @@ type SettingsUpdateInput struct {
 	ConsignProofMode *string
 	// ConsignProofText 是可选的固定文字模式凭证文本，不得填写卡密或平台凭证。
 	ConsignProofText *string
+	// ManualTakeoverMinutes 是可选的人工介入暂停分钟数（0 关闭，最大 1440）。
+	ManualTakeoverMinutes *int
+	// ManualTakeoverScope 是可选的人工介入暂停范围（ai/all）。
+	ManualTakeoverScope *string
 	// PauseDuration 是可选的暂停时长，单位为分钟；零表示立即恢复。
 	PauseDuration *int
 	// Username 是可选的密码登录用户名更新值。
@@ -162,6 +166,10 @@ func (s *SettingsService) UpdateSettings(ctx context.Context, input SettingsUpda
 	// proofErr 在取锁前拒绝非法的确认发货凭证输入，避免无效请求占用账号凭证锁。
 	if proofErr := validateConsignProofInput(input.ConsignProofMode, input.ConsignProofText); proofErr != nil {
 		return SettingsResult{}, proofErr
+	}
+	// takeoverErr 在取锁前拒绝越界的人工介入暂停分钟数或未知范围。
+	if takeoverErr := validateManualTakeoverInput(input.ManualTakeoverMinutes, input.ManualTakeoverScope); takeoverErr != nil {
+		return SettingsResult{}, takeoverErr
 	}
 	// unlock 负责释放本次账号设置写入的凭证锁，锁覆盖 Cookie、metadata 和旧 Token 的完整替换。
 	unlock := s.repository.LockCredentials(input.AccountID)

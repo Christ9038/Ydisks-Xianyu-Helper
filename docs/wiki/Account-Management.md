@@ -15,7 +15,7 @@ For face or risk-control verification, use only the official Xianyu app or the o
 
 - **Enable/disable:** a disabled account does not process backend tasks; tasks resume when it is enabled.
 - **Search:** the search box (placeholder "搜索昵称 / 备注 / 账号ID") filters the list by nickname, note, account ID, login username, or the account status message; a banner above the list shows how many accounts are displayed out of the total.
-- **Edit:** change the note, the three switches (Auto delivery / Auto confirm shipping / Auto skip-group), the shipping confirmation proof, processing pause duration, Cookie, "Save login info" (Xianyu's official long-login setting), and notification channel bindings. The account ID is read-only. When an account hits risk control, scanning again does not help: the edit dialog tells you to pass verification manually on the web Xianyu messages page, search the browser network panel for the token request, and paste that request's Cookie into the Cookie box; the account card then shows "粘贴无风控 Cookie" (paste risk-free Cookie) and "查看操作教程" (view guide). The Notification Channel Binding section appears only when at least one channel exists.
+- **Edit:** change the note, the three switches (Auto delivery / Auto confirm shipping / Auto skip-group), the shipping confirmation proof, processing pause duration, manual takeover pause, Cookie, "Save login info" (Xianyu's official long-login setting), and notification channel bindings. The account ID is read-only. When an account hits risk control, scanning again does not help: the edit dialog tells you to pass verification manually on the web Xianyu messages page, search the browser network panel for the token request, and paste that request's Cookie into the Cookie box; the account card then shows "粘贴无风控 Cookie" (paste risk-free Cookie) and "查看操作教程" (view guide). The Notification Channel Binding section appears only when at least one channel exists.
 - **Reauthorize by QR:** use after Cookie expiry, account disconnection, or failed profile refresh. QR login is the current production login path.
 - **AI Settings:** enable AI for this account, choose Bargaining Only or Full Service mode, and set bargaining limits. The system-wide API and model are configured in System and AI.
 - **Automatic Reviews and Daily Refresh:** open it from the account card, save settings, or click Review Now/Refresh Now for one run.
@@ -38,6 +38,17 @@ The three switches are independent and follow the fixed bargain-order sequence (
 - **Auto skip-group (自动免拼):** only on the "我已小刀，待刀成" system message it calls the skip-group API; cards are sent only after "我已成功小刀，待发货"; skip-group is not a substitute for shipping confirmation. Turning it off does not block delivery for orders that already reached that stage.
 
 Automatic Shipping Confirmation only marks the Xianyu order as shipped; it does not prove that a card was sent. Complete automatic delivery still requires the product, automation rule, and inventory to be configured correctly.
+
+### Manual takeover pause (人工介入暂停)
+
+"Manual takeover pause", below the processing pause duration in the edit dialog, stops AI from answering over you: after you reply to a buyer yourself, automatic replies in that conversation pause for the configured number of minutes and then resume on their own.
+
+- **Minutes:** 0 to 1440; default 0 (off).
+- **Scope:** "只暂停 AI" (AI only, default) skips only Agent and AI replies, while keyword replies, default replies and product first replies still go out; "暂停全部" (everything) sends no automatic reply at all in that conversation (a buyer matching a "notify a human" keyword is still notified).
+- **What counts as a manual reply:** a message you send to the buyer from the Xianyu app, Xianyu web, or this system's chat page. Replies, cards and delivery messages this system sends automatically do not count, so AI never pauses itself.
+- If you reply while AI is still generating an answer, that AI answer is dropped and not sent.
+- When a keyword rule has "命中后通知人工" (notify a human on match) ticked, a match also starts the pause for that conversation; see [Automated Delivery and Replies](Automated-Delivery-and-Replies).
+- The pause state is kept in memory only: it is cleared when the service restarts, the account is disabled and re-enabled, or its Cookie is updated; automatic reconnects keep it. It is independent of the processing pause duration (which pauses order automation).
 
 ## AI settings and bargaining policy
 

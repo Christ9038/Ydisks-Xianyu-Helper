@@ -21,6 +21,10 @@ type AccountSummary struct {
 	ConsignProofMode string
 	// ConsignProofText 是固定文字模式下提交给平台的用户自填文字，不含卡密或平台凭证。
 	ConsignProofText string
+	// ManualTakeoverMinutes 是人工回复后会话暂停自动回复的分钟数；0 表示关闭。
+	ManualTakeoverMinutes int
+	// ManualTakeoverScope 是人工介入暂停范围（ai/all）。
+	ManualTakeoverScope string
 	// Remark 是用户为账号设置的备注。
 	Remark string
 	// PauseDuration 是账号暂停时长，单位为分钟。

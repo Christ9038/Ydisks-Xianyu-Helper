@@ -4,8 +4,10 @@ import { createPortal } from 'react-dom';
 import type { NotificationChannel } from '../api';
 import type { AccountEditForm,AccountEditModalProps } from '../types';
 import { consignProofFormError } from '../consignProof';
-import type { ConsignProofMode } from '../models';
+import { manualTakeoverFormError } from '../manualTakeover';
+import type { ConsignProofMode,ManualTakeoverScope } from '../models';
 import { ConsignProofSettings } from './ConsignProofSettings';
+import { ManualTakeoverSettings } from './ManualTakeoverSettings';
 import { SquareQRCode } from './SquareQRCode';
 
 // AccountEditModal 负责账号备注、暂停、登录信息和通知绑定的编辑界面。
@@ -55,6 +57,12 @@ export const AccountEditModal: React.FC<AccountEditModalProps> = ({
   const handleConsignProofModeChange = (mode: ConsignProofMode) => updateField('consign_proof_mode', mode);
   // handleConsignProofTextChange 更新固定文字模式的凭证文本。
   const handleConsignProofTextChange = (text: string) => updateField('consign_proof_text', text);
+  // handleManualTakeoverMinutesChange 更新人工介入暂停分钟数草稿。
+  const handleManualTakeoverMinutesChange = (minutes: number) => updateField('manual_takeover_minutes', minutes);
+  // handleManualTakeoverScopeChange 切换人工介入暂停范围。
+  const handleManualTakeoverScopeChange = (scope: ManualTakeoverScope) => updateField('manual_takeover_scope', scope);
+  // manualTakeoverError 是由当前表单派生的人工介入暂停校验错误，非空时禁止保存。
+  const manualTakeoverError = manualTakeoverFormError(editForm);
   // consignProofError 是由当前表单派生的凭证校验错误，非空时禁止保存。
   const consignProofError = consignProofFormError(editForm);
   // handleAutoBargainToggle 切换砍价“待刀成”阶段的独立自动免拼设置。
@@ -234,6 +242,14 @@ export const AccountEditModal: React.FC<AccountEditModalProps> = ({
             )}
           </div>
 
+          <ManualTakeoverSettings
+            minutes={editForm.manual_takeover_minutes}
+            scope={editForm.manual_takeover_scope}
+            error={manualTakeoverError}
+            onMinutesChange={handleManualTakeoverMinutesChange}
+            onScopeChange={handleManualTakeoverScopeChange}
+          />
+
           <div className="border-t border-gray-200 pt-6">
             <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2"><Key className="w-5 h-5 text-blue-500" />登录信息</h3>
             <div className="space-y-4">
@@ -341,7 +357,7 @@ export const AccountEditModal: React.FC<AccountEditModalProps> = ({
         <div className="modal-footer">
           <div className="flex gap-3 w-full">
             <button onClick={handleClose} className="flex-1 px-6 py-3 rounded-xl font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors" disabled={saving}>取消</button>
-            <button onClick={handleSave} className="flex-1 ios-btn-primary px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2" disabled={saving || consignProofError !== ''}>
+            <button onClick={handleSave} className="flex-1 ios-btn-primary px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2" disabled={saving || consignProofError !== '' || manualTakeoverError !== ''}>
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
               {saving ? '保存中...' : '保存'}
             </button>

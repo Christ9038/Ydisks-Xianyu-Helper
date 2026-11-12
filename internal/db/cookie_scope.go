@@ -69,6 +69,10 @@ type CookieSummary struct {
 	ConsignProofMode string
 	// ConsignProofText 是固定文字模式下提交给平台的用户自填文字，不含卡密或平台凭证。
 	ConsignProofText string
+	// ManualTakeoverMinutes 是人工回复后会话暂停自动回复的分钟数；0 表示关闭。
+	ManualTakeoverMinutes int
+	// ManualTakeoverScope 是人工介入暂停范围（ai/all），已归一化。
+	ManualTakeoverScope string
 	// Remark 是用户为账号设置的备注。
 	Remark string
 	// PauseDuration 是账号暂停时长，单位为分钟。
@@ -105,7 +109,8 @@ func (c *Cookies) ListSummaries(ctx context.Context, userID int64) ([]CookieSumm
 		       COALESCE(paused_until,0), COALESCE(username,''), show_browser,
 		       COALESCE(nickname,''), COALESCE(avatar_url,''), COALESCE(last_refresh_at,0),
 		       COALESCE(login_method,''), COALESCE(last_login_at,0), COALESCE(auto_consign,0), COALESCE(auto_bargain,0),
-		       COALESCE(consign_proof_mode,''), COALESCE(consign_proof_text,''), created_at
+		       COALESCE(consign_proof_mode,''), COALESCE(consign_proof_text,''),
+		       COALESCE(manual_takeover_minutes,0), COALESCE(manual_takeover_scope,''), created_at
 		FROM cookies WHERE user_id=? ORDER BY created_at DESC, id DESC`, userID)
 	if err != nil {
 		return nil, err
@@ -125,7 +130,7 @@ func (c *Cookies) ListSummaries(ctx context.Context, userID int64) ([]CookieSumm
 			&summary.ID, &summary.UserID, &autoConfirm, &summary.Remark, &pauseDuration,
 			&summary.PausedUntil, &summary.Username, &showBrowser, &summary.Nickname,
 			&summary.AvatarURL, &summary.LastRefreshAt, &summary.LoginMethod,
-			&summary.LastLoginAt, &autoConsign, &autoBargain, &summary.ConsignProofMode, &summary.ConsignProofText, &summary.CreatedAt,
+			&summary.LastLoginAt, &autoConsign, &autoBargain, &summary.ConsignProofMode, &summary.ConsignProofText, &summary.ManualTakeoverMinutes, &summary.ManualTakeoverScope, &summary.CreatedAt,
 		); scanErr != nil {
 			return nil, scanErr
 		}
@@ -133,6 +138,8 @@ func (c *Cookies) ListSummaries(ctx context.Context, userID int64) ([]CookieSumm
 		summary.AutoConsign = autoConsign != 0
 		summary.AutoBargain = autoBargain != 0
 		summary.ConsignProofMode = NormalizeConsignProofMode(summary.ConsignProofMode)
+		summary.ManualTakeoverMinutes = normalizeManualTakeoverMinutes(summary.ManualTakeoverMinutes)
+		summary.ManualTakeoverScope = NormalizeManualTakeoverScope(summary.ManualTakeoverScope)
 		summary.ShowBrowser = showBrowser != 0
 		summary.PauseDuration = 10
 		if pauseDuration.Valid {
@@ -161,12 +168,13 @@ func (c *Cookies) GetSummaryOwned(ctx context.Context, userID int64, cookieID st
 		       COALESCE(paused_until,0), COALESCE(username,''), show_browser,
 		       COALESCE(nickname,''), COALESCE(avatar_url,''), COALESCE(last_refresh_at,0),
 		       COALESCE(login_method,''), COALESCE(last_login_at,0), COALESCE(auto_consign,0), COALESCE(auto_bargain,0),
-		       COALESCE(consign_proof_mode,''), COALESCE(consign_proof_text,''), created_at
+		       COALESCE(consign_proof_mode,''), COALESCE(consign_proof_text,''),
+		       COALESCE(manual_takeover_minutes,0), COALESCE(manual_takeover_scope,''), created_at
 		FROM cookies WHERE id=? AND user_id=?`, cookieID, userID).Scan(
 		&summary.ID, &summary.UserID, &autoConfirm, &summary.Remark, &pauseDuration,
 		&summary.PausedUntil, &summary.Username, &showBrowser, &summary.Nickname,
 		&summary.AvatarURL, &summary.LastRefreshAt, &summary.LoginMethod,
-		&summary.LastLoginAt, &autoConsign, &autoBargain, &summary.ConsignProofMode, &summary.ConsignProofText, &summary.CreatedAt)
+		&summary.LastLoginAt, &autoConsign, &autoBargain, &summary.ConsignProofMode, &summary.ConsignProofText, &summary.ManualTakeoverMinutes, &summary.ManualTakeoverScope, &summary.CreatedAt)
 	if queryErr != nil {
 		if errors.Is(queryErr, sql.ErrNoRows) {
 			return CookieSummary{}, ErrNotFound
@@ -177,6 +185,8 @@ func (c *Cookies) GetSummaryOwned(ctx context.Context, userID int64, cookieID st
 	summary.AutoConsign = autoConsign != 0
 	summary.AutoBargain = autoBargain != 0
 	summary.ConsignProofMode = NormalizeConsignProofMode(summary.ConsignProofMode)
+	summary.ManualTakeoverMinutes = normalizeManualTakeoverMinutes(summary.ManualTakeoverMinutes)
+	summary.ManualTakeoverScope = NormalizeManualTakeoverScope(summary.ManualTakeoverScope)
 	summary.ShowBrowser = showBrowser != 0
 	summary.PauseDuration = 10
 	if pauseDuration.Valid {

@@ -20,13 +20,14 @@ A channel with no event selected under "Notification content" receives every eve
 | Review request | `automation_review_missing_timeout` | The "review request" automation task reaches a success or failure end state. |
 | Manual delivery result | `manual_delivery_result` | Result of a manual full delivery or manual confirm-shipment on the order page; the title reads "[Manual delivery] success/failure". |
 | Manual handling required | `manual_intervention_required` | An automation stopped because the outcome is uncertain, state is missing, or it cannot safely continue, and you must check the order; critical level. |
+| Human agent requested (人工客服) | `chat_manual_requested` | A buyer message matched a keyword rule with "命中后通知人工" (notify a human on match) checked; the body includes the buyer nickname, conversation, product, and the buyer's words. At most one notification per conversation every 10 minutes; warning level. |
 | Renewal | `token_renewal` | One notification when API automatic renewal fails 3 times in a row. |
 | System error | `system_error` | UI description: background task or system-level exception. |
 
 Notes:
 
 - When an automation run reaches the "needs manual review" state, the notification sent is "Manual handling required"; for backward compatibility, channels that subscribed only to the matching automation category (for example "Paid delivery") receive it too.
-- The legacy combined "trade" subscription (`delivery_result`) still works: it lets through the four automation events, "Manual delivery result" and "Manual handling required", and editing that channel in the UI expands it into those six.
+- The legacy combined "trade" subscription (`delivery_result`) still works: it lets through the four automation events, "Manual delivery result" and "Manual handling required", and editing that channel in the UI expands it into those six. "Human agent requested" is not a trade category and must be ticked separately (a channel with no category ticked receives everything).
 - The first line of every notification is "[Type] success/failure" (no suffix for events without a success/failure meaning), so a phone push preview shows the event at a glance; it is followed by the level (info/warning/critical), account, time and event details.
 
 ## Channel types and fields

@@ -1,5 +1,5 @@
 import { Loader2,QrCode,User } from 'lucide-react';
-import React,{ useState } from 'react';
+import React,{ Suspense,useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AccountDetail } from '../api';
 import {
@@ -11,16 +11,22 @@ import { AccountAISettingsModal } from '../components/AccountAISettingsModal';
 import AccountAutomationModal from '../components/AccountAutomationModal';
 import { AccountCard } from '../components/AccountCard';
 import { AccountDeleteDialog } from '../components/AccountDeleteDialog';
-import { AccountEditModal } from '../components/AccountEditModal';
 import { AccountQRCodeModal } from '../components/AccountQRCodeModal';
 import { useAccountsData } from '../hooks';
 import { useAccountQRCodeLogin } from '../qrLogin';
 import { useAccountSubmodules,type AccountModalType } from '../submoduleHooks';
-import type { AccountEditForm } from '../types';
+import type { AccountEditForm,AccountListProps } from '../types';
 import { PageHeader } from '../../../../shared/ui/PageHeader';
 
+// EditModalLoading 是编辑弹窗分片下载期间的遮罩占位，避免点击“编辑”后界面无反馈。
+const EditModalLoading: React.FC = () => (
+  <div className="modal-overlay-centered" role="status" aria-label="正在加载编辑弹窗">
+    <Loader2 className="w-8 h-8 animate-spin text-white" />
+  </div>
+);
+
 // AccountList 渲染账号列表组件。
-const AccountList: React.FC = () => {
+const AccountList: React.FC<AccountListProps> = ({ accountEditModal: AccountEditModal }) => {
   // accountData 保存账号列表及其加载控制器。
   const { accounts, setAccounts, loading, loadAccounts } = useAccountsData();
   // accountSearch 保存列表过滤关键词。
@@ -50,6 +56,8 @@ const AccountList: React.FC = () => {
     auto_bargain: false,
     consign_proof_mode: 'delivery',
     consign_proof_text: '',
+    manual_takeover_minutes: 0,
+    manual_takeover_scope: 'ai',
     pause_duration: 0,
     username: '',
     login_password: '',
@@ -285,6 +293,7 @@ const AccountList: React.FC = () => {
 
       {/* 编辑账号弹窗由 accounts feature 组件负责渲染和表单交互。 */}
       {activeModal === 'edit' && editingAccount && (
+        <Suspense fallback={<EditModalLoading />}>
         <AccountEditModal
           account={editingAccount}
           editForm={editForm}
@@ -307,6 +316,7 @@ const AccountList: React.FC = () => {
           onToggleChannel={toggleNotificationChannel}
           onSettingsDirty={/* 当前回调处理用户交互或异步状态变化。 */ () => setBindingsDirty(true)}
         />
+        </Suspense>
       )}
 
 

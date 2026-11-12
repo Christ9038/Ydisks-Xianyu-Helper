@@ -45,6 +45,10 @@ func TestChatReplyDeliverySendReplyWithRealService(t *testing.T) {
 	if err != nil || !result.TextSent || result.Uncertain || runtimeSender.text != "你好" {
 		t.Fatalf("成功发送: %+v %v", result, err)
 	}
+	// 自动回复必须携带自动标记到达账号运行时，否则会被误判为网页聊天的人工发送而暂停 AI。
+	if !runtimeSender.automaticReply {
+		t.Fatal("自动回复发送上下文应带自动回复标记")
+	}
 	// 平台结果不确定时必须标记 Uncertain 并保留错误。
 	runtimeSender.sendErr = &ws.SendError{Kind: ws.SendUncertain}
 	if result, err = delivery.SendReply(ctx, message); err == nil || !result.Uncertain {
