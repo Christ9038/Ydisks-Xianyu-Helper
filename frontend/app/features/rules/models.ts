@@ -397,6 +397,8 @@ export interface AgentReplySettings {
   request_timeout_seconds: number;
   /** 单轮对话总时长上限秒数。 */
   max_session_seconds: number;
+  /** message 事件是否携带买家在当前商品下的本地订单阶段；默认关闭。 */
+  order_context_enabled: boolean;
 }
 
 /** 保存或测试 Agent 回复配置时提交的表单载荷；token_value 只在 token_action 为 replace 时有意义。 */
@@ -409,6 +411,8 @@ export interface AgentReplyPayload {
   request_timeout_seconds: number;
   /** 单轮对话总时长上限秒数。 */
   max_session_seconds: number;
+  /** 是否在 message 事件中携带买家订单阶段；连接测试不使用该字段。 */
+  order_context_enabled: boolean;
   /** 访问令牌写入命令。 */
   token_action: AgentReplyTokenAction;
   /** 新访问令牌明文，只存在于表单草稿和单次请求中。 */

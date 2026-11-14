@@ -46,6 +46,8 @@ type aiReplySettingsUpdateRequest struct {
 	CustomPrompts string `json:"custom_prompts"`
 	// AIMode 是 AI 工作模式：bargain_only 或 full_service。
 	AIMode string `json:"ai_mode"`
+	// OrderContextEnabled 是“向 AI 提供买家订单阶段”开关；省略（nil）时保留已保存的值，兼容尚未携带该字段的旧客户端。
+	OrderContextEnabled *bool `json:"order_context_enabled"`
 }
 
 // aiModelListRequest 是读取指定 AI 服务模型目录的 HTTP 请求 DTO。
@@ -348,6 +350,7 @@ func (s *Server) listAIReply(w http.ResponseWriter, r *http.Request) {
 		result[row.CookieID] = aiReplySettingsResponse{
 			CookieID: row.CookieID, AIEnabled: row.AIEnabled, AutoAdjustPriceEnabled: row.AutoAdjustPriceEnabled, MaxDiscountPercent: row.MaxDiscountPercent,
 			MaxDiscountAmount: row.MaxDiscountAmount, MaxBargainRounds: row.MaxBargainRounds, CustomPrompts: row.CustomPrompts, AIMode: row.AIMode,
+			OrderContextEnabled: row.OrderContextEnabled,
 			// 账号标识和五项配置字段保持旧 JSON 名称。
 			// 布尔值继续由数据库整数转换得到。
 			// 自定义提示词不做额外格式化。
@@ -388,7 +391,7 @@ func (s *Server) getAIReply(w http.ResponseWriter, r *http.Request) {
 	// CustomPrompts 仍返回原始提示词文本。
 	// 该响应仅静态化 JSON 结构，不改变存储或校验逻辑。
 	// 旧客户端可以继续直接读取这些字段。
-	writeJSON(w, http.StatusOK, aiReplySettingsResponse{CookieID: cfg.CookieID, AIEnabled: cfg.AIEnabled, AutoAdjustPriceEnabled: cfg.AutoAdjustPriceEnabled, MaxDiscountPercent: cfg.MaxDiscountPercent, MaxDiscountAmount: cfg.MaxDiscountAmount, MaxBargainRounds: cfg.MaxBargainRounds, CustomPrompts: cfg.CustomPrompts, AIMode: cfg.AIMode})
+	writeJSON(w, http.StatusOK, aiReplySettingsResponse{CookieID: cfg.CookieID, AIEnabled: cfg.AIEnabled, AutoAdjustPriceEnabled: cfg.AutoAdjustPriceEnabled, MaxDiscountPercent: cfg.MaxDiscountPercent, MaxDiscountAmount: cfg.MaxDiscountAmount, MaxBargainRounds: cfg.MaxBargainRounds, CustomPrompts: cfg.CustomPrompts, AIMode: cfg.AIMode, OrderContextEnabled: cfg.OrderContextEnabled})
 }
 
 // setAIReply 封装setAI回复业务协调。
@@ -408,8 +411,9 @@ func (s *Server) setAIReply(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "未授权访问")
 		return
 	}
-	// ownershipErr 保存账号不存在、跨用户或数据库归属查询失败的结果；未配置 AI 设置不是账号错误。
-	if _, ownershipErr := s.settingsApplication().GetAIReply(r.Context(), sess.UserID, cid); ownershipErr != nil && !errors.Is(ownershipErr, settingsapp.ErrConfigNotFound) {
+	// existing、ownershipErr 保存已保存的 AI 设置，以及账号不存在、跨用户或数据库归属查询失败的结果；未配置 AI 设置不是账号错误。
+	existing, ownershipErr := s.settingsApplication().GetAIReply(r.Context(), sess.UserID, cid)
+	if ownershipErr != nil && !errors.Is(ownershipErr, settingsapp.ErrConfigNotFound) {
 		if writeSettingsAccountError(w, ownershipErr) {
 			return
 		}
@@ -437,11 +441,16 @@ func (s *Server) setAIReply(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "开启 AI 自动改价前必须先启用 AI 议价")
 		return
 	}
+	// orderContextEnabled 是最终保存的订单阶段开关：请求省略该字段时沿用已保存的值，未保存过则为关闭。
+	orderContextEnabled := existing.OrderContextEnabled
+	if req.OrderContextEnabled != nil {
+		orderContextEnabled = *req.OrderContextEnabled
+	}
 	// err 是 AI 回复配置写入错误。
 	err := s.settingsApplication().UpsertAIReply(r.Context(), sess.UserID, cid, settingsapp.AIReplySettings{
 		CookieID: cid, AIEnabled: req.AIEnabled, AutoAdjustPriceEnabled: req.AutoAdjustPriceEnabled, MaxDiscountPercent: req.MaxDiscountPercent,
 		MaxDiscountAmount: req.MaxDiscountAmount, MaxBargainRounds: req.MaxBargainRounds,
-		CustomPrompts: req.CustomPrompts, AIMode: req.AIMode,
+		CustomPrompts: req.CustomPrompts, AIMode: req.AIMode, OrderContextEnabled: orderContextEnabled,
 	})
 	if err != nil {
 		if errors.Is(err, settingsapp.ErrPricingModeConflict) {

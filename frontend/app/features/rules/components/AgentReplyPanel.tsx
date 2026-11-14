@@ -121,6 +121,11 @@ const AgentReplyPanel: React.FC<AgentReplyPanelProps> = ({ accountID }) => {
             </div>
           </div>
 
+          <label className="flex items-start gap-2 text-sm font-bold text-gray-700">
+            <input type="checkbox" checked={form.orderContextEnabled} onChange={/* 当前回调切换订单阶段携带开关。 */ event => agent.updateForm({ orderContextEnabled: event.target.checked })} className="mt-1" />
+            <span>请求中携带买家订单阶段<span className="block text-xs font-normal text-gray-400">仅本地记录，可能滞后，不含订单号与收货信息</span></span>
+          </label>
+
           {agent.testResult && (
             <div role="status" className={`text-sm px-4 py-3 rounded-xl ${agent.testResult.status === 'ok' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>{testResultText(agent.testResult)}</div>
           )}

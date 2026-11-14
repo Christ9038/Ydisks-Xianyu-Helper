@@ -65,6 +65,40 @@ type Message struct {
 	ImageURL string `json:"image_url,omitempty"`
 }
 
+// 以下常量是 OrderInfo.Stage 允许的订单阶段取值。
+const (
+	// OrderStageCreated 表示买家已拍下但尚未确认付款。
+	OrderStageCreated = "created"
+	// OrderStagePaid 表示已付款、等待发货。
+	OrderStagePaid = "paid"
+	// OrderStageShipped 表示已发货、等待买家确认收货。
+	OrderStageShipped = "shipped"
+	// OrderStageCompleted 表示交易成功。
+	OrderStageCompleted = "completed"
+	// OrderStageRefunding 表示退款或售后处理中。
+	OrderStageRefunding = "refunding"
+	// OrderStageCancelled 表示订单已取消或关闭。
+	OrderStageCancelled = "cancelled"
+)
+
+// OrderInfo 描述买家在当前商品下的一笔订单的非敏感阶段摘要，不含订单号、金额和收货人信息。
+type OrderInfo struct {
+	// Stage 是订单阶段，取 OrderStage* 常量。
+	Stage string `json:"stage"`
+	// Quantity 是购买数量文本，可能为空。
+	Quantity string `json:"quantity,omitempty"`
+	// SpecName 是买家选择的规格名称，可能为空。
+	SpecName string `json:"spec_name,omitempty"`
+	// SpecValue 是买家选择的规格值，可能为空。
+	SpecValue string `json:"spec_value,omitempty"`
+}
+
+// OrderContext 是买家在当前商品下的订单阶段，来自助手本地订单记录，可能滞后于平台。
+type OrderContext struct {
+	// Orders 按下单时间从新到旧排列，最多 3 笔；空数组表示已查询且没有订单。
+	Orders []OrderInfo `json:"orders"`
+}
+
 // Request 是发给 Agent 的一次 POST JSON 请求体，不包含账号 Cookie、Token 等凭证。
 type Request struct {
 	// Version 是协议版本，固定为 ProtocolVersion。
@@ -85,6 +119,9 @@ type Request struct {
 	Buyer *Buyer `json:"buyer,omitempty"`
 	// Message 是买家消息；仅 message 事件携带。
 	Message *Message `json:"message,omitempty"`
+	// OrderContext 是买家订单阶段；仅账号开启该选项且本地查询成功时由 message 事件携带，
+	// 缺省表示未开启或暂时无法确认，Agent 不得据此推断买家没有订单。
+	OrderContext *OrderContext `json:"order_context,omitempty"`
 }
 
 // Reply 是 Agent 要求发给买家的一条回复，文字与图片至少有一项非空。

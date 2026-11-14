@@ -44,7 +44,8 @@ func (f *fakeRepository) Save(_ context.Context, cookieID string, draft Draft) e
 	}
 	f.saved = &draft
 	f.settings = &Settings{CookieID: cookieID, Enabled: draft.Enabled, EndpointURL: draft.EndpointURL,
-		RequestTimeoutSeconds: draft.RequestTimeoutSeconds, MaxSessionSeconds: draft.MaxSessionSeconds}
+		RequestTimeoutSeconds: draft.RequestTimeoutSeconds, MaxSessionSeconds: draft.MaxSessionSeconds,
+		OrderContextEnabled: draft.OrderContextEnabled != nil && *draft.OrderContextEnabled}
 	return nil
 }
 
@@ -273,5 +274,40 @@ func TestTokenReentryNotRequiredWithoutStoredToken(t *testing.T) {
 	}
 	if endpointOrigin("http://Agent.Example.com") != "http://agent.example.com:80" || endpointOrigin("https://a.com:8443/x") != "https://a.com:8443" {
 		t.Fatal("来源应补全默认端口并统一小写")
+	}
+}
+
+// TestUpdateOrderContextRetainsWhenOmitted 验证订单阶段开关的三态：未提交时沿用已保存值（未保存过为关闭），显式提交时按提交值保存，读取已保存值失败时不写入。
+func TestUpdateOrderContextRetainsWhenOmitted(t *testing.T) {
+	// repo 是账号所有者为 1 的内存仓储。
+	repo := &fakeRepository{owner: 1}
+	// service 是仅装配仓储的被测服务。
+	service := NewService(repo, nil)
+	// ctx 是全部保存操作共用的上下文。
+	ctx := context.Background()
+	// on、off 是显式开启与显式关闭使用的取值。
+	on, off := true, false
+	// steps 依次列出提交的开关（nil 表示未提交）及保存后期望的值。
+	steps := []struct {
+		submitted *bool
+		want      bool
+	}{{nil, false}, {&on, true}, {nil, true}, {&off, false}, {nil, false}}
+	// index、step 表示当前步骤序号及其输入与期望。
+	for index, step := range steps {
+		// settings、err 保存保存后读回的配置摘要及错误。
+		settings, err := service.Update(ctx, 1, "acc", Draft{EndpointURL: "https://agent.example.com", OrderContextEnabled: step.submitted})
+		if err != nil || settings.OrderContextEnabled != step.want || repo.saved.OrderContextEnabled == nil || *repo.saved.OrderContextEnabled != step.want {
+			t.Fatalf("步骤 %d: want=%v settings=%+v saved=%+v err=%v", index, step.want, settings, repo.saved, err)
+		}
+	}
+	// 读取已保存值失败：未提交开关时必须报错且不写入。
+	repo.saved, repo.getErr = nil, errors.New("db down")
+	// err 保存读取已保存开关失败时的保存错误，期望非空。
+	if _, err := service.Update(ctx, 1, "acc", Draft{}); err == nil || repo.saved != nil {
+		t.Fatalf("读取失败时不应保存: saved=%+v err=%v", repo.saved, err)
+	}
+	// 显式提交开关时不需要读取已保存值，保存本身应成功写入（随后读回摘要失败属于读取错误）。
+	if _, err := service.Update(ctx, 1, "acc", Draft{OrderContextEnabled: &on}); err == nil || repo.saved == nil || !*repo.saved.OrderContextEnabled {
+		t.Fatalf("显式提交应写入: saved=%+v err=%v", repo.saved, err)
 	}
 }

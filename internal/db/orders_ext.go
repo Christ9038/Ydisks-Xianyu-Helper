@@ -263,6 +263,87 @@ func (o *Orders) FindRecentByChat(ctx context.Context, cookieID, chatID, buyerID
 	return o.Get(ctx, orderID)
 }
 
+// maxOrderStageFacts 是单次回复最多读取的订单阶段条数；同一买家同一商品的更早订单对客服回复没有参考价值。
+const maxOrderStageFacts = 3
+
+// OrderStageFacts 是推导订单阶段所需的非敏感事实。
+// 它刻意不包含订单号、金额、收货人姓名、电话和地址，可安全进入 AI 提示词或外部 Agent 请求。
+type OrderStageFacts struct {
+	// OrderStatus 是订单表保存的原始状态，可能是规范文本、历史别名、平台数字码或 unknown。
+	OrderStatus string
+	// PaidAt、ShippedAt、CompletedAt 是付款、发货和交易成功事件的落库时间文本，空串表示尚未记录。
+	PaidAt, ShippedAt, CompletedAt string
+	// SystemShipped 表示本系统已经为该订单执行过自动发货。
+	SystemShipped bool
+	// Quantity 是购买数量文本，可能为空。
+	Quantity string
+	// SpecName、SpecValue 是买家选择的规格名称与规格值，可能为空。
+	SpecName, SpecValue string
+	// CreatedAt 是订单创建时间文本，仅用于排序后的展示顺序说明。
+	CreatedAt string
+}
+
+// RecentStageFactsForBuyer 只读地返回买家在指定账号、指定商品下最近的订单阶段事实，按创建时间从新到旧排列。
+// itemID 为空，或 buyerID 与 chatID 同时为空时返回空结果，避免跨商品或跨买家串单；
+// 买家标识同时匹配裸值与 @goofish 后缀，订单缺少买家标识时才退回按会话匹配。limit 非正或超过上限时取上限。
+func (o *Orders) RecentStageFactsForBuyer(ctx context.Context, cookieID, chatID, buyerID, itemID string, limit int) ([]OrderStageFacts, error) {
+	// accountID 是经过空白清理的账号标识，限制订单归属范围。
+	accountID := strings.TrimSpace(cookieID)
+	// productID 是必需的商品约束，防止把买家其他商品的订单当成当前咨询商品的订单。
+	productID := strings.TrimSpace(itemID)
+	// sessionID 是去除协议后缀的会话标识，兼容订单表历史存储格式。
+	sessionID := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(chatID), "@goofish"))
+	// normalizedBuyerID 是去除协议后缀的买家标识，用于兼容裸值和带后缀值。
+	normalizedBuyerID := strings.TrimSuffix(strings.TrimSpace(buyerID), "@goofish")
+	if accountID == "" || productID == "" || (normalizedBuyerID == "" && sessionID == "") {
+		return nil, nil
+	}
+	if limit <= 0 || limit > maxOrderStageFacts {
+		limit = maxOrderStageFacts
+	}
+	// identity 保存买家身份条件的各个分支，分支之间为“或”关系。
+	var identity []string
+	// args 保存 where 条件对应的绑定参数。
+	args := []any{accountID, productID}
+	if normalizedBuyerID != "" {
+		identity = append(identity, "buyer_id IN (?,?)")
+		args = append(args, normalizedBuyerID, normalizedBuyerID+"@goofish")
+	}
+	if sessionID != "" {
+		identity = append(identity, "(COALESCE(buyer_id,'')='' AND chat_id IN (?,?))")
+		args = append(args, sessionID, sessionID+"@goofish")
+	}
+	// query 保存按创建时间和订单号倒序读取非敏感阶段列的 SQL；limit 已被钳制为小整数常量范围。
+	query := fmt.Sprintf(`SELECT COALESCE(order_status,''), COALESCE(paid_at,''), COALESCE(shipped_at,''), COALESCE(completed_at,''),
+		COALESCE(system_shipped,0), COALESCE(quantity,''), COALESCE(spec_name,''), COALESCE(spec_value,''), created_at
+		FROM orders WHERE cookie_id=? AND item_id=? AND deleted_at IS NULL AND (%s)
+		ORDER BY created_at DESC, order_id DESC LIMIT %d`, strings.Join(identity, " OR "), limit)
+	// rows、err 保存候选订单游标及查询错误。
+	rows, err := o.DB.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	// facts 保存按新到旧排列的订单阶段事实。
+	var facts []OrderStageFacts
+	for rows.Next() {
+		// fact 保存当前扫描出的订单阶段事实。
+		var fact OrderStageFacts
+		// systemShipped 是自动发货标记的数据库整数值，非零表示已由系统发货。
+		var systemShipped int
+		// createdAt 兼容各方言驱动返回的时间或文本类型。
+		var createdAt sql.NullString
+		// err 表示当前订单行的扫描错误。
+		if err := rows.Scan(&fact.OrderStatus, &fact.PaidAt, &fact.ShippedAt, &fact.CompletedAt, &systemShipped,
+			&fact.Quantity, &fact.SpecName, &fact.SpecValue, &createdAt); err != nil {
+			return nil, err
+		}
+		fact.SystemShipped, fact.CreatedAt = systemShipped != 0, createdAt.String
+		facts = append(facts, fact)
+	}
+	return facts, rows.Err()
+}
+
 // ByCookiePage 分页读取账号订单，供需要完整扫描的后台任务使用。
 func (o *Orders) ByCookiePage(ctx context.Context, cookieID string, limit, offset int) ([]OrderRow, error) {
 	if limit <= 0 {

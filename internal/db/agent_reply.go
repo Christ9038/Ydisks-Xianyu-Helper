@@ -36,6 +36,8 @@ type AgentReplySettings struct {
 	RequestTimeoutSeconds int
 	// MaxSessionSeconds 是单轮对话（含轮询）的总时长上限秒数。
 	MaxSessionSeconds int
+	// OrderContextEnabled 表示 message 事件是否携带买家在当前商品下的本地订单阶段；默认关闭。
+	OrderContextEnabled bool
 }
 
 // AgentReplyWrite 是保存账号 Agent 回复配置的一次写入命令。
@@ -45,6 +47,8 @@ type AgentReplyWrite struct {
 	EndpointURL           string
 	RequestTimeoutSeconds int
 	MaxSessionSeconds     int
+	// OrderContextEnabled 表示是否在 message 事件中携带买家订单阶段。
+	OrderContextEnabled bool
 	// TokenAction 是令牌写入命令，取 AgentToken* 常量；空值按 retain 处理。
 	TokenAction string
 	// Token 是 TokenAction 为 replace 时写入的明文令牌，仓储加密后落库，不得记录日志。
@@ -63,6 +67,8 @@ type AgentReplyRuntime struct {
 	RequestTimeout time.Duration
 	// MaxSession 是单轮对话总时长上限。
 	MaxSession time.Duration
+	// OrderContextEnabled 表示 message 事件是否携带买家订单阶段；只含非敏感阶段事实。
+	OrderContextEnabled bool
 }
 
 // AgentReply 读写 agent_reply_settings；令牌字段使用 secretCodec 加密落库。
@@ -79,14 +85,14 @@ type AgentReply struct {
 func (a *AgentReply) Get(ctx context.Context, cookieID string) (AgentReplySettings, error) {
 	// settings 保存扫描出的配置摘要，不含令牌。
 	settings := AgentReplySettings{CookieID: cookieID}
-	// enabled、tokenConfigured 是数据库整数布尔值，非零表示真。
-	var enabled, tokenConfigured int
+	// enabled、tokenConfigured、orderContextEnabled 是数据库整数布尔值，非零表示真。
+	var enabled, tokenConfigured, orderContextEnabled int
 	// err 保存查询与扫描错误；令牌只判断是否为空，不会被读入内存。
 	err := a.DB.QueryRowContext(ctx,
 		`SELECT enabled, endpoint_url, CASE WHEN auth_token <> '' THEN 1 ELSE 0 END,
-		        request_timeout_seconds, max_session_seconds
+		        request_timeout_seconds, max_session_seconds, COALESCE(order_context_enabled, 0)
 		   FROM agent_reply_settings WHERE cookie_id = ?`, cookieID).
-		Scan(&enabled, &settings.EndpointURL, &tokenConfigured, &settings.RequestTimeoutSeconds, &settings.MaxSessionSeconds)
+		Scan(&enabled, &settings.EndpointURL, &tokenConfigured, &settings.RequestTimeoutSeconds, &settings.MaxSessionSeconds, &orderContextEnabled)
 	if errors.Is(err, sql.ErrNoRows) {
 		return AgentReplySettings{}, ErrNotFound
 	}
@@ -94,6 +100,7 @@ func (a *AgentReply) Get(ctx context.Context, cookieID string) (AgentReplySettin
 		return AgentReplySettings{}, err
 	}
 	settings.Enabled, settings.TokenConfigured = enabled != 0, tokenConfigured != 0
+	settings.OrderContextEnabled = orderContextEnabled != 0
 	return settings, nil
 }
 
@@ -107,6 +114,7 @@ func (a *AgentReply) Upsert(ctx context.Context, cookieID string, write AgentRep
 		"endpoint_url":            "EXCLUDED.endpoint_url",
 		"request_timeout_seconds": "EXCLUDED.request_timeout_seconds",
 		"max_session_seconds":     "EXCLUDED.max_session_seconds",
+		"order_context_enabled":   "EXCLUDED.order_context_enabled",
 		"updated_at":              "CURRENT_TIMESTAMP",
 	}
 	switch strings.TrimSpace(write.TokenAction) {
@@ -127,24 +135,26 @@ func (a *AgentReply) Upsert(ctx context.Context, cookieID string, write AgentRep
 	// err 保存 upsert 执行错误；新建行在 retain 时令牌列取空串。
 	_, err := a.DB.ExecContext(ctx,
 		`INSERT INTO agent_reply_settings
-		 (cookie_id, enabled, endpoint_url, auth_token, request_timeout_seconds, max_session_seconds, updated_at)
-		 VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)`+dialectUpsert(a.Dialect, []string{"cookie_id"}, updates),
+		 (cookie_id, enabled, endpoint_url, auth_token, request_timeout_seconds, max_session_seconds,
+		  order_context_enabled, updated_at)
+		 VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP)`+dialectUpsert(a.Dialect, []string{"cookie_id"}, updates),
 		cookieID, boolToInt(write.Enabled), strings.TrimSpace(write.EndpointURL), token,
-		write.RequestTimeoutSeconds, write.MaxSessionSeconds)
+		write.RequestTimeoutSeconds, write.MaxSessionSeconds, boolToInt(write.OrderContextEnabled))
 	return err
 }
 
 // RuntimeConfig 读取并解密账号的运行时配置，仅供引擎和测试连接使用；没有配置时返回 ErrNotFound。
 func (a *AgentReply) RuntimeConfig(ctx context.Context, cookieID string) (AgentReplyRuntime, error) {
-	// enabled、timeout、session 是数据库原始整数值：开关布尔与两个超时秒数。
-	var enabled, timeout, session int
+	// enabled、timeout、session、orderContextEnabled 是数据库原始整数值：启用开关、两个超时秒数与订单阶段携带开关。
+	var enabled, timeout, session, orderContextEnabled int
 	// endpoint 是配置的 Agent 地址；rawToken 是库中可能已加密的令牌，解密前不得使用。
 	var endpoint, rawToken string
 	// err 保存查询与扫描错误。
 	err := a.DB.QueryRowContext(ctx,
-		`SELECT enabled, endpoint_url, auth_token, request_timeout_seconds, max_session_seconds
+		`SELECT enabled, endpoint_url, auth_token, request_timeout_seconds, max_session_seconds,
+		        COALESCE(order_context_enabled, 0)
 		   FROM agent_reply_settings WHERE cookie_id = ?`, cookieID).
-		Scan(&enabled, &endpoint, &rawToken, &timeout, &session)
+		Scan(&enabled, &endpoint, &rawToken, &timeout, &session, &orderContextEnabled)
 	if errors.Is(err, sql.ErrNoRows) {
 		return AgentReplyRuntime{}, ErrNotFound
 	}
@@ -159,6 +169,7 @@ func (a *AgentReply) RuntimeConfig(ctx context.Context, cookieID string) (AgentR
 	return AgentReplyRuntime{
 		Enabled: enabled != 0, EndpointURL: endpoint, Token: token,
 		RequestTimeout: time.Duration(timeout) * time.Second, MaxSession: time.Duration(session) * time.Second,
+		OrderContextEnabled: orderContextEnabled != 0,
 	}, nil
 }
 

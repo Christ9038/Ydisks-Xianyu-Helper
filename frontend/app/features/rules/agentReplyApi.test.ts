@@ -20,7 +20,7 @@ import { getAgentReplySettings, saveAgentReplySettings, testAgentReplyConnection
 import type { AgentReplyPayload } from './api';
 
 // payload 是保存与测试共用的表单载荷基线。
-const payload: AgentReplyPayload = { enabled: true, endpoint_url: 'https://agent.example.com/v1', request_timeout_seconds: 10, max_session_seconds: 60, token_action: 'retain', token_value: 'leftover' };
+const payload: AgentReplyPayload = { enabled: true, endpoint_url: 'https://agent.example.com/v1', request_timeout_seconds: 10, max_session_seconds: 60, order_context_enabled: true, token_action: 'retain', token_value: 'leftover' };
 
 describe('agentReply API adapter', /* 当前回调验证 Agent 回复适配器的路径、请求体映射与响应归一化。 */ () => {
   beforeEach(/* 当前回调重置全部契约替身。 */ () => {
@@ -30,13 +30,13 @@ describe('agentReply API adapter', /* 当前回调验证 Agent 回复适配器�
   });
 
   test('读取配置使用账号路径并归一缺失字段', /* 当前回调执行该行为用例。 */ async () => {
-    getMock.mockResolvedValueOnce({ data: { cookie_id: 'a1', enabled: true, endpoint_url: 'https://a.example.com', token_configured: true, request_timeout_seconds: 8, max_session_seconds: 90 } });
-    await expect(getAgentReplySettings('a1')).resolves.toEqual({ cookie_id: 'a1', enabled: true, endpoint_url: 'https://a.example.com', token_configured: true, request_timeout_seconds: 8, max_session_seconds: 90 });
+    getMock.mockResolvedValueOnce({ data: { cookie_id: 'a1', enabled: true, endpoint_url: 'https://a.example.com', token_configured: true, request_timeout_seconds: 8, max_session_seconds: 90, order_context_enabled: true } });
+    await expect(getAgentReplySettings('a1')).resolves.toEqual({ cookie_id: 'a1', enabled: true, endpoint_url: 'https://a.example.com', token_configured: true, request_timeout_seconds: 8, max_session_seconds: 90, order_context_enabled: true });
     expect(getMock.mock.calls[0][0]).toBe('/api/v1/agent-replies/{cookie_id}');
     expect(getMock.mock.calls[0][1].params.path).toEqual({ cookie_id: 'a1' });
     // 缺失或类型错误的字段回退到关闭状态与默认超时，账号标识回退到请求账号。
     getMock.mockResolvedValueOnce({ data: { enabled: 'yes', endpoint_url: 3 } });
-    await expect(getAgentReplySettings('a2')).resolves.toEqual({ cookie_id: 'a2', enabled: false, endpoint_url: '', token_configured: false, request_timeout_seconds: 15, max_session_seconds: 120 });
+    await expect(getAgentReplySettings('a2')).resolves.toEqual({ cookie_id: 'a2', enabled: false, endpoint_url: '', token_configured: false, request_timeout_seconds: 15, max_session_seconds: 120, order_context_enabled: false });
     getMock.mockResolvedValueOnce({ data: null });
     await expect(getAgentReplySettings('a3')).resolves.toMatchObject({ cookie_id: 'a3', enabled: false });
   });
@@ -45,7 +45,7 @@ describe('agentReply API adapter', /* 当前回调验证 Agent 回复适配器�
     putMock.mockResolvedValue({ data: { cookie_id: 'a1', enabled: true, endpoint_url: 'https://agent.example.com/v1', token_configured: true, request_timeout_seconds: 10, max_session_seconds: 60 } });
     await saveAgentReplySettings('a1', payload);
     expect(putMock.mock.calls[0][0]).toBe('/api/v1/agent-replies/{cookie_id}');
-    expect(putMock.mock.calls[0][1].body).toEqual({ enabled: true, endpoint_url: 'https://agent.example.com/v1', request_timeout_seconds: 10, max_session_seconds: 60, token: { action: 'retain', value: '' } });
+    expect(putMock.mock.calls[0][1].body).toEqual({ enabled: true, endpoint_url: 'https://agent.example.com/v1', request_timeout_seconds: 10, max_session_seconds: 60, order_context_enabled: true, token: { action: 'retain', value: '' } });
     await saveAgentReplySettings('a1', { ...payload, token_action: 'replace', token_value: 'new-token' });
     expect(putMock.mock.calls[1][1].body.token).toEqual({ action: 'replace', value: 'new-token' });
     // 清除命令不携带遗留明文。

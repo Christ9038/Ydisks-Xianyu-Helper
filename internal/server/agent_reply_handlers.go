@@ -28,6 +28,8 @@ type agentReplySettingsRequest struct {
 	RequestTimeoutSeconds int `json:"request_timeout_seconds"`
 	// MaxSessionSeconds 是单轮对话总时长上限秒数，省略或 0 使用默认值。
 	MaxSessionSeconds int `json:"max_session_seconds"`
+	// OrderContextEnabled 是“请求中携带买家订单阶段”开关；省略（nil）时保留已保存的值，兼容尚未携带该字段的旧客户端。
+	OrderContextEnabled *bool `json:"order_context_enabled"`
 	// Token 是访问令牌写入命令，省略表示保留已保存令牌。
 	Token agentReplyTokenRequest `json:"token"`
 }
@@ -56,6 +58,8 @@ type agentReplySettingsResponse struct {
 	RequestTimeoutSeconds int `json:"request_timeout_seconds"`
 	// MaxSessionSeconds 是单轮对话总时长上限秒数。
 	MaxSessionSeconds int `json:"max_session_seconds"`
+	// OrderContextEnabled 表示 message 事件是否携带买家在当前商品下的本地订单阶段。
+	OrderContextEnabled bool `json:"order_context_enabled"`
 }
 
 // agentReplyTestResponse 是连接测试的具名响应 DTO，只含诊断概要，不含 Agent 响应正文。
@@ -111,7 +115,8 @@ func (s *Server) setAgentReply(w http.ResponseWriter, r *http.Request) {
 	// settings、err 保存保存后的配置摘要及写入错误。
 	settings, err := s.agentReplyApplication().Update(r.Context(), userID, chi.URLParam(r, "cookie_id"), agentreplyapp.Draft{
 		Enabled: req.Enabled, EndpointURL: req.EndpointURL, RequestTimeoutSeconds: req.RequestTimeoutSeconds,
-		MaxSessionSeconds: req.MaxSessionSeconds, TokenAction: req.Token.Action, Token: req.Token.Value,
+		MaxSessionSeconds: req.MaxSessionSeconds, OrderContextEnabled: req.OrderContextEnabled,
+		TokenAction: req.Token.Action, Token: req.Token.Value,
 	})
 	if err != nil {
 		writeAgentReplyError(w, r, err, "保存失败")
@@ -155,6 +160,7 @@ func newAgentReplySettingsResponse(settings agentreplyapp.Settings) agentReplySe
 	return agentReplySettingsResponse{
 		CookieID: settings.CookieID, Enabled: settings.Enabled, EndpointURL: settings.EndpointURL, TokenConfigured: settings.TokenConfigured,
 		RequestTimeoutSeconds: settings.RequestTimeoutSeconds, MaxSessionSeconds: settings.MaxSessionSeconds,
+		OrderContextEnabled: settings.OrderContextEnabled,
 	}
 }
 

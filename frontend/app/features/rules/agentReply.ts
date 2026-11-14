@@ -20,6 +20,8 @@ export interface AgentReplyForm {
   requestTimeoutSeconds: number;
   // maxSessionSeconds 是单轮对话总时长上限秒数。
   maxSessionSeconds: number;
+  // orderContextEnabled 表示 message 事件是否携带买家在当前商品下的本地订单阶段。
+  orderContextEnabled: boolean;
   // tokenAction 是访问令牌写入命令。
   tokenAction: AgentReplyTokenAction;
   // tokenValue 是 tokenAction 为 replace 时用户输入的新令牌明文。
@@ -36,7 +38,7 @@ export interface AgentReplyToast {
 
 // emptyAgentReplyForm 是尚未加载或未选择账号时的关闭状态表单。
 export const emptyAgentReplyForm = (): AgentReplyForm => ({
-  enabled: false, endpointUrl: '', requestTimeoutSeconds: 15, maxSessionSeconds: 120, tokenAction: 'retain', tokenValue: '',
+  enabled: false, endpointUrl: '', requestTimeoutSeconds: 15, maxSessionSeconds: 120, orderContextEnabled: false, tokenAction: 'retain', tokenValue: '',
 });
 
 // agentReplyFormFromSettings 由服务端配置生成表单草稿；令牌命令回到 retain，不携带任何令牌明文。
@@ -45,6 +47,7 @@ export const agentReplyFormFromSettings = (settings: AgentReplySettings): AgentR
   endpointUrl: settings.endpoint_url,
   requestTimeoutSeconds: settings.request_timeout_seconds,
   maxSessionSeconds: settings.max_session_seconds,
+  orderContextEnabled: settings.order_context_enabled,
   tokenAction: 'retain',
   tokenValue: '',
 });
@@ -55,6 +58,7 @@ export const agentReplyPayloadFromForm = (form: AgentReplyForm): AgentReplyPaylo
   endpoint_url: form.endpointUrl.trim(),
   request_timeout_seconds: form.requestTimeoutSeconds,
   max_session_seconds: form.maxSessionSeconds,
+  order_context_enabled: form.orderContextEnabled,
   token_action: form.tokenAction,
   token_value: form.tokenAction === 'replace' ? form.tokenValue.trim() : '',
 });

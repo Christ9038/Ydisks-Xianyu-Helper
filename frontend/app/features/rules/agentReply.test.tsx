@@ -19,7 +19,7 @@ const saveMock = vi.mocked(saveAgentReplySettings);
 const testMock = vi.mocked(testAgentReplyConnection);
 
 // settingsFixture 是账号 a1 已启用且已保存令牌的配置。
-const settingsFixture: AgentReplySettings = { cookie_id: 'a1', enabled: true, endpoint_url: 'https://agent.example.com/v1', token_configured: true, request_timeout_seconds: 15, max_session_seconds: 120 };
+const settingsFixture: AgentReplySettings = { cookie_id: 'a1', enabled: true, endpoint_url: 'https://agent.example.com/v1', token_configured: true, request_timeout_seconds: 15, max_session_seconds: 120, order_context_enabled: true };
 // okResult 是成功的连接测试结果。
 const okResult: AgentReplyTestResult = { status: 'ok', status_code: 200, duration_ms: 5, handled: true, working: false, reply_count: 1 };
 
@@ -52,6 +52,21 @@ describe('useAgentReply', /* 当前回调覆盖 Agent 回复 Hook 的加载、�
     expect(result.current.loadError).toBe('网络错误');
     await act(/* 当前回调在 act 中再次重试。 */ async () => { await result.current.reload(); });
     expect(result.current.loadError).toBe('');
+  });
+
+  test('订单阶段开关默认关闭，随服务端配置回填，编辑后随保存载荷提交', /* 当前回调验证订单阶段开关在表单、服务端配置与保存载荷之间的映射。 */ async () => {
+    expect(emptyAgentReplyForm().orderContextEnabled).toBe(false);
+    expect(agentReplyFormFromSettings({ ...settingsFixture, order_context_enabled: false }).orderContextEnabled).toBe(false);
+    expect(agentReplyPayloadFromForm({ ...emptyAgentReplyForm(), orderContextEnabled: true }).order_context_enabled).toBe(true);
+    loadMock.mockResolvedValueOnce({ ...settingsFixture, order_context_enabled: false });
+    // result 提供被测 Hook 的最新返回值。
+    const { result } = renderHook(/* 当前回调渲染被测 Hook。 */ () => useAgentReply('a1'));
+    await waitFor(/* 当前回调轮询等待断言条件成立。 */ () => expect(result.current.settings).not.toBeNull());
+    expect(result.current.form.orderContextEnabled).toBe(false);
+    act(/* 当前回调开启订单阶段开关。 */ () => result.current.updateForm({ orderContextEnabled: true }));
+    await act(/* 当前回调触发保存。 */ async () => { await result.current.save(); });
+    expect(saveMock).toHaveBeenCalledWith('a1', expect.objectContaining({ order_context_enabled: true }));
+    expect(result.current.form.orderContextEnabled).toBe(true);
   });
 
   test('未选择账号时不发请求并保持关闭表单', /* 当前回调执行该行为用例。 */ async () => {
@@ -129,7 +144,7 @@ describe('useAgentReply', /* 当前回调覆盖 Agent 回复 Hook 的加载、�
     let saved = false;
     await act(/* 当前回调保存。 */ async () => { saved = await result.current.save(); });
     expect(saved).toBe(true);
-    expect(saveMock).toHaveBeenCalledWith('a1', { enabled: true, endpoint_url: 'https://new.example.com', request_timeout_seconds: 15, max_session_seconds: 120, token_action: 'replace', token_value: 'new-token' });
+    expect(saveMock).toHaveBeenCalledWith('a1', { enabled: true, endpoint_url: 'https://new.example.com', request_timeout_seconds: 15, max_session_seconds: 120, order_context_enabled: true, token_action: 'replace', token_value: 'new-token' });
     expect(result.current.toast).toEqual({ type: 'success', text: '保存成功' });
     expect(result.current.form).toMatchObject({ endpointUrl: 'https://new.example.com', tokenAction: 'retain', tokenValue: '' });
   });

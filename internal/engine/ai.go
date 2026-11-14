@@ -37,6 +37,8 @@ type AIReplierImpl struct {
 	cookieID string
 	store    *db.Store
 	logger   *slog.Logger
+	// orders 是买家订单阶段只读端口，仅在账号开启“向 AI 提供订单阶段”时使用；为 nil 表示订单阶段不可用。
+	orders buyerOrderFactsFinder
 }
 
 // NewAIReplier 构造。
@@ -48,6 +50,7 @@ func NewAIReplier(cookieID string, store *db.Store, logger *slog.Logger) *AIRepl
 		cookieID: cookieID,
 		store:    store,
 		logger:   logger.With("account", cookieID, "subsys", "ai"),
+		orders:   orderFactsFinderFromStore(store),
 	}
 }
 
@@ -117,6 +120,15 @@ func (a *AIReplierImpl) Reply(ctx context.Context, m ChatMessage) (*ReplyResult,
 		cfg.MaxDiscountPercent, cfg.MaxDiscountAmount, cfg.MaxBargainRounds, bargainCount, cfg.AutoAdjustPriceEnabled,
 		aiMode, isBargainMessage,
 	)
+	if cfg.OrderContextEnabled {
+		// orderStages、orderAvailable、orderErr 保存买家订单阶段、事实是否可用及本地查询错误；
+		// 查询失败只降级为“无法确认”，不影响本次回复。
+		orderStages, orderAvailable, orderErr := loadOrderContext(ctx, a.orders, a.cookieID, m)
+		if orderErr != nil {
+			a.logger.WarnContext(ctx, "读取买家订单阶段失败，按无法确认继续回复", "err", orderErr)
+		}
+		systemPrompt = appendOrderContext(systemPrompt, orderStages, orderAvailable)
+	}
 	if !withinBargainLimit {
 		systemPrompt += "\n当前买家已经超过最大砍价轮次。不得继续降价，只能礼貌说明价格不再优惠。"
 	}

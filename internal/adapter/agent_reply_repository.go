@@ -61,6 +61,7 @@ func (r *AgentReplyRepository) Get(ctx context.Context, cookieID string) (agentr
 	return agentreplyapp.Settings{
 		CookieID: row.CookieID, Enabled: row.Enabled, EndpointURL: row.EndpointURL, TokenConfigured: row.TokenConfigured,
 		RequestTimeoutSeconds: row.RequestTimeoutSeconds, MaxSessionSeconds: row.MaxSessionSeconds,
+		OrderContextEnabled: row.OrderContextEnabled,
 	}, nil
 }
 
@@ -73,6 +74,8 @@ func (r *AgentReplyRepository) Save(ctx context.Context, cookieID string, draft 
 	return r.store.AgentReply.Upsert(ctx, cookieID, db.AgentReplyWrite{
 		Enabled: draft.Enabled, EndpointURL: draft.EndpointURL, RequestTimeoutSeconds: draft.RequestTimeoutSeconds,
 		MaxSessionSeconds: draft.MaxSessionSeconds, TokenAction: draft.TokenAction, Token: draft.Token,
+		// 应用服务在保存前已把省略的开关解析为已保存值；这里对 nil 按关闭处理，保证适配器自身不会写入未定义状态。
+		OrderContextEnabled: draft.OrderContextEnabled != nil && *draft.OrderContextEnabled,
 	})
 }
 

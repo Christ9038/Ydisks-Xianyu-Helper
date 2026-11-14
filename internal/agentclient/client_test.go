@@ -140,3 +140,37 @@ func TestValidateURL(t *testing.T) {
 		t.Fatal("Send 应拒绝非法地址")
 	}
 }
+
+// TestRequestOrderContextSerialization 验证订单阶段字段的线上形态：未设置时整体省略，已查询无订单时为空数组，有订单时只含非空的非敏感字段。
+func TestRequestOrderContextSerialization(t *testing.T) {
+	// encode 把请求序列化为 JSON 文本；失败时终止测试。
+	encode := func(request Request) string {
+		t.Helper()
+		// raw、err 保存序列化结果及错误。
+		raw, err := json.Marshal(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(raw)
+	}
+	// omitted 是未携带订单阶段的请求体。
+	if omitted := encode(Request{Event: EventMessage}); strings.Contains(omitted, "order_context") {
+		t.Fatalf("未设置时应省略字段: %s", omitted)
+	}
+	// empty 是已查询且没有订单的请求体。
+	if empty := encode(Request{Event: EventMessage, OrderContext: &OrderContext{Orders: []OrderInfo{}}}); !strings.Contains(empty, `"order_context":{"orders":[]}`) {
+		t.Fatalf("无订单应序列化为空数组: %s", empty)
+	}
+	// filled 是携带两笔订单的请求体：一笔带数量与规格，一笔只有阶段。
+	filled := encode(Request{Event: EventMessage, OrderContext: &OrderContext{Orders: []OrderInfo{
+		{Stage: OrderStagePaid, Quantity: "2", SpecName: "颜色", SpecValue: "红"}, {Stage: OrderStageCreated},
+	}}})
+	if !strings.Contains(filled, `"order_context":{"orders":[{"stage":"paid","quantity":"2","spec_name":"颜色","spec_value":"红"},{"stage":"created"}]}`) {
+		t.Fatalf("订单阶段序列化异常: %s", filled)
+	}
+	// stages 列出协议公开的全部阶段取值，防止常量被意外改名。
+	stages := []string{OrderStageCreated, OrderStagePaid, OrderStageShipped, OrderStageCompleted, OrderStageRefunding, OrderStageCancelled}
+	if strings.Join(stages, ",") != "created,paid,shipped,completed,refunding,cancelled" {
+		t.Fatalf("阶段取值异常: %v", stages)
+	}
+}

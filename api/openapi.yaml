@@ -9142,11 +9142,14 @@ components:
         endpoint_url: {type: string, maxLength: 2048}
         request_timeout_seconds: {type: integer, minimum: 0, maximum: 30}
         max_session_seconds: {type: integer, minimum: 0, maximum: 300}
+        order_context_enabled:
+          type: boolean
+          description: 是否在 message 事件中携带买家在当前商品下的本地订单阶段；省略时保留已保存的值。
         token:
           $ref: '#/components/schemas/AgentReplyTokenCommand'
     AgentReplySettingsResponse:
       type: object
-      required: [cookie_id, enabled, endpoint_url, token_configured, request_timeout_seconds, max_session_seconds]
+      required: [cookie_id, enabled, endpoint_url, token_configured, request_timeout_seconds, max_session_seconds, order_context_enabled]
       properties:
         cookie_id: {type: string}
         enabled: {type: boolean}
@@ -9154,6 +9157,7 @@ components:
         token_configured: {type: boolean}
         request_timeout_seconds: {type: integer}
         max_session_seconds: {type: integer}
+        order_context_enabled: {type: boolean}
     AgentReplyTestRequest:
       type: object
       required: [endpoint_url]
@@ -9214,7 +9218,7 @@ components:
       items: {$ref: '#/components/schemas/ItemReplyResponse'}
     AIReplySettingsResponse:
       type: object
-      required: [ai_enabled, auto_adjust_price_enabled, max_discount_percent, max_discount_amount, max_bargain_rounds, custom_prompts, ai_mode]
+      required: [ai_enabled, auto_adjust_price_enabled, max_discount_percent, max_discount_amount, max_bargain_rounds, custom_prompts, ai_mode, order_context_enabled]
       properties:
         cookie_id: {type: string}
         ai_enabled: {type: boolean}
@@ -9224,6 +9228,7 @@ components:
         max_bargain_rounds: {type: integer}
         custom_prompts: {type: string}
         ai_mode: {type: string, enum: [bargain_only, full_service]}
+        order_context_enabled: {type: boolean}
     AIReplySettingsUpdateRequest:
       type: object
       required: [ai_enabled, auto_adjust_price_enabled, max_discount_percent, max_discount_amount, max_bargain_rounds, custom_prompts]
@@ -9235,6 +9240,9 @@ components:
         max_bargain_rounds: {type: integer, minimum: 1, maximum: 10}
         custom_prompts: {type: string}
         ai_mode: {type: string, enum: [bargain_only, full_service]}
+        order_context_enabled:
+          type: boolean
+          description: 是否向 AI 提供买家在当前商品下的本地订单阶段；省略时保留已保存的值。
     AIReplySettingsMapResponse:
       type: object
       additionalProperties:

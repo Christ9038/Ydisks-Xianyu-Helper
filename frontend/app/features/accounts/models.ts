@@ -139,6 +139,8 @@ export interface AIReplySettings {
   custom_prompts: string;
   /** AI 工作模式。 */
   ai_mode: 'bargain_only' | 'full_service';
+  /** 是否向 AI 提供买家在当前商品下的本地订单阶段；默认关闭。 */
+  order_context_enabled: boolean;
 }
 
 /** 由当前 feature adapter 归一后的 NotificationChannelType UI 模型；不直接暴露 HTTP DTO。 */
@@ -303,6 +305,8 @@ export interface AIReplySettingsResponse {
   custom_prompts: string;
   /** AI 工作模式。 */
   ai_mode: 'bargain_only' | 'full_service';
+  /** 是否向 AI 提供买家在当前商品下的本地订单阶段；默认关闭。 */
+  order_context_enabled: boolean;
 }
 
 /** 通知绑定列表中的单条记录。 */

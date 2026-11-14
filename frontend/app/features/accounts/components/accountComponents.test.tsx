@@ -31,6 +31,7 @@ const aiSettingsFixture: AIReplySettings = {
   max_bargain_rounds: 3,
   custom_prompts: '',
   ai_mode: 'bargain_only',
+  order_context_enabled: false,
 };
 
 // noopAccountAction 是账号卡片测试使用的动作占位函数。
@@ -114,6 +115,25 @@ describe('账号 feature 展示组件', /* 当前回调覆盖账号页面子模�
     expect(screen.getByText('店铺客服规则（可选）')).toBeTruthy();
     fireEvent.click(screen.getByText('仅砍价'));
     expect(onChange).toHaveBeenLastCalledWith({ ...fullServiceSettings, ai_mode: 'bargain_only' });
+  });
+
+  test('订单阶段开关在 AI 关闭时不可操作，开启后可双向切换', /* 当前回调验证订单阶段开关的禁用条件与草稿补丁。 */ () => {
+    // onChange 是 AI 设置草稿更新测试替身。
+    const onChange = vi.fn();
+    // view 允许在受控草稿变化后重新渲染同一弹窗。
+    const view = render(<AccountAISettingsModal account={accountFixture} settings={aiSettingsFixture} saving={false} onChange={onChange} onClose={noopAccountAction} onSave={noopAccountAction} />);
+    fireEvent.click(screen.getByLabelText('切换向 AI 提供买家订单阶段'));
+    expect(onChange).not.toHaveBeenCalled();
+    // enabledSettings 是已启用 AI 回复、订单阶段开关仍关闭的受控草稿。
+    const enabledSettings = { ...aiSettingsFixture, ai_enabled: true };
+    view.rerender(<AccountAISettingsModal account={accountFixture} settings={enabledSettings} saving={false} onChange={onChange} onClose={noopAccountAction} onSave={noopAccountAction} />);
+    fireEvent.click(screen.getByLabelText('切换向 AI 提供买家订单阶段'));
+    expect(onChange).toHaveBeenLastCalledWith({ ...enabledSettings, order_context_enabled: true });
+    // openedSettings 是订单阶段开关已开启的受控草稿。
+    const openedSettings = { ...enabledSettings, order_context_enabled: true };
+    view.rerender(<AccountAISettingsModal account={accountFixture} settings={openedSettings} saving={false} onChange={onChange} onClose={noopAccountAction} onSave={noopAccountAction} />);
+    fireEvent.click(screen.getByLabelText('切换向 AI 提供买家订单阶段'));
+    expect(onChange).toHaveBeenLastCalledWith({ ...openedSettings, order_context_enabled: false });
   });
 
   test('删除确认框展示错误并转发确认动作', /* 当前回调验证删除确认框的错误和提交分支。 */ () => {

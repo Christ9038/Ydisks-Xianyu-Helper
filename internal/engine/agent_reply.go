@@ -43,6 +43,8 @@ type AgentReplier struct {
 	cookieID string
 	// store 提供 Agent 配置；只读取，不写入。
 	store *db.Store
+	// orders 是买家订单阶段只读端口，仅在账号开启“携带订单阶段”时使用；为 nil 表示订单阶段不可用。
+	orders buyerOrderFactsFinder
 	// delivery 是完整消息投递端口，与普通自动回复共用图片上传和文字发送规则。
 	delivery ReplyDelivery
 	// logger 带账号字段；不得记录 Agent 地址、令牌和消息正文。
@@ -59,7 +61,7 @@ func NewAgentReplier(cookieID string, store *db.Store, delivery ReplyDelivery, l
 		logger = slog.Default()
 	}
 	return &AgentReplier{
-		cookieID: cookieID, store: store, delivery: delivery,
+		cookieID: cookieID, store: store, delivery: delivery, orders: orderFactsFinderFromStore(store),
 		logger:    logger.With("account", cookieID, "subsys", "agent"),
 		pollSleep: sleepCtx,
 	}
@@ -115,6 +117,9 @@ func (a *AgentReplier) runTurn(ctx context.Context, m ChatMessage, cfg db.AgentR
 	defer session.Close()
 	// request 是即将发送的请求，首个为 message 事件，之后由 pollRequest 派生 poll 事件。
 	request := a.messageRequest(m)
+	if cfg.OrderContextEnabled {
+		request.OrderContext = a.orderContext(ctx, m)
+	}
 	// started 是对话开始时刻，用于输出耗时摘要。
 	started := time.Now()
 	defer func() {
@@ -204,10 +209,30 @@ func (a *AgentReplier) messageRequest(m ChatMessage) agentclient.Request {
 	}
 }
 
-// pollRequest 由上一个请求派生 poll 事件：保留标识，不再携带买家与消息。
+// pollRequest 由上一个请求派生 poll 事件：保留标识，不再携带买家、消息与订单阶段。
 func (a *AgentReplier) pollRequest(previous agentclient.Request) agentclient.Request {
-	previous.Event, previous.Buyer, previous.Message = agentclient.EventPoll, nil, nil
+	previous.Event, previous.Buyer, previous.Message, previous.OrderContext = agentclient.EventPoll, nil, nil, nil
 	return previous
+}
+
+// orderContext 读取买家在当前商品下的本地订单阶段并转换为协议字段。
+// 查询失败、超时或无法安全匹配时返回 nil，请求照常发送且不携带该字段；返回的空数组表示已确认没有订单。
+func (a *AgentReplier) orderContext(ctx context.Context, m ChatMessage) *agentclient.OrderContext {
+	// stages、available、err 保存订单阶段摘要、事实是否可用及本地查询错误。
+	stages, available, err := loadOrderContext(ctx, a.orders, a.cookieID, m)
+	if err != nil {
+		a.logger.WarnContext(ctx, "读取买家订单阶段失败，本次请求不携带订单阶段", "err", err)
+	}
+	if !available {
+		return nil
+	}
+	// orders 保存转换后的协议订单列表；保持非 nil 以序列化为空数组。
+	orders := make([]agentclient.OrderInfo, 0, len(stages))
+	// stage 表示当前遍历的订单阶段摘要。
+	for _, stage := range stages {
+		orders = append(orders, agentclient.OrderInfo{Stage: stage.Stage, Quantity: stage.Quantity, SpecName: stage.SpecName, SpecValue: stage.SpecValue})
+	}
+	return &agentclient.OrderContext{Orders: orders}
 }
 
 // deliverReplies 按序发送响应中的回复并执行条数与图片数上限；返回 true 表示本轮必须立即结束

@@ -50,6 +50,8 @@ type AIReplySettings struct {
 	CustomPrompts string
 	// AIMode 是 AI 工作模式：bargain_only 或 full_service。
 	AIMode string
+	// OrderContextEnabled 表示是否把买家在当前商品下的本地订单阶段作为事实提供给 AI；默认关闭。
+	OrderContextEnabled bool
 }
 
 // AuditRecord 是敏感设置访问审计的非敏感应用模型。

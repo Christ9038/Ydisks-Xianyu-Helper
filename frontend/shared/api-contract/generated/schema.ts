@@ -2724,6 +2724,8 @@ export interface components {
             endpoint_url: string;
             request_timeout_seconds?: number;
             max_session_seconds?: number;
+            /** @description 是否在 message 事件中携带买家在当前商品下的本地订单阶段；省略时保留已保存的值。 */
+            order_context_enabled?: boolean;
             token?: components["schemas"]["AgentReplyTokenCommand"];
         };
         AgentReplySettingsResponse: {
@@ -2733,6 +2735,7 @@ export interface components {
             token_configured: boolean;
             request_timeout_seconds: number;
             max_session_seconds: number;
+            order_context_enabled: boolean;
         };
         AgentReplyTestRequest: {
             endpoint_url: string;
@@ -2787,6 +2790,7 @@ export interface components {
             custom_prompts: string;
             /** @enum {string} */
             ai_mode: "bargain_only" | "full_service";
+            order_context_enabled: boolean;
         };
         AIReplySettingsUpdateRequest: {
             ai_enabled: boolean;
@@ -2797,6 +2801,8 @@ export interface components {
             custom_prompts: string;
             /** @enum {string} */
             ai_mode?: "bargain_only" | "full_service";
+            /** @description 是否向 AI 提供买家在当前商品下的本地订单阶段；省略时保留已保存的值。 */
+            order_context_enabled?: boolean;
         };
         AIReplySettingsMapResponse: {
             [key: string]: components["schemas"]["AIReplySettingsResponse"];

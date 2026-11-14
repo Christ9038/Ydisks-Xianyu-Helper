@@ -712,6 +712,7 @@ const normalizeAgentReplySettings = (raw: unknown, accountID: string): AgentRepl
     token_configured: dto.token_configured === true,
     request_timeout_seconds: typeof dto.request_timeout_seconds === 'number' ? dto.request_timeout_seconds : 15,
     max_session_seconds: typeof dto.max_session_seconds === 'number' ? dto.max_session_seconds : 120,
+    order_context_enabled: dto.order_context_enabled === true,
   };
 };
 
@@ -735,6 +736,7 @@ export const saveAgentReplySettings = async (accountID: string, payload: AgentRe
       endpoint_url: payload.endpoint_url,
       request_timeout_seconds: payload.request_timeout_seconds,
       max_session_seconds: payload.max_session_seconds,
+      order_context_enabled: payload.order_context_enabled,
       token: agentReplyTokenBody(payload),
     },
     signal,

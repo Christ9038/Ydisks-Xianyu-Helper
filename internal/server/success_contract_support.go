@@ -25,6 +25,8 @@ type aiReplySettingsResponse struct {
 	CustomPrompts string `json:"custom_prompts"`
 	// AIMode 是 AI 工作模式。
 	AIMode string `json:"ai_mode"`
+	// OrderContextEnabled 表示是否向 AI 提供买家在当前商品下的本地订单阶段。
+	OrderContextEnabled bool `json:"order_context_enabled"`
 }
 
 // aiModelsResponse 是 AI 模型发现接口的具名响应 DTO。

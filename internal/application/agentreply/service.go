@@ -98,6 +98,8 @@ type Settings struct {
 	RequestTimeoutSeconds int
 	// MaxSessionSeconds 是单轮对话总时长上限秒数。
 	MaxSessionSeconds int
+	// OrderContextEnabled 表示 message 事件是否携带买家在当前商品下的本地订单阶段；默认关闭。
+	OrderContextEnabled bool
 }
 
 // Draft 是保存配置时调用方提交的内容。
@@ -109,6 +111,9 @@ type Draft struct {
 	// RequestTimeoutSeconds 与 MaxSessionSeconds 为 0 时使用默认值。
 	RequestTimeoutSeconds int
 	MaxSessionSeconds     int
+	// OrderContextEnabled 是订单阶段携带开关；nil 表示调用方未提交该字段，保存时沿用已保存的值（未保存过则为关闭）。
+	// 传给仓储 Save 时已由 Update 解析为非 nil。
+	OrderContextEnabled *bool
 	// TokenAction 是令牌写入命令，取 Token* 常量。
 	TokenAction string
 	// Token 是 TokenAction 为 replace 时提交的明文令牌，不得记录日志。
@@ -216,6 +221,14 @@ func (s *Service) Update(ctx context.Context, userID int64, cookieID string, dra
 	if err := s.requireTokenReentry(ctx, cookieID, normalized.EndpointURL, normalized.TokenAction); err != nil {
 		return Settings{}, err
 	}
+	if normalized.OrderContextEnabled == nil {
+		// retained、err 保存沿用的订单阶段开关及已保存配置的读取错误。
+		retained, err := s.storedOrderContextEnabled(ctx, cookieID)
+		if err != nil {
+			return Settings{}, err
+		}
+		normalized.OrderContextEnabled = &retained
+	}
 	// err 表示配置持久化错误，原样返回给调用方。
 	if err := s.repository.Save(ctx, cookieID, normalized); err != nil {
 		return Settings{}, err
@@ -253,6 +266,20 @@ func (s *Service) Test(ctx context.Context, userID int64, cookieID string, input
 		}
 	}
 	return s.tester.Ping(ctx, Endpoint{URL: draft.EndpointURL, Token: token, Timeout: time.Duration(draft.RequestTimeoutSeconds) * time.Second})
+}
+
+// storedOrderContextEnabled 返回账号已保存的订单阶段携带开关；尚未保存配置时为关闭。
+// 供未提交该字段的旧客户端保存配置时沿用原值，避免把开关意外重置。
+func (s *Service) storedOrderContextEnabled(ctx context.Context, cookieID string) (bool, error) {
+	// stored、err 保存账号已保存配置的非敏感摘要及读取错误。
+	stored, err := s.repository.Get(ctx, cookieID)
+	if errors.Is(err, ErrConfigNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return stored.OrderContextEnabled, nil
 }
 
 // requireTokenReentry 阻止已保存的访问令牌被发往新的地址来源：令牌只对保存时的协议、主机和端口有效，

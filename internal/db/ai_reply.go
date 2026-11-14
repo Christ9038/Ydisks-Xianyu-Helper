@@ -30,6 +30,8 @@ type AIReplySettings struct {
 	MaxBargainRounds       int    `json:"max_bargain_rounds"`
 	CustomPrompts          string `json:"custom_prompts"`
 	AIMode                 string `json:"ai_mode"`
+	// OrderContextEnabled 表示是否把买家在当前商品下的本地订单阶段作为事实注入 AI 提示词；默认关闭。
+	OrderContextEnabled bool `json:"order_context_enabled"`
 }
 
 // AIBargainQuote 保存一条已经成功发送给买家的、可用于订单改价的 AI 报价。
@@ -89,15 +91,18 @@ func (a *AIReply) Get(ctx context.Context, cookieID string) (*AIReplySettings, e
 	var enabled int
 	// autoAdjustEnabled 表示 AI 报价是否允许在订单创建后触发真实改价。
 	var autoAdjustEnabled int
+	// orderContextEnabled 是“向 AI 提供订单阶段”开关的数据库整数值，非零表示开启。
+	var orderContextEnabled int
 	// apiKey、customPrompts 用于本次流程后续判断的apiKey、customPrompts
 	var apiKey, customPrompts sql.NullString
 	// err 用于本次流程后续判断的err
 	err := a.DB.QueryRowContext(ctx,
 		`SELECT cookie_id, ai_enabled, auto_adjust_price_enabled, COALESCE(model_name, ''), COALESCE(api_key, ''), COALESCE(base_url, ''),
-		        max_discount_percent, max_discount_amount, max_bargain_rounds, custom_prompts, COALESCE(ai_mode, 'bargain_only')
+		        max_discount_percent, max_discount_amount, max_bargain_rounds, custom_prompts, COALESCE(ai_mode, 'bargain_only'),
+		        COALESCE(order_context_enabled, 0)
 		 FROM ai_reply_settings WHERE cookie_id=?`, cookieID).Scan(
 		&s.CookieID, &enabled, &autoAdjustEnabled, &s.ModelName, &apiKey, &s.BaseURL,
-		&s.MaxDiscountPercent, &s.MaxDiscountAmount, &s.MaxBargainRounds, &customPrompts, &s.AIMode)
+		&s.MaxDiscountPercent, &s.MaxDiscountAmount, &s.MaxBargainRounds, &customPrompts, &s.AIMode, &orderContextEnabled)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -106,6 +111,7 @@ func (a *AIReply) Get(ctx context.Context, cookieID string) (*AIReplySettings, e
 	}
 	s.AIEnabled = enabled != 0
 	s.AutoAdjustPriceEnabled = autoAdjustEnabled != 0
+	s.OrderContextEnabled = orderContextEnabled != 0
 	s.APIKey, err = a.codec.decrypt("ai-api-key", cookieID, apiKey.String)
 	if err != nil {
 		return nil, err
@@ -128,7 +134,8 @@ func (a *AIReply) ListForUser(ctx context.Context, userID int64) ([]AIReplySetti
 	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := a.DB.QueryContext(ctx, `
 		SELECT a.cookie_id, a.ai_enabled, a.auto_adjust_price_enabled, a.max_discount_percent, a.max_discount_amount,
-		       a.max_bargain_rounds, COALESCE(a.custom_prompts, ''), COALESCE(a.ai_mode, 'bargain_only')
+		       a.max_bargain_rounds, COALESCE(a.custom_prompts, ''), COALESCE(a.ai_mode, 'bargain_only'),
+		       COALESCE(a.order_context_enabled, 0)
 		  FROM ai_reply_settings a JOIN cookies c ON c.id=a.cookie_id WHERE c.user_id=?`, userID)
 	if err != nil {
 		return nil, err
@@ -139,27 +146,28 @@ func (a *AIReply) ListForUser(ctx context.Context, userID int64) ([]AIReplySetti
 	for rows.Next() {
 		// item 用于本次流程后续判断的商品
 		var item AIReplySettings
-		// enabled 用于本次流程后续判断的启用状态
-		var enabled, autoAdjustEnabled int
+		// enabled、autoAdjustEnabled、orderContextEnabled 是 AI 回复、真实改价和订单阶段注入三个开关的数据库整数值。
+		var enabled, autoAdjustEnabled, orderContextEnabled int
 		if // err 用于本次流程后续判断的err
-		err := rows.Scan(&item.CookieID, &enabled, &autoAdjustEnabled, &item.MaxDiscountPercent, &item.MaxDiscountAmount, &item.MaxBargainRounds, &item.CustomPrompts, &item.AIMode); err != nil {
+		err := rows.Scan(&item.CookieID, &enabled, &autoAdjustEnabled, &item.MaxDiscountPercent, &item.MaxDiscountAmount, &item.MaxBargainRounds, &item.CustomPrompts, &item.AIMode, &orderContextEnabled); err != nil {
 			return nil, err
 		}
 		item.AIEnabled = enabled != 0
 		item.AutoAdjustPriceEnabled = autoAdjustEnabled != 0
+		item.OrderContextEnabled = orderContextEnabled != 0
 		out = append(out, item)
 	}
 	return out, rows.Err()
 }
 
-// UpsertSettings 保存指定账号的 AI 回复开关和砍价约束。
+// UpsertSettings 保存指定账号的 AI 回复开关、砍价约束和订单阶段注入开关。
 func (a *AIReply) UpsertSettings(ctx context.Context, cookieID string, settings AIReplySettings) error {
 	// err 用于本次流程后续判断的err
 	_, err := a.DB.ExecContext(ctx,
 		`INSERT INTO ai_reply_settings
 		 (cookie_id, ai_enabled, auto_adjust_price_enabled, max_discount_percent, max_discount_amount,
-		  max_bargain_rounds, custom_prompts, ai_mode, updated_at)
-		 VALUES (?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)`+dialectUpsert(a.Dialect, []string{"cookie_id"}, map[string]string{
+		  max_bargain_rounds, custom_prompts, ai_mode, order_context_enabled, updated_at)
+		 VALUES (?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)`+dialectUpsert(a.Dialect, []string{"cookie_id"}, map[string]string{
 			"ai_enabled":                "EXCLUDED.ai_enabled",
 			"auto_adjust_price_enabled": "EXCLUDED.auto_adjust_price_enabled",
 			"max_discount_percent":      "EXCLUDED.max_discount_percent",
@@ -167,9 +175,11 @@ func (a *AIReply) UpsertSettings(ctx context.Context, cookieID string, settings 
 			"max_bargain_rounds":        "EXCLUDED.max_bargain_rounds",
 			"custom_prompts":            "EXCLUDED.custom_prompts",
 			"ai_mode":                   "EXCLUDED.ai_mode",
+			"order_context_enabled":     "EXCLUDED.order_context_enabled",
 			"updated_at":                "CURRENT_TIMESTAMP",
 		}), cookieID, boolToInt(settings.AIEnabled), boolToInt(settings.AutoAdjustPriceEnabled), settings.MaxDiscountPercent,
-		settings.MaxDiscountAmount, settings.MaxBargainRounds, nullableAIString(settings.CustomPrompts), settings.AIMode)
+		settings.MaxDiscountAmount, settings.MaxBargainRounds, nullableAIString(settings.CustomPrompts), settings.AIMode,
+		boolToInt(settings.OrderContextEnabled))
 	return err
 }
 

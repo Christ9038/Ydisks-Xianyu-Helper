@@ -30,6 +30,11 @@ export const AccountAISettingsModal: React.FC<AccountAISettingsModalProps> = ({ 
     if (!settings.ai_enabled) return;
     updateSettings({ auto_adjust_price_enabled: !settings.auto_adjust_price_enabled });
   };
+  // handleOrderContextChange 切换“向 AI 提供买家订单阶段”开关，AI 回复关闭时不允许操作。
+  const handleOrderContextChange = () => {
+    if (!settings.ai_enabled) return;
+    updateSettings({ order_context_enabled: !settings.order_context_enabled });
+  };
   // handleDiscountPercentChange 更新最大折扣比例。
   const handleDiscountPercentChange = (event: React.ChangeEvent<HTMLInputElement>) => updateSettings({ max_discount_percent: parseInt(event.target.value, 10) || 0 });
   // handleDiscountAmountChange 更新最大折扣金额。
@@ -73,6 +78,13 @@ export const AccountAISettingsModal: React.FC<AccountAISettingsModalProps> = ({ 
             <div className="pr-4"><div className="font-bold text-gray-900">自动执行 AI 报价改价</div><div className="text-xs text-gray-600 mt-1">AI 明确报价后，买家在 30 分钟内拍下对应商品时自动修改待付款订单价格。开启 AI 议价后，固定自动化规则改价将不能同时启用。</div></div>
             <button type="button" onClick={handleAutoAdjustChange} disabled={!settings.ai_enabled} className={`w-14 h-8 rounded-full transition-colors duration-300 relative flex-shrink-0 ${settings.auto_adjust_price_enabled ? 'bg-amber-500' : 'bg-gray-300'} ${!settings.ai_enabled ? 'opacity-50 cursor-not-allowed' : ''}`} aria-label="切换 AI 自动改价">
               <span className={`absolute left-1 top-1 w-6 h-6 bg-white rounded-full shadow-md transition-transform duration-300 ${settings.auto_adjust_price_enabled ? 'translate-x-6' : 'translate-x-0'}`} />
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between p-4 bg-sky-50 border border-sky-200 rounded-xl">
+            <div className="pr-4"><div className="font-bold text-gray-900">向 AI 提供买家订单阶段</div><div className="text-xs text-gray-600 mt-1">开启后，AI 能知道买家在当前商品下是未下单、已拍下未付款、已付款、已发货还是已完成，可在店铺规则中写“仅买家已付款时才提供教程”。只读取本地订单记录，可能滞后于平台；不会发送订单号、金额和收货信息。需要保密的内容仍建议走付款后自动发货。</div></div>
+            <button type="button" onClick={handleOrderContextChange} disabled={!settings.ai_enabled} className={`w-14 h-8 rounded-full transition-colors duration-300 relative flex-shrink-0 ${settings.order_context_enabled ? 'bg-sky-500' : 'bg-gray-300'} ${!settings.ai_enabled ? 'opacity-50 cursor-not-allowed' : ''}`} aria-label="切换向 AI 提供买家订单阶段">
+              <span className={`absolute left-1 top-1 w-6 h-6 bg-white rounded-full shadow-md transition-transform duration-300 ${settings.order_context_enabled ? 'translate-x-6' : 'translate-x-0'}`} />
             </button>
           </div>
 

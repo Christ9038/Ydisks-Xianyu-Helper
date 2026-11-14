@@ -360,7 +360,9 @@ export const updateAccountAISettings = async (cookieId: string, settings: Partia
     max_discount_amount: settings.max_discount_amount ?? 100,
     max_bargain_rounds: settings.max_bargain_rounds ?? 3,
     custom_prompts: settings.custom_prompts ?? '',
-    ai_mode: settings.ai_mode ?? 'bargain_only'
+    ai_mode: settings.ai_mode ?? 'bargain_only',
+    // 调用方未提供订单阶段开关时省略该字段，由服务端保留已保存的值，避免局部更新把开关意外重置。
+    ...(settings.order_context_enabled === undefined ? {} : { order_context_enabled: settings.order_context_enabled }),
   };
   return runContractRequest(/* signal 控制账号 AI 设置更新的取消和超时。 */ signal => contractClient.PUT('/api/v1/settings/ai-reply/{cookie_id}', { params: { path: { cookie_id: cookieId } }, body: payload, signal }), options);
 }

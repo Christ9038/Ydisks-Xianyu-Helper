@@ -829,6 +829,20 @@ test('updateAccountAISettings 提交 AI 工作模式并在缺省时回退为仅�
   });
 });
 
+test('updateAccountAISettings 仅在调用方提供时提交订单阶段开关', /* 当前回调验证订单阶段开关显式开启、显式关闭均会提交，未提供时由服务端保留已保存值。 */ async () => {
+  // fetchMock 是账号 AI 设置保存接口的网络替身；每次调用返回新的响应对象，避免正文被重复读取。
+  const fetchMock = vi.fn().mockImplementation(/* 当前回调为每次请求生成独立的成功响应。 */ () => Promise.resolve(jsonResponse({ success: true })));
+  stubContractFetch(fetchMock);
+
+  await updateAccountAISettings('acc1', { ai_enabled: true, order_context_enabled: true });
+  await updateAccountAISettings('acc1', { ai_enabled: true, order_context_enabled: false });
+  await updateAccountAISettings('acc1', { ai_enabled: true });
+
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body).order_context_enabled).toBe(true);
+  expect(JSON.parse(fetchMock.mock.calls[1][1].body).order_context_enabled).toBe(false);
+  expect('order_context_enabled' in JSON.parse(fetchMock.mock.calls[2][1].body)).toBe(false);
+});
+
 test('getShippingRules exposes buyer reviewed gift rules as automation rules', async () => {
   stubContractFetch(vi.fn().mockResolvedValue(jsonResponse([{
     id: 12,
