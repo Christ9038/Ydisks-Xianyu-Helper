@@ -18,6 +18,8 @@ type itemPublishClientStub struct {
 	publish func(context.Context, string, mtop.PublishItemRequest) (*mtop.PublishItemResult, error)
 	// recommend 保存类目推荐请求的可控行为。
 	recommend func(context.Context, string, string) (mtop.PublishCategory, string, error)
+	// downShelf 保存商品平台下架请求的可控行为。
+	downShelf func(context.Context, string, string) (*mtop.AccountTaskResult, error)
 }
 
 // PublishItem 调用测试注入的单商品发布行为。
@@ -30,8 +32,90 @@ func (c itemPublishClientStub) RecommendPublishCategory(ctx context.Context, coo
 	return c.recommend(ctx, cookies, keyword)
 }
 
+// DownShelfItem 调用测试注入的商品平台下架行为。
+func (c itemPublishClientStub) DownShelfItem(ctx context.Context, cookies, itemID string) (*mtop.AccountTaskResult, error) {
+	return c.downShelf(ctx, cookies, itemID)
+}
+
 // unsupportedItemPublishClient 是不提供类目推荐能力的平台客户端替身。
 type unsupportedItemPublishClient struct{ mtop.Client }
+
+// TestItemPublishPortDownShelvesPlatformItemAndPersistsCookie 验证平台下架成功后写回 Cookie，且不执行本地商品删除。
+func TestItemPublishPortDownShelvesPlatformItemAndPersistsCookie(t *testing.T) {
+	// store、cleanup 保存当前测试使用的 SQLite 存储及清理函数。
+	store, cleanup := newAdapterTestStore(t)
+	defer cleanup()
+	// client 是检查下架账号凭证和商品 ID 的平台客户端替身。
+	client := itemPublishClientStub{downShelf: func(_ context.Context, cookies, itemID string) (*mtop.AccountTaskResult, error) {
+		if cookies == "" || itemID != "item-1" {
+			t.Fatalf("下架请求参数异常: cookies=%q itemID=%q", cookies, itemID)
+		}
+		return &mtop.AccountTaskResult{Success: true, Message: "SUCCESS::下架成功", UpdatedCookies: "unb=2; _m_h5_tk=tk2; havana_lgc2_77=lgc;"}, nil
+	}}
+	// port 是绑定测试数据库和平台替身的商品发布端口。
+	port := NewItemPublishPort(store, func() mtop.Client { return client }, nil, nil, nil)
+	// outcome、err 保存平台下架和会话持久化结果。
+	outcome, err := port.DownShelf(context.Background(), 1, "cid", "item-1")
+	if err != nil || !outcome.PlatformSuccess || !outcome.CookiePersisted || outcome.Status != "off_sale" || outcome.ItemID != "item-1" {
+		t.Fatalf("平台下架结果异常: outcome=%+v err=%v", outcome, err)
+	}
+	// value、valueErr 保存平台返回的新 Cookie 是否写回本地。
+	value, valueErr := store.Cookies.GetValue(context.Background(), "cid")
+	if valueErr != nil || value != "unb=2; _m_h5_tk=tk2; havana_lgc2_77=lgc;" {
+		t.Fatalf("平台下架 Cookie 未保存: value=%q err=%v", value, valueErr)
+	}
+}
+
+// TestItemPublishPortDownShelfRejectsWrongOwnerAndUnsupportedClient 验证归属错误和客户端能力缺失不会触发平台写操作。
+func TestItemPublishPortDownShelfRejectsWrongOwnerAndUnsupportedClient(t *testing.T) {
+	// store、cleanup 保存当前测试使用的 SQLite 存储及清理函数。
+	store, cleanup := newAdapterTestStore(t)
+	defer cleanup()
+	// calls 记录平台下架请求次数。
+	calls := 0
+	// client 是记录请求次数的商品平台客户端替身。
+	client := itemPublishClientStub{downShelf: func(context.Context, string, string) (*mtop.AccountTaskResult, error) {
+		calls++
+		return &mtop.AccountTaskResult{Success: true}, nil
+	}}
+	// port 是绑定测试数据库和平台替身的商品发布端口。
+	port := NewItemPublishPort(store, func() mtop.Client { return client }, nil, nil, nil)
+	// err 是错误用户尝试下架商品时的账号归属校验结果。
+	if _, err := port.DownShelf(context.Background(), 999, "cid", "item-1"); !errors.Is(err, itemapp.ErrDownShelfCredentialChanged) {
+		t.Fatalf("错误账号归属应被拒绝: %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("归属校验失败后仍触发了平台请求: calls=%d", calls)
+	}
+	// unsupportedPort 是不提供商品生命周期扩展能力的平台端口。
+	unsupportedPort := NewItemPublishPort(store, func() mtop.Client { return unsupportedItemPublishClient{} }, nil, nil, nil)
+	// err 是当前平台客户端不支持下架能力时返回的应用错误。
+	if _, err := unsupportedPort.DownShelf(context.Background(), 1, "cid", "item-1"); !errors.Is(err, itemapp.ErrDownShelfUnsupported) {
+		t.Fatalf("未支持平台客户端应返回能力错误: %v", err)
+	}
+}
+
+// TestItemPublishPortDownShelfReportsCookiePersistenceFailure 验证平台已下架但 Cookie 写回失败时明确返回不完整结果。
+func TestItemPublishPortDownShelfReportsCookiePersistenceFailure(t *testing.T) {
+	// store、cleanup 保存当前测试使用的 SQLite 存储及清理函数。
+	store, cleanup := newAdapterTestStore(t)
+	defer cleanup()
+	// client 在平台确认下架后关闭测试数据库以模拟会话写回失败。
+	client := itemPublishClientStub{downShelf: func(context.Context, string, string) (*mtop.AccountTaskResult, error) {
+		// err 是关闭隔离测试数据库以模拟本地会话写回失败时的错误。
+		if err := store.DB.Close(); err != nil {
+			t.Fatal(err)
+		}
+		return &mtop.AccountTaskResult{Success: true, Message: "SUCCESS::下架成功"}, nil
+	}}
+	// port 是绑定数据库和下架平台替身的商品发布端口。
+	port := NewItemPublishPort(store, func() mtop.Client { return client }, nil, nil, nil)
+	// outcome、err 保存平台成功但本地写回失败的结果。
+	outcome, err := port.DownShelf(context.Background(), 1, "cid", "item-1")
+	if !outcome.PlatformSuccess || outcome.CookiePersisted || !errors.Is(err, itemapp.ErrDownShelfSessionPersistence) {
+		t.Fatalf("平台成功与本地写回失败未被区分: outcome=%+v err=%v", outcome, err)
+	}
+}
 
 // TestItemPublishPortRecommendsCategoryAndPersistsUpdatedCookie 验证类目推荐和 Cookie 写回。
 func TestItemPublishPortRecommendsCategoryAndPersistsUpdatedCookie(t *testing.T) {

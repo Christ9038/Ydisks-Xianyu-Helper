@@ -13,6 +13,7 @@ import (
 
 	"xianyu-go/internal/account"
 	"xianyu-go/internal/adapter"
+	apikeyapp "xianyu-go/internal/application/apikey"
 	lifecycleapp "xianyu-go/internal/application/lifecycle"
 	orderapp "xianyu-go/internal/application/orders"
 	"xianyu-go/internal/auth"
@@ -361,11 +362,13 @@ func (adapter testSessionRecoveryAdapter) Recover(ctx context.Context, accountID
 func testServerDependencies(authentication *auth.Service, databaseHealth DatabaseHealthPort, services *composition.Services, sessionRecovery adapter.SessionRecoveryHandler) Dependencies {
 	// ports 是测试组合根投影的完整 transport Port 集合。
 	ports := services.TransportPorts()
+	// apiAccessTokens 是测试服务器使用的 SQLite 访问令牌管理用例。
+	apiAccessTokens, _ := apikeyapp.NewService(adapter.NewAPIAccessTokenRepository(authentication.Store.APIAccessTokens))
 	return Dependencies{Auth: authentication, Addr: ":0", DatabaseHealth: databaseHealth, Applications: NewApplicationPorts(ApplicationPortsInput{
 		Orders: testOrdersTransport{services: ports.Orders}, OrderRefreshJobs: testOrderRefreshJobsTransport{service: ports.OrderRefreshJobs}, ItemSinglePublish: ports.ItemSinglePublish,
 		ItemBatchPreview: ports.ItemBatchPreview, ItemBatchManagement: ports.ItemBatchManagement, ItemCategoryRecommendation: ports.ItemCategoryRecommendation,
 		ItemBatchPreviewPersistence: ports.ItemBatchPreviewPersistence, ItemBatchLocalPublish: ports.ItemBatchLocalPublish,
-		ItemSync: ports.ItemSync, ItemCatalog: ports.ItemCatalog, ItemCatalogMutation: ports.ItemCatalogMutation, ItemAISettings: ports.ItemAISettings,
+		ItemSync: ports.ItemSync, ItemCatalog: ports.ItemCatalog, ItemCatalogMutation: ports.ItemCatalogMutation, ItemPlatformLifecycle: ports.ItemPlatformLifecycle, ItemAISettings: ports.ItemAISettings,
 		AccountLogin: testAccountLoginAdapter{service: ports.AccountLogin}, QRLogin: testQRLoginAdapter{service: ports.QRLogin},
 		SessionRecovery: testSessionRecoveryAdapter{handler: sessionRecovery}, PlatformCredentials: ports.PlatformCredentials,
 		Authentication: ports.Authentication, LoginAudit: ports.LoginAudit, PasswordLogin: ports.PasswordLogin, AccountDelete: ports.AccountDelete,
@@ -375,7 +378,7 @@ func testServerDependencies(authentication *auth.Service, databaseHealth Databas
 		AutomationIssues: ports.AutomationIssues, AutomationAudit: ports.AutomationAudit, AutomationRules: ports.AutomationRules, Cards: ports.Cards,
 		DeliveryTemplates:      ports.DeliveryTemplates,
 		PublishAutomationRules: ports.PublishAutomationRules, DefaultReplies: ports.DefaultReplies, ItemGreetings: ports.ItemGreetings, AgentReplies: ports.AgentReplies, Library: ports.Library, Keywords: ports.Keywords,
-		Settings: ports.Settings, Admin: ports.Admin, RuntimeLogs: ports.RuntimeLogs,
+		Settings: ports.Settings, Admin: ports.Admin, RuntimeLogs: ports.RuntimeLogs, APIAccessTokens: apiAccessTokens,
 	})}
 }
 

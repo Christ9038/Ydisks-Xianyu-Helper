@@ -101,8 +101,10 @@ describe('frontend navigation routing', () => {
     expect(app).toContain('const { isLoggedIn, isAdmin, signOut } = useSession();');
     expect(sessionProvider).toContain('setIsAdmin(response.is_admin === true)');
     expect(app).toContain("activeRoute === 'settings'");
-    expect(shell).toContain('isAdmin ? <Settings /> : <Dashboard />');
+    expect(shell).toContain("case 'settings': return isAdmin ? <Settings /> : <Dashboard />;");
+    expect(shell).toContain("case 'api-access': return <APIAccessTokensPage />;");
     expect(sidebar).toContain('isAdmin = false');
+    expect(sidebar).toContain("{ id: 'api-access', icon: KeyRound, label: 'API 管理' }");
     expect(sidebar).toContain("...(isAdmin ? [{ id: 'settings'");
     expect(settingsHook).toContain('setLoadError');
   } /* 测试回调断言已登录应用的路由、访问控制或延迟加载契约。 */);

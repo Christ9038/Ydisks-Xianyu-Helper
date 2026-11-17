@@ -18,6 +18,11 @@ describe('应用路由映射', /* 路由映射测试覆盖地址解析、反向�
     expect(routeFromLocation()).toBe('rules');
   });
 
+  test('API 管理地址解析为独立业务页面', /* 当前回调验证普通登录用户可直接进入 API 令牌管理页。 */ () => {
+    Object.defineProperty(globalThis, 'window', { value: { location: { pathname: '/app/api-access' } }, configurable: true });
+    expect(routeFromLocation()).toBe('api-access');
+  });
+
   test('未知地址安全回退到仪表盘', /* 当前回调验证非法地址不会产生未定义路由。 */ () => {
     Object.defineProperty(globalThis, 'window', { value: { location: { pathname: '/unknown' } }, configurable: true });
     expect(routeFromLocation()).toBe('dashboard');

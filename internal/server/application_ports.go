@@ -448,6 +448,8 @@ type ApplicationPorts struct {
 	itemCatalog ItemCatalogPort
 	// itemCatalogMutation 是商品目录写入用例。
 	itemCatalogMutation ItemCatalogMutationPort
+	// itemPlatformLifecycle 是商品平台下架用例。
+	itemPlatformLifecycle ItemPlatformLifecyclePort
 	// itemAISettings 是商品级 AI 配置用例。
 	itemAISettings ItemAISettingsPort
 	// accountLogin 是 Cookie 与二维码登录用例 Port。
@@ -516,6 +518,8 @@ type ApplicationPorts struct {
 	admin AdminPort
 	// runtimeLogs 是管理员运行日志查询用例。
 	runtimeLogs RuntimeLogsPort
+	// apiAccessTokens 是当前用户管理外部 API 访问令牌的用例。
+	apiAccessTokens APIAccessTokensPort
 }
 
 // ApplicationPortsInput 是组合根向 HTTP transport 交付的完整应用 Port 快照。
@@ -532,6 +536,7 @@ type ApplicationPortsInput struct {
 	ItemSync                    ItemSyncPort
 	ItemCatalog                 ItemCatalogPort
 	ItemCatalogMutation         ItemCatalogMutationPort
+	ItemPlatformLifecycle       ItemPlatformLifecyclePort
 	ItemAISettings              ItemAISettingsPort
 	AccountLogin                AccountLoginPort
 	QRLogin                     QRLoginPort
@@ -557,7 +562,9 @@ type ApplicationPortsInput struct {
 	DeliveryTemplates           DeliveryTemplatesPort
 	Cards                       CardsPort
 	// RuntimeLogs 是管理员运行日志查询用例。
-	RuntimeLogs            RuntimeLogsPort
+	RuntimeLogs RuntimeLogsPort
+	// APIAccessTokens 是当前用户管理外部 API 访问令牌的用例。
+	APIAccessTokens        APIAccessTokensPort
 	APIRequestTester       APIRequestTesterPort
 	PublishAutomationRules PublishAutomationRulesPort
 	DefaultReplies         DefaultRepliesPort
@@ -577,7 +584,7 @@ func NewApplicationPorts(input ApplicationPortsInput) *ApplicationPorts {
 		itemSinglePublish: input.ItemSinglePublish, itemBatchPreview: input.ItemBatchPreview,
 		itemBatchManagement: input.ItemBatchManagement, itemCategoryRecommendation: input.ItemCategoryRecommendation,
 		itemBatchPreviewPersistence: input.ItemBatchPreviewPersistence, itemBatchLocalPublish: input.ItemBatchLocalPublish,
-		itemSync: input.ItemSync, itemCatalog: input.ItemCatalog, itemCatalogMutation: input.ItemCatalogMutation, itemAISettings: input.ItemAISettings,
+		itemSync: input.ItemSync, itemCatalog: input.ItemCatalog, itemCatalogMutation: input.ItemCatalogMutation, itemPlatformLifecycle: input.ItemPlatformLifecycle, itemAISettings: input.ItemAISettings,
 		accountLogin: input.AccountLogin, qrLogin: input.QRLogin, sessionRecovery: input.SessionRecovery,
 		platformCredentials: input.PlatformCredentials, authentication: input.Authentication, loginAudit: input.LoginAudit,
 		passwordLogin: input.PasswordLogin, accountDelete: input.AccountDelete, accountProfile: input.AccountProfile,
@@ -586,7 +593,7 @@ func NewApplicationPorts(input ApplicationPortsInput) *ApplicationPorts {
 		uncertainNotifications: input.UncertainNotifications, notificationChannels: input.NotificationChannels,
 		analytics: input.Analytics, automationIssues: input.AutomationIssues, automationAudit: input.AutomationAudit, automationRules: input.AutomationRules,
 		cards: input.Cards, deliveryTemplates: input.DeliveryTemplates, apiRequestTester: input.APIRequestTester, publishAutomationRules: input.PublishAutomationRules, defaultReplies: input.DefaultReplies, itemGreetings: input.ItemGreetings, agentReplies: input.AgentReplies, library: input.Library,
-		keywords: input.Keywords, settings: input.Settings, admin: input.Admin, runtimeLogs: input.RuntimeLogs,
+		keywords: input.Keywords, settings: input.Settings, admin: input.Admin, runtimeLogs: input.RuntimeLogs, apiAccessTokens: input.APIAccessTokens,
 	}
 }
 
@@ -606,7 +613,7 @@ func (ports *ApplicationPorts) validate() error {
 		{"orders", ports.orders}, {"order_refresh_jobs", ports.orderRefreshJobs}, {"item_single_publish", ports.itemSinglePublish},
 		{"item_batch_preview", ports.itemBatchPreview}, {"item_batch_management", ports.itemBatchManagement}, {"item_category_recommendation", ports.itemCategoryRecommendation},
 		{"item_batch_preview_persistence", ports.itemBatchPreviewPersistence}, {"item_batch_local_publish", ports.itemBatchLocalPublish}, {"item_sync", ports.itemSync},
-		{"item_catalog", ports.itemCatalog}, {"item_catalog_mutation", ports.itemCatalogMutation}, {"item_ai_settings", ports.itemAISettings}, {"account_login", ports.accountLogin},
+		{"item_catalog", ports.itemCatalog}, {"item_catalog_mutation", ports.itemCatalogMutation}, {"item_platform_lifecycle", ports.itemPlatformLifecycle}, {"item_ai_settings", ports.itemAISettings}, {"account_login", ports.accountLogin},
 		{"qr_login", ports.qrLogin}, {"session_recovery", ports.sessionRecovery}, {"platform_credentials", ports.platformCredentials},
 		{"authentication", ports.authentication}, {"login_audit", ports.loginAudit}, {"password_login", ports.passwordLogin},
 		{"account_delete", ports.accountDelete}, {"account_profile", ports.accountProfile}, {"account_long_login", ports.accountLongLogin},
@@ -615,7 +622,7 @@ func (ports *ApplicationPorts) validate() error {
 		{"notification_channels", ports.notificationChannels}, {"analytics", ports.analytics}, {"automation_issues", ports.automationIssues}, {"automation_audit", ports.automationAudit},
 		{"automation_rules", ports.automationRules}, {"cards", ports.cards}, {"publish_automation_rules", ports.publishAutomationRules},
 		{"default_replies", ports.defaultReplies}, {"item_greetings", ports.itemGreetings}, {"agent_replies", ports.agentReplies}, {"library", ports.library}, {"keywords", ports.keywords}, {"settings", ports.settings}, {"admin", ports.admin},
-		{"runtime_logs", ports.runtimeLogs},
+		{"runtime_logs", ports.runtimeLogs}, {"api_access_tokens", ports.apiAccessTokens},
 	}
 	// requiredPort 是当前必须在 Server 构造前绑定的应用 Port 名称。
 	for _, requiredPort := range required {

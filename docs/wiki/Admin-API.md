@@ -2,7 +2,7 @@
 
 [中文](管理API.zh-CN) | English
 
-These endpoints have **no console page**. They are meant for operators and scripts. The only contract source is `api/openapi.yaml`; every call needs a logged-in session cookie (`cookieAuth`) from `POST /api/v1/session/login`, and errors use the unified error envelope. Unauthenticated calls get 401; apart from the notification list restricted to the caller's own channels, every endpoint below requires an administrator and returns 403 to other users.
+The admin endpoints in the first section have **no console page** and are meant for operators and scripts. The external API section below documents the separate console-managed, user-scoped API access tokens. The only contract source is `api/openapi.yaml`; every call needs a logged-in session cookie (`cookieAuth`) from `POST /api/v1/session/login`, and errors use the unified error envelope. Unauthenticated calls get 401; apart from the notification list restricted to the caller's own channels, every endpoint below requires an administrator and returns 403 to other users.
 
 | Endpoint | Method | Purpose |
 | --- | --- | --- |
@@ -19,5 +19,72 @@ Notes:
 
 - Uncertain notifications mean the external service probably accepted the message but the local confirmation failed. They are not re-sent automatically; check the target channel before deciding anything. See [Notification Events](Notification-Events).
 - Use the tasks endpoint together with [Runtime Logs](Runtime-Logs) to see whether a background job is stuck.
+
+
+## External API access tokens
+
+The console now provides a dedicated **API Management** page in the main navigation. A signed token represents the current Ydisks user; it does not expose any Xianyu Cookie.
+
+- `GET /api/v1/access-tokens` lists the current user's token summaries.
+- `POST /api/v1/access-tokens` issues a token. The body contains `name`, `scopes`, and optional `expires_in_days` (90 days by default; 1–365 days allowed). The plaintext `token` is returned once, only in the creation response.
+- `DELETE /api/v1/access-tokens/{token_id}` revokes a token owned by the current user. New Bearer requests using it are rejected immediately.
+
+Token-management endpoints require a browser Cookie session and cannot be called with an API token. The server stores only the token's SHA-256 digest. List responses expose `id`, `name`, `prefix`, `scopes`, and creation/expiry/last-used/revocation times; they never expose the digest or plaintext. Send the token in the standard header:
+
+```http
+Authorization: Bearer ydk_live_…
+```
+
+### Scopes
+
+| Scope | Allowed capability |
+| --- | --- |
+| `accounts:read` | Read the current user's account IDs, non-sensitive summaries, and single-account details; Cookie and login passwords are excluded. |
+| `items:read` | Read items, sync item lists, request publish-category candidates, and read batch results. |
+| `items:publish` | Publish a single item, preview/start a batch, cancel a batch, and retry failed rows. |
+| `items:unpublish` | Unlist an item owned by the current user on Xianyu; it does not delete the platform item or local record. |
+| `orders:read` | Read order lists and details, including stored recipient name, phone, and address; delivered-card endpoints are excluded. |
+| `chat:read` | Read chat sessions, messages, item context, quick replies, and buyer notes. |
+| `chat:send` | Send ordinary text messages through the existing chat application. |
+| `chat:takeover` | Update only the manual-intervention pause duration and scope; account credentials and Cookie fields are not writable. |
+| `replies:manage` | Manage AI and item-level AI settings, keyword, item, first-contact, default, and external Agent reply settings. |
+| `automation:read` | Read automation rules, issues, audit events, account-task settings, and task runs. |
+| `automation:manage` | Manage automation rules and delivery templates, update and trigger existing account tasks, and resolve pending runs/tasks. |
+
+Authorization is enforced by HTTP method and path. An endpoint not explicitly included in the external-token allowlist returns 403 even when the token belongs to the same user. Existing browser Cookie behavior is unchanged. API tokens never receive administrator privileges and cannot call account login, credential updates, system settings, card-secret, notification-secret, or token-management endpoints.
+
+### Manual intervention and scheduled tasks
+
+- `PUT /api/v1/chat/manual-takeover/{cookie_id}` uses `chat:takeover` to update the post-human-reply pause window (0–1440 minutes) and scope (`ai` or `all`). This narrow endpoint does not accept Cookie, login-password, or other account fields. Actual human messages continue to be recognized by the existing chat-send/message-echo path; no second takeover state system is introduced.
+- `POST /api/v1/chat/messages` uses the normal outbound-message path and preserves existing human-message detection. If a manual-takeover pause is configured, it may pause AI/Agent auto-replies. Configure the existing `agent-replies` integration for automated bot replies; do not use `chat:send` as the bot delivery path.
+- `GET /api/v1/accounts/{cid}` is available under `accounts:read` and returns safe account details, including manual-intervention settings. Account writes, credentials, Cookie, and login-information endpoints remain browser-session only.
+- `GET/PUT /api/v1/account-tasks/{cid}`, `GET /api/v1/account-tasks/{cid}/runs`, and `POST /api/v1/account-tasks/{cid}/run` expose existing account-task settings, run history, and manual trigger for existing auto-rating/auto-polish tasks. This is not scheduled product publishing.
+- `chat:read` exposes HTTP session/message queries, not the chat WebSocket stream. The automation audit endpoint is not a per-message AI/Agent provenance log; no dedicated reply-source audit endpoint currently exists.
+
+The current code has no dedicated delayed/scheduled product-publishing endpoint or scheduler owner. This work does not create a second publishing queue; batch publishing continues to use the existing preview, start, status-readback, cancel, and failed-row retry APIs.
+
+### Existing item, account, chat, and automation routes
+
+The external token scopes expose the following existing application routes; these are not new workers or parallel business implementations:
+
+- `POST /api/v1/items/publish` publishes one item through the existing publish use case.
+- `POST /api/v1/items/publish-batches/preview` previews an uploaded sheet using `multipart/form-data`; `POST /api/v1/items/publish-batches` starts the existing batch worker.
+- `GET /api/v1/automation-audit-events` reads existing automation audit summaries.
+- `GET /api/v1/accounts/{cid}` reads a safe account detail summary.
+- `GET/PUT /api/v1/account-tasks/{cid}` reads/updates existing account-task settings; `GET /api/v1/account-tasks/{cid}/runs` reads task runs; `POST /api/v1/account-tasks/{cid}/run` manually triggers the existing auto-polish/auto-rate task.
+- `GET/PUT /api/v1/settings/ai-reply/{cookie_id}` manages the existing account AI reply settings.
+- `GET/PUT /api/v1/agent-replies/{cookie_id}` manages the existing external Agent reply settings. The read response includes `token_configured`, never the saved token plaintext. `POST /api/v1/agent-replies/{cookie_id}/test` tests an endpoint/token draft before saving.
+- `GET /api/v1/chat/sessions?account_id={cookie_id}` reads chat sessions; `refresh=1` requests a refresh through the existing platform-contact path.
+- `GET /api/v1/chat/messages?account_id={cookie_id}&chat_id={chat_id}` reads message history.
+- `POST /api/v1/chat/messages` sends text using the existing chat application. Its request includes `account_id`, `chat_id`, `peer_user_id`, and `text`.
+- `PUT /api/v1/chat/manual-takeover/{cookie_id}` updates the narrow manual-takeover settings: `manual_takeover_minutes` and `manual_takeover_scope`.
+
+### Agent integration
+
+The existing outbound Agent HTTP protocol (v1), request/response fields, `working` polling, and reply priority are documented in [Automated Delivery and Replies](Automated-Delivery-and-Replies). The API token only configures and tests that existing Agent integration; it does not create another reply worker. The `AGENT_ENDPOINT_TOKEN` used in examples is the external Agent service credential, not the Ydisks API token.
+
+### Platform item unlisting
+
+**Platform item unlisting** uses the separate `POST /api/v1/items/{cookie_id}/{item_id}/unpublish` endpoint and the `items:unpublish` scope. It handles one item per request and unlists the item on Xianyu without deleting the platform item or local record. The existing `DELETE /api/v1/items/{cookie_id}/{item_id}` still deletes only the local record. The implementation follows the public PC item-detail-page network capture; real-account acceptance is still pending, so local mock tests are not evidence of a successful platform operation. Protocol capture: [request documentation](https://github.com/DoLovya/pyxianyu/blob/main/docs/mtop_taobao_idle_item_downshelf.md); request-parameter implementation reference: [item_api.py](https://github.com/DoLovya/pyxianyu/blob/main/src/pyxianyu/apis/item_api.py).
 
 Related: [Configuration Reference](Configuration-Reference), [System and AI](System-and-AI).

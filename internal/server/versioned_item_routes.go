@@ -14,6 +14,7 @@ func (s *Server) mountVersionedItems(r chi.Router) {
 		r.Get("/api/v1/items", s.listItems)
 		r.Get("/api/v1/items/cookie/{cookie_id}", s.listItemsByCookie)
 		r.Get("/api/v1/items/{cookie_id}/{item_id}", s.getItem)
+		r.Post("/api/v1/items/{cookie_id}/{item_id}/unpublish", s.unpublishItem)
 		r.Get("/api/v1/items/{cookie_id}/{item_id}/ai-settings", s.getItemAISettings)
 		r.Post("/api/v1/items/{cookie_id}", s.createItem)
 		r.Post("/api/v1/items/publish", s.publishItem)

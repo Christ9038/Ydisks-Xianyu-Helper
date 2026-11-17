@@ -4,6 +4,41 @@
  */
 
 export interface paths {
+    "/api/v1/access-tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 列出当前用户的外部 API 访问令牌 */
+        get: operations["getApiV1AccessTokens"];
+        put?: never;
+        /** 签发外部 API 访问令牌（明文只返回一次） */
+        post: operations["postApiV1AccessTokens"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/access-tokens/{token_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** 撤销当前用户拥有的外部 API 访问令牌 */
+        delete: operations["deleteApiV1AccessTokensBytoken_id"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/account-tasks/{cid}": {
         parameters: {
             query?: never;
@@ -880,6 +915,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/chat/manual-takeover/{cookie_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** 更新单账号人工介入暂停设置（不允许修改账号凭据） */
+        put: operations["putApiV1ChatManualTakeoverBycookie_id"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/chat/messages": {
         parameters: {
             query?: never;
@@ -1048,6 +1100,23 @@ export interface paths {
         put?: never;
         /** postApiV1ItemsBycookie_id */
         post: operations["postApiV1ItemsBycookie_id"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/items/{cookie_id}/{item_id}/unpublish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 将当前用户拥有的闲鱼商品下架（不删除商品） */
+        post: operations["postApiV1ItemsBycookie_idByitem_idUnpublish"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4111,6 +4180,76 @@ export interface components {
             location?: components["schemas"]["LibraryTemplateLocation"];
             publish_interval_seconds?: number;
         };
+        ItemPlatformLifecycleResponse: {
+            success: boolean;
+            data: {
+                item_id: string;
+                /** @enum {string} */
+                status: "off_sale";
+                message: string;
+                cookie_persisted: boolean;
+            };
+        };
+        ItemPlatformLifecycleFailureResponse: {
+            /** @enum {boolean} */
+            success: false;
+            /** @enum {boolean} */
+            platform_success: true;
+            data: {
+                item_id: string;
+                /** @enum {string} */
+                status: "off_sale";
+                message: string;
+                /** @enum {boolean} */
+                cookie_persisted: false;
+            };
+            message: string;
+        };
+        ChatManualTakeoverUpdateRequest: {
+            /** @description 人工回复后会话暂停自动回复的分钟数；0 表示关闭。 */
+            manual_takeover_minutes?: number;
+            /**
+             * @description ai 只暂停 Agent 与 AI，all 暂停全部自动回复。
+             * @enum {string}
+             */
+            manual_takeover_scope?: "ai" | "all";
+        };
+        ChatManualTakeoverSettingsResponse: {
+            success: boolean;
+            manual_takeover_minutes: number;
+            /** @enum {string} */
+            manual_takeover_scope: "ai" | "all";
+        };
+        APIAccessTokenCreateRequest: {
+            name: string;
+            scopes: ("accounts:read" | "items:read" | "items:publish" | "items:unpublish" | "orders:read" | "chat:read" | "chat:send" | "chat:takeover" | "replies:manage" | "automation:read" | "automation:manage")[];
+            /** @default 90 */
+            expires_in_days: number;
+        };
+        APIAccessTokenSummary: {
+            id: string;
+            name: string;
+            prefix: string;
+            scopes: ("accounts:read" | "items:read" | "items:publish" | "items:unpublish" | "orders:read" | "chat:read" | "chat:send" | "chat:takeover" | "replies:manage" | "automation:read" | "automation:manage")[];
+            /** Format: int64 */
+            created_at: number;
+            /** Format: int64 */
+            expires_at: number;
+            /** Format: int64 */
+            last_used_at: number;
+            /** Format: int64 */
+            revoked_at: number;
+        };
+        APIAccessTokenListResponse: {
+            success: boolean;
+            data: components["schemas"]["APIAccessTokenSummary"][];
+        };
+        APIAccessTokenCreatedResponse: {
+            success: boolean;
+            /** @description 明文只在创建响应中展示一次 */
+            token: string;
+            data: components["schemas"]["APIAccessTokenSummary"];
+        };
         ErrorResponse: {
             code: string;
             message: string;
@@ -4128,6 +4267,162 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    getApiV1AccessTokens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 成功 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIAccessTokenListResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 需要浏览器登录会话 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    postApiV1AccessTokens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["APIAccessTokenCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description 已签发；响应中的 token 仅展示一次 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIAccessTokenCreatedResponse"];
+                };
+            };
+            /** @description 请求参数无效 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 需要浏览器登录会话 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    deleteApiV1AccessTokensBytoken_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 已撤销 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 需要浏览器登录会话 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 令牌不存在或不属于当前用户 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     getApiV1AccountTasksBycid: {
         parameters: {
             query?: never;
@@ -8746,6 +9041,68 @@ export interface operations {
             };
         };
     };
+    putApiV1ChatManualTakeoverBycookie_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cookie_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatManualTakeoverUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description 人工介入设置已保存 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatManualTakeoverSettingsResponse"];
+                };
+            };
+            /** @description 请求字段无效 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 未认证 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 令牌缺少 chat:takeover 权限或账号不属于当前用户 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 账号不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     getApiV1ChatMessages: {
         parameters: {
             query: {
@@ -9712,6 +10069,83 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    postApiV1ItemsBycookie_idByitem_idUnpublish: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cookie_id: string;
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 平台确认下架且账号会话写回成功 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemPlatformLifecycleResponse"];
+                };
+            };
+            /** @description 请求参数无效 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 未认证或账号会话失效 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 令牌缺少 items:unpublish 权限 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 账号凭证或归属已变化 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 当前平台客户端不支持该能力 */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 平台失败，或平台已下架但账号会话写回失败 */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"] | components["schemas"]["ItemPlatformLifecycleFailureResponse"];
                 };
             };
         };
