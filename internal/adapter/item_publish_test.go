@@ -7,6 +7,7 @@ import (
 	"time"
 
 	itemapp "xianyu-go/internal/application/items"
+	"xianyu-go/internal/xianyu/cookierefresh"
 	"xianyu-go/internal/xianyu/mtop"
 )
 
@@ -63,6 +64,42 @@ func TestItemPublishPortDownShelvesPlatformItemAndPersistsCookie(t *testing.T) {
 	value, valueErr := store.Cookies.GetValue(context.Background(), "cid")
 	if valueErr != nil || value != "unb=2; _m_h5_tk=tk2; havana_lgc2_77=lgc;" {
 		t.Fatalf("平台下架 Cookie 未保存: value=%q err=%v", value, valueErr)
+	}
+}
+
+// TestItemPublishPortDownShelfUnchangedJarPreservesScopedCookieMetadata 验证未变化的权威 Cookie Jar 不会被扁平响应覆盖。
+func TestItemPublishPortDownShelfUnchangedJarPreservesScopedCookieMetadata(t *testing.T) {
+	// store、cleanup 是带隔离 SQLite 的账号存储及清理操作。
+	store, cleanup := newAdapterTestStore(t)
+	defer cleanup()
+	// ctx 是测试数据库操作的上下文。
+	ctx := context.Background()
+	// snapshot 包含文档域与私有域的完整凭证；后者不能被平面 Cookie 更新丢弃。
+	snapshot := []cookierefresh.BrowserCookie{
+		{Name: "unb", Value: "fresh", Domain: ".goofish.com", Path: "/", Secure: true},
+		{Name: "session", Value: "private", Domain: "passport.goofish.com", Path: "/", Secure: true, HTTPOnly: true},
+	}
+	// metadata 保存完整 Cookie Jar 与自定义账号元数据。
+	metadata := cookierefresh.MetadataWithSnapshot(`{"source":"fixture"}`, snapshot)
+	// err 是本地测试将完整 Cookie Jar 写入账号存储时的结果。
+	if err := store.Cookies.UpdateRenewalCookie(ctx, "cid", "unb=legacy", metadata, 1); err != nil {
+		t.Fatal(err)
+	}
+	// client 不修改权威 Jar，只返回由 Jar 导出的最新扁平 Cookie。
+	client := itemPublishClientStub{downShelf: func(_ context.Context, _ string, _ string) (*mtop.AccountTaskResult, error) {
+		return &mtop.AccountTaskResult{Success: true, Message: "SUCCESS::下架成功", UpdatedCookies: "unb=fresh"}, nil
+	}}
+	// port 通过已有凭证锁与会话快照管理执行一次模拟下架。
+	port := NewItemPublishPort(store, func() mtop.Client { return client }, nil, nil, nil)
+	// outcome、err 表示下架成功且无需覆盖权威 Jar 的结果。
+	outcome, err := port.DownShelf(ctx, 1, "cid", "item-1")
+	if err != nil || !outcome.PlatformSuccess || !outcome.CookiePersisted {
+		t.Fatalf("权威 Jar 不变时下架应成功: outcome=%+v err=%v", outcome, err)
+	}
+	// stored、readErr 保存本次完成后账号的全部元数据，不能丢失私有域会话。
+	stored, readErr := store.Cookies.GetCookiePlatformRuntimeData(ctx, "cid")
+	if readErr != nil || stored.MetadataJSON != metadata || stored.Value != "unb=legacy" {
+		t.Fatalf("权威 Jar 被扁平 Cookie 覆盖: err=%v metadata_equal=%v value_equal=%v", readErr, stored.MetadataJSON == metadata, stored.Value == "unb=legacy")
 	}
 }
 

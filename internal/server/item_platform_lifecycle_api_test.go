@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -68,5 +69,48 @@ func TestItemPlatformUnpublishHandlerContract(t *testing.T) {
 	}
 	if port.userID <= 0 || port.cookieID != "acc1" || port.itemID != "item-1" {
 		t.Fatalf("unpublish handler did not preserve current-user account ownership: %+v", port)
+	}
+	// 部分失败时平台已下架，统一错误 envelope 必须保留恢复信息供调用方避免重复请求。
+	port.outcome = itemapp.DownShelfOutcome{ItemID: "item-1", Status: "off_sale", PlatformSuccess: true, CookiePersisted: false}
+	port.err = itemapp.ErrDownShelfSessionPersistence
+	// partialRequest 是再次通过版本化路由触发的平台已下架、本地写回失败场景。
+	partialRequest := httptest.NewRequest(http.MethodPost, "/api/v1/items/acc1/item-1/unpublish", nil)
+	partialRequest.Header.Set("Authorization", "Bearer "+token)
+	// partialRecorder 保存带恢复信息的统一错误响应。
+	partialRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(partialRecorder, partialRequest)
+	if partialRecorder.Code != http.StatusBadGateway {
+		t.Fatalf("部分失败状态码错误: status=%d body=%s", partialRecorder.Code, partialRecorder.Body.String())
+	}
+	assertOpenAPIResponse(t, partialRequest, partialRecorder)
+	// envelope 按统一错误结构解码，并验证 API 客户端可读取的稳定 code 与 details。
+	var envelope struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+		Details struct {
+			ItemID          string `json:"item_id"`
+			Status          string `json:"status"`
+			PlatformSuccess bool   `json:"platform_success"`
+			CookiePersisted bool   `json:"cookie_persisted"`
+		} `json:"details"`
+	}
+	// err 是标准错误响应的 JSON 解码结果，失败时禁止继续依赖恢复字段。
+	if err := json.Unmarshal(partialRecorder.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("无法解码部分失败响应: %v", err)
+	}
+	if envelope.Code != "platform_unpublished_cookie_persist_failed" || envelope.Message == "" ||
+		envelope.Details.ItemID != "item-1" || envelope.Details.Status != "off_sale" ||
+		!envelope.Details.PlatformSuccess || envelope.Details.CookiePersisted {
+		t.Fatalf("部分失败没有保留可恢复状态: %+v", envelope)
+	}
+
+	// legacyRequest 证明新增的平台下架写接口没有暴露到历史 /items 路由。
+	legacyRequest := httptest.NewRequest(http.MethodPost, "/items/acc1/item-1/unpublish", nil)
+	legacyRequest.Header.Set("Authorization", "Bearer "+token)
+	// legacyRecorder 保存旧路径拒绝结果，不允许旧路由触达应用端口。
+	legacyRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(legacyRecorder, legacyRequest)
+	if legacyRecorder.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("新增下架操作不应注册旧路径: status=%d", legacyRecorder.Code)
 	}
 }

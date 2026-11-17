@@ -4190,20 +4190,23 @@ export interface components {
                 cookie_persisted: boolean;
             };
         };
-        ItemPlatformLifecycleFailureResponse: {
-            /** @enum {boolean} */
-            success: false;
-            /** @enum {boolean} */
-            platform_success: true;
-            data: {
-                item_id: string;
-                /** @enum {string} */
-                status: "off_sale";
-                message: string;
-                /** @enum {boolean} */
-                cookie_persisted: false;
-            };
+        /** @description 统一 code/message 错误 envelope。平台下架成功但本地 Cookie 写回失败时， code 为 platform_unpublished_cookie_persist_failed，并在 details 中返回可恢复状态。
+         *      */
+        ItemPlatformLifecycleErrorResponse: {
+            code: string;
             message: string;
+            request_id?: string;
+            details?: {
+                item_id?: string;
+                /** @enum {string} */
+                status?: "off_sale";
+                platform_success?: boolean;
+                cookie_persisted?: boolean;
+            } & {
+                [key: string]: unknown;
+            };
+        } & {
+            [key: string]: unknown;
         };
         ChatManualTakeoverUpdateRequest: {
             /** @description 人工回复后会话暂停自动回复的分钟数；0 表示关闭。 */
@@ -10145,7 +10148,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorResponse"] | components["schemas"]["ItemPlatformLifecycleFailureResponse"];
+                    "application/json": components["schemas"]["ItemPlatformLifecycleErrorResponse"];
                 };
             };
         };

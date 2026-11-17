@@ -218,7 +218,7 @@ func (p *ItemPublishPort) persistDownShelfSession(ctx context.Context, userID in
 	if handled && valueChanged {
 		return value, nil
 	}
-	if callErr == nil && result != nil && result.UpdatedCookies != "" && result.UpdatedCookies != latest.Value {
+	if !handled && callErr == nil && result != nil && result.UpdatedCookies != "" && result.UpdatedCookies != latest.Value {
 		// err 是按账号归属写回平台最新 Cookie 时产生的持久化错误。
 		if err := p.store.Cookies.UpdateValueOwned(ctx, cookieID, result.UpdatedCookies, userID); err != nil {
 			return "", err

@@ -33,7 +33,6 @@ func (s *Server) mountItemsReal(r chi.Router) {
 	r.Get("/items/cookie/{cookie_id}", s.listItemsByCookie)
 	r.Post("/items/{cookie_id}", s.createItem)
 	r.Get("/items/{cookie_id}/{item_id}", s.getItem)
-	r.Post("/items/{cookie_id}/{item_id}/unpublish", s.unpublishItem)
 	r.Put("/items/{cookie_id}/{item_id}", s.updateItem)
 	r.Delete("/items/{cookie_id}/{item_id}", s.deleteItem)
 	r.Put("/items/{cookie_id}/{item_id}/multi-spec", s.setItemMultiSpec)

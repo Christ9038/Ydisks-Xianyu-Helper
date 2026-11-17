@@ -1,8 +1,8 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Copy, KeyRound, RefreshCw, ShieldCheck, Trash2 } from 'lucide-react';
+import { useAPIAccessTokenList } from '../useAPIAccessTokenList';
 import {
   createAPIAccessToken,
-  listAPIAccessTokens,
   revokeAPIAccessToken,
   type APIAccessScope,
   type APIAccessTokenSummary,
@@ -38,12 +38,8 @@ const formatUnixTime = (value: number): string => value > 0 ? new Date(value * 1
 
 // APIAccessTokensSection 提供外部 API 令牌的签发、查看和撤销管理。
 const APIAccessTokensSection: React.FC = () => {
-  // tokens 保存当前登录用户拥有的令牌摘要列表。
-  const [tokens, setTokens] = useState<APIAccessTokenSummary[]>([]);
-  // loading 表示正在读取令牌列表。
-  const [loading, setLoading] = useState(false);
-  // loadError 保存最近一次列表读取错误。
-  const [loadError, setLoadError] = useState('');
+  // tokens、loading、loadError、loadTokens 来自隔离过期响应的列表读取 Hook。
+  const { tokens, loading, loadError, loadTokens } = useAPIAccessTokenList();
   // name 保存新令牌的用途名称草稿。
   const [name, setName] = useState('');
   // scopes 保存用户选择的最小权限集合。
@@ -58,34 +54,6 @@ const APIAccessTokensSection: React.FC = () => {
   const [createdToken, setCreatedToken] = useState('');
   // notice 保存复制或操作的反馈信息。
   const [notice, setNotice] = useState('');
-
-  // loadTokens 读取当前用户的令牌摘要，不会获取历史明文令牌。
-  const loadTokens = useCallback(
-    /* 当前异步回调读取当前用户的令牌摘要，并通过 Hook 状态呈现结果。 */
-    async () => {
-    setLoading(true);
-    setLoadError('');
-    try {
-      // response 是通过 OpenAPI 类型化客户端读取的令牌列表响应。
-      const response = await listAPIAccessTokens();
-      setTokens(response.data);
-    } catch {
-      setLoadError('读取 API 访问令牌失败，请刷新后重试。');
-    } finally {
-      setLoading(false);
-    }
-    },
-    [],
-  );
-
-  // 首次进入设置页时读取现有令牌摘要。
-  useEffect(
-    /* 页面挂载或加载函数引用变化时触发令牌列表读取。 */
-    () => {
-      void loadTokens();
-    },
-    [loadTokens],
-  );
 
   // toggleScope 在用户勾选或取消权限时更新集合。
   const toggleScope = (scope: APIAccessScope) => {

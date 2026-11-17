@@ -30,18 +30,6 @@ type itemPlatformLifecycleResponse struct {
 	Data itemPlatformLifecycleData `json:"data"`
 }
 
-// itemPlatformLifecycleFailureResponse 表示平台已下架但本地会话写回失败的明确结果。
-type itemPlatformLifecycleFailureResponse struct {
-	// Success 表示整个操作闭环是否完成；平台已下架但会话未写回时为 false。
-	Success bool `json:"success"`
-	// PlatformSuccess 表示闲鱼平台是否已经确认下架。
-	PlatformSuccess bool `json:"platform_success"`
-	// Data 是平台结果与本地会话写回状态。
-	Data itemPlatformLifecycleData `json:"data"`
-	// Message 提醒调用方先核实状态，不要盲目重复写操作。
-	Message string `json:"message"`
-}
-
 // unpublishItem 在闲鱼平台下架当前用户拥有的商品，不删除平台商品或本地商品记录。
 func (s *Server) unpublishItem(w http.ResponseWriter, r *http.Request) {
 	// cookieID、itemID 是路由中指定的账号和商品标识。
@@ -69,11 +57,9 @@ func (s *Server) unpublishItem(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if outcome.PlatformSuccess {
 			setNoStore(w)
-			writeJSON(w, http.StatusBadGateway, itemPlatformLifecycleFailureResponse{
-				Success: false, PlatformSuccess: true,
-				Data:    itemPlatformLifecycleData{ItemID: itemID, Status: "off_sale", Message: outcome.Message, CookiePersisted: false},
-				Message: "闲鱼平台已确认下架，但本地账号会话写回失败。请先刷新账号和商品状态，不要直接重复下架。",
-			})
+			writeErrDetails(w, http.StatusBadGateway, "platform_unpublished_cookie_persist_failed",
+				"闲鱼平台已确认下架，但本地账号会话写回失败。请先刷新账号和商品状态，不要直接重复下架。", "",
+				map[string]any{"item_id": itemID, "status": "off_sale", "platform_success": true, "cookie_persisted": false})
 			return
 		}
 		switch {

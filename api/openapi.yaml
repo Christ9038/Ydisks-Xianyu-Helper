@@ -4031,9 +4031,7 @@ paths:
           content:
             application/json:
               schema:
-                oneOf:
-                  - $ref: '#/components/schemas/ErrorResponse'
-                  - $ref: '#/components/schemas/ItemPlatformLifecycleFailureResponse'
+                $ref: '#/components/schemas/ItemPlatformLifecycleErrorResponse'
         '501':
           description: 当前平台客户端不支持该能力
           content:
@@ -11262,21 +11260,25 @@ components:
             status: {type: string, enum: [off_sale]}
             message: {type: string}
             cookie_persisted: {type: boolean}
-    ItemPlatformLifecycleFailureResponse:
+    ItemPlatformLifecycleErrorResponse:
       type: object
-      required: [success, platform_success, data, message]
+      description: >
+        统一 code/message 错误 envelope。平台下架成功但本地 Cookie 写回失败时，
+        code 为 platform_unpublished_cookie_persist_failed，并在 details 中返回可恢复状态。
+      required: [code, message]
       properties:
-        success: {type: boolean, enum: [false]}
-        platform_success: {type: boolean, enum: [true]}
-        data:
+        code: {type: string}
+        message: {type: string}
+        request_id: {type: string}
+        details:
           type: object
-          required: [item_id, status, message, cookie_persisted]
           properties:
             item_id: {type: string}
             status: {type: string, enum: [off_sale]}
-            message: {type: string}
-            cookie_persisted: {type: boolean, enum: [false]}
-        message: {type: string}
+            platform_success: {type: boolean}
+            cookie_persisted: {type: boolean}
+          additionalProperties: true
+      additionalProperties: true
     ChatManualTakeoverUpdateRequest:
       type: object
       minProperties: 1
