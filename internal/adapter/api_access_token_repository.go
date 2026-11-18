@@ -2,6 +2,7 @@ package adapter
 
 import (
 	"context"
+	"errors"
 
 	apikeyapp "xianyu-go/internal/application/apikey"
 	"xianyu-go/internal/db"
@@ -50,7 +51,13 @@ func (adapter *APIAccessTokenRepository) List(ctx context.Context, userID int64)
 	return result, nil
 }
 
-// Revoke 将应用层撤销请求转发给数据库仓储。
+// Revoke 将应用层撤销请求转发给数据库仓储，并把数据库层"不存在或不属于该用户"映射为应用层 ErrNotFound，
+// 使 HTTP 层返回 404 而不是 500，同时不向上层泄露数据库错误类型。
 func (adapter *APIAccessTokenRepository) Revoke(ctx context.Context, userID int64, keyID string, revokedAt int64) error {
-	return adapter.repository.Revoke(ctx, userID, keyID, revokedAt)
+	// err 是数据库仓储撤销令牌时返回的错误。
+	err := adapter.repository.Revoke(ctx, userID, keyID, revokedAt)
+	if errors.Is(err, db.ErrNotFound) {
+		return apikeyapp.ErrNotFound
+	}
+	return err
 }

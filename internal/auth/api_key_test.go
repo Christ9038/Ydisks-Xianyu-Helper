@@ -147,3 +147,28 @@ func TestRequireSessionRejectsAPIKey(t *testing.T) {
 		t.Fatalf("API key must not satisfy browser session requirement, status=%d", recorder.Code)
 	}
 }
+
+// TestBearerLookupFailureDeniesWithoutFallback 验证令牌库故障（非"未找到"）时拒绝请求，不得放行也不得回退 Cookie。
+func TestBearerLookupFailureDeniesWithoutFallback(t *testing.T) {
+	// database 是本测试独占的 SQLite 数据库，随后被关闭以模拟令牌库故障。
+	database, _, err := db.Open(context.Background(), filepath.Join(t.TempDir(), "api-key-lookup-failure.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// store 是绑定将被关闭连接的仓储聚合。
+	store := db.NewStore(database, db.DialectSQLite)
+	database.Close()
+	// handler 是需要认证的端点，应在故障时被拒绝。
+	handler := (&Service{Store: store}).Middleware(RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})))
+	// request 携带格式合法但无法校验的 Bearer 令牌。
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/items", nil)
+	request.Header.Set("Authorization", "Bearer "+apikey.TokenPrefix+"lookup-failure")
+	// recorder 捕获认证结果。
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("令牌库故障必须拒绝: status=%d", recorder.Code)
+	}
+}

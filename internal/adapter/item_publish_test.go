@@ -431,3 +431,75 @@ func TestItemPublishPortRecommendsCategoryCandidates(t *testing.T) {
 		t.Fatalf("空候选应映射为未识别: %v", emptyErr)
 	}
 }
+
+// TestItemPublishPortDownShelfFailurePaths 验证存储缺失、平台报错、会话过期恢复、未确认成功与运行时 Cookie 同步。
+func TestItemPublishPortDownShelfFailurePaths(t *testing.T) {
+	// nilPort 是未初始化的端口，必须返回错误而非 panic。
+	var nilPort *ItemPublishPort
+	// err 是空端口调用平台下架时返回的初始化错误，必须非空而不是 panic。
+	if _, err := nilPort.DownShelf(context.Background(), 1, "cid", "item-1"); err == nil {
+		t.Fatal("空端口必须返回错误")
+	}
+	// store、cleanup 保存当前测试使用的 SQLite 存储及清理函数。
+	store, cleanup := newAdapterTestStore(t)
+	defer cleanup()
+	// recovered 记录会话恢复回调收到的账号；running 记录同步给运行时的 Cookie。
+	var recovered, running string
+	// platformErr 是测试注入的平台调用错误。
+	var platformErr error
+	// result 是测试注入的平台下架结果。
+	var result *mtop.AccountTaskResult
+	// client 返回可切换的平台结果。
+	client := itemPublishClientStub{downShelf: func(context.Context, string, string) (*mtop.AccountTaskResult, error) {
+		return result, platformErr
+	}}
+	// port 绑定恢复与运行时同步回调。
+	port := NewItemPublishPort(store, func() mtop.Client { return client }, nil,
+		func(_ context.Context, cookieID, cookie string) { running = cookieID + "=" + cookie },
+		func(_ context.Context, cookieID string, _ error) bool { recovered = cookieID; return true })
+
+	// 平台普通错误：原样返回，不触发会话恢复。
+	platformErr = errors.New("platform boom")
+	// err 是平台普通错误被原样返回的结果；同时 recovered 必须仍为空，表示未触发会话恢复。
+	if _, err := port.DownShelf(context.Background(), 1, "cid", "item-1"); !errors.Is(err, platformErr) || recovered != "" {
+		t.Fatalf("平台错误应原样返回且不恢复会话: err=%v recovered=%q", err, recovered)
+	}
+	// 会话过期错误：返回错误并通知账号恢复协调器。
+	platformErr = &mtop.SessionExpiredError{}
+	// err 是会话过期错误的返回结果；recovered 记录被通知恢复的账号，必须是 cid。
+	if _, err := port.DownShelf(context.Background(), 1, "cid", "item-1"); err == nil || recovered != "cid" {
+		t.Fatalf("会话过期应触发恢复: err=%v recovered=%q", err, recovered)
+	}
+	// 平台未确认成功：result 为空或 Success=false 都视为失败，且不能报告 off_sale。
+	platformErr = nil
+	// candidate 是平台未确认成功的两种形态：空结果与 Success=false 的结果。
+	for _, candidate := range []*mtop.AccountTaskResult{nil, {Success: false, Message: "FAIL"}} {
+		result = candidate
+		// outcome、err 是平台未确认成功时下架端口的结果；必须失败且不能声明平台已下架。
+		if outcome, err := port.DownShelf(context.Background(), 1, "cid", "item-1"); err == nil || outcome.PlatformSuccess {
+			t.Fatalf("未确认成功必须失败: outcome=%+v err=%v", outcome, err)
+		}
+	}
+	// 成功且返回新 Cookie：写回后同步到运行时账号。
+	result = &mtop.AccountTaskResult{Success: true, Message: "ok", UpdatedCookies: "unb=9; _m_h5_tk=tk9; havana_lgc2_77=lgc;"}
+	// outcome、err 是平台确认下架并返回新 Cookie 时的结果；必须成功且 Cookie 已落库。
+	if outcome, err := port.DownShelf(context.Background(), 1, "cid", "item-1"); err != nil || !outcome.CookiePersisted {
+		t.Fatalf("成功下架: outcome=%+v err=%v", outcome, err)
+	}
+	if running != "cid=unb=9; _m_h5_tk=tk9; havana_lgc2_77=lgc;" {
+		t.Fatalf("运行时 Cookie 未同步: %q", running)
+	}
+	// 平台报错且伴随会话写回失败：错误中同时保留两类原因。
+	platformErr = errors.New("platform boom 2")
+	// client2 是在平台调用期间关闭数据库的替身，用于模拟平台报错同时本地写回失败。
+	client2 := itemPublishClientStub{downShelf: func(context.Context, string, string) (*mtop.AccountTaskResult, error) {
+		store.DB.Close()
+		return nil, platformErr
+	}}
+	// port2 是绑定上述替身的商品发布端口。
+	port2 := NewItemPublishPort(store, func() mtop.Client { return client2 }, nil, nil, nil)
+	// err 是平台错误与会话写回错误同时发生时的合并错误，两类原因都必须可被 errors.Is 识别。
+	if _, err := port2.DownShelf(context.Background(), 1, "cid", "item-1"); !errors.Is(err, platformErr) || !errors.Is(err, itemapp.ErrDownShelfCredentialChanged) {
+		t.Fatalf("应同时保留平台错误与写回错误: %v", err)
+	}
+}

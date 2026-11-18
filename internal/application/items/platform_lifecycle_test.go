@@ -73,3 +73,17 @@ func TestPlatformLifecycleDownShelfRejectsInvalidInput(t *testing.T) {
 		t.Fatalf("invalid input reached platform port: %+v", port)
 	}
 }
+
+// TestNewPlatformLifecycleServiceRequiresPort 验证必需端口缺失时构造失败，零值服务调用也不会 panic。
+func TestNewPlatformLifecycleServiceRequiresPort(t *testing.T) {
+	// service、err 是以空端口构造生命周期服务的结果；必须失败且不返回服务。
+	if service, err := NewPlatformLifecycleService(nil); err == nil || service != nil {
+		t.Fatalf("nil 端口必须拒绝构造: service=%v err=%v", service, err)
+	}
+	// nilService 是未构造的服务，调用必须返回输入错误。
+	var nilService *PlatformLifecycleService
+	// err 是空服务调用下架时返回的输入错误。
+	if _, err := nilService.DownShelf(context.Background(), 1, "cid", "item"); !errors.Is(err, ErrDownShelfInvalidInput) {
+		t.Fatalf("空服务应返回输入错误: %v", err)
+	}
+}
