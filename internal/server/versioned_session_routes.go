@@ -10,6 +10,7 @@ import (
 func (s *Server) mountHealthAndVersionedRoutes(r chi.Router) {
 	r.Get("/health", s.health)
 	s.mountVersionedSession(r)
+	s.mountVersionedAPIAccessTokenRoutes(r)
 	s.mountVersionedAccounts(r)
 	s.mountVersionedOrders(r)
 	s.mountVersionedItems(r)
@@ -29,6 +30,7 @@ func (s *Server) mountHealthAndVersionedRoutes(r chi.Router) {
 func (s *Server) mountVersionedSession(r chi.Router) {
 	r.Group(func(r chi.Router) {
 		r.Use(s.Auth.Middleware)
+		r.Use(auth.RejectAPIKey)
 		r.Post("/api/v1/session/login", s.login)
 		r.Post("/api/v1/session/initialize", s.initialize)
 		r.Get("/api/v1/session", s.verify)

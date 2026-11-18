@@ -16,7 +16,6 @@ import { DEFAULT_AI_API_URL,LOG_LEVELS } from '../constants';
 import { useNotificationSoundPreference } from '../../../../shared/browser/notificationSound';
 import { useSettings } from '../hooks';
 import { PageHeader } from '../../../../shared/ui/PageHeader';
-
 // Settings 展示系统配置、AI 模型和登录凭据编辑页面。
 const Settings: React.FC = () => {
   // featureState 是 Settings Hook 提供的状态与动作集合。

@@ -41,6 +41,9 @@ const UserPageNavAPI = "https://h5api.m.goofish.com/h5/mtop.idle.web.user.page.n
 // ItemListAPI 是卖家商品列表端点。
 const ItemListAPI = "https://h5api.m.goofish.com/h5/mtop.idle.web.xyh.item.list/1.0/"
 
+// DownShelfItemAPI 是闲鱼 PC 卖家态商品下架端点；只执行下架，不删除平台商品。
+const DownShelfItemAPI = "https://h5api.m.goofish.com/h5/mtop.taobao.idle.item.downshelf/2.0/"
+
 // ChatItemSearchAPI 是个人会话中查询对方或当前账号在售商品的端点。
 const ChatItemSearchAPI = "https://h5api.m.goofish.com/h5/mtop.taobao.idlemessage.pc.tool.item.search/1.0/"
 
@@ -67,6 +70,12 @@ type Client interface {
 	RefreshTokenWithDeviceIDContext(ctx context.Context, cookiesStr, deviceID string) (*RefreshResult, error)
 }
 
+// ItemLifecycleClient 是商品上/下架等生命周期写操作的可选扩展接口，避免扩大所有 MTOP 客户端替身的基础契约。
+type ItemLifecycleClient interface {
+	// DownShelfItem 将当前账号名下的指定商品下架，不执行平台删除。
+	DownShelfItem(context.Context, string, string) (*AccountTaskResult, error)
+}
+
 // ClientImpl 是 Client 接口的 HTTP 实现。零值可用；HTTP 超时默认 30s。
 // 仍导出 HTTPClient/TokenURL 等字段以便调用方覆盖（如测试注入 RoundTripper）。
 // ClientImpl 用于本次流程后续判断的ClientImpl
@@ -80,13 +89,15 @@ type ClientImpl struct {
 	// FreeShippingURL 覆盖砍价订单免拼发货端点，仅供本地 HTTP 回归测试注入替身；空值使用官方端点。
 	FreeShippingURL string
 	// AdjustPriceURL 覆盖订单改价端点，仅供测试注入本地 HTTP 服务。
-	AdjustPriceURL      string
-	OrderDetailURL      string
-	SoldOrdersURL       string
-	LoginUserURL        string
-	RateCreateURL       string
-	RateListURL         string
-	PolishItemURL       string
+	AdjustPriceURL string
+	OrderDetailURL string
+	SoldOrdersURL  string
+	LoginUserURL   string
+	RateCreateURL  string
+	RateListURL    string
+	PolishItemURL  string
+	// DownShelfItemURL 允许测试将商品下架请求指向本地 HTTP 服务；生产空值使用闲鱼 PC 下架端点。
+	DownShelfItemURL    string
 	PolishItemBackupURL string
 	ChatUserQueryURL    string
 	// ChatItemSearchURL 允许测试将聊天商品查询指向本地 HTTP 服务；生产空值使用官方端点。

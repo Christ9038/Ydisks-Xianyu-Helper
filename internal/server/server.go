@@ -142,6 +142,7 @@ func (s *Server) Router() chi.Router {
 	// 认证组（无需登录的端点，但解析会话以判断登录态）。
 	r.Group(func(r chi.Router) {
 		r.Use(s.Auth.Middleware) // 解析 session，不强制登录
+		r.Use(auth.RejectAPIKey)
 		r.Post("/login", s.login)
 		r.Post("/initialize", s.initialize)
 		r.Get("/verify", s.verify)

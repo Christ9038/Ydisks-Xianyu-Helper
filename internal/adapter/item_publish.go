@@ -147,6 +147,87 @@ func (p *ItemPublishPort) persistCategorySession(ctx context.Context, userID int
 	return "", nil
 }
 
+// DownShelf 在闲鱼平台下架商品，并按账号凭证锁和会话快照规则提交响应 Cookie。
+func (p *ItemPublishPort) DownShelf(ctx context.Context, userID int64, cookieID, itemID string) (itemapp.DownShelfOutcome, error) {
+	if p == nil || p.store == nil || p.store.Cookies == nil {
+		return itemapp.DownShelfOutcome{}, errors.New("商品下架存储未初始化")
+	}
+	// lifecycleClient、ok 保存当前 MTOP 客户端的可选商品生命周期能力。
+	lifecycleClient, ok := p.mtopClient().(mtop.ItemLifecycleClient)
+	if !ok {
+		return itemapp.DownShelfOutcome{}, itemapp.ErrDownShelfUnsupported
+	}
+	// unlock 保护账号凭证快照读取与远端调用后的提交复核。
+	unlock := p.store.LockAccountCredentials(cookieID)
+	// latest、loadErr 保存加锁后读取的平台凭证视图。
+	latest, loadErr := p.store.Cookies.GetCookiePlatformRuntimeData(ctx, cookieID)
+	if loadErr != nil || latest.UserID != userID || !hasStoredCredential(latest) {
+		unlock()
+		return itemapp.DownShelfOutcome{}, itemapp.ErrDownShelfCredentialChanged
+	}
+	// requestCtx、cancel 控制单次下架请求及其 Token 续期流程的最长执行时间。
+	requestCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
+	// mtopCtx、cookieSession 保存带当前凭证快照的平台调用上下文。
+	mtopCtx, cookieSession := withCookieSnapshot(requestCtx, latest)
+	// initialValue、initialMetadata 保存远端调用前的凭证版本，用于提交阶段防止覆盖并发更新。
+	initialValue, initialMetadata := latest.Value, latest.MetadataJSON
+	unlock()
+	// result、callErr 保存平台下架结果和 MTOP 错误。
+	result, callErr := lifecycleClient.DownShelfItem(mtopCtx, latest.Value, itemID)
+	// runtimeCookie、persistErr 保存响应 Cookie 写回后的运行时同步值和持久化错误。
+	runtimeCookie, persistErr := p.persistDownShelfSession(ctx, userID, cookieID, initialValue, initialMetadata, cookieSession, result, callErr)
+	if runtimeCookie != "" && p.updateRunningCookie != nil {
+		p.updateRunningCookie(ctx, cookieID, runtimeCookie)
+	}
+	if callErr != nil {
+		if persistErr != nil {
+			callErr = errors.Join(callErr, fmt.Errorf("保存下架响应 Cookie: %w", persistErr))
+		}
+		if mtop.IsSessionExpiredErr(callErr) {
+			p.recoverExpired(ctx, cookieID, callErr)
+		}
+		return itemapp.DownShelfOutcome{}, callErr
+	}
+	if result == nil || !result.Success {
+		return itemapp.DownShelfOutcome{}, errors.New("闲鱼下架接口未确认成功")
+	}
+	// outcome 明确区分平台下架结果与本地会话写回结果，避免将写回故障伪装成完全成功。
+	outcome := itemapp.DownShelfOutcome{ItemID: itemID, Status: "off_sale", Message: result.Message, PlatformSuccess: true, CookiePersisted: persistErr == nil}
+	if persistErr != nil {
+		return outcome, errors.Join(itemapp.ErrDownShelfSessionPersistence, persistErr)
+	}
+	return outcome, nil
+}
+
+// persistDownShelfSession 在远端调用后复核账号归属和凭证版本，再保存 Cookie Jar 或平面 Cookie。
+func (p *ItemPublishPort) persistDownShelfSession(ctx context.Context, userID int64, cookieID, initialValue, initialMetadata string, session *mtop.CookieSession, result *mtop.AccountTaskResult, callErr error) (string, error) {
+	// unlock 保护远端调用后的凭证复核与会话写回。
+	unlock := p.store.LockAccountCredentials(cookieID)
+	defer unlock()
+	// latest、loadErr 保存远端调用后的凭证视图。
+	latest, loadErr := p.store.Cookies.GetCookiePlatformRuntimeData(ctx, cookieID)
+	if loadErr != nil || latest.UserID != userID || latest.Value != initialValue || latest.MetadataJSON != initialMetadata {
+		return "", itemapp.ErrDownShelfCredentialChanged
+	}
+	// value、valueChanged、handled、persistErr 保存 Cookie Jar 写回结果。
+	value, valueChanged, handled, persistErr := p.persistSession(ctx, latest, session)
+	if persistErr != nil {
+		return "", persistErr
+	}
+	if handled && valueChanged {
+		return value, nil
+	}
+	if !handled && callErr == nil && result != nil && result.UpdatedCookies != "" && result.UpdatedCookies != latest.Value {
+		// err 是按账号归属写回平台最新 Cookie 时产生的持久化错误。
+		if err := p.store.Cookies.UpdateValueOwned(ctx, cookieID, result.UpdatedCookies, userID); err != nil {
+			return "", err
+		}
+		return result.UpdatedCookies, nil
+	}
+	return "", nil
+}
+
 // Publish 执行单商品平台发布及响应 Cookie 持久化，不向应用层泄露 MTOP 类型。
 func (p *ItemPublishPort) Publish(ctx context.Context, input itemapp.PublishInput) (itemapp.PublishOutcome, error) {
 	return p.publish(ctx, input, true)
@@ -351,4 +432,5 @@ func (p *ItemPublishPort) recoverExpired(ctx context.Context, cookieID string, e
 
 // 确保发布端口和仓储实现覆盖应用层定义的最小接口。
 var _ itemapp.PublishPort = (*ItemPublishPort)(nil)
+var _ itemapp.PlatformLifecyclePort = (*ItemPublishPort)(nil)
 var _ itemapp.ItemRepository = (*ItemPublishRepository)(nil)

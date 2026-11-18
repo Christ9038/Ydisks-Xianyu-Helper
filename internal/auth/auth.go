@@ -12,6 +12,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
+	"time"
+
+	"xianyu-go/internal/application/apikey"
 
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/logging"
@@ -29,6 +33,7 @@ type ctxKey int
 // ctxKeyUser 用于本次流程后续判断的ctxKey用户
 const (
 	ctxKeyUser ctxKey = iota
+	ctxKeyAPIKey
 )
 
 // Service 认证服务。
@@ -119,19 +124,63 @@ func (s *Service) SessionFromRequest(ctx context.Context, r *http.Request) (*db.
 // Middleware 解析会话并把 *db.Session 放入请求上下文。不强制登录（公开路由也可用）。
 func (s *Service) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// sess、err 用于本次流程后续判断的sess、err
+		// authorization 保存调用方显式提供的认证头；只支持标准 Bearer 形式，不读取 URL 参数令牌。
+		authorization := strings.TrimSpace(r.Header.Get("Authorization"))
+		if authorization != "" {
+			// token、validBearer 保存解析出的明文令牌和认证头格式是否有效；令牌只留在本次请求栈内。
+			token, validBearer := parseBearerToken(authorization)
+			if validBearer && s.Store != nil && s.Store.APIAccessTokens != nil {
+				// now 是本次令牌认证和最近使用时间的 Unix 秒数。
+				now := time.Now().Unix()
+				// principal、lookupErr 保存按摘要查询的有效用户身份及数据库错误；查询不读取任何闲鱼凭证。
+				principal, lookupErr := s.Store.APIAccessTokens.Authenticate(r.Context(), apikey.HashToken(token), now)
+				if lookupErr == nil {
+					// 外部令牌响应统一禁止缓存，避免账号、聊天和订单数据进入共享缓存。
+					w.Header().Set("Cache-Control", "no-store")
+					// identity 是放入请求上下文的非秘密令牌身份与权限快照。
+					identity := APIKeyIdentity{ID: principal.ID, Prefix: principal.Prefix, Scopes: append([]string(nil), principal.Scopes...)}
+					// session 仅为复用既有 handler 的 user_id 归属判断构造，不代表浏览器会话或管理员权限。
+					session := &db.Session{UserID: principal.UserID, Username: principal.Username, IsAdmin: false}
+					// ctx 绑定令牌身份和兼容既有 handler 的最小用户会话。
+					ctx := WithAPIKey(WithSession(r.Context(), session), identity)
+					ctx = logging.With(ctx, slog.Int64("user_id", session.UserID))
+					// touchErr 仅影响最近使用时间展示，不影响已经完成的令牌认证结果。
+					if touchErr := s.Store.APIAccessTokens.TouchLastUsed(r.Context(), principal.ID, now); touchErr != nil && s.Logger != nil {
+						s.Logger.Debug("更新 API 访问令牌最近使用时间失败", "err", touchErr)
+					}
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
+				if !errors.Is(lookupErr, db.ErrNotFound) && s.Logger != nil {
+					s.Logger.Warn("校验 API 访问令牌失败", "err", lookupErr)
+				}
+			}
+			// 显式 Bearer 认证失败时不回退到 Cookie，避免无效令牌意外借用浏览器登录态。
+			next.ServeHTTP(w, r.WithContext(WithSession(r.Context(), nil)))
+			return
+		}
+		// sess、err 保存传统 HttpOnly Cookie 会话及其读取错误。
 		sess, err := s.SessionFromRequest(r.Context(), r)
-		if err != nil {
+		if err != nil && s.Logger != nil {
 			s.Logger.Warn("读取会话失败", "err", err)
 		}
-		// ctx 用于本次流程后续判断的ctx
+		// ctx 保存传统浏览器会话；Cookie 认证行为与历史版本保持一致。
 		ctx := WithSession(r.Context(), sess)
 		if sess != nil {
-			// 下游日志通过 context 自动携带 user_id，便于按操作者检索。
 			ctx = logging.With(ctx, slog.Int64("user_id", sess.UserID))
 		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// parseBearerToken 只接受 Authorization: Bearer <token>，不接受查询参数或 Cookie 中的 API 令牌。
+func parseBearerToken(authorization string) (string, bool) {
+	// parts 是按空白分割后的认证方案与令牌字段。
+	parts := strings.Fields(authorization)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || !strings.HasPrefix(parts[1], apikey.TokenPrefix) {
+		return "", false
+	}
+	return parts[1], true
 }
 
 // RequireAuth 要求已登录，否则 401。
@@ -139,6 +188,38 @@ func RequireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if SessionFromContext(r.Context()) == nil {
 			writeAuthError(w, r, http.StatusUnauthorized, "unauthorized", "未授权访问")
+			return
+		}
+		// identity 是已认证 Bearer 令牌的非秘密权限快照；浏览器 Cookie 会话时为空。
+		if identity := APIKeyFromContext(r.Context()); identity != nil {
+			// requiredScope 是当前 API 方法和路径唯一允许的令牌权限；未登记路径默认拒绝。
+			requiredScope, allowed := requiredAPIKeyScope(r.Method, r.URL.Path)
+			if !allowed || !hasAPIKeyScope(identity.Scopes, requiredScope) {
+				writeAuthError(w, r, http.StatusForbidden, "insufficient_scope", "API 访问令牌未授予此操作权限")
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// RejectAPIKey 禁止外部 API 令牌访问公开的登录、初始化、会话校验和退出入口。
+// 这些路由不使用 RequireAuth，因此必须显式拒绝已认证的 Bearer 身份，避免令牌绕过 scope 白名单。
+func RejectAPIKey(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if APIKeyFromContext(r.Context()) != nil {
+			writeAuthError(w, r, http.StatusForbidden, "session_required", "外部 API 访问令牌不能调用会话入口")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// RequireSession 要求真实浏览器 Cookie 会话；外部 API 令牌不能管理令牌、修改登录凭据或进入管理员页面。
+func RequireSession(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if SessionFromContext(r.Context()) == nil || APIKeyFromContext(r.Context()) != nil {
+			writeAuthError(w, r, http.StatusUnauthorized, "session_required", "此操作需要浏览器登录会话")
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -168,6 +249,31 @@ func SessionFromContext(ctx context.Context) *db.Session {
 	// v 用于本次流程后续判断的v
 	v, _ := ctx.Value(ctxKeyUser).(*db.Session)
 	return v
+}
+
+// APIKeyIdentity 是外部访问令牌的非秘密上下文视图。
+type APIKeyIdentity struct {
+	// ID 是已认证令牌的本地记录标识。
+	ID string
+	// Prefix 是令牌管理界面使用的非秘密前缀。
+	Prefix string
+	// Scopes 是该令牌的权限快照，仅用于当前请求授权。
+	Scopes []string
+}
+
+// WithAPIKey 把已通过数据库认证的令牌身份绑定到请求上下文。
+func WithAPIKey(ctx context.Context, identity APIKeyIdentity) context.Context {
+	return context.WithValue(ctx, ctxKeyAPIKey, identity)
+}
+
+// APIKeyFromContext 读取当前请求的外部令牌身份；浏览器 Cookie 会话返回 nil。
+func APIKeyFromContext(ctx context.Context) *APIKeyIdentity {
+	// identity 是认证中间件注入的令牌权限快照。
+	identity, ok := ctx.Value(ctxKeyAPIKey).(APIKeyIdentity)
+	if !ok {
+		return nil
+	}
+	return &identity
 }
 
 // SessionIdentity 是 HTTP 应用层读取当前用户身份所需的最小会话视图，不暴露数据库会话字段。

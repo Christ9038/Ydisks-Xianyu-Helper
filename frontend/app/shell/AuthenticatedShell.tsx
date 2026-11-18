@@ -71,6 +71,8 @@ const PublishCategoryField = lazy(/* 类目字段随资源库模板编辑器按�
 const ResourceLibrary = lazy(/* ResourceLibrary 页面按路由激活时加载。 */ () => import('../features/library/pages/ResourceLibrary'));
 // Settings 是按需加载的系统设置页面，仅在管理员访问时加载。
 const Settings = lazy(/* Settings 页面按路由激活时加载。 */ () => import('../features/settings/pages/Settings'));
+// APIAccessTokensPage 是独立路由页面，令牌管理代码仅在用户进入 API 管理时下载。
+const APIAccessTokensPage = lazy(/* 外部 API 管理页面按路由激活时加载。 */ () => import('../features/settings/pages/APIAccessTokensPage'));
 // Rules 是按需加载的自动化规则页面，避免首屏载入规则编辑器代码。
 const Rules = lazy(/* Rules 页面按路由激活时加载。 */ () => import('../features/rules/pages/Rules'));
 // AutomationAuditPanel 是规则日志面板，仅在规则页打开“规则日志”页签时才下载，避免撑大规则页分片。
@@ -146,6 +148,7 @@ export const AppContent: React.FC<AppContentProps> = ({
       case 'notifications': return <Notifications isAdmin={isAdmin} />;
       case 'logs': return isAdmin ? <RuntimeLogs /> : <Dashboard />;
       case 'settings': return isAdmin ? <Settings /> : <Dashboard />;
+      case 'api-access': return <APIAccessTokensPage />;
       default: return <Dashboard />;
     }
   };

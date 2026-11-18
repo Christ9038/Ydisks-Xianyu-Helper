@@ -179,6 +179,8 @@ func (transport sessionRecoveryTransport) Recover(ctx context.Context, accountID
 type HTTPDependencies struct {
 	// Auth 是会话认证服务。
 	Auth *auth.Service
+	// APIAccessTokens 是当前用户管理外部 API 访问令牌的应用服务。
+	APIAccessTokens server.APIAccessTokensPort
 	// WebDir 是静态前端资源目录。
 	WebDir string
 	// Addr 是已经由 cmd 配置解析的 HTTP 监听地址。
@@ -206,7 +208,7 @@ func ServerDependencies(services *composition.Services, base HTTPDependencies, s
 			ItemSinglePublish: ports.ItemSinglePublish, ItemBatchPreview: ports.ItemBatchPreview,
 			ItemBatchManagement: ports.ItemBatchManagement, ItemCategoryRecommendation: ports.ItemCategoryRecommendation,
 			ItemBatchPreviewPersistence: ports.ItemBatchPreviewPersistence, ItemBatchLocalPublish: ports.ItemBatchLocalPublish,
-			ItemSync: ports.ItemSync, ItemCatalog: ports.ItemCatalog, ItemCatalogMutation: ports.ItemCatalogMutation, ItemAISettings: ports.ItemAISettings,
+			ItemSync: ports.ItemSync, ItemCatalog: ports.ItemCatalog, ItemCatalogMutation: ports.ItemCatalogMutation, ItemPlatformLifecycle: ports.ItemPlatformLifecycle, ItemAISettings: ports.ItemAISettings,
 			AccountLogin:        accountLoginTransport{service: ports.AccountLogin},
 			QRLogin:             qrLoginTransport{service: ports.QRLogin},
 			SessionRecovery:     sessionRecoveryTransport{handler: sessionRecovery},
@@ -217,7 +219,7 @@ func ServerDependencies(services *composition.Services, base HTTPDependencies, s
 			UncertainNotifications: ports.UncertainNotifications, NotificationChannels: ports.NotificationChannels,
 			Analytics: ports.Analytics, AutomationIssues: ports.AutomationIssues, AutomationAudit: ports.AutomationAudit, AutomationRules: ports.AutomationRules, DeliveryTemplates: ports.DeliveryTemplates,
 			Cards: ports.Cards, APIRequestTester: ports.APICardTester, PublishAutomationRules: ports.PublishAutomationRules, DefaultReplies: ports.DefaultReplies, ItemGreetings: ports.ItemGreetings, AgentReplies: ports.AgentReplies, Library: ports.Library,
-			Keywords: ports.Keywords, Settings: ports.Settings, Admin: ports.Admin, RuntimeLogs: ports.RuntimeLogs,
+			Keywords: ports.Keywords, Settings: ports.Settings, Admin: ports.Admin, RuntimeLogs: ports.RuntimeLogs, APIAccessTokens: base.APIAccessTokens,
 		}),
 	}, nil
 }

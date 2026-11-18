@@ -100,3 +100,78 @@ export const testAIConnection = async (baseURL: string, apiKey: string, model: s
 /** 在保存登录凭据前读取当前会话状态。 */
 export const verifySession = async (options?: RequestControlOptions): Promise<SettingsSessionStatusResponse> =>
   runContractRequest(/* signal 是本次设置页会话校验请求的超时与取消控制信号。 */ signal => contractClient.GET('/api/v1/session', { signal }), options);
+
+
+/** 外部 API 访问令牌允许签发的最小权限。 */
+export type APIAccessScope =
+  | 'accounts:read'
+  | 'items:read'
+  | 'items:publish'
+  | 'items:unpublish'
+  | 'orders:read'
+  | 'chat:read'
+  | 'chat:send'
+  | 'chat:takeover'
+  | 'replies:manage'
+  | 'automation:read'
+  | 'automation:manage';
+
+/** 外部 API 访问令牌的非敏感管理摘要。 */
+export interface APIAccessTokenSummary {
+  /** 本地令牌记录标识。 */
+  id: string;
+  /** 用户为令牌设置的用途名称。 */
+  name: string;
+  /** 仅用于识别令牌的公开前缀。 */
+  prefix: string;
+  /** 令牌被授予的权限集合。 */
+  scopes: APIAccessScope[];
+  /** 签发时间的 Unix 秒数。 */
+  created_at: number;
+  /** 失效时间的 Unix 秒数。 */
+  expires_at: number;
+  /** 最近一次认证成功时间；0 表示尚未使用。 */
+  last_used_at: number;
+  /** 撤销时间；0 表示尚未撤销。 */
+  revoked_at: number;
+}
+
+/** 令牌列表接口的响应。 */
+export interface APIAccessTokenListResponse {
+  /** 请求是否成功。 */
+  success: boolean;
+  /** 当前用户拥有的令牌摘要。 */
+  data: APIAccessTokenSummary[];
+}
+
+/** 新令牌签发响应；token 只在创建时返回一次。 */
+export interface APIAccessTokenCreatedResponse {
+  /** 请求是否成功。 */
+  success: boolean;
+  /** 新生成的明文令牌。 */
+  token: string;
+  /** 不含明文或摘要的令牌管理信息。 */
+  data: APIAccessTokenSummary;
+}
+
+/** 列出当前用户拥有的外部 API 访问令牌。 */
+export const listAPIAccessTokens = async (): Promise<APIAccessTokenListResponse> =>
+  runContractRequest(signal => contractClient.GET('/api/v1/access-tokens', { signal }));
+
+/** 签发外部 API 访问令牌；明文只在本次响应中返回。 */
+export const createAPIAccessToken = async (input: {
+  /** 令牌用途名称。 */
+  name: string;
+  /** 本次令牌授予的最小权限集合。 */
+  scopes: APIAccessScope[];
+  /** 有效期天数，0 由服务端使用默认值。 */
+  expires_in_days: number;
+}): Promise<APIAccessTokenCreatedResponse> =>
+  runContractRequest(signal => contractClient.POST('/api/v1/access-tokens', { body: input, signal }));
+
+/** 撤销当前用户拥有的指定外部 API 访问令牌。 */
+export const revokeAPIAccessToken = async (tokenId: string): Promise<{ /** 撤销请求是否成功。 */ success: boolean }> =>
+  runContractRequest(/* signal 是本次撤销请求的取消信号。 */ signal => contractClient.DELETE('/api/v1/access-tokens/{token_id}', {
+    params: { path: { token_id: tokenId } },
+    signal,
+  }));
