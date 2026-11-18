@@ -63,6 +63,8 @@ type Services struct {
 	orderReconciliationRecovery *orderapp.ReconciliationRecoveryCoordinator
 	// itemSinglePublish 是仅负责单商品发布用例的纯应用服务。
 	itemSinglePublish *itemapp.Service
+	// itemPlatformLifecycle 是商品平台下架等生命周期写操作应用服务。
+	itemPlatformLifecycle *itemapp.PlatformLifecycleService
 	// itemBatchCoordinator 是商品批量发布 worker、恢复扫描和关闭等待的生命周期拥有者。
 	itemBatchCoordinator *itemapp.BatchWorkerCoordinator
 	// itemBatchPreview 是商品批量发布表格预检应用服务。
@@ -323,6 +325,7 @@ type TransportPorts struct {
 	Orders                      *orderapp.ServiceSet
 	OrderRefreshJobs            *orderapp.RefreshJobService
 	ItemSinglePublish           *itemapp.Service
+	ItemPlatformLifecycle       *itemapp.PlatformLifecycleService
 	ItemBatchPreview            *itemapp.BatchPreviewService
 	ItemBatchManagement         *itemapp.BatchManagementService
 	ItemCategoryRecommendation  *itemapp.CategoryRecommendationService
@@ -377,7 +380,7 @@ func (services *Services) TransportPorts() TransportPorts {
 		return TransportPorts{}
 	}
 	return TransportPorts{
-		Orders: services.orders, OrderRefreshJobs: services.orderRefreshJobs, ItemSinglePublish: services.itemSinglePublish,
+		Orders: services.orders, OrderRefreshJobs: services.orderRefreshJobs, ItemSinglePublish: services.itemSinglePublish, ItemPlatformLifecycle: services.itemPlatformLifecycle,
 		ItemBatchPreview: services.itemBatchPreview, ItemBatchManagement: services.itemBatchManagement,
 		ItemCategoryRecommendation: services.itemCategoryRecommendation, ItemBatchPreviewPersistence: services.itemBatchPreviewPersistence,
 		ItemBatchLocalPublish: services.itemBatchLocalPublish, ItemSync: services.itemSync, ItemCatalog: services.itemCatalog,
@@ -492,15 +495,10 @@ func New(dependencies Dependencies) (*Services, error) {
 	if accountLoginCreateErr != nil {
 		return nil, fmt.Errorf("构造账号登录创建服务失败: %w", accountLoginCreateErr)
 	}
-	// accountQRLogin 是扫码成功凭证持久化应用服务的构造结果；零值测试 Server 暂不装配数据库端口。
-	var accountQRLogin *accountapp.QRLoginService
-	if dependencies.AccountDependencies != nil {
-		// accountQRLoginErr 保存扫码应用服务装配失败原因。
-		var accountQRLoginErr error
-		accountQRLogin, accountQRLoginErr = accountapp.NewQRLoginService(dependencies.AccountDependencies.NewQRLoginRepository(), loginLifecycle)
-		if accountQRLoginErr != nil {
-			return nil, fmt.Errorf("构造扫码登录服务失败: %w", accountQRLoginErr)
-		}
+	// accountQRLogin、accountQRLoginErr 分别是扫码成功凭证持久化应用服务及其装配错误。
+	accountQRLogin, accountQRLoginErr := accountapp.NewQRLoginService(dependencies.AccountDependencies.NewQRLoginRepository(), loginLifecycle)
+	if accountQRLoginErr != nil {
+		return nil, fmt.Errorf("构造扫码登录服务失败: %w", accountQRLoginErr)
 	}
 	// qrSessionRegistry 将扫码会话所有权、过期回收和幂等结果放在应用边界内。
 	qrSessionRegistry := accountapp.NewQRLoginSessionRegistry()
@@ -519,6 +517,7 @@ func New(dependencies Dependencies) (*Services, error) {
 		orderRefreshJobs:            orderRefreshJobs,
 		orderReconciliationRecovery: dependencies.OrderReconciliationRecovery,
 		itemSinglePublish:           catalogServices.singlePublish,
+		itemPlatformLifecycle:       catalogServices.platformLifecycle,
 		itemBatchCoordinator:        batchServices.coordinator,
 		itemBatchPreview:            batchServices.preview,
 		itemBatchManagement:         batchServices.management,

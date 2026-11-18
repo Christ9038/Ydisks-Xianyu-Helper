@@ -184,6 +184,28 @@ func (c *ClientImpl) PolishItem(ctx context.Context, cookiesStr, itemID string) 
 	return nil, fmt.Errorf("擦亮主接口失败: %v；备用接口失败: %w", primaryErr, backupErr)
 }
 
+// DownShelfItem 将当前账号名下的指定商品从闲鱼在售状态下架，不执行删除操作。
+func (c *ClientImpl) DownShelfItem(ctx context.Context, cookiesStr, itemID string) (*AccountTaskResult, error) {
+	itemID = strings.TrimSpace(itemID)
+	if itemID == "" {
+		return nil, fmt.Errorf("商品 ID 不能为空")
+	}
+	// referer 是下架请求对应的商品详情页来源，用于匹配 PC 卖家态页面请求。
+	referer := "https://www.goofish.com/item?id=" + url.QueryEscape(itemID)
+	// decoded、updated、err 保存平台下架响应、会话 Cookie 更新和调用错误。
+	decoded, updated, err := c.accountTaskRequest(ctx, cookiesStr, firstNonEmptyURL(c.DownShelfItemURL, DownShelfItemAPI),
+		"mtop.taobao.idle.item.downshelf", "2.0", map[string]any{"itemId": itemID}, referer)
+	if err != nil {
+		return nil, err
+	}
+	// success 必须由平台响应 data.success 明确确认为 true；仅有 MTOP ret 成功不等于商品已下架。
+	success, ok := decoded.Data["success"].(bool)
+	if !ok || !success {
+		return nil, fmt.Errorf("闲鱼商品下架响应未明确确认成功")
+	}
+	return &AccountTaskResult{Success: true, Message: firstRet(decoded.Ret), UpdatedCookies: updated}, nil
+}
+
 // duplicatePolishError 封装duplicatePolish错误业务协调。
 func duplicatePolishError(err error) bool {
 	if err == nil {
@@ -312,6 +334,11 @@ func (c *ClientImpl) accountTaskRequestOnce(ctx context.Context, cookiesStr, end
 		query.Set("spm_cnt", "a21ybx.item.0.0")
 		query.Set("spm_pre", "a21ybx.personal.feeds.1.42f86ac21eZ9zd")
 		query.Set("log_id", "42f86ac21eZ9zd")
+	}
+	if api == "mtop.taobao.idle.item.downshelf" {
+		query.Set("spm_cnt", "a21ybx.item.0.0")
+		query.Set("spm_pre", "a21ybx.item.0.0")
+		query.Set("log_id", "xianyu_item_downshelf")
 	}
 	// req、err 用于本次流程后续判断的req、err
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint+"?"+query.Encode(),

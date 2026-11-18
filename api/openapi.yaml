@@ -6,6 +6,112 @@ info:
 servers:
   - url: /
 paths:
+  "/api/v1/access-tokens":
+    get:
+      operationId: getApiV1AccessTokens
+      summary: 列出当前用户的外部 API 访问令牌
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIAccessTokenListResponse'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 需要浏览器登录会话
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      operationId: postApiV1AccessTokens
+      summary: 签发外部 API 访问令牌（明文只返回一次）
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/APIAccessTokenCreateRequest'
+      responses:
+        '201':
+          description: 已签发；响应中的 token 仅展示一次
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIAccessTokenCreatedResponse'
+        '400':
+          description: 请求参数无效
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 需要浏览器登录会话
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/access-tokens/{token_id}":
+    delete:
+      operationId: deleteApiV1AccessTokensBytoken_id
+      summary: 撤销当前用户拥有的外部 API 访问令牌
+      security: [{cookieAuth: []}]
+      parameters:
+        - name: token_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: 已撤销
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 需要浏览器登录会话
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 令牌不存在或不属于当前用户
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   "/api/v1/account-tasks/{cid}":
     get:
       operationId: getApiV1AccountTasksBycid
@@ -16,7 +122,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -63,7 +169,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       requestBody:
         required: true
         content:
@@ -117,7 +223,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       requestBody:
         required: true
         content:
@@ -171,7 +277,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -213,7 +319,7 @@ paths:
     get:
       operationId: getApiV1Accounts
       summary: getApiV1Accounts
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -355,7 +461,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -1078,7 +1184,7 @@ paths:
     get:
       operationId: getApiV1AccountsDetails
       summary: getApiV1AccountsDetails
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -1120,7 +1226,7 @@ paths:
     get:
       operationId: getApiV1AccountsRuntimeStatus
       summary: getApiV1AccountsRuntimeStatus
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -1720,7 +1826,7 @@ paths:
           in: query
           required: false
           schema: {type: integer, minimum: 1, maximum: 100}
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -1762,7 +1868,7 @@ paths:
     get:
       operationId: getApiV1AutomationIssues
       summary: getApiV1AutomationIssues
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -1810,7 +1916,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -1852,7 +1958,7 @@ paths:
     get:
       operationId: getApiV1DeliveryTemplates
       summary: getApiV1DeliveryTemplates
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -1872,7 +1978,7 @@ paths:
     post:
       operationId: postApiV1DeliveryTemplates
       summary: postApiV1DeliveryTemplates
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       requestBody:
         required: true
         content:
@@ -1897,7 +2003,7 @@ paths:
     get:
       operationId: getApiV1DeliveryTemplatesBytemplate_id
       summary: getApiV1DeliveryTemplatesBytemplate_id
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       parameters:
         - name: template_id
           in: path
@@ -1924,7 +2030,7 @@ paths:
     put:
       operationId: putApiV1DeliveryTemplatesBytemplate_id
       summary: putApiV1DeliveryTemplatesBytemplate_id
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       parameters:
         - name: template_id
           in: path
@@ -1959,7 +2065,7 @@ paths:
     delete:
       operationId: deleteApiV1DeliveryTemplatesBytemplate_id
       summary: deleteApiV1DeliveryTemplatesBytemplate_id
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       parameters:
         - name: template_id
           in: path
@@ -1990,7 +2096,7 @@ paths:
     get:
       operationId: getApiV1AutomationRules
       summary: getApiV1AutomationRules
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       parameters:
         - name: page
           in: query
@@ -2056,7 +2162,7 @@ paths:
     post:
       operationId: postApiV1AutomationRules
       summary: postApiV1AutomationRules
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       requestBody:
         required: true
         content:
@@ -2116,7 +2222,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -2163,7 +2269,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       requestBody:
         required: true
         content:
@@ -2223,7 +2329,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -2899,7 +3005,7 @@ paths:
     get:
       operationId: getApiV1ChatItems
       summary: 查询个人会话中对方或当前账号的在售商品
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       parameters:
         - name: account_id
           in: query
@@ -3071,7 +3177,7 @@ paths:
     get:
       operationId: getApiV1ChatQuickReplies
       summary: getApiV1ChatQuickReplies
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       parameters:
         - name: account_id
           in: query
@@ -3140,7 +3246,7 @@ paths:
     get:
       operationId: getApiV1ChatBuyerNotesBybuyer_id
       summary: getApiV1ChatBuyerNotesBybuyer_id
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       parameters:
         - name: buyer_id
           in: path
@@ -3187,11 +3293,58 @@ paths:
         '401': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
         '403': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
         '500': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+  "/api/v1/chat/manual-takeover/{cookie_id}":
+    put:
+      operationId: putApiV1ChatManualTakeoverBycookie_id
+      summary: 更新单账号人工介入暂停设置（不允许修改账号凭据）
+      security: [{cookieAuth: []}, {bearerAuth: []}]
+      parameters:
+        - name: cookie_id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatManualTakeoverUpdateRequest'
+      responses:
+        '200':
+          description: 人工介入设置已保存
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatManualTakeoverSettingsResponse'
+        '400':
+          description: 请求字段无效
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 令牌缺少 chat:takeover 权限或账号不属于当前用户
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 账号不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   "/api/v1/chat/messages":
     get:
       operationId: getApiV1ChatMessages
       summary: getApiV1ChatMessages
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       parameters:
         - name: account_id
           in: query
@@ -3253,7 +3406,7 @@ paths:
     post:
       operationId: postApiV1ChatMessages
       summary: postApiV1ChatMessages
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       requestBody:
         required: true
         content:
@@ -3411,7 +3564,7 @@ paths:
     get:
       operationId: getApiV1ChatSessions
       summary: getApiV1ChatSessions
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       parameters:
         - name: account_id
           in: query
@@ -3522,7 +3675,7 @@ paths:
     get:
       operationId: getApiV1DefaultReplies
       summary: getApiV1DefaultReplies
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -3570,7 +3723,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -3617,7 +3770,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -3664,7 +3817,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -3712,7 +3865,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -3754,7 +3907,7 @@ paths:
     get:
       operationId: getApiV1DefaultRepliesList
       summary: getApiV1DefaultRepliesList
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -3796,7 +3949,7 @@ paths:
     get:
       operationId: getApiV1Items
       summary: getApiV1Items
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       parameters:
         - name: cookie_id
           in: query
@@ -3889,6 +4042,63 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/items/{cookie_id}/{item_id}/unpublish":
+    post:
+      operationId: postApiV1ItemsBycookie_idByitem_idUnpublish
+      summary: 将当前用户拥有的闲鱼商品下架（不删除商品）
+      security: [{cookieAuth: []}, {bearerAuth: []}]
+      parameters:
+        - name: cookie_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: item_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: 平台确认下架且账号会话写回成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemPlatformLifecycleResponse'
+        '400':
+          description: 请求参数无效
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 未认证或账号会话失效
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 令牌缺少 items:unpublish 权限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: 账号凭证或归属已变化
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: 平台失败，或平台已下架但账号会话写回失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemPlatformLifecycleErrorResponse'
+        '501':
+          description: 当前平台客户端不支持该能力
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   "/api/v1/items/{cookie_id}/{item_id}":
     delete:
       operationId: deleteApiV1ItemsBycookie_idByitem_id
@@ -3956,7 +4166,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -4053,7 +4263,7 @@ paths:
       parameters:
         - {name: cookie_id, in: path, required: true, schema: {type: string}}
         - {name: item_id, in: path, required: true, schema: {type: string}}
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -4071,7 +4281,7 @@ paths:
       parameters:
         - {name: cookie_id, in: path, required: true, schema: {type: string}}
         - {name: item_id, in: path, required: true, schema: {type: string}}
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       requestBody:
         required: true
         content:
@@ -4204,7 +4414,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -4246,7 +4456,7 @@ paths:
     post:
       operationId: postApiV1ItemsGetAllFromAccount
       summary: postApiV1ItemsGetAllFromAccount
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -4288,7 +4498,7 @@ paths:
     post:
       operationId: postApiV1ItemsGetByPage
       summary: postApiV1ItemsGetByPage
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -4330,7 +4540,7 @@ paths:
     post:
       operationId: postApiV1ItemsPublish
       summary: postApiV1ItemsPublish
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       requestBody:
         required: true
         content:
@@ -4922,7 +5132,7 @@ paths:
     get:
       operationId: getApiV1ItemsPublishBatches
       summary: getApiV1ItemsPublishBatches
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       parameters:
         - name: limit
           in: query
@@ -4968,7 +5178,7 @@ paths:
     post:
       operationId: postApiV1ItemsPublishBatches
       summary: postApiV1ItemsPublishBatches
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       requestBody:
         required: true
         content:
@@ -5069,7 +5279,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -5117,7 +5327,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -5165,7 +5375,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       x-contract-success-exception:
         kind: binary
       responses:
@@ -5216,7 +5426,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -5258,7 +5468,7 @@ paths:
     post:
       operationId: postApiV1ItemsPublishBatchesPreview
       summary: postApiV1ItemsPublishBatchesPreview
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       requestBody:
         required: true
         content:
@@ -5306,7 +5516,7 @@ paths:
     post:
       operationId: postApiV1ItemsPublishCategoriesRecommend
       summary: postApiV1ItemsPublishCategoriesRecommend
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       requestBody:
         required: true
         content:
@@ -5991,7 +6201,7 @@ paths:
     get:
       operationId: getApiV1Orders
       summary: getApiV1Orders
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       parameters:
         - name: cookie_id
           in: query
@@ -6107,7 +6317,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -6867,7 +7077,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -6914,7 +7124,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -6967,7 +7177,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -7015,7 +7225,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -7062,7 +7272,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       requestBody:
         required: true
         content:
@@ -7116,7 +7326,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -7169,7 +7379,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -7221,7 +7431,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       requestBody:
         required: true
         content:
@@ -7275,7 +7485,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -7325,7 +7535,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       requestBody:
         required: true
         content:
@@ -7382,7 +7592,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       requestBody:
         required: true
         content:
@@ -7451,7 +7661,7 @@ paths:
             required: false
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -7492,7 +7702,7 @@ paths:
     post:
       operationId: postApiV1ReplyRulesGreetings
       summary: postApiV1ReplyRulesGreetings
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       requestBody:
         required: true
         content:
@@ -7552,7 +7762,7 @@ paths:
             required: true
             schema:
               type: integer
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       requestBody:
         required: true
         content:
@@ -7611,7 +7821,7 @@ paths:
             required: true
             schema:
               type: integer
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -7659,7 +7869,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -7701,7 +7911,7 @@ paths:
     get:
       operationId: getApiV1ReplyRulesItems
       summary: getApiV1ReplyRulesItems
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -7754,7 +7964,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -7806,7 +8016,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -7858,7 +8068,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -8284,7 +8494,7 @@ paths:
     get:
       operationId: getApiV1SettingsAiReply
       summary: getApiV1SettingsAiReply
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -8332,7 +8542,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       responses:
         '200':
           description: 成功
@@ -8379,7 +8589,7 @@ paths:
             required: true
             schema:
               type: string
-      security: [{cookieAuth: []}]
+      security: [{cookieAuth: []}, {bearerAuth: []}]
       requestBody:
         required: true
         content:
@@ -8805,6 +9015,10 @@ components:
       type: apiKey
       in: cookie
       name: session
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Ydisks API Token
   schemas:
     ApiResponse:
       type: object
@@ -11105,6 +11319,102 @@ components:
           items: {type: string}
         location: {$ref: '#/components/schemas/LibraryTemplateLocation'}
         publish_interval_seconds: {type: integer, minimum: 0, maximum: 3600}
+    ItemPlatformLifecycleResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: {type: boolean}
+        data:
+          type: object
+          required: [item_id, status, message, cookie_persisted]
+          properties:
+            item_id: {type: string}
+            status: {type: string, enum: [off_sale]}
+            message: {type: string}
+            cookie_persisted: {type: boolean}
+    ItemPlatformLifecycleErrorResponse:
+      type: object
+      description: >
+        统一 code/message 错误 envelope。平台下架成功但本地 Cookie 写回失败时，
+        code 为 platform_unpublished_cookie_persist_failed，并在 details 中返回可恢复状态。
+      required: [code, message]
+      properties:
+        code: {type: string}
+        message: {type: string}
+        request_id: {type: string}
+        details:
+          type: object
+          properties:
+            item_id: {type: string}
+            status: {type: string, enum: [off_sale]}
+            platform_success: {type: boolean}
+            cookie_persisted: {type: boolean}
+          additionalProperties: true
+      additionalProperties: true
+    ChatManualTakeoverUpdateRequest:
+      type: object
+      minProperties: 1
+      properties:
+        manual_takeover_minutes:
+          type: integer
+          minimum: 0
+          maximum: 1440
+          description: 人工回复后会话暂停自动回复的分钟数；0 表示关闭。
+        manual_takeover_scope:
+          type: string
+          enum: [ai, all]
+          description: ai 只暂停 Agent 与 AI，all 暂停全部自动回复。
+    ChatManualTakeoverSettingsResponse:
+      type: object
+      required: [success, manual_takeover_minutes, manual_takeover_scope]
+      properties:
+        success: {type: boolean}
+        manual_takeover_minutes: {type: integer}
+        manual_takeover_scope: {type: string, enum: [ai, all]}
+    APIAccessTokenCreateRequest:
+      type: object
+      required: [name, scopes]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 64}
+        scopes:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            enum: [accounts:read, items:read, items:publish, items:unpublish, orders:read, chat:read, chat:send, chat:takeover, replies:manage, automation:read, automation:manage]
+        expires_in_days: {type: integer, minimum: 1, maximum: 365, default: 90}
+    APIAccessTokenSummary:
+      type: object
+      required: [id, name, prefix, scopes, created_at, expires_at, last_used_at, revoked_at]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        prefix: {type: string}
+        scopes:
+          type: array
+          items:
+            type: string
+            enum: [accounts:read, items:read, items:publish, items:unpublish, orders:read, chat:read, chat:send, chat:takeover, replies:manage, automation:read, automation:manage]
+        created_at: {type: integer, format: int64}
+        expires_at: {type: integer, format: int64}
+        last_used_at: {type: integer, format: int64}
+        revoked_at: {type: integer, format: int64}
+    APIAccessTokenListResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: {type: boolean}
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/APIAccessTokenSummary'}
+    APIAccessTokenCreatedResponse:
+      type: object
+      required: [success, token, data]
+      properties:
+        success: {type: boolean}
+        token: {type: string, description: 明文只在创建响应中展示一次}
+        data: {$ref: '#/components/schemas/APIAccessTokenSummary'}
     ErrorResponse:
       type: object
       required: [code, message]

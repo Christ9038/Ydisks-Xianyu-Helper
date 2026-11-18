@@ -7,6 +7,7 @@ import (
 
 	"xianyu-go/internal/adapter"
 	accountapp "xianyu-go/internal/application/account"
+	apikeyapp "xianyu-go/internal/application/apikey"
 	"xianyu-go/internal/application/lifecycle"
 	orderapp "xianyu-go/internal/application/orders"
 	"xianyu-go/internal/auth"
@@ -196,9 +197,15 @@ func BuildRuntime(options RuntimeOptions, infrastructure RuntimeInfrastructure) 
 	if buildErr != nil {
 		return Runtime{}, fmt.Errorf("构造应用服务集合失败: %w", buildErr)
 	}
+	// apiAccessTokens 是基于已迁移数据库仓储构造的访问令牌管理用例。
+	apiAccessTokens, apiAccessTokensErr := apikeyapp.NewService(adapter.NewAPIAccessTokenRepository(infrastructure.Store.APIAccessTokens))
+	if apiAccessTokensErr != nil {
+		return Runtime{}, fmt.Errorf("构造 API 访问令牌服务失败: %w", apiAccessTokensErr)
+	}
 	// serverDependencies、dependenciesErr 分别是投影给 HTTP transport 的依赖快照及其构造错误。
 	serverDependencies, dependenciesErr := ServerDependencies(services, HTTPDependencies{
-		Auth: &auth.Service{Store: infrastructure.Store, Logger: infrastructure.Logger, Secure: options.SecureCookie}, WebDir: options.WebDir, Addr: options.Addr,
+		Auth:            &auth.Service{Store: infrastructure.Store, Logger: infrastructure.Logger, Secure: options.SecureCookie},
+		APIAccessTokens: apiAccessTokens, WebDir: options.WebDir, Addr: options.Addr,
 		Logger: infrastructure.Logger, DatabaseHealth: databaseHealth,
 	}, sessionRecovery)
 	if dependenciesErr != nil {
