@@ -2,7 +2,7 @@ import React,{ useEffect,useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
   Bell, Box, CreditCard, FileStack, GitCommitHorizontal, LayoutDashboard, Library, LogOut,
-  MessageCircleMore, MoreHorizontal, ScrollText, Settings, ShoppingBag, TrendingUp, Users, X, Zap,
+  KeyRound, MessageCircleMore, MoreHorizontal, ScrollText, Settings, ShoppingBag, TrendingUp, Users, X, Zap,
 } from 'lucide-react';
 
 /** MobileNavBuildInfo 描述移动端底部导航展示的公开构建版本信息。 */
@@ -57,6 +57,7 @@ const mobileMoreNavItems: MobileNavItem[] = [
   { id: 'delivery-templates', label: '发货模板', icon: FileStack },
   { id: 'rules', label: '自动化规则', icon: Zap },
   { id: 'notifications', label: '通知设置', icon: Bell },
+  { id: 'api-access', label: 'API 管理', icon: KeyRound },
 ];
 
 /** mobileAdminNavItems 是仅管理员可见的系统入口，普通账号既不渲染也不接收点击。 */

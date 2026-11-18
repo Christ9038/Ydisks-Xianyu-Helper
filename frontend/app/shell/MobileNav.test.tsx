@@ -77,7 +77,7 @@ describe('MobileNav 移动端底部导航', /* 当前回调汇总底部主导航
     const { onNavigate } = renderMobileNav({ activeTab: 'dashboard' });
     openMoreSheet();
     expect(screen.getByRole('dialog')).toBeTruthy();
-    for (const label /* label 是抽屉中应出现的常规次级入口中文名称。 */ of ['本地资源库', '卡密库存', '商品列表', '销售统计', '发货模板', '自动化规则', '通知设置']) {
+    for (const label /* label 是抽屉中应出现的常规次级入口中文名称。 */ of ['本地资源库', '卡密库存', '商品列表', '销售统计', '发货模板', '自动化规则', '通知设置', 'API 管理']) {
       expect(screen.getByRole('button', { name: label })).toBeTruthy();
     }
 
