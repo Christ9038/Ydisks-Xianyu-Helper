@@ -71,14 +71,20 @@ Ydisks 支持管理渠道、推广账号、原始链接、推广短链与域名�
 | --- | --- |
 | 账号管理 | 多账号启停、扫码登录、资料刷新、在线状态、登录审计与备注管理 |
 | 凭证续期 | Cookie/token 定时续期、WebSocket 凭证更新、失效恢复、冷却与失败停用 |
-| 即时消息 | 按账号隔离的在线聊天、会话列表与历史消息、闲鱼表情、文本/图片收发、官方系统消息识别、关键词回复（多表达式、包含/正则匹配、多商品范围）、默认回复及仅回复一次 |
+| 即时消息 | 按账号隔离的在线聊天、会话列表与历史消息、闲鱼表情、文本/图片收发、官方系统消息识别、关键词回复（多表达式、包含/正则匹配、多商品范围）、默认回复及仅回复一次；商品首次回复可在买家首次咨询所选商品时自动发送一条预设文字（可附图片） |
 | 自动化中心 | 拍下未付款自动改价、付款后自动发货、分阶段砍价免拼、评价后赠品、超时未评价提醒、失败任务恢复、人工处理通知与幂等检查点 |
 | 账号自动任务 | 基于本地记录的买家确认收货事实执行自动评价、按北京时间每日擦亮、手动立即执行、执行记录与幂等保护 |
 | 卡密库存 | 文本、批量卡密、图片和 API 四种交付类型，库存追加、批量导入、规格与延迟发送 |
 | 商品管理 | 商品同步、手工关联、单商品单规格/多规格发布、规格图片与商品图片排序、CSV/XLSX/TSV 与可选 ZIP 批量铺货、关键词获取默认类目、逐行类目优先、自动识别与“电子资料”最终兜底、任务恢复与结果导出；列表同步依据 `detailParams.isSKU` 判断多规格，字段缺失或为 `false` 均按非多规格处理，不再访问详情页 |
 | 发货模板 | 多条顺序消息、订单/买家/卡密/自定义变量和可复用的自动化发货内容 |
+| 资源库 | 可复用的图片库与商品模板，一次发布到多个账号；模板支持从 Excel 导入（单次最多 300 行），批量铺货表格可引用共享发货模板并逐行填写变量 |
 | 订单管理 | 订单同步、编辑、平台发货、补发卡密、仅确认发货及异常状态处理 |
-| AI 回复 | OpenAI 兼容 API、模型发现、完整连接链路测试、“仅砍价”与“全场景客服”模式、商品级启停与专属资料、自定义提示词、议价轮次和让价范围控制 |
+| AI 回复 | OpenAI 兼容 API、模型发现、完整连接链路测试、“仅砍价”与“全场景客服”模式、商品级启停与专属资料、自定义提示词、议价轮次和让价范围控制，可选向 AI 提供买家本地订单阶段 |
+| Agent 回复 | 把未命中关键词的买家消息转发给你自己的外部 HTTP Agent（协议 v1、可选 Bearer Token、支持轮询长耗时回复）并发送其文字/图片回复，可选携带买家订单阶段；Agent 不处理时回落到 AI 与默认回复 |
+| 人工介入暂停 | 你在闲鱼 App/网页版或本系统聊天页亲自回复买家后，该会话在设定时间内暂停自动回复（只暂停 AI 或全部）；关键词规则可在买家要求转人工时通知你 |
+| 销售统计 | 按时间范围统计营收，与数据看板互补 |
+| 运行日志 | 仅管理员可见的内存日志查看页，支持等级、来源与关键词过滤，条目带调用位置、路由、运行与请求 ID 并已脱敏 |
+| 请求频率控制 | 账号级 MTOP 节流、遇风控立即中止的有界批次，以及风控后暂停该账号自动评价与擦亮的账号级阻断 |
 | 数据看板 | 活跃账号、订单、营收、库存、商品销量与金额统计 |
 | 通知告警 | Bark、钉钉、飞书、企业微信、Telegram、邮件和自定义 Webhook |
 | 数据存储 | SQLite、MySQL、PostgreSQL，内置按方言执行的 Goose 数据库迁移 |
@@ -621,18 +627,27 @@ services:
 │   └── dbseed/           # Docker 功能测试数据种子
 ├── internal/
 │   ├── account/          # 多账号监督与生命周期
+│   ├── agentclient/      # 外部 Agent 回复的 HTTP 连接协议（v1）
 │   ├── application/      # 用例编排、事务与补偿
 │   ├── adapter/          # 业务模块接线层
+│   ├── auth/             # 管理端 HttpOnly Cookie 会话认证
 │   ├── automation/       # 自动化中心与调度器
 │   ├── browser/          # Chromium 自动化、指纹与 token 滑块能力
 │   ├── composition/      # 唯一生产组合根
 │   ├── db/               # 数据访问、加密与迁移
+│   ├── deliverytemplate/ # 发货消息模板解析与渲染
 │   ├── engine/           # 单账号消息和交付运行时
+│   ├── netguard/         # 出站连接信任级别与 DNS rebinding 防护
 │   ├── notify/           # 通知渠道
+│   ├── reconciliation/   # 外部动作成功但本地未完成订单的恢复
 │   ├── renewal/          # 登录态续期调度
 │   ├── server/           # HTTP API 与 SPA 服务
-│   └── xianyu/           # MTOP、WebSocket、登录和协议实现
+│   ├── uploadroot/       # 上传根目录（批量铺货批次与资源库图片共用）
+│   └── xianyu/           # MTOP、WebSocket、登录和协议实现（mtop/mtopsim 为仅测试使用的平台模拟器）
+├── api/                  # OpenAPI 契约（/api/v1 与 /health 的唯一契约源）
+├── tools/                # 架构、API 契约、注释与文档一致性检查
 ├── frontend/             # React、TypeScript、Vite 前端
+├── manual/               # 由 docs/wiki 生成的 VitePress 在线手册
 ├── docs/                 # 专题文档和行为规范
 ├── packaging/             # Linux systemd、Windows Inno Setup、macOS pkg
 ├── scripts/              # Docker 与回归测试脚本
@@ -672,7 +687,10 @@ make lint      # golangci-lint
 make test      # 全部 Go 单元测试
 make smoke     # 启动真实二进制，验证健康检查、初始化、登录、核心列表、前端首页和优雅退出
 make cover     # 覆盖率报告
-make check     # fmt + architecture + API contract + vet + lint + test + comments
+make api-check    # OpenAPI 规范、路由登记与生成 TypeScript 漂移检查
+make docs-check   # docs/wiki 中的参数、环境变量、数值上限、中英文对齐与代码一致
+make comments     # 中文注释存在性门禁
+make check     # fmt + architecture + API contract + docs + vet + lint + test + comments
 
 npm --prefix frontend run typecheck
 npm --prefix frontend test

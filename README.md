@@ -69,14 +69,20 @@ links and view data.
 | --- | --- |
 | Account management | Multi-account start/stop, QR login, profile refresh, online status, login audit, and notes. |
 | Credential renewal | Scheduled Cookie/token renewal, WebSocket credential updates, recovery, cooldowns, and failure disabling. |
-| Instant messaging | Account-isolated chat, history, Xianyu emoji, text/images, official system-message recognition, keyword replies (multiple expressions, contains or regular-expression matching, multi-product scope), default replies, and one-reply limits. |
+| Instant messaging | Account-isolated chat, history, Xianyu emoji, text/images, official system-message recognition, keyword replies (multiple expressions, contains or regular-expression matching, multi-product scope), default replies, and one-reply limits. Per-item first replies send one preset message (text and optional image) the first time a buyer asks about selected items. |
 | Automation center | Unpaid-order price changes, paid delivery, staged bargain free shipping, review gifts, review reminders, failure recovery, manual-intervention notifications, and idempotency checkpoints. |
 | Account tasks | Event-driven automatic reviews based on locally recorded buyer-confirmed-receipt events, daily product refresh, manual execution, execution records, and idempotency protection. |
 | Card inventory | Text, batch cards, images, and API delivery, with batch import, quantity, and delay settings. |
 | Product management | Synchronization, manual association, list-card `isSKU`-based single- or multi-variant detection (missing or `false` means single-variant), publishing, image ordering, category lookup, and bulk listing. |
 | Delivery templates | Ordered multi-message delivery and order, buyer, card, and custom variables. |
+| Resource library | Reusable image library and product templates published to several accounts at once; templates can be imported from Excel (up to 300 rows per import) and bulk-listing sheets can reference shared delivery templates with per-row variables. |
 | Orders | Synchronization, editing, platform delivery, card resending, and exception handling. |
-| AI replies | OpenAI-compatible APIs, model discovery, end-to-end connection testing, Bargaining Only or Full Service modes, per-product enable/disable and product-specific reference material, custom prompts, bargaining rounds, and discount limits. |
+| AI replies | OpenAI-compatible APIs, model discovery, end-to-end connection testing, Bargaining Only or Full Service modes, per-product enable/disable and product-specific reference material, custom prompts, bargaining rounds, and discount limits. Optionally gives the AI the buyer's local order stage. |
+| Agent replies | Forwards buyer messages that match no keyword to your own external HTTP agent (protocol v1, optional Bearer token, polling for long-running replies) and sends its text or image replies; it can also receive the buyer's order stage. Falls back to AI and default replies when the agent does not handle the message. |
+| Manual takeover | After you reply to a buyer yourself, automatic replies (AI only, or all) pause in that conversation for a configurable time; keyword rules can notify you when a buyer asks for a human. |
+| Dashboard and sales | Active accounts, orders, revenue, and card inventory, plus sales statistics by period. |
+| Runtime logs | Administrator-only in-memory log viewer with level, source, and keyword filters; entries carry caller, route, run, and request IDs and are redacted. |
+| Request pacing | Per-account MTOP pacing, bounded batches that stop on risk control, and an account-level block of automatic reviews and polishing after a risk hit. |
 | Notifications | Bark, DingTalk, Feishu, WeCom, Telegram, email, and custom Webhooks. |
 | Storage and security | SQLite/MySQL/PostgreSQL, embedded Goose migrations, AES-256-GCM sensitive-field encryption, log redaction, and outbound-address validation. |
 | Container deployment | PostgreSQL 17, health checks, persistent volumes, and multi-architecture GHCR images. |
@@ -322,8 +328,11 @@ load balancer for HTTPS and add -secure to the application command.
 ## Development
 
 Repository areas include cmd/server, cmd/browser-install, cmd/tray, cmd/init-admin, cmd/dbverify, and cmd/dbseed;
-internal/account, application, adapter, automation, browser, composition, db, engine, notify, renewal, server, and
-xianyu; frontend; docs; packaging; and scripts.
+internal/account, agentclient (external Agent protocol), application, adapter, auth, automation, browser, chat,
+composition, db, deliverytemplate, engine, httpapi, keywordmatch, logging, netguard, notify, orderspec,
+reconciliation, renewal, server, uploadroot, webui, and xianyu (including the test-only MTOP platform simulator
+internal/xianyu/mtop/mtopsim); api (the OpenAPI contract); tools (architecture, API, comment, and documentation
+checks); frontend; docs; manual (online manual built from docs/wiki); packaging; and scripts.
 
 Local commands:
 
@@ -347,7 +356,10 @@ make lint
 make test
 make smoke   # start the real binary and verify health, setup, login, core lists, the front page, and graceful exit
 make cover
-make check
+make api-check    # OpenAPI spec, route registration, and generated TypeScript drift
+make docs-check   # docs/wiki facts (flags, environment variables, limits, EN/ZH alignment) match the code
+make comments     # Chinese comment presence gate
+make check        # fmt + architecture + API contract + docs + vet + lint + test + comments
 npm --prefix frontend run typecheck
 npm --prefix frontend test
 npm --prefix frontend run build

@@ -7,12 +7,18 @@ The active application contains:
 - `cmd/server/` — server entrypoint, administrator bootstrap (`/initialize` and `-init-admin`), and HTTP server.
 - `cmd/init-admin/` — interactive administrator initialization CLI.
 - `cmd/dbverify/` — migration + core CRUD verification tool across SQLite/MySQL/Postgres.
+- `cmd/dbseed/` — Docker functional-test data seeder; `cmd/browser-install/` — Playwright Chromium installer; `cmd/tray/` — Windows/macOS tray controller; `cmd/spike/` — `debug`/`tools` build-tag protocol feasibility program (not part of the default build).
 - `internal/server/` — chi HTTP API and SPA serving.
 - `internal/adapter/` — wiring layer that implements `engine.Handler` and `automation.OrderDetailFetcher` (system events → automation center, order-detail fetch → browser, protocol-level credential renewal, account alerts → notifier).
 - `internal/account/` — enabled-account supervisor.
 - `internal/engine/` — per-account runtime, replies, and delivery behavior.
 - `internal/automation/` — unified automation center (paid delivery, review gifts, review requests) + scheduler.
-- `internal/xianyu/` — MTOP, WebSocket, QR login, and protocol code.
+- `internal/xianyu/` — MTOP, WebSocket, QR login, and protocol code. `internal/xianyu/mtop/mtopsim` is a test-only in-process platform simulator that replaces only the HTTP transport (the code under test is still the real `mtop.ClientImpl`); it never touches the network and uses fabricated accounts, order numbers and Cookies.
+- `internal/composition/` — the single production composition root; `internal/application/` — use-case services (ownership, transactions, compensation); `internal/renewal/` — credential-renewal scheduling; `internal/reconciliation/` — recovery of orders whose external action succeeded but local state did not complete.
+- `internal/agentclient/` — HTTP protocol v1 between the helper and a user-hosted external Agent (Agent replies); `internal/deliverytemplate/` — delivery-message template parsing and rendering; `internal/keywordmatch/`, `internal/orderspec/`, `internal/money/` — keyword-regex compilation, order/rule spec normalization and float-free money parsing.
+- `internal/auth/` — HttpOnly-cookie admin session; `internal/notify/` — notification channels and outbox; `internal/netguard/` — outbound-connection trust levels and DNS-rebinding protection; `internal/logging/` and `internal/logsafe/` — structured logging (see `docs/architecture/logging-standard.md`) and identifier-safe logging helpers; `internal/uploadroot/` — upload root shared by bulk-listing batches and the resource-library images; `internal/httpapi/`, `internal/chat/`, `internal/version/` — shared HTTP response contract, chat payload display normalization and build metadata.
+- `api/openapi.yaml` — the only contract source for `/api/v1/**` and `/health`; `tools/` — `architecturecheck`, `apicheck`, `commentlint`, `docscheck`, `smoke`, `release` and `iconconv`.
+- `docs/wiki/` — the single source of the operator Wiki (English pages plus `.zh-CN` pages); `manual/` is a VitePress site generated from it by `manual/scripts/prepare.mjs`. Never edit generated `manual/*.md` content by hand; `make docs-check` verifies flags, environment variables, numeric limits and EN/ZH alignment against the code.
 - `internal/browser/` — in-process Chromium automation through playwright-go.
 - `internal/db/` — multi-database access (SQLite/MySQL/Postgres) with embedded Goose migrations per dialect.
 - `frontend/` — active React/Vite source.
@@ -21,7 +27,7 @@ The active application contains:
 ## Common commands
 
 ```bash
-cd /Users/christ/Workspace/git/xianyu/Ydisks-Xianyu-Helper
+cd <repository root>
 
 make build      # go build ./cmd/server
 make test       # go test ./...
@@ -29,8 +35,13 @@ make test-server       # go test ./internal/server
 make test-server-race  # server 生命周期与凭证并发 smoke race
 make smoke      # 构建并启动真实二进制，经 HTTP 验证健康/初始化/登录/核心列表/前端首页/优雅退出（临时 SQLite）
 make vet        # go vet ./...
+make api-generate # regenerate frontend/shared/api-contract/generated/schema.ts from api/openapi.yaml
+make api-check  # OpenAPI spec, real-router registration and generated-type drift
+make docs-check # docs/wiki facts (flags, env vars, numeric limits, EN/ZH alignment) vs code
+make architecture # architecture gates for the phase in refactoring-master-plan.md
+make comments   # Chinese comment presence gate
 make lint       # golangci-lint run ./... (0 issues baseline)
-make check      # fmt + architecture + API contract + vet + lint + test + comments
+make check      # fmt + architecture + API contract + docs-check + vet + lint + test + comments
 make cover      # Go 全量覆盖率（默认不启动 Chromium）
 make cover-browser # 本地 Chromium 页面与 CDP 覆盖率
 make cover-frontend # 前端 V8 覆盖率（文本/JSON/HTML）
@@ -84,7 +95,7 @@ go test ./internal/db -run TestMultiDB -v
 Build the frontend:
 
 ```bash
-cd /Users/christ/Workspace/git/xianyu/Ydisks-Xianyu-Helper/frontend
+cd frontend
 npm install
 npm run build
 ```
@@ -128,6 +139,7 @@ Vite proxies backend routes to `localhost:59188`. Production builds are written 
 - 一次用户操作或一次调度扫描最多对应一次（或极少量、有上限的）平台请求。禁止“列表 × 每项一次请求”的扇出：必须只处理缺失的数据、设置单次硬上限，剩余部分留待后续按需补全，禁止为赶进度增加并发。
 - 批量循环（评价、擦亮、分页、联系人身份等）遇到风控（`RGV587`/`IsRiskVerificationErr`）、会话过期或 Token 耗尽必须立即终止本批次，不得继续请求其余项，也不得依赖定时冷却后自动重放。
 - 新增任何会调用 MTOP 的循环、定时器、并发 worker 或前端自动触发请求，必须在设计中写明：单次请求上限、是否标记后台节流、遇风控如何中止，并补充对应测试；禁止只靠 Token 刷新重试、等待或日志去重来“缓解”高频访问。
+- 账号任务（自动评价、擦亮）遇到风控验证后，`accountTaskCoordinator` 登记仅在内存中的账号级阻断（`sync.Map`，进程重启清空）：阻断期间调度扫描对该账号不发起任何评价或擦亮请求；解除条件是“凭证指纹已变化且阻断满 30 分钟”或用户手动执行一次任务，凭证指纹不可读时保持阻断；被风控中止的擦亮运行记录至少 10 分钟后才可重领。不得改成冷却到点自动放行。
 - 订单详情等已有账号级协调器（`adapter/order_detail_coordinator.go`）保持原有更严格间隔，不得与上述节流器互相替代而放宽。
 
 ## Mandatory refactoring governance — DO NOT SKIP
@@ -392,6 +404,14 @@ compile the platform binaries, restore or populate the architecture-specific Pla
 assemble the package with the platform packaging script, and run the package-specific signing step.
 Windows uses `packaging/windows/installer.iss`; macOS uses `packaging/macos/build-pkg.sh`; Linux archives
 the directory containing `install.sh`, `uninstall.sh`, the systemd unit, binaries and matching runtime.
+
+## Reply chain, manual takeover and order stage
+
+Buyer chat messages go through `engine.ReplyService.Handle` in this order: item first reply → keyword reply → Agent reply → AI reply → default reply (system notification cards enter automation decisions only). Manual takeover (`internal/engine/manual_takeover.go`, per-account in-memory tracker, no goroutine, bounded tables) pauses Agent/AI (scope `ai`) or all automatic replies (scope `all`) after a human reply; a keyword rule with `notify_manual` sends the independent `chat_manual_requested` notification and also starts the pause. The optional order stage given to AI and Agent (`internal/engine/order_context.go`) is read only from local order records (at most 3 orders, never order numbers, amounts or shipping details) and must not trigger platform requests.
+
+## Documentation sync
+
+Operator documentation lives only in `docs/wiki/` (English default names plus `.zh-CN` pages). When a change adds or alters user-visible behavior, limits, settings, notification categories, API operations or migrations, update the matching Wiki pages in both languages in the same change, record it in `docs/architecture/refactoring-master-plan.md`, and run `make docs-check`. `README.md` / `README.zh-CN.md` feature tables must list every user-facing module.
 
 ## Architecture
 
