@@ -1,10 +1,12 @@
 import type { ComponentType,Dispatch,SetStateAction } from 'react';
 import type { AccountDetail,AIReplySettings,ConsignProofMode,ManualTakeoverScope,NotificationChannel } from './api';
 
-// AccountListProps 描述账号页面从应用壳接收的按需加载组件。
+// AccountListProps 描述账号页面从应用壳接收的按需加载组件和账号→聊天跳转回调。
 export interface AccountListProps {
   // accountEditModal 是应用壳按需注入的账号编辑弹窗；只在首次打开编辑时下载，保持账号页分片在预算内。
   accountEditModal: ComponentType<AccountEditModalProps>;
+  // onOpenChat 请求应用壳切换到在线聊天并优先选中指定账号；未注入时聊天入口仍展示但不会产生跳转。
+  onOpenChat?: (accountID: string) => void;
 }
 
 // AccountEditForm 描述账号编辑弹窗中的可编辑字段。

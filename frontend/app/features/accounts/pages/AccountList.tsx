@@ -25,8 +25,8 @@ const EditModalLoading: React.FC = () => (
   </div>
 );
 
-// AccountList 渲染账号列表组件。
-const AccountList: React.FC<AccountListProps> = ({ accountEditModal: AccountEditModal }) => {
+// AccountList 渲染账号列表组件，并把应用壳注入的编辑弹窗和账号→聊天跳转回调转交给账号卡片。
+const AccountList: React.FC<AccountListProps> = ({ accountEditModal: AccountEditModal, onOpenChat }) => {
   // accountData 保存账号列表及其加载控制器。
   const { accounts, setAccounts, loading, loadAccounts } = useAccountsData();
   // accountSearch 保存列表过滤关键词。
@@ -203,7 +203,7 @@ const AccountList: React.FC<AccountListProps> = ({ accountEditModal: AccountEdit
           />
           <button
             onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => startQRLogin()}
-            className="ios-btn-primary flex items-center gap-2 px-6 py-3 rounded-2xl font-bold shadow-lg shadow-blue-200 transition-transform hover:scale-105 active:scale-95"
+            className="ios-btn-primary flex w-full items-center justify-center gap-2 px-6 py-3 rounded-2xl font-bold shadow-lg shadow-blue-200 transition-transform hover:scale-105 active:scale-95 sm:w-auto"
           >
             <QrCode className="w-5 h-5" />
             扫码添加新账号
@@ -232,6 +232,7 @@ const AccountList: React.FC<AccountListProps> = ({ accountEditModal: AccountEdit
             onTasks={setTaskAccount}
             onToggle={handleToggle}
             onDelete={openDeleteDialog}
+            onOpenChat={onOpenChat}
           />
         ))}
 

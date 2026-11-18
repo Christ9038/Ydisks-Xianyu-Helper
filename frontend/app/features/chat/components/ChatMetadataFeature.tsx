@@ -53,13 +53,13 @@ const ChatMetadataFeature: React.FC<ChatMetadataFeatureProps> = ({ activeAccount
   }, [closeQuickReplyPanel, quickReplyPanelOpen]);
 
   return <>
-    {canManageBuyerNote && <div className="absolute left-40 right-[5.5rem] top-2 z-10 flex min-h-16 items-center justify-center">
+    {canManageBuyerNote && <div className="relative z-10 flex min-h-0 items-center px-3 py-1.5 lg:absolute lg:left-40 lg:right-[5.5rem] lg:top-2 lg:z-10 lg:min-h-16 lg:justify-center lg:px-0 lg:py-0">
       <button type="button" onClick={/* 当前回调打开当前买家的完整备注弹窗。 */ chatMetadata.openNoteDialog} className="inline-flex w-fit max-w-full items-center gap-2 rounded-lg border border-transparent px-2.5 py-1.5 text-left text-xs font-medium leading-5 text-slate-500 transition hover:border-sky-100 hover:bg-sky-50 hover:text-sky-700" title={buyerNoteContent || '添加用户备注'}>
         <FilePenLine className="h-4 w-4 shrink-0 self-center text-slate-400" />
         <span className="min-w-0 break-words line-clamp-2">{chatMetadata.noteLoading ? '正在读取备注…' : buyerNoteContent || '添加用户备注'}</span>
       </button>
     </div>}
-    {quickReplyPanelOpen && activeAccountID && <aside ref={quickReplyPanelRef} aria-label="账号快捷回复" className="absolute inset-y-0 right-0 z-20 flex w-[304px] max-w-[88%] flex-col border-l border-slate-200 bg-white shadow-2xl">
+    {quickReplyPanelOpen && activeAccountID && <aside ref={quickReplyPanelRef} aria-label="账号快捷回复" className="absolute inset-y-0 right-0 z-20 flex w-[304px] max-w-[88%] flex-col border-l border-slate-200 bg-white shadow-2xl max-lg:fixed max-lg:inset-y-0 max-lg:right-0 max-lg:z-40 max-lg:max-w-[88vw]">
       <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
         <div>
           <div className="text-sm font-black text-slate-900">快捷回复</div>

@@ -1,6 +1,8 @@
 import React,{ lazy,Suspense,useEffect,useState } from 'react';
 import type { Item } from '../features/items/api';
 import Sidebar from '../../shared/ui/Sidebar';
+import MobileNav from './MobileNav';
+import { requestChatAccount } from '../../shared/browser/chatAccountTarget';
 import { useChatTitleNotification } from '../features/chat/titleNotification';
 import { getHealth } from '../features/system/api';
 import type { BuildInfo } from '../features/system/types';
@@ -105,6 +107,8 @@ export interface AppContentProps {
   onDeliveryTargetHandled: () => void;
   // onNavigateToItems 在模板批次启动后跳转到商品页查看批量铺货进度。
   onNavigateToItems?: () => void;
+  // onOpenChat 负责在账号页点击“进入聊天”时记录目标账号并切换到聊天页。
+  onOpenChat: (accountID: string) => void;
 }
 
 // AppContent 按当前导航标识选择业务页面，并隔离页面代码的动态加载边界。
@@ -115,6 +119,7 @@ export const AppContent: React.FC<AppContentProps> = ({
   onConfigureDelivery,
   onDeliveryTargetHandled,
   onNavigateToItems,
+  onOpenChat,
 }) => {
   // handleConfigureDelivery 将商品页面对象转换成路由壳使用的最小联动载荷。
   const handleConfigureDelivery = (item /* item 表示用户选择的商品。 */: Item) => {
@@ -129,7 +134,7 @@ export const AppContent: React.FC<AppContentProps> = ({
   const renderPage = () => {
     switch (activeTab) {
       case 'dashboard': return <Dashboard />;
-      case 'accounts': return <AccountList accountEditModal={AccountEditModal} />;
+      case 'accounts': return <AccountList accountEditModal={AccountEditModal} onOpenChat={onOpenChat} />;
       case 'chat': return <Chat libraryImageChooser={LibraryImageChooser} />;
       case 'orders': return <OrderList />;
       case 'sales': return <SalesStats />;
@@ -188,8 +193,16 @@ const AuthenticatedShell: React.FC<AuthenticatedShellProps> = ({
     return /* cleanup 在壳层卸载时释放健康检查请求。 */ () => controller.abort();
   }, []);
 
+  // handleOpenChatAccount 由账号页“进入聊天”点击触发，写入一次性目标账号后切换到聊天页。
+  const handleOpenChatAccount = (accountID /* accountID 是用户希望进入聊天时优先选中的账号标识。 */: string): void => {
+    requestChatAccount(accountID);
+    onNavigate('chat');
+  };
+
   return (
     <div className="flex min-h-screen bg-canvas text-ink">
+    {/* 侧边栏只在 lg 及以上桌面宽度展示；移动端主导航改由底部导航承担。 */}
+    <div className="hidden lg:block">
     <Sidebar
       activeTab={activeTab}
       isAdmin={isAdmin}
@@ -200,12 +213,13 @@ const AuthenticatedShell: React.FC<AuthenticatedShellProps> = ({
       buildInfo={buildInfo}
       hasUnreadChatMessage={hasUnreadChatMessage}
     />
+    </div>
 
-    <main className={`h-screen min-w-0 flex-1 overflow-x-hidden overflow-y-auto scroll-smooth transition-[margin] duration-300 ${collapsed ? 'ml-16' : 'ml-64'} ${activeTab === 'chat' ? 'p-4 md:p-6' : 'p-8 md:p-12'}`}>
+    <main className={`h-screen min-w-0 flex-1 overflow-x-hidden overflow-y-auto scroll-smooth transition-[margin] duration-300 ml-0 ${collapsed ? 'lg:ml-16' : 'lg:ml-64'} ${activeTab === 'chat' ? 'p-0 lg:p-4 xl:p-6' : 'p-4 pb-[calc(var(--mobile-nav-height)+env(safe-area-inset-bottom)+1rem)] md:p-8 md:pb-[calc(var(--mobile-nav-height)+env(safe-area-inset-bottom)+1rem)] lg:p-12 lg:pb-10'}`}>
       {/* 主内容区域的背景装饰不参与交互，避免遮挡业务页面。 */}
       <div className="fixed top-0 right-0 -z-10 h-[800px] w-[800px] pointer-events-none rounded-full bg-gradient-to-bl from-blue-50 to-transparent opacity-60 blur-[120px]" />
 
-      <div className={`${activeTab === 'chat' ? 'mx-auto max-w-[1680px]' : 'mx-auto max-w-[1400px] pb-10'}`}>
+      <div className={`${activeTab === 'chat' ? 'mx-auto max-w-[1680px]' : 'mx-auto max-w-[1400px] lg:pb-10'}`}>
         <AppContent
           activeTab={activeTab}
           isAdmin={isAdmin}
@@ -213,9 +227,20 @@ const AuthenticatedShell: React.FC<AuthenticatedShellProps> = ({
           onConfigureDelivery={onConfigureDelivery}
           onDeliveryTargetHandled={onDeliveryTargetHandled}
           onNavigateToItems={/* 批次启动后进入商品页查看进度。 */ () => onNavigate('items')}
+          onOpenChat={handleOpenChatAccount}
         />
       </div>
     </main>
+
+    {/* 移动端底部导航仅在 lg 以下渲染，复用壳层的未读状态、构建版本和会话回调。 */}
+    <MobileNav
+      activeTab={activeTab}
+      isAdmin={isAdmin}
+      buildInfo={buildInfo}
+      hasUnreadChatMessage={hasUnreadChatMessage}
+      onNavigate={onNavigate}
+      onLogout={onLogout}
+    />
     </div>
   );
 };
