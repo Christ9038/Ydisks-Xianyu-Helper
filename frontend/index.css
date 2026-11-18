@@ -141,6 +141,9 @@
   --shadow-brand-soft: 0 2px 8px rgb(var(--color-brand) / 0.2);
   --shadow-brand-active: 0 8px 18px rgb(var(--color-brand) / 0.2);
   --shadow-brand-strong: 0 8px 20px rgb(var(--color-brand) / 0.3);
+
+  /* 移动端底部导航的内容高度；主内容底部留白和聊天视口共同扣除该高度与安全区域。 */
+  --mobile-nav-height: 4rem;
 }
 
 /* 覆盖 Tailwind 默认的蓝色焦点环和黑色占位阴影，避免预设色偷偷进入页面。 */
@@ -521,6 +524,27 @@ body {
 /* 大模态框 */
 .modal-container-lg {
   max-width: 64rem; /* max-w-4xl */
+}
+
+/*
+ * 聊天视口：移动端扣除底部导航和安全区域后的可用高度，避免输入框被固定导航遮挡。
+ * 桌面端去掉移动导航占位，恢复为原先扣除顶部工具区后的高度并保留最小高度。
+ */
+.chat-viewport {
+  height: calc(100vh - var(--mobile-nav-height) - env(safe-area-inset-bottom));
+}
+
+@supports (height: 100dvh) {
+  .chat-viewport {
+    height: calc(100dvh - var(--mobile-nav-height) - env(safe-area-inset-bottom));
+  }
+}
+
+@media (min-width: 1024px) {
+  .chat-viewport {
+    height: calc(100vh - 4rem);
+    min-height: 560px;
+  }
 }
 
 /* 自定义弹窗定位 - 上下参考侧边栏中间，左右居中 */

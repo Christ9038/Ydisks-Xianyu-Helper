@@ -67,6 +67,7 @@ describe('AuthenticatedShell 页面组合行为', /* 当前回调验证权限回
         isAdmin={false}
         onConfigureDelivery={/* configureTargetAction 接收商品规则目标。 */ () => undefined}
         onDeliveryTargetHandled={/* handledAction 表示规则目标已消费。 */ () => undefined}
+        onOpenChat={/* openChatAction 接收账号页请求进入聊天的账号标识。 */ () => undefined}
       />,
     );
 
@@ -85,6 +86,7 @@ describe('AuthenticatedShell 页面组合行为', /* 当前回调验证权限回
         isAdmin
         onConfigureDelivery={/* configureTargetAction 接收商品规则目标。 */ () => undefined}
         onDeliveryTargetHandled={/* handledAction 表示规则目标已消费。 */ () => undefined}
+        onOpenChat={/* openChatAction 接收账号页请求进入聊天的账号标识。 */ () => undefined}
       />,
     );
 
@@ -104,6 +106,7 @@ describe('AuthenticatedShell 页面组合行为', /* 当前回调验证权限回
         isAdmin={false}
         onConfigureDelivery={configureTarget}
         onDeliveryTargetHandled={/* handledAction 表示规则目标已消费。 */ () => undefined}
+        onOpenChat={/* openChatAction 接收账号页请求进入聊天的账号标识。 */ () => undefined}
       />,
     );
 
@@ -124,6 +127,7 @@ describe('AuthenticatedShell 页面组合行为', /* 当前回调验证权限回
         deliveryRuleTarget={target}
         onConfigureDelivery={/* configureTargetAction 接收商品规则目标。 */ () => undefined}
         onDeliveryTargetHandled={handledTarget}
+        onOpenChat={/* openChatAction 接收账号页请求进入聊天的账号标识。 */ () => undefined}
       />,
     );
     await waitFor(/* rulesAssertion 等待规则页面懒加载完成。 */ () => expect(screen.getByTestId('rules-page')).toBeTruthy());

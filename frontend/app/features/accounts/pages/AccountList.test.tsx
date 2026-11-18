@@ -94,6 +94,7 @@ vi.mock('../components/AccountCard', /* accountCardMockFactory 提供账号卡�
       <button onClick={/* refreshAction 刷新账号资料。 */ () => props.onRefreshProfile(props.account)}>刷新资料</button>
       <button onClick={/* reauthorizeAction 启动账号二维码重新授权。 */ () => props.onReauthorize(props.account)}>重新授权</button>
       <button onClick={/* editAction 打开账号编辑弹窗。 */ () => props.onEdit(props.account)}>编辑</button>
+      <button onClick={/* chatAction 打开当前账号的在线聊天并透传应用壳回调。 */ () => props.onOpenChat?.(props.account.id)}>在线聊天</button>
     </div>
   );
   return { AccountCard: AccountCardMock };
@@ -157,6 +158,14 @@ describe('AccountList 页面组合行为', /* 当前回调验证账号列表页�
   afterEach(/* 当前回调清理页面 DOM 和浏览器提示替身。 */ () => {
     cleanup();
     vi.restoreAllMocks();
+  });
+
+  test('在线聊天入口向应用壳转发目标账号', /* 当前回调验证账号页面把聊天跳转目标传给应用壳。 */ () => {
+    // onOpenChat 是应用壳聊天跳转回调的测试替身。
+    const onOpenChat = vi.fn();
+    render(<AccountListPage accountEditModal={InjectedEditModal} onOpenChat={onOpenChat} />);
+    fireEvent.click(screen.getAllByText('在线聊天')[0]);
+    expect(onOpenChat).toHaveBeenCalledWith('account-1');
   });
 
   test('点击编辑后渲染应用壳注入的编辑弹窗', /* 当前回调验证按需加载的编辑弹窗通过 props 注入并收到当前账号。 */ () => {

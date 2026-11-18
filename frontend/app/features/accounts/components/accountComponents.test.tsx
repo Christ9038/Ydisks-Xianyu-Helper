@@ -57,6 +57,24 @@ describe('账号 feature 展示组件', /* 当前回调覆盖账号页面子模�
     expect(onDelete).toHaveBeenCalledWith(accountFixture);
   });
 
+  test('在线聊天入口在账号启用时转发账号标识，停用时不可点击', /* 当前回调验证聊天入口的启用条件和账号标识交接。 */ () => {
+    // onOpenChat 是账号→聊天跳转测试替身。
+    const onOpenChat = vi.fn();
+    // view 保存启用账号的渲染结果，后续复用为停用账号以验证禁用条件。
+    const view = render(<AccountCard account={accountFixture} refreshing={false} deleting={false} onRefreshProfile={noopAccountAction} onReauthorize={noopAccountAction} onVerify={noopAccountAction} onEdit={noopAccountAction} onAI={noopAccountAction} onTasks={noopAccountAction} onToggle={noopAccountAction} onDelete={noopAccountAction} onOpenChat={onOpenChat} />);
+    fireEvent.click(screen.getByRole('button', { name: '在线聊天' }));
+    expect(onOpenChat).toHaveBeenCalledWith(accountFixture.id);
+    // disabledAccount 是停用状态账号，聊天入口应提示先启用且不触发跳转。
+    const disabledAccount = { ...accountFixture, enabled: false };
+    view.rerender(<AccountCard account={disabledAccount} refreshing={false} deleting={false} onRefreshProfile={noopAccountAction} onReauthorize={noopAccountAction} onVerify={noopAccountAction} onEdit={noopAccountAction} onAI={noopAccountAction} onTasks={noopAccountAction} onToggle={noopAccountAction} onDelete={noopAccountAction} onOpenChat={onOpenChat} />);
+    // chatButton 是停用账号卡片上的在线聊天按钮。
+    const chatButton = screen.getByRole('button', { name: '在线聊天' }) as HTMLButtonElement;
+    expect(chatButton.disabled).toBe(true);
+    expect(chatButton.getAttribute('title')).toContain('启用');
+    fireEvent.click(chatButton);
+    expect(onOpenChat).toHaveBeenCalledTimes(1);
+  });
+
   test('风控账号提示粘贴无风控 Cookie 而不是重新扫码', /* 当前回调验证风控与登录失效使用不同的恢复入口。 */ () => {
     // onEdit 是打开编辑弹窗的测试替身。
     const onEdit = vi.fn();

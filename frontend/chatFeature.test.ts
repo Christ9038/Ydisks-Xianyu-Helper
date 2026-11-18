@@ -7,9 +7,12 @@ const source = (path: string) => readFileSync(resolve(__dirname, path), 'utf8');
 describe('online chat UI contract', () => {
 	test('uses account tabs above a two-column buyer/chat layout', () => {
 		const chat = source('app/features/chat/pages/Chat.tsx'); /* chat 表示chat。 */
-		expect(chat).toContain('role="tablist"');
-		expect(chat).toContain('grid-cols-[320px_minmax(0,1fr)]');
-		expect(chat).toContain('min-h-0 min-w-0 flex-col overflow-hidden');
+	expect(chat).toContain('role="tablist"');
+	expect(chat).toContain('lg:grid-cols-[320px_minmax(0,1fr)]');
+	expect(chat).toContain('useChatMobilePane');
+	expect(chat).toContain('chat-viewport');
+	expect(chat).toContain('aria-label="返回会话列表"');
+	expect(chat).toContain('min-h-0 min-w-0 flex-col overflow-hidden');
 		expect(chat).not.toContain('grid-cols-[320px_minmax(0,1fr)_');
 		expect(chat).toContain('activeAccountID');
 		expect(chat).toContain('activeChatID');

@@ -1,5 +1,6 @@
 import type React from 'react';
 import { useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState } from 'react';
+import { consumeChatAccountTarget } from '../../../shared/browser/chatAccountTarget';
 import { emojiURL,renderXianyuText,xianyuEmojis } from '../../../chatEmojis';
 import type { AccountDetail,ChatMessage,ChatSession } from './api';
 import { confirmedOutgoingMessageFromError,deleteChatSession,getAccountDetails,getAccountRuntimeStatuses,getChatMessagePage,getChatSessionPage,markChatRead,sendChatImage,sendChatLibraryImage,sendChatMessage,uncertainOutgoingMessageFromError } from './api';
@@ -217,7 +218,13 @@ export const useChat = (): UseChatResult => {
     if (activeChatID && suppressAutoSelectAccountRef.current === activeAccountID) suppressAutoSelectAccountRef.current = '';
   }, [activeAccountID, activeChatID]);
   useLayoutEffect(/* 当前回调在浏览器处理下一条实时事件前同步已经提交的会话列表快照。 */ () => { sessionsByAccountRef.current = sessionsByAccount; }, [sessionsByAccount]);
-  useEffect(/* 当前回调在切换账号或会话时清理只针对旧会话的发送状态收口提示。 */ () => { setSendNotice(''); }, [activeAccountID, activeChatID]);
+  useEffect(/* 当前副作用仅在账号或会话切换时清空草稿、重试来源和错误，防止旧上下文的内容或重试动作被发送到新会话。 */ () => {
+    setDraft('');
+    setRetryText(null);
+    setRetryImage(null);
+    setError('');
+    setSendNotice('');
+  }, [activeAccountID, activeChatID]);
 
   /** 刷新指定账号的联系人列表，并丢弃过期响应。 */
   const reloadSessions = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ async (accountID: string): Promise<ChatSession[]> => {
@@ -315,10 +322,14 @@ export const useChat = (): UseChatResult => {
         setStoredContactCursors(Object.fromEntries(sessionPages.map(/* 当前回调记录每个账号本地联系人首页的下一游标。 */ ([id, page]) => [id, page.next_stored_cursor])));
         setPlatformHasMoreContacts(Object.fromEntries(sessionPages.map(/* 当前回调记录每个账号平台联系人分页状态。 */ ([id, page]) => [id, page.platform_has_more ?? page.has_more])));
         setStoredHasMoreContacts(Object.fromEntries(sessionPages.map(/* 当前回调记录每个账号本地联系人分页状态。 */ ([id, page]) => [id, page.stored_has_more ?? page.has_more])));
-        // stored 已保存数据。
+        // target 保存账号页交接的一次性目标账号；初始加载只消费一次，避免后续导航复用旧账号。
+        const target = consumeChatAccountTarget();
+        // stored 保存上一次由用户选择的账号标识，作为没有交接目标时的回退。
         const stored = window.localStorage.getItem('ydisks.chat.account.v1') || '';
-        // first 首项。
-        const first = enabled.some(/* 当前回调处理集合中的单个元素。 */ account => account.id === stored) ? stored : enabled[0]?.id || '';
+        // first 保存初始选中的账号：优先账号页交接目标，其次上次选择，最后首个启用账号。
+        const first = enabled.some(/* 当前回调判断交接目标是否为当前可用的启用账号。 */ account => account.id === target)
+          ? target
+          : enabled.some(/* 当前回调判断上次选择是否仍为当前可用的启用账号。 */ account => account.id === stored) ? stored : enabled[0]?.id || '';
         setActiveAccountID(first);
       } catch (/* loadError 表示加载错误。 */ loadError) {
         if (!controller.signal.aborted) setError(loadError instanceof Error ? loadError.message : '加载聊天数据失败');

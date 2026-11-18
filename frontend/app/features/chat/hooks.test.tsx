@@ -5,6 +5,7 @@ import type { AccountDetail,ChatMessage,ChatSession } from './api';
 import { confirmedOutgoingMessageFromError,deleteChatSession,getAccountDetails,getAccountRuntimeStatuses,getChatMessagePage,getChatSessionPage,markChatRead,sendChatImage,sendChatLibraryImage,sendChatMessage,uncertainOutgoingMessageFromError } from './api';
 import { useChat } from './hooks';
 import { publishChatConnectionState,publishChatLiveMessage } from './liveEvents';
+import { requestChatAccount } from '../../../shared/browser/chatAccountTarget';
 
 vi.mock('./api', /* chatApiMockFactory 提供聊天 Hook 的确定性 API 替身。 */ () => ({
   getAccountDetails: vi.fn(),
@@ -78,6 +79,8 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
     publishChatConnectionState('connecting');
     // localStorageStub 是聊天 Hook 记忆账号选择所需的浏览器存储替身。
     Object.defineProperty(window, 'localStorage', { configurable: true, value: { getItem: vi.fn().mockReturnValue(''), setItem: vi.fn(), removeItem: vi.fn() } });
+    // 清空账号页交接目标，避免上一个测试留下的一次性账号影响当前初始化选择。
+    window.sessionStorage.removeItem('ydisks.chat.targetAccount.v1');
     // createObjectURLMock 和 revokeObjectURLMock 模拟浏览器图片预览地址的创建与释放。
     Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(/* 当前回调为测试图片生成稳定的临时地址。 */ (file: File) => `blob:${file.name}`) });
     Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
@@ -973,6 +976,108 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
     expect(hook.result.current.messages.some(/* message 表示当前会话可见消息。 */ message => message.content === '不应显示')).toBe(false);
     expect(hook.result.current.deletingChatID).toBe('chat-2');
     await act(/* 当前回调完成新删除并释放所有 Promise。 */ async () => { newDeletePending.resolve({ success: true }); await newDelete; });
+    hook.unmount();
+  });
+
+  test('初始加载优先采用账号页交接目标并只消费一次', /* 当前回调验证目标账号优先于本地记忆且读取后清除。 */ async () => {
+    // secondAccount 是账号页交接指定的启用账号。
+    const secondAccount: AccountDetail = { ...accountFixture, id: 'account-2', nickname: '第二账号' };
+    // secondSession 是该账号用于确认选中结果的隔离会话。
+    const secondSession: ChatSession = { ...sessionFixture, account_id: 'account-2', chat_id: 'chat-2', peer_user_id: 'buyer-2' };
+    getDetailsMock.mockResolvedValue([accountFixture, secondAccount]);
+    getRuntimeMock.mockResolvedValue({
+      'account-1': { state: 'online', connected: true, failures: 0, updated_at: '2026-08-15T00:00:00Z' },
+      'account-2': { state: 'online', connected: true, failures: 0, updated_at: '2026-08-15T00:00:00Z' },
+    });
+    getSessionPageMock.mockImplementation(/* accountID 指定初始化请求返回哪个账号的隔离会话。 */ async accountID => ({ sessions: accountID === 'account-2' ? [secondSession] : [sessionFixture], has_more: false }));
+    // 本地记忆指向 account-1，交接目标必须优先于该回退。
+    vi.mocked(window.localStorage.getItem).mockReturnValue('account-1');
+    // 记录用户从账号页进入聊天时的一次性目标账号。
+    requestChatAccount('account-2');
+    // hook 是目标账号交接场景的聊天 Hook 渲染结果。
+    const hook = renderHook(
+      // targetHookFactory 创建一次性目标账号场景的聊天 Hook。
+      () => useChat(),
+    );
+    await waitFor(
+      // targetAccountAssertion 等待交接目标账号成为当前账号。
+      () => expect(hook.result.current.activeAccountID).toBe('account-2'),
+    );
+    await waitFor(
+      // targetChatAssertion 等待目标账号的会话被自动选中。
+      () => expect(hook.result.current.activeChatID).toBe('chat-2'),
+    );
+    expect(window.sessionStorage.getItem('ydisks.chat.targetAccount.v1')).toBeNull();
+    hook.unmount();
+  });
+
+  test('切换账号或会话会清空草稿、错误和发送重试状态', /* 当前回调验证旧上下文的发送状态不会带到新账号或新会话。 */ async () => {
+    // secondAccount 是账号切换测试的目标账号。
+    const secondAccount: AccountDetail = { ...accountFixture, id: 'account-2', nickname: '第二账号' };
+    // secondSession 是目标账号用于验证账号切换清理的默认会话。
+    const secondSession: ChatSession = { ...sessionFixture, account_id: 'account-2', chat_id: 'chat-2', peer_user_id: 'buyer-2' };
+    // thirdSession 是目标账号用于验证同一账号内会话切换清理的第二条会话。
+    const thirdSession: ChatSession = { ...secondSession, chat_id: 'chat-3', peer_user_id: 'buyer-3' };
+    getDetailsMock.mockResolvedValue([accountFixture, secondAccount]);
+    getRuntimeMock.mockResolvedValue({
+      'account-1': { state: 'online', connected: true, failures: 0, updated_at: '2026-08-15T00:00:00Z' },
+      'account-2': { state: 'online', connected: true, failures: 0, updated_at: '2026-08-15T00:00:00Z' },
+    });
+    getSessionPageMock.mockImplementation(/* accountID 指定当前初始化请求返回哪个账号的隔离会话。 */ async accountID => ({ sessions: accountID === 'account-2' ? [secondSession, thirdSession] : [sessionFixture], has_more: false }));
+    // hook 是账号与会话切换清理场景的聊天 Hook 渲染结果。
+    const hook = renderHook(
+      // switchCleanupHookFactory 创建包含两个账号和两条会话的聊天 Hook。
+      () => useChat(),
+    );
+    await waitFor(
+      // firstChatAssertion 等待初始账号和会话完成选择。
+      () => expect(hook.result.current.activeChatID).toBe('chat-1'),
+    );
+    await act(
+      // firstDraftAction 在初始会话写入一段待发送草稿。
+      () => hook.result.current.setDraft('hello'),
+    );
+    sendMessageMock.mockRejectedValueOnce(new Error('发送失败'));
+    await act(
+      // failedSendAction 提交失败消息以产生错误和可重试状态。
+      async () => { await hook.result.current.handleSend(); },
+    );
+    expect(hook.result.current.error).toBe('发送失败');
+    expect(hook.result.current.retryAvailable).toBe(true);
+    await act(
+      // accountSwitchAction 切换到第二账号，旧会话草稿和重试状态必须立即失效。
+      () => hook.result.current.setActiveAccountID('account-2'),
+    );
+    await waitFor(
+      // secondChatAssertion 等待第二账号的默认会话完成选择。
+      () => expect(hook.result.current.activeChatID).toBe('chat-2'),
+    );
+    expect(hook.result.current.draft).toBe('');
+    expect(hook.result.current.retryAvailable).toBe(false);
+    expect(hook.result.current.error).toBe('');
+
+    await act(
+      // secondDraftAction 在第二账号当前会话写入新草稿。
+      () => hook.result.current.setDraft('second'),
+    );
+    sendMessageMock.mockRejectedValueOnce(new Error('第二账号发送失败'));
+    await act(
+      // secondFailedSendAction 再次制造会话级错误和重试状态。
+      async () => { await hook.result.current.handleSend(); },
+    );
+    expect(hook.result.current.error).toBe('第二账号发送失败');
+    expect(hook.result.current.retryAvailable).toBe(true);
+    await act(
+      // chatSwitchAction 在同一账号内切换到另一条会话，草稿和错误必须清空。
+      () => hook.result.current.setActiveChatID('chat-3'),
+    );
+    await waitFor(
+      // thirdChatAssertion 等待另一条会话成为当前会话。
+      () => expect(hook.result.current.activeChatID).toBe('chat-3'),
+    );
+    expect(hook.result.current.draft).toBe('');
+    expect(hook.result.current.retryAvailable).toBe(false);
+    expect(hook.result.current.error).toBe('');
     hook.unmount();
   });
 });
