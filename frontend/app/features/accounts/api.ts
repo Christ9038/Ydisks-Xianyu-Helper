@@ -14,10 +14,11 @@ NotificationChannel,
 NotificationChannelResponse,
 NotificationEventType,
 OperationResponse,
+CredentialVerificationResponse,
 QRLoginGenerateResponse,QRLoginStatusResponse,QRLoginVerificationResponse
 } from './models';
 import { contractClient, runContractRequest } from '../../../shared/api-contract/client';
-import { type RequestControlOptions } from '../../../shared/http/client';
+import { ApiError,type RequestControlOptions } from '../../../shared/http/client';
 import { collectionFrom,objectFrom } from '../../../shared/http/contract';
 import { normalizeConsignProofMode } from './consignProof';
 import { normalizeManualTakeoverMinutes,normalizeManualTakeoverScope } from './manualTakeover';
@@ -115,6 +116,7 @@ export interface AccountRuntimeStatus {
   /** connected 表示连接状态。 */ connected: boolean;
   /** failures 表示失败次数。 */ failures: number;
   /** updated_at 表示最后更新时间。 */ updated_at: string;
+  /** verification_pending 表示定时续期被平台要求安全验证且尚未完成。 */ verification_pending?: boolean;
 }
 
 // getAccountRuntimeStatuses 读取账号运行状态。
@@ -126,6 +128,18 @@ export const getAccountRuntimeStatuses = async (options?: RequestControlOptions)
   );
   return response;
 };
+
+// startCredentialVerification 为续期被要求安全验证的账号创建人工验证会话。
+// 没有待验证登记时服务端返回 409（verification_expired），调用方应回退到重新扫码授权。
+export const startCredentialVerification = async (accountId: string, options?: RequestControlOptions): Promise<CredentialVerificationResponse> => {
+  return runContractRequest(
+    /* signal 是本次创建验证会话请求的超时与取消控制信号。 */ signal => contractClient.POST('/api/v1/accounts/{cid}/credential-verification', { params: { path: { cid: accountId } }, signal }),
+    options,
+  );
+};
+
+// isVerificationExpiredError 判断错误是否表示“没有待完成的安全验证”（HTTP 409），调用方据此回退到扫码重新授权。
+export const isVerificationExpiredError = (error: unknown): boolean => error instanceof ApiError && error.status === 409;
 
 // generateQRLogin 生成二维码登录会话。
 export const generateQRLogin = async (options?: RequestControlOptions): Promise<QRLoginGenerateResponse> => {

@@ -212,7 +212,7 @@ func ServerDependencies(services *composition.Services, base HTTPDependencies, s
 			SessionRecovery:     sessionRecoveryTransport{handler: sessionRecovery},
 			PlatformCredentials: ports.PlatformCredentials, Authentication: ports.Authentication, LoginAudit: ports.LoginAudit,
 			PasswordLogin: ports.PasswordLogin, AccountDelete: ports.AccountDelete, AccountProfile: ports.AccountProfile,
-			AccountLongLogin: ports.AccountLongLogin, AccountSettings: ports.AccountSettings, AccountRuntime: ports.AccountRuntime,
+			AccountLongLogin: ports.AccountLongLogin, CredentialVerification: ports.CredentialVerification, AccountSettings: ports.AccountSettings, AccountRuntime: ports.AccountRuntime,
 			AccountSummaries: ports.AccountSummaries, AccountTasks: ports.AccountTasks, Chat: ports.Chat,
 			UncertainNotifications: ports.UncertainNotifications, NotificationChannels: ports.NotificationChannels,
 			Analytics: ports.Analytics, AutomationIssues: ports.AutomationIssues, AutomationAudit: ports.AutomationAudit, AutomationRules: ports.AutomationRules, DeliveryTemplates: ports.DeliveryTemplates,

@@ -99,7 +99,7 @@ func (s *Scheduler) addAPILog(ctx context.Context, log db.RenewalLog) {
 		return
 	}
 	// statuses、err 用于本次流程后续判断的statuses、err
-	statuses, err := s.store.Renewal.RecentAPICookieRenewStatuses(ctx, log.CookieID, 4)
+	statuses, err := s.store.Renewal.RecentTerminalAPICookieRenewStatuses(ctx, log.CookieID, 4)
 	if err != nil || len(statuses) < 3 || statuses[0] != "failed" || statuses[1] != "failed" || statuses[2] != "failed" {
 		return
 	}

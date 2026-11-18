@@ -851,6 +851,67 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/accounts/{cid}/credential-verification":
+    post:
+      operationId: postApiV1AccountsBycidCredentialVerification
+      summary: postApiV1AccountsBycidCredentialVerification
+      description: 定时续期被闲鱼要求安全验证后，为账号所有者创建人工验证会话；返回的 session_id 沿用扫码登录的状态轮询与完成验证接口。没有待验证登记时返回 409（verification_expired），前端应回退到重新扫码授权。
+      parameters:
+          - name: cid
+            in: path
+            required: true
+            schema:
+              type: string
+      security: [{cookieAuth: []}]
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CredentialVerificationResponse'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   "/api/v1/accounts/{cid}/remark":
     put:
       operationId: putApiV1AccountsBycidRemark
@@ -10090,6 +10151,17 @@ components:
         updated_at:
           type: string
           format: date-time
+        verification_pending:
+          type: boolean
+          description: 定时续期被平台要求安全验证且尚未完成；管理页据此展示“完成安全验证”入口。
+    CredentialVerificationResponse:
+      type: object
+      required: [success, session_id]
+      properties:
+        success:
+          type: boolean
+        session_id:
+          type: string
     RuntimeStatusMap:
       type: object
       additionalProperties:

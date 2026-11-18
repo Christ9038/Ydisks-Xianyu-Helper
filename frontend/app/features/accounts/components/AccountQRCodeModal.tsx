@@ -19,12 +19,14 @@ export interface AccountQRCodeModalProps {
   faceQrUrl: string;
   // verificationScreenshot 是风控验证截图地址。
   verificationScreenshot: string;
+  // flow 区分扫码登录与续期安全验证，仅影响标题和提示文案；缺省为扫码登录。
+  flow?: 'login' | 'credential';
   // onClose 关闭二维码登录弹窗并取消后台请求。
   onClose: () => void;
 }
 
 // AccountQRCodeModal 渲染二维码登录、风控验证和结果状态。
-export const AccountQRCodeModal: React.FC<AccountQRCodeModalProps> = ({ target, status, codeUrl, errorMessage, faceQrUrl, verificationScreenshot, onClose }) => createPortal(
+export const AccountQRCodeModal: React.FC<AccountQRCodeModalProps> = ({ target, status, codeUrl, errorMessage, faceQrUrl, verificationScreenshot, flow = 'login', onClose }) => createPortal(
   <div className="modal-overlay-centered">
     <div className="modal-container relative" style={{ maxWidth: '26rem' }}>
       <button onClick={onClose} className="absolute top-4 right-4 z-10 w-9 h-9 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded-full transition-colors" aria-label="关闭二维码登录">
@@ -32,8 +34,8 @@ export const AccountQRCodeModal: React.FC<AccountQRCodeModalProps> = ({ target, 
       </button>
       <div className="modal-body">
         <div className="text-center">
-          <h3 className="text-2xl font-extrabold text-gray-900 mb-2">{target ? '重新授权账号' : '扫码添加账号'}</h3>
-          <p className="text-gray-500 mb-8 font-medium">{target ? `请用闲鱼APP扫码，为「${target.nickname || target.remark || target.id}」刷新授权` : '请打开闲鱼APP扫描下方二维码'}</p>
+          <h3 className="text-2xl font-extrabold text-gray-900 mb-2">{flow === 'credential' ? '完成安全验证' : target ? '重新授权账号' : '扫码添加账号'}</h3>
+          <p className="text-gray-500 mb-8 font-medium">{flow === 'credential' && target ? `闲鱼要求为「${target.nickname || target.remark || target.id}」完成安全验证，请按下方提示操作` : target ? `请用闲鱼APP扫码，为「${target.nickname || target.remark || target.id}」刷新授权` : '请打开闲鱼APP扫描下方二维码'}</p>
           <div className={`w-full bg-surface-subtle rounded-xl mx-auto flex items-center justify-center overflow-hidden border-4 border-white shadow-inner mb-6 relative ${status === 'verification' ? 'max-w-72 min-h-64 h-auto p-2' : 'max-w-64 aspect-square'}`}>
             {status === 'loading' && <Loader2 className="w-10 h-10 text-brand animate-spin" />}
             {status === 'waiting' && <SquareQRCode src={codeUrl} alt="闲鱼登录二维码" className="p-2" />}
@@ -43,7 +45,7 @@ export const AccountQRCodeModal: React.FC<AccountQRCodeModalProps> = ({ target, 
                 <span className="font-bold text-lg">登录成功</span>
               </div>
             )}
-            {status === 'error' && <div className="px-5 text-center"><span className="block text-red-600 font-bold">二维码获取失败</span><span className="mt-2 block text-xs leading-5 text-gray-500">{errorMessage || '请关闭窗口后重新发起扫码登录。'}</span></div>}
+            {status === 'error' && <div className="px-5 text-center"><span className="block text-red-600 font-bold">{flow === 'credential' ? '安全验证未能开始' : '二维码获取失败'}</span><span className="mt-2 block text-xs leading-5 text-gray-500">{errorMessage || '请关闭窗口后重新发起扫码登录。'}</span></div>}
             {status === 'verification' && <RiskVerificationPanel faceQrUrl={faceQrUrl} verificationScreenshot={verificationScreenshot} />}
           </div>
           {status !== 'verification' && <p className="text-xs text-gray-400 font-medium bg-gray-50 py-2 rounded-xl">二维码有效期为5分钟，请尽快扫码。</p>}

@@ -13,7 +13,7 @@ A channel with no event selected under "Notification content" receives every eve
 | Offline | `account_offline` | The account's message connection drops, goes offline, its login credential expires, or automatic recovery fails (critical level once consecutive failures reach the limit); one notification per offline episode. |
 | Recovered | `account_recovered` | The account reconnects to the Xianyu message service and is online again; the body includes when it went offline. |
 | Disabled | `account_disabled` | UI description: the account was stopped because of consecutive failures, wrong account password and similar. |
-| Risk verification | `security_verification` | Xianyu asks for a slider, face or QR-code security check. |
+| Risk verification | `security_verification` | Xianyu asks for a slider, face or QR-code security check, including when scheduled API renewal is answered with a security-verification redirect (sent on the first occurrence, once per 10 minutes per account; the message never contains the verification link). |
 | Order-created price change | `automation_order_created` | The "order-created price change" automation task reaches a success or failure end state. |
 | Paid delivery | `automation_order_paid` | The "paid delivery" automation task reaches a success or failure end state (post-payment delivery of bargain orders belongs here too). |
 | Review gift | `automation_buyer_reviewed` | The "review gift" automation task reaches a success or failure end state. |
@@ -21,7 +21,7 @@ A channel with no event selected under "Notification content" receives every eve
 | Manual delivery result | `manual_delivery_result` | Result of a manual full delivery or manual confirm-shipment on the order page; the title reads "[Manual delivery] success/failure". |
 | Manual handling required | `manual_intervention_required` | An automation stopped because the outcome is uncertain, state is missing, or it cannot safely continue, and you must check the order; critical level. |
 | Human agent requested (人工客服) | `chat_manual_requested` | A buyer message matched a keyword rule with "命中后通知人工" (notify a human on match) checked; the body includes the buyer nickname, conversation, product, and the buyer's words. At most one notification per conversation every 10 minutes; warning level. |
-| Renewal | `token_renewal` | One notification when API automatic renewal fails 3 times in a row. |
+| Renewal | `token_renewal` | One notification when API automatic renewal fails 3 times in a row. Skipped and pending runs are ignored when counting. |
 | System error | `system_error` | UI description: background task or system-level exception. |
 
 Notes:

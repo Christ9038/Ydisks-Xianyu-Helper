@@ -9,6 +9,8 @@
 3. Wait for the account to appear, then add a note so multiple accounts are easy to distinguish.
 4. Confirm the account is enabled before syncing products or configuring automation.
 
+When scheduled renewal is blocked by a security check, the account card shows a "Complete security verification" button (valid for 10 minutes after the notification; kept in memory only). Click it and finish the face verification with the Xianyu app; if it has expired the page falls back to a normal QR re-authorization. Until it is done, order and delivery APIs may stop working within minutes.
+
 For face or risk-control verification, use only the official Xianyu app or the official flow shown by the page. Do not forward verification URLs. If only the account ID is shown, click Refresh Nickname and Avatar; scan again if refresh fails.
 
 ## Daily account operations

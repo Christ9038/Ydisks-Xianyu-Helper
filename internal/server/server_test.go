@@ -13,6 +13,7 @@ import (
 
 	"xianyu-go/internal/account"
 	"xianyu-go/internal/adapter"
+	accountapp "xianyu-go/internal/application/account"
 	lifecycleapp "xianyu-go/internal/application/lifecycle"
 	orderapp "xianyu-go/internal/application/orders"
 	"xianyu-go/internal/auth"
@@ -240,7 +241,10 @@ func newTestServerFromComposition(authentication *auth.Service, manager *account
 	})
 	// applicationsErr 表示测试组合根装配应用服务失败的原因。
 	var applicationsErr error
+	// pendingVerifications 与生产组合根一样由外部创建并注入，测试可通过它预置“续期被要求安全验证”的账号。
+	pendingVerifications := accountapp.NewPendingVerificationRegistry()
 	applications, applicationsErr = composition.New(composition.Dependencies{
+		PendingVerifications:        pendingVerifications,
 		OrderDependencies:           orderDependencies,
 		AccountDependencies:         accountDependencies,
 		ItemDependencies:            itemDependencies,
@@ -271,6 +275,7 @@ func newTestServerFromComposition(authentication *auth.Service, manager *account
 	}
 	registerTestAccountManager(server, manager)
 	registerTestPlatform(server, testPlatform)
+	registerTestVerificationRegistry(server, pendingVerifications)
 	registerTestBatchLifecycle(server, applications.LifecycleComponents())
 	registerTestOrderServices(server, applications.TransportPorts().Orders)
 	return server, nil
@@ -369,7 +374,7 @@ func testServerDependencies(authentication *auth.Service, databaseHealth Databas
 		AccountLogin: testAccountLoginAdapter{service: ports.AccountLogin}, QRLogin: testQRLoginAdapter{service: ports.QRLogin},
 		SessionRecovery: testSessionRecoveryAdapter{handler: sessionRecovery}, PlatformCredentials: ports.PlatformCredentials,
 		Authentication: ports.Authentication, LoginAudit: ports.LoginAudit, PasswordLogin: ports.PasswordLogin, AccountDelete: ports.AccountDelete,
-		AccountProfile: ports.AccountProfile, AccountLongLogin: ports.AccountLongLogin, AccountSettings: ports.AccountSettings,
+		AccountProfile: ports.AccountProfile, AccountLongLogin: ports.AccountLongLogin, CredentialVerification: ports.CredentialVerification, AccountSettings: ports.AccountSettings,
 		AccountRuntime: ports.AccountRuntime, AccountSummaries: ports.AccountSummaries, AccountTasks: ports.AccountTasks, Chat: ports.Chat,
 		UncertainNotifications: ports.UncertainNotifications, NotificationChannels: ports.NotificationChannels, Analytics: ports.Analytics,
 		AutomationIssues: ports.AutomationIssues, AutomationAudit: ports.AutomationAudit, AutomationRules: ports.AutomationRules, Cards: ports.Cards,

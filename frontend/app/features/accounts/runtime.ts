@@ -28,6 +28,7 @@ export const mergeAccountRuntimeStatuses = (
     runtime_message: status.message || '',
     runtime_connected: status.connected,
     runtime_updated_at: status.updated_at,
+    verification_pending: status.verification_pending === true,
   };
   },
 );

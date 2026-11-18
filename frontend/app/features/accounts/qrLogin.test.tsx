@@ -8,12 +8,16 @@ const qrLoginMocks = vi.hoisted(/* qrLoginMockFactory 创建二维码登录 API 
   generateQRLogin: vi.fn(),
   checkQRLoginStatus: vi.fn(),
   completeQRVerification: vi.fn(),
+  startCredentialVerification: vi.fn(),
+  isVerificationExpiredError: vi.fn(/* 与真实实现一致：仅 status 为 409 的错误视为登记过期。 */ (error: { status?: number }) => error?.status === 409),
 }));
 
 vi.mock('./api', /* qrApiMockFactory 提供二维码登录接口替身。 */ () => ({
   generateQRLogin: qrLoginMocks.generateQRLogin,
   checkQRLoginStatus: qrLoginMocks.checkQRLoginStatus,
   completeQRVerification: qrLoginMocks.completeQRVerification,
+  startCredentialVerification: qrLoginMocks.startCredentialVerification,
+  isVerificationExpiredError: qrLoginMocks.isVerificationExpiredError,
 }));
 
 import { useAccountQRCodeLogin } from './qrLogin';
@@ -29,6 +33,12 @@ const accountFixture: AccountDetail = {
   auto_bargain: false,
   runtime_message: '在线',
 };
+
+// DelayedVerificationResponse 是测试手动完成的验证会话创建响应。
+interface DelayedVerificationResponse {
+  /** success 表示验证会话是否已创建。 */ success: boolean;
+  /** session_id 是交给轮询使用的会话标识。 */ session_id: string;
+}
 
 // flushMicrotasks 等待轮询请求和回调完成。
 const flushMicrotasks = async () => {
@@ -223,5 +233,62 @@ describe('useAccountQRCodeLogin 二维码登录协调器', /* 当前回调验证
       await startPromise;
     });
     expect(hook.result.current.qrCodeUrl).toBe('');
+  });
+  test('续期安全验证创建会话后进入验证态并沿用轮询完成授权', /* 当前回调验证 credential 流程成功路径。 */ async () => {
+    // 验证会话创建响应：success 表示已创建，session_id 是交给轮询使用的会话标识。
+    qrLoginMocks.startCredentialVerification.mockResolvedValue({ success: true, session_id: 'verify-1' });
+    qrLoginMocks.checkQRLoginStatus.mockResolvedValue({ status: 'verification_required', face_qr_url: 'face-url' });
+    // onLoginSuccess 是授权成功后刷新账号列表的测试替身。
+    const onLoginSuccess = vi.fn();
+    // hook 保存二维码登录 Hook 的渲染结果。
+    const hook = renderHook(/* hookFactory 创建二维码登录 Hook。 */ () => useAccountQRCodeLogin({ onLoginSuccess }));
+    await act(/* 启动续期安全验证。 */ async () => {
+      await hook.result.current.startCredentialVerification(accountFixture);
+    });
+    expect(qrLoginMocks.startCredentialVerification).toHaveBeenCalledWith('account-1', expect.anything());
+    expect(qrLoginMocks.generateQRLogin).not.toHaveBeenCalled();
+    expect(hook.result.current.qrFlow).toBe('credential');
+    expect(hook.result.current.qrStatus).toBe('verification');
+    expect(hook.result.current.showQRModal).toBe(true);
+  });
+
+  test('验证登记已过期（409）时回退到扫码重新授权', /* 当前回调验证 409 回退。 */ async () => {
+    qrLoginMocks.startCredentialVerification.mockRejectedValue({ status: 409, message: '已过期' });
+    // hook 保存二维码登录 Hook 的渲染结果。
+    const hook = renderHook(/* hookFactory 创建二维码登录 Hook。 */ () => useAccountQRCodeLogin({ onLoginSuccess: vi.fn() }));
+    await act(/* 启动续期安全验证。 */ async () => {
+      await hook.result.current.startCredentialVerification(accountFixture);
+    });
+    expect(qrLoginMocks.generateQRLogin).toHaveBeenCalledTimes(1);
+    expect(hook.result.current.qrFlow).toBe('login');
+    expect(hook.result.current.qrStatus).toBe('waiting');
+  });
+
+  test('验证会话创建失败时展示错误且不回退', /* 当前回调验证非 409 失败。 */ async () => {
+    qrLoginMocks.startCredentialVerification.mockRejectedValue({ status: 502, message: '平台失败' });
+    // hook 保存二维码登录 Hook 的渲染结果。
+    const hook = renderHook(/* hookFactory 创建二维码登录 Hook。 */ () => useAccountQRCodeLogin({ onLoginSuccess: vi.fn() }));
+    await act(/* 启动续期安全验证。 */ async () => {
+      await hook.result.current.startCredentialVerification(accountFixture);
+    });
+    expect(qrLoginMocks.generateQRLogin).not.toHaveBeenCalled();
+    expect(hook.result.current.qrStatus).toBe('error');
+  });
+
+  test('关闭弹窗取消创建请求，过期响应不再改变状态', /* 当前回调验证取消与过期响应。 */ async () => {
+    // resolveStart 在测试中手动完成创建请求，模拟关闭后才到达的响应。
+    let resolveStart: (value: DelayedVerificationResponse) => void = () => undefined;
+    qrLoginMocks.startCredentialVerification.mockReturnValue(new Promise(/* 挂起直到测试手动完成。 */ resolve => { resolveStart = resolve; }));
+    // hook 保存二维码登录 Hook 的渲染结果。
+    const hook = renderHook(/* hookFactory 创建二维码登录 Hook。 */ () => useAccountQRCodeLogin({ onLoginSuccess: vi.fn() }));
+    act(/* 发起请求但不等待。 */ () => { void hook.result.current.startCredentialVerification(accountFixture); });
+    act(/* 用户关闭弹窗。 */ () => { hook.result.current.closeQRModal(); });
+    await act(/* 过期响应到达。 */ async () => {
+      // success 与 session_id 模拟关闭弹窗后才到达的创建响应。
+      resolveStart({ success: true, session_id: 'late' });
+      await flushMicrotasks();
+    });
+    expect(hook.result.current.showQRModal).toBe(false);
+    expect(qrLoginMocks.checkQRLoginStatus).not.toHaveBeenCalled();
   });
 });

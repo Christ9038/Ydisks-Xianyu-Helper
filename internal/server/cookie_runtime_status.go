@@ -53,6 +53,8 @@ func (s *Server) listCookieRuntimeStatus(w http.ResponseWriter, r *http.Request)
 		}
 		result[cid] = accountapp.RuntimeStatus{State: "error", Message: "账号服务未运行", UpdatedAt: time.Now()}
 	}
+	// 续期被要求安全验证的账号带上标记，管理页据此展示“完成安全验证”入口。
+	s.markVerificationPending(result, cookieIDs)
 	writeJSON(w, http.StatusOK, result)
 }
 

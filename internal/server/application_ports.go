@@ -470,6 +470,8 @@ type ApplicationPorts struct {
 	accountProfile AccountProfilePort
 	// accountLongLogin 是账号长登录设置用例。
 	accountLongLogin AccountLongLoginPort
+	// credentialVerification 是续期安全验证用例。
+	credentialVerification CredentialVerificationPort
 	// accountSettings 是账号设置用例。
 	accountSettings AccountSettingsPort
 	// accountRuntime 是账号运行时状态用例。
@@ -543,6 +545,7 @@ type ApplicationPortsInput struct {
 	AccountDelete               AccountDeletePort
 	AccountProfile              AccountProfilePort
 	AccountLongLogin            AccountLongLoginPort
+	CredentialVerification      CredentialVerificationPort
 	AccountSettings             AccountSettingsPort
 	AccountRuntime              AccountRuntimePort
 	AccountSummaries            AccountSummaryPort
@@ -581,7 +584,7 @@ func NewApplicationPorts(input ApplicationPortsInput) *ApplicationPorts {
 		accountLogin: input.AccountLogin, qrLogin: input.QRLogin, sessionRecovery: input.SessionRecovery,
 		platformCredentials: input.PlatformCredentials, authentication: input.Authentication, loginAudit: input.LoginAudit,
 		passwordLogin: input.PasswordLogin, accountDelete: input.AccountDelete, accountProfile: input.AccountProfile,
-		accountLongLogin: input.AccountLongLogin, accountSettings: input.AccountSettings, accountRuntime: input.AccountRuntime,
+		accountLongLogin: input.AccountLongLogin, credentialVerification: input.CredentialVerification, accountSettings: input.AccountSettings, accountRuntime: input.AccountRuntime,
 		accountSummaries: input.AccountSummaries, accountTasks: input.AccountTasks, chat: input.Chat,
 		uncertainNotifications: input.UncertainNotifications, notificationChannels: input.NotificationChannels,
 		analytics: input.Analytics, automationIssues: input.AutomationIssues, automationAudit: input.AutomationAudit, automationRules: input.AutomationRules,
@@ -609,7 +612,7 @@ func (ports *ApplicationPorts) validate() error {
 		{"item_catalog", ports.itemCatalog}, {"item_catalog_mutation", ports.itemCatalogMutation}, {"item_ai_settings", ports.itemAISettings}, {"account_login", ports.accountLogin},
 		{"qr_login", ports.qrLogin}, {"session_recovery", ports.sessionRecovery}, {"platform_credentials", ports.platformCredentials},
 		{"authentication", ports.authentication}, {"login_audit", ports.loginAudit}, {"password_login", ports.passwordLogin},
-		{"account_delete", ports.accountDelete}, {"account_profile", ports.accountProfile}, {"account_long_login", ports.accountLongLogin},
+		{"account_delete", ports.accountDelete}, {"account_profile", ports.accountProfile}, {"account_long_login", ports.accountLongLogin}, {"credential_verification", ports.credentialVerification},
 		{"account_settings", ports.accountSettings}, {"account_runtime", ports.accountRuntime}, {"account_summaries", ports.accountSummaries},
 		{"account_tasks", ports.accountTasks}, {"chat", ports.chat}, {"uncertain_notifications", ports.uncertainNotifications},
 		{"notification_channels", ports.notificationChannels}, {"analytics", ports.analytics}, {"automation_issues", ports.automationIssues}, {"automation_audit", ports.automationAudit},
@@ -732,6 +735,11 @@ func (server *Server) itemBatchPreviewPersistenceApplication() ItemBatchPreviewP
 // accountProfileApplication 返回账号资料刷新用例。
 func (server *Server) accountProfileApplication() AccountProfilePort {
 	return server.applicationServiceSet().accountProfile
+}
+
+// credentialVerificationApplication 返回续期安全验证用例。
+func (server *Server) credentialVerificationApplication() CredentialVerificationPort {
+	return server.applicationServiceSet().credentialVerification
 }
 
 // accountLongLoginApplication 返回账号长登录用例。

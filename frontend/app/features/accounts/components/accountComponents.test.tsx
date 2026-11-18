@@ -47,7 +47,7 @@ describe('账号 feature 展示组件', /* 当前回调覆盖账号页面子模�
     const onAI = vi.fn();
     // onToggle 是启停操作测试替身。
     const onToggle = vi.fn();
-    render(<AccountCard account={accountFixture} refreshing={false} deleting={false} onRefreshProfile={noopAccountAction} onReauthorize={noopAccountAction} onEdit={noopAccountAction} onAI={onAI} onTasks={noopAccountAction} onToggle={onToggle} onDelete={onDelete} />);
+    render(<AccountCard account={accountFixture} refreshing={false} deleting={false} onRefreshProfile={noopAccountAction} onReauthorize={noopAccountAction} onVerify={noopAccountAction} onEdit={noopAccountAction} onAI={onAI} onTasks={noopAccountAction} onToggle={onToggle} onDelete={onDelete} />);
     expect(screen.getByText('测试账号')).toBeTruthy();
     fireEvent.click(screen.getByTitle('AI设置'));
     fireEvent.click(screen.getByTitle('停用账号'));
@@ -65,7 +65,7 @@ describe('账号 feature 展示组件', /* 当前回调覆盖账号页面子模�
     // riskAccount 是处于风控验证状态的账号。
     const riskAccount = { ...accountFixture, runtime_state: 'verification_required' as const, runtime_message: '闲鱼要求安全验证' };
     // view 用于后续切换为登录失效账号。
-    const view = render(<AccountCard account={riskAccount} refreshing={false} deleting={false} onRefreshProfile={noopAccountAction} onReauthorize={onReauthorize} onEdit={onEdit} onAI={noopAccountAction} onTasks={noopAccountAction} onToggle={noopAccountAction} onDelete={noopAccountAction} />);
+    const view = render(<AccountCard account={riskAccount} refreshing={false} deleting={false} onRefreshProfile={noopAccountAction} onReauthorize={onReauthorize} onVerify={noopAccountAction} onEdit={onEdit} onAI={noopAccountAction} onTasks={noopAccountAction} onToggle={noopAccountAction} onDelete={noopAccountAction} />);
     expect(screen.queryByText('重新授权')).toBeNull();
     expect(screen.getByText('查看操作教程').closest('a')?.getAttribute('href')).toContain('/issues/92');
     fireEvent.click(screen.getByText('粘贴无风控 Cookie'));
@@ -73,10 +73,26 @@ describe('账号 feature 展示组件', /* 当前回调覆盖账号页面子模�
     expect(onReauthorize).not.toHaveBeenCalled();
     // expiredAccount 是登录凭证失效的账号，仍应走二维码授权。
     const expiredAccount = { ...accountFixture, runtime_state: 'auth_expired' as const, runtime_message: '登录凭证已失效' };
-    view.rerender(<AccountCard account={expiredAccount} refreshing={false} deleting={false} onRefreshProfile={noopAccountAction} onReauthorize={onReauthorize} onEdit={onEdit} onAI={noopAccountAction} onTasks={noopAccountAction} onToggle={noopAccountAction} onDelete={noopAccountAction} />);
+    view.rerender(<AccountCard account={expiredAccount} refreshing={false} deleting={false} onRefreshProfile={noopAccountAction} onReauthorize={onReauthorize} onVerify={noopAccountAction} onEdit={onEdit} onAI={noopAccountAction} onTasks={noopAccountAction} onToggle={noopAccountAction} onDelete={noopAccountAction} />);
     expect(screen.queryByText('查看操作教程')).toBeNull();
     fireEvent.click(screen.getByText('重新授权'));
     expect(onReauthorize).toHaveBeenCalledWith(expiredAccount);
+  });
+
+  test('续期待验证账号展示“完成安全验证”并转发给验证入口', /* 当前回调验证 verification_pending 与停用账号的展示边界。 */ () => {
+    // onVerify 是启动人工验证的测试替身；onReauthorize 不应被触发。
+    const onVerify = vi.fn();
+    const onReauthorize = vi.fn();
+    // pendingAccount 是续期被要求安全验证且尚未完成的账号。
+    const pendingAccount = { ...accountFixture, verification_pending: true };
+    // view 用于把同一账号切换为已停用后重新渲染。
+    const view = render(<AccountCard account={pendingAccount} refreshing={false} deleting={false} onRefreshProfile={noopAccountAction} onReauthorize={onReauthorize} onVerify={onVerify} onEdit={noopAccountAction} onAI={noopAccountAction} onTasks={noopAccountAction} onToggle={noopAccountAction} onDelete={noopAccountAction} />);
+    fireEvent.click(screen.getByText('完成安全验证'));
+    expect(onVerify).toHaveBeenCalledWith(pendingAccount);
+    expect(onReauthorize).not.toHaveBeenCalled();
+    // 已停用账号不展示该入口。
+    view.rerender(<AccountCard account={{ ...pendingAccount, enabled: false }} refreshing={false} deleting={false} onRefreshProfile={noopAccountAction} onReauthorize={onReauthorize} onVerify={onVerify} onEdit={noopAccountAction} onAI={noopAccountAction} onTasks={noopAccountAction} onToggle={noopAccountAction} onDelete={noopAccountAction} />);
+    expect(screen.queryByText('完成安全验证')).toBeNull();
   });
 
   test('AI 设置弹窗使用补丁更新并转发保存', /* 当前回调验证 AI 设置字段更新和保存动作。 */ () => {

@@ -11,14 +11,12 @@ import (
 	"math"
 	"net/http"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"xianyu-go/internal/xianyu"
 	"xianyu-go/internal/xianyu/cookierefresh"
-	"xianyu-go/internal/xianyu/protocol"
 )
 
 // HasLoginURL 用于本次流程后续判断的Has登录URL
@@ -75,8 +73,14 @@ type Result struct {
 	ResponseText           string
 	NeedPasswordLogin      bool
 	RequestCount           int
-	pending                <-chan pendingRenewResult
-	responseCookieURL      string
+	// VerificationRequired 表示平台返回 iframeRedirect=true，续期停在需要人工完成的安全验证；
+	// 此时 Success 仍为 false，响应 Cookie 照常接收。
+	VerificationRequired bool
+	// verificationURL 是平台给出的一次性验证地址，仅允许通过 VerificationURL 读取并放入内存登记，
+	// 不得出现在日志、通知或持久化字段中。
+	verificationURL   string
+	pending           <-chan pendingRenewResult
+	responseCookieURL string
 	// responseReceivedAt 固定响应头的接收时刻，迟到正文或持久化重放不得延长 Max-Age。
 	responseReceivedAt time.Time
 	// responseCookies 保留重定向响应链的精确作用域，不能只保存最终响应头。
@@ -87,6 +91,15 @@ type Result struct {
 type pendingRenewResult struct {
 	result *Result
 	err    error
+}
+
+// VerificationURL 返回 r 记录的安全验证跳转地址；没有验证要求或 r 为空时返回空串。
+// 返回值带一次性令牌，调用方只能交给内存登记表，禁止写入日志、通知或数据库。
+func (r *Result) VerificationURL() string {
+	if r == nil {
+		return ""
+	}
+	return r.verificationURL
 }
 
 // HasPending 表示官网 2 秒 Promise 已结束，但底层 fetch 仍在接收响应。
@@ -144,6 +157,8 @@ type StepResult struct {
 	BusinessOK     bool
 	SetCookieCount int
 	Message        string
+	// VerificationRequired 表示本步骤响应为 iframeRedirect 中间状态，需要用户人工完成安全验证。
+	VerificationRequired bool
 }
 
 // autoLoginModeHavana 用于本次流程后续判断的auto登录模式Havana
@@ -265,6 +280,8 @@ func (s Service) renewAPIFirst(ctx context.Context, sessionExpired bool, cookies
 		target.responseReceivedAt = finished.receivedAt
 		target.responseCookies = finished.responses
 		target.ResponseText = string(finished.Body)
+		target.VerificationRequired = finished.Step.VerificationRequired
+		target.verificationURL = finished.verificationURL
 		if strings.TrimSpace(finished.Step.Name) != "" {
 			target.StepDetails = []StepResult{finished.Step}
 		}
@@ -384,7 +401,9 @@ type callResult struct {
 	Step       StepResult
 	SetCookies []string
 	Body       []byte
-	pending    <-chan callOutcome
+	// verificationURL 是响应中的一次性安全验证地址，只在内存中向上传递。
+	verificationURL string
+	pending         <-chan callOutcome
 	// receivedAt 是响应头接收时间，仅用于响应 Cookie 的有效期计算。
 	receivedAt time.Time
 	// responses 是包括重定向在内的完整 Cookie 响应链。
@@ -543,46 +562,64 @@ func executeRenewRequest(hc *http.Client, req *http.Request, name string, header
 	}
 	result.Body = body
 	result.Step.BusinessOK = renewBusinessOK(body)
-	if result.Step.BusinessOK {
+	switch {
+	case result.Step.BusinessOK:
 		result.Step.Message = "业务成功"
-	} else {
-		result.Step.Message = "业务结果未确认成功"
+	default:
+		// verificationURL、required 表示响应是否为 iframeRedirect 中间状态；它仍不是成功。
+		verificationURL, required := renewVerificationURL(body)
+		if required {
+			result.Step.VerificationRequired = true
+			result.verificationURL = verificationURL
+			result.Step.Message = "平台要求安全验证，需人工完成"
+			// 响应正文会进入续期日志，验证地址带一次性令牌，必须先脱敏。
+			result.Body = redactVerificationBody(body)
+		} else {
+			result.Step.Message = "业务结果未确认成功"
+		}
 	}
 	return result, nil
 }
 
-// renewBusinessOK 封装renewBusinessOK业务协调。
-func renewBusinessOK(body []byte) bool {
+// renewResponseData 从 silentHasLogin 响应正文 body 中取出官方插件读取的 content.data 对象。
+// 顶层 content 与嵌套 data.content 的优先级遵循官方 JavaScript 真值语义；
+// 正文为空、不是 JSON 或缺少 content.data 时返回 nil，调用方一律按“未确认成功”处理。
+func renewResponseData(body []byte) map[string]any {
 	if len(body) == 0 {
-		return false
+		return nil
 	}
-	// payload 用于本次流程后续判断的请求载荷
+	// payload 保存解码后的响应顶层对象。
 	var payload map[string]any
-	if // err 用于本次流程后续判断的err
-	err := json.Unmarshal(body, &payload); err != nil {
-		return false
+	// err 是 json.Unmarshal 返回的失败原因，用于断言成功或被拒绝的路径。
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil
 	}
-	// content 用于本次流程后续判断的内容
+	// content 保存官方插件选定的 content 对象。
 	content, _ := payload["content"].(map[string]any)
-	if // data 用于本次流程后续判断的数据
+	if // data 保存嵌套的 data 对象，仅用于判断是否覆盖顶层 content。
 	data, _ := payload["data"].(map[string]any); data != nil {
 		if javascriptTruthy(data["content"]) {
 			content, _ = data["content"].(map[string]any)
 		}
 	}
 	if content == nil {
+		return nil
+	}
+	// data 是 content 下承载业务结果的对象。
+	data, _ := content["data"].(map[string]any)
+	return data
+}
+
+// renewBusinessOK 判断 body 是否满足官方插件的成功条件：processFinished 为布尔 true 且 resultCode 为 100。
+func renewBusinessOK(body []byte) bool {
+	// data 为响应中的业务结果对象。
+	data := renewResponseData(body)
+	if data == nil {
 		return false
 	}
-	// data 用于本次流程后续判断的数据
-	data, _ := content["data"].(map[string]any)
-	if data != nil {
-		// finished 用于本次流程后续判断的finished
-		finished, _ := data["processFinished"].(bool)
-		if finished && numericResultCode(data["resultCode"]) == 100 {
-			return true
-		}
-	}
-	return false
+	// finished 表示平台是否声明流程已结束；非布尔类型一律视为未结束。
+	finished, _ := data["processFinished"].(bool)
+	return finished && numericResultCode(data["resultCode"]) == 100
 }
 
 // numericResultCode 从 v 读取整数业务码；小数不能截断为成功码，字符串不隐式转换。
@@ -710,72 +747,4 @@ func filterValidSetCookies(setCookies []string) []string {
 		out = append(out, sc)
 	}
 	return out
-}
-
-// MergeSetCookies 将 Set-Cookie 头合并到 Cookie 头字符串。只保留 name=value，
-// 忽略 Path/Domain/Expires 等属性，因为后续出站请求只需要 Cookie header。
-// MergeSetCookies 封装MergeSetCookies业务协调。
-func MergeSetCookies(original string, setCookies []string) string {
-	// cookies 用于本次流程后续判断的cookies
-	cookies := protocol.TransCookies(original)
-	// sc 表示当前遍历过程中的sc
-	for _, sc := range setCookies {
-		// parsed、err 用于本次流程后续判断的parsed、err
-		parsed, err := http.ParseSetCookie(sc)
-		if err != nil || strings.TrimSpace(parsed.Name) == "" {
-			continue
-		}
-		if parsed.MaxAge < 0 || (parsed.MaxAge == 0 && !parsed.Expires.IsZero() && !parsed.Expires.After(time.Now())) {
-			delete(cookies, parsed.Name)
-		} else {
-			cookies[parsed.Name] = parsed.Value
-		}
-	}
-	return marshalCookies(cookies)
-}
-
-// ChangedCookieNames 返回 newCookies 相对 original 变化过的字段名，按字典序排序。
-func ChangedCookieNames(original, newCookies string) []string {
-	// oldMap 用于本次流程后续判断的oldMap
-	oldMap := protocol.TransCookies(original)
-	// newMap 用于本次流程后续判断的newMap
-	newMap := protocol.TransCookies(newCookies)
-	// changed 用于本次流程后续判断的changed
-	changed := make([]string, 0)
-	// seen 用于本次流程后续判断的seen
-	seen := make(map[string]struct{}, len(oldMap)+len(newMap))
-	// k 表示当前遍历过程中的k
-	for k := range oldMap {
-		seen[k] = struct{}{}
-	}
-	// k 表示当前遍历过程中的k
-	for k := range newMap {
-		seen[k] = struct{}{}
-	}
-	// k 表示当前遍历过程中的k
-	for k := range seen {
-		if oldMap[k] != newMap[k] {
-			changed = append(changed, k)
-		}
-	}
-	sort.Strings(changed)
-	return changed
-}
-
-// marshalCookies 封装marshalCookies业务协调。
-func marshalCookies(cookies map[string]string) string {
-	// keys 用于本次流程后续判断的keys
-	keys := make([]string, 0, len(cookies))
-	// k 表示当前遍历过程中的k
-	for k := range cookies {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	// parts 用于本次流程后续判断的parts
-	parts := make([]string, 0, len(keys))
-	// k 表示当前遍历过程中的k
-	for _, k := range keys {
-		parts = append(parts, k+"="+cookies[k])
-	}
-	return strings.Join(parts, "; ")
 }

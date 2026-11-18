@@ -21,6 +21,7 @@ func (s *Server) mountVersionedAccounts(r chi.Router) {
 		r.Get("/api/v1/accounts/{cid}/long-login", s.getLongLoginSettings)
 		r.Put("/api/v1/accounts/{cid}/long-login", s.setLongLoginSettings)
 		r.Post("/api/v1/accounts/{cid}/refresh-profile", s.refreshCookieProfile)
+		r.Post("/api/v1/accounts/{cid}/credential-verification", s.startCredentialVerification)
 		r.Get("/api/v1/accounts/{cid}/auto-confirm", s.getCookieAutoConfirm)
 		r.Put("/api/v1/accounts/{cid}/auto-confirm", s.setCookieAutoConfirm)
 		r.Put("/api/v1/accounts/{cid}/remark", s.setCookieRemark)

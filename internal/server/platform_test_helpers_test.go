@@ -7,9 +7,11 @@ import (
 
 	"xianyu-go/internal/account"
 	"xianyu-go/internal/adapter"
+	accountapp "xianyu-go/internal/application/account"
 	lifecycleapp "xianyu-go/internal/application/lifecycle"
 	orderapp "xianyu-go/internal/application/orders"
 	"xianyu-go/internal/chat"
+	"xianyu-go/internal/xianyu/cookierefresh"
 )
 
 // testServerManagers 保存仅供测试夹具访问的账号运行时；生产 Server 不持有该对象。
@@ -17,6 +19,9 @@ var testServerManagers sync.Map
 
 // testServerPlatforms 保存仅供测试夹具替换的平台能力；生产 Server 不保存该对象。
 var testServerPlatforms sync.Map
+
+// testServerVerificationRegistries 保存测试 Server 与组合根共享的待验证登记表，便于测试预置“续期被要求安全验证”的账号；生产 Server 不持有该对象。
+var testServerVerificationRegistries sync.Map
 
 // testServerBatchLifecycle 保存测试需要观测的批量发布恢复组件；生产 Server 不持有 worker。
 var testServerBatchLifecycle sync.Map
@@ -176,6 +181,35 @@ func (port *testPlatformPort) CompleteVerification(ctx context.Context, sessionI
 		return "", "", errors.New("测试二维码客户端未设置")
 	}
 	return client.CompleteVerification(ctx, sessionID)
+}
+
+// StartCredentialVerification 通过当前测试客户端创建续期安全验证会话；客户端不具备该能力时返回错误。
+func (port *testPlatformPort) StartCredentialVerification(ctx context.Context, cookieHeader string, snapshot []cookierefresh.BrowserCookie, verificationURL string) (string, error) {
+	// starter、ok 是当前测试二维码客户端提供的验证会话创建能力及其存在标记。
+	starter, ok := port.QRLoginService().(adapter.CredentialVerificationStarter)
+	if !ok {
+		return "", errors.New("测试二维码客户端不支持续期安全验证")
+	}
+	return starter.StartCredentialVerification(ctx, cookieHeader, snapshot, verificationURL)
+}
+
+// registerTestVerificationRegistry 登记测试 Server 使用的待验证登记表。
+func registerTestVerificationRegistry(server *Server, registry *accountapp.PendingVerificationRegistry) {
+	if server != nil && registry != nil {
+		testServerVerificationRegistries.Store(server, registry)
+	}
+}
+
+// testVerificationRegistry 返回测试 Server 与组合根共享的待验证登记表；未登记时返回 nil。
+func testVerificationRegistry(server *Server) *accountapp.PendingVerificationRegistry {
+	// value、ok 是登记表及其存在标记。
+	value, ok := testServerVerificationRegistries.Load(server)
+	if !ok {
+		return nil
+	}
+	// registry 是转换后的登记表；类型不匹配时为 nil。
+	registry, _ := value.(*accountapp.PendingVerificationRegistry)
+	return registry
 }
 
 // mutableTestPlatform 返回测试 Server 装配的可变平台 Port；非测试构造对象不提供替换能力。

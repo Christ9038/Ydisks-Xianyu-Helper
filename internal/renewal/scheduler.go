@@ -64,10 +64,12 @@ type Scheduler struct {
 	api       apirenew.Service
 	cooldown  *CooldownManager
 	notifier  RenewalNotifier
-	runOnce   sync.Once
-	done      chan struct{}
-	workers   sync.WaitGroup
-	watchers  sync.WaitGroup
+	// verifications 是可选的待验证登记表，由 mu 保护；只在 Run 之前设置，nil 表示不提供验证通道。
+	verifications VerificationRegistry
+	runOnce       sync.Once
+	done          chan struct{}
+	workers       sync.WaitGroup
+	watchers      sync.WaitGroup
 	// runCancel 取消当前调度器派生的运行上下文；只有 Run 成功登记后才非空。
 	runCancel context.CancelFunc
 	// runStarted 标识 Run 是否已经登记并创建了调度器运行上下文。
@@ -545,13 +547,8 @@ func (s *Scheduler) apiCookieRenewOne(ctx context.Context, batchID string, accou
 	if res.HasPending() {
 		s.watchPendingAPIRenew(ctx, batchID, account.ID, res, initialCookieValue, initialCookieMetadata)
 	}
-	// stepDetails 用于本次流程后续判断的stepDetails
-	stepDetails := make([]string, 0, len(res.StepDetails)+1)
-	// step 表示当前遍历过程中的step
-	for _, step := range res.StepDetails {
-		stepDetails = append(stepDetails, fmt.Sprintf("%s: http=%d business_ok=%v set_cookie=%d", step.Name, step.HTTPStatus, step.BusinessOK, step.SetCookieCount))
-	}
-	stepDetails = append(stepDetails, fmt.Sprintf("result: success=%v skipped=%v reason=%s", res.Success, res.Skipped, res.SkipReason))
+	// stepDetails 是不含敏感内容的步骤摘要，写入续期日志。
+	stepDetails := renewStepDetails(res)
 	// updated 用于本次流程后续判断的updated
 	updated := cookierefresh.ChangedCookieNames(account.Value, res.NewCookies)
 	if res.CookieSnapshotComplete || len(res.SetCookies) > 0 || res.NewCookies != account.Value {
@@ -600,17 +597,8 @@ func (s *Scheduler) apiCookieRenewOne(ctx context.Context, batchID string, accou
 			s.logger.Info("接口续期后的账号重启已完成", "account", account.ID)
 		}
 	}
-	// status 用于本次流程后续判断的状态
-	status := "failed"
-	if res.HasPending() {
-		status = "pending"
-	} else if res.Skipped {
-		status = "skipped"
-	} else if res.Success && len(updated) > 0 {
-		status = "cookie_updated"
-	} else if res.Success {
-		status = "success"
-	}
+	// status 是本次续期记录的终态：pending/skipped/cookie_updated/success/failed。
+	status := renewLogStatus(res, len(updated) > 0)
 	s.addAPILog(ctx, db.RenewalLog{
 		BatchID:            batchID,
 		CookieID:           account.ID,
@@ -623,6 +611,8 @@ func (s *Scheduler) apiCookieRenewOne(ctx context.Context, batchID string, accou
 		DurationMS:         time.Since(started).Milliseconds(),
 		RequestCount:       res.RequestCount,
 	})
+	// Cookie 与日志都已落地后再登记并通知，保证用户收到通知时管理页已能看到最新状态。
+	s.noteVerificationRequired(account.ID, res)
 	if res.HasPending() {
 		s.logger.Info("接口续期任务等待底层响应", "account", account.ID, "method", res.RenewMethod, "message", res.Message)
 	} else if res.Skipped {
@@ -753,12 +743,18 @@ func (s *Scheduler) watchPendingAPIRenew(ctx context.Context, batchID, cookieID 
 		} else {
 			errorMessage = late.Message
 		}
+		// stepDetails 仅在迟到响应要求人工安全验证时写入标记，其余保持原有空值。
+		stepDetails := ""
+		if late.VerificationRequired {
+			stepDetails = "verification_required=true"
+		}
 		s.addAPILog(opCtx, db.RenewalLog{
 			BatchID: batchID, CookieID: cookieID, Status: status, Message: late.Message,
 			ErrorMessage: errorMessage, UpdatedCookieNames: late.UpdatedCookieNames,
 			ResponseContent: late.ResponseText, RenewMethod: late.RenewMethod,
-			RequestCount: late.RequestCount,
+			RequestCount: late.RequestCount, StepDetails: stepDetails,
 		})
+		s.noteVerificationRequired(cookieID, late)
 	}()
 }
 

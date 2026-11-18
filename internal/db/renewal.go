@@ -202,13 +202,30 @@ func (r *RenewalStore) AddAPICookieRenewLog(ctx context.Context, log RenewalLog)
 
 // RecentAPICookieRenewStatuses 返回账号最近的 API Cookie 续期状态，最新记录在前。
 func (r *RenewalStore) RecentAPICookieRenewStatuses(ctx context.Context, cookieID string, limit int) ([]string, error) {
+	return r.recentAPICookieRenewStatuses(ctx, cookieID, limit, false)
+}
+
+// RecentTerminalAPICookieRenewStatuses 返回账号最近的“终态”API Cookie 续期状态，最新记录在前。
+// 跳过（skipped，例如 sdkSilent 疲劳窗口）与等待底层响应（pending）都不是续期结果，
+// 不应打断或稀释“连续失败”的判断，因此被排除；其余状态与 RecentAPICookieRenewStatuses 相同。
+func (r *RenewalStore) RecentTerminalAPICookieRenewStatuses(ctx context.Context, cookieID string, limit int) ([]string, error) {
+	return r.recentAPICookieRenewStatuses(ctx, cookieID, limit, true)
+}
+
+// recentAPICookieRenewStatuses 读取账号最近 limit 条续期状态；terminalOnly 为 true 时排除 skipped 与 pending。
+// 两种方言共用同一条参数化 SQL，状态过滤条件是固定字面量，不拼接外部输入。
+func (r *RenewalStore) recentAPICookieRenewStatuses(ctx context.Context, cookieID string, limit int, terminalOnly bool) ([]string, error) {
 	if limit <= 0 {
 		return nil, nil
 	}
+	// query 是读取最近状态的 SQL；terminalOnly 时追加固定的状态排除条件。
+	query := `SELECT status FROM scheduled_api_cookie_renew_log WHERE cookie_id=?`
+	if terminalOnly {
+		query += ` AND status NOT IN ('skipped','pending')`
+	}
+	query += ` ORDER BY id DESC LIMIT ?`
 	// rows、err 用于本次流程后续判断的rows、err
-	rows, err := r.DB.QueryContext(ctx,
-		`SELECT status FROM scheduled_api_cookie_renew_log
-		 WHERE cookie_id=? ORDER BY id DESC LIMIT ?`, cookieID, limit)
+	rows, err := r.DB.QueryContext(ctx, query, cookieID, limit)
 	if err != nil {
 		return nil, err
 	}

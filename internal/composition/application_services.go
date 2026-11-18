@@ -97,6 +97,8 @@ type Services struct {
 	accountProfile *accountapp.ProfileService
 	// accountLongLogin 是账号长登录设置应用服务。
 	accountLongLogin *accountapp.LongLoginService
+	// credentialVerification 是续期安全验证用例：归属校验、一次性取走验证地址并创建人工验证会话。
+	credentialVerification *accountapp.CredentialVerificationService
 	// accountSettings 是账号设置、登录信息、启停和暂停应用服务。
 	accountSettings *accountapp.SettingsService
 	// accountRuntime 是账号凭证写回后的运行时同步与状态快照应用服务。
@@ -192,6 +194,8 @@ type Dependencies struct {
 	LongLoginClient func() adapter.LongLoginClient
 	// QRLogin 提供二维码生成、轮询和风控完成的底层平台能力。
 	QRLogin adapter.QRLoginService
+	// PendingVerifications 是与续期调度器共享的待验证登记表；为空时装配一个仅本服务可见的默认登记表。
+	PendingVerifications *accountapp.PendingVerificationRegistry
 	// UpdateRunningCookie 同步平台响应 Cookie 到账号运行时。
 	UpdateRunningCookie func(context.Context, string, string)
 	// SessionRecovery 处理平台会话失效后的账号恢复。
@@ -337,6 +341,7 @@ type TransportPorts struct {
 	AccountDelete               *accountapp.DeleteService
 	AccountProfile              *accountapp.ProfileService
 	AccountLongLogin            *accountapp.LongLoginService
+	CredentialVerification      *accountapp.CredentialVerificationService
 	AccountSettings             *accountapp.SettingsService
 	AccountRuntime              *accountapp.RuntimeService
 	AccountSummaries            *accountapp.SummaryService
@@ -379,7 +384,7 @@ func (services *Services) TransportPorts() TransportPorts {
 		ItemCatalogMutation: services.itemCatalogMutation, ItemAISettings: services.itemAISettings, AccountLogin: services.accountLogin, QRLogin: services.qrLogin,
 		PlatformCredentials: services.platformCredentials, Authentication: services.authentication, LoginAudit: services.loginAudit,
 		PasswordLogin: services.passwordLogin, AccountDelete: services.accountDelete, AccountProfile: services.accountProfile,
-		AccountLongLogin: services.accountLongLogin, AccountSettings: services.accountSettings, AccountRuntime: services.accountRuntime,
+		AccountLongLogin: services.accountLongLogin, CredentialVerification: services.credentialVerification, AccountSettings: services.accountSettings, AccountRuntime: services.accountRuntime,
 		AccountSummaries: services.accountSummaries, AccountTasks: services.accountTasks, Chat: services.chat,
 		UncertainNotifications: services.uncertainNotifications, NotificationChannels: services.notificationChannels,
 		Analytics: services.analytics, AutomationIssues: services.automationIssues, AutomationAudit: services.automationAudit, AutomationRules: services.automationRules, DeliveryTemplates: services.deliveryTemplates,
@@ -425,13 +430,10 @@ func New(dependencies Dependencies) (*Services, error) {
 	if profileErr != nil {
 		return nil, fmt.Errorf("构造账号资料服务失败: %w", profileErr)
 	}
-	// accountLongLogin 由适配器承载平台调用、Cookie 快照合并和凭证写回。
-	accountLongLogin, longLoginErr := accountapp.NewLongLoginService(
-		accountRepository,
-		adapter.NewLongLoginAdapter(accountRepository, dependencies.LongLoginClient, dependencies.UpdateRunningCookie, dependencies.Logger),
-	)
-	if longLoginErr != nil {
-		return nil, fmt.Errorf("构造账号长登录服务失败: %w", longLoginErr)
+	// accountLongLogin、credentialVerification 分别是长登录用例与续期安全验证用例，装配细节见 buildAccountLoginServices。
+	accountLongLogin, credentialVerification, loginServicesErr := buildAccountLoginServices(accountRepository, dependencies)
+	if loginServicesErr != nil {
+		return nil, loginServicesErr
 	}
 	// settingsRuntime 将运行时启停绑定到协调器 Context，避免把请求 Context 错误当成账号实例生命周期。
 	settingsRuntime := accountapp.SettingsRuntime(settingsRuntimeTransport{manager: dependencies.Manager, lifecycleContext: dependencies.LifecycleContext})
@@ -537,6 +539,7 @@ func New(dependencies Dependencies) (*Services, error) {
 		accountDelete:          accountDelete,
 		accountProfile:         accountProfile,
 		accountLongLogin:       accountLongLogin,
+		credentialVerification: credentialVerification,
 		accountSettings:        accountSettings,
 		accountRuntime:         accountRuntime,
 		accountSummaries:       accountSummaries,

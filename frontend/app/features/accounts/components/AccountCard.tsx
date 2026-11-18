@@ -18,6 +18,8 @@ export interface AccountCardProps {
   onRefreshProfile: (account: AccountDetail) => void | Promise<void>;
   // onReauthorize 启动当前账号二维码重新授权。
   onReauthorize: (account: AccountDetail) => void | Promise<void>;
+  // onVerify 为续期被要求安全验证的账号启动人工验证；登记过期时由调用方回退到扫码授权。
+  onVerify: (account: AccountDetail) => void | Promise<void>;
   // onEdit 打开账号编辑弹窗。
   onEdit: (account: AccountDetail) => void | Promise<void>;
   // onAI 打开账号 AI 设置弹窗。
@@ -37,6 +39,7 @@ export const AccountCard = React.memo(/* AccountCard 负责渲染单个账号卡
   deleting,
   onRefreshProfile,
   onReauthorize,
+  onVerify,
   onEdit,
   onAI,
   onTasks,
@@ -98,6 +101,19 @@ export const AccountCard = React.memo(/* AccountCard 负责渲染单个账号卡
               <p>{account.remark || '暂无备注'}</p>
               <p className="font-mono text-xs text-gray-400">ID: {account.id}</p>
             </div>
+            {account.verification_pending && account.enabled && (
+              <div role="alert" className="w-full rounded-xl bg-orange-50 px-4 py-3 text-sm font-medium text-orange-800">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                  <span className="min-w-0 break-words leading-relaxed">闲鱼要求完成安全验证，自动续期未完成。请尽快验证，否则订单、发货等接口可能在数分钟后失效。</span>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <button type="button" onClick={/* 发起续期安全验证，登记过期时由上层回退到扫码授权。 */ () => onVerify(account)} className="inline-flex items-center gap-1.5 rounded-lg bg-white px-2.5 py-1 text-xs font-bold text-orange-700 hover:bg-orange-100">
+                    <QrCode className="w-3.5 h-3.5" /> 完成安全验证
+                  </button>
+                </div>
+              </div>
+            )}
             {account.runtime_message && account.runtime_state !== 'online' && account.runtime_state !== 'disabled' && (
               <div className={`w-full rounded-xl px-4 py-3 text-sm font-medium ${requiresLogin ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>
                 <div className="flex items-start gap-2">

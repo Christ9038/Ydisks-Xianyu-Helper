@@ -57,6 +57,8 @@ export interface AccountDetail {
   runtime_connected?: boolean;
   /** 运行状态快照的更新时间。 */
   runtime_updated_at?: string;
+  /** 定时续期被平台要求安全验证且尚未完成；为真时账号卡片展示“完成安全验证”入口。 */
+  verification_pending?: boolean;
   // AI设置
   /** 是否启用账号 AI 回复。 */
   ai_enabled?: boolean;
@@ -439,6 +441,15 @@ export interface QRLoginGenerateResponse {
   qr_code_url: string;
   /** 可选的提示文本。 */
   message?: string;
+}
+
+/** 续期安全验证会话创建响应；会话沿用二维码登录的状态轮询与完成接口。 */
+/** 由当前 feature adapter 归一后的 CredentialVerificationResponse UI 模型；不直接暴露 HTTP DTO。 */
+export interface CredentialVerificationResponse {
+  /** 验证会话是否已创建。 */
+  success: boolean;
+  /** 验证会话标识，交给二维码状态轮询继续使用。 */
+  session_id: string;
 }
 
 /** 二维码登录状态响应。 */

@@ -113,7 +113,9 @@ const AccountList: React.FC<AccountListProps> = ({ accountEditModal: AccountEdit
     verificationScreenshot,
     faceQrUrl,
     qrReauthTarget,
+    qrFlow,
     startQRLogin,
+    startCredentialVerification,
     closeQRModal,
   } = qrLogin;
 
@@ -224,6 +226,7 @@ const AccountList: React.FC<AccountListProps> = ({ accountEditModal: AccountEdit
             deleting={deletingAccountId === account.id}
             onRefreshProfile={handleRefreshProfile}
             onReauthorize={startQRLogin}
+            onVerify={startCredentialVerification}
             onEdit={openEditModal}
             onAI={openAIModal}
             onTasks={setTaskAccount}
@@ -282,6 +285,7 @@ const AccountList: React.FC<AccountListProps> = ({ accountEditModal: AccountEdit
       {showQRModal && (
         <AccountQRCodeModal
           target={qrReauthTarget}
+          flow={qrFlow}
           status={qrStatus}
           codeUrl={qrCodeUrl}
           errorMessage={qrErrorMessage}

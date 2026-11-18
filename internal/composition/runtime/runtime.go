@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"xianyu-go/internal/adapter"
+	accountapp "xianyu-go/internal/application/account"
 	"xianyu-go/internal/application/lifecycle"
 	orderapp "xianyu-go/internal/application/orders"
 	"xianyu-go/internal/auth"
@@ -83,6 +84,10 @@ func BuildRuntime(options RuntimeOptions, infrastructure RuntimeInfrastructure) 
 	automationScheduler := automation.NewScheduler(runtimeBundle.Automation)
 	// renewalScheduler 负责账号凭证的定期续期，其运行与停止由生命周期协调器统一拥有。
 	renewalScheduler := renewal.NewScheduler(infrastructure.Store, runtimeBundle.Manager, runtimeBundle.Adapter, infrastructure.Logger, runtimeBundle.Notifier)
+	// pendingVerifications 是调度器（登记）与 HTTP 验证用例（取走）共享的内存登记表，进程重启后清空；
+	// 调度器在 Run 之前设置，之后只读，不构成运行期 setter。
+	pendingVerifications := accountapp.NewPendingVerificationRegistry()
+	renewalScheduler.SetVerificationRegistry(pendingVerifications)
 	// component 是按依赖顺序登记的基础后台组件，协调器负责后续取消和等待。
 	for _, component := range []lifecycle.NamedComponent{
 		{Name: "notifier", Component: lifecycle.FuncComponent{StartFunc: func(ctx context.Context) error { runtimeBundle.Notifier.Start(ctx); return nil }, CloseFunc: runtimeBundle.Notifier.WaitContext}},
@@ -185,7 +190,8 @@ func BuildRuntime(options RuntimeOptions, infrastructure RuntimeInfrastructure) 
 		OrderReconciliationRecovery: orderReconciliationRecovery, Manager: runtimeBundle.Manager, Automation: runtimeBundle.Automation, OrderDetails: runtimeBundle.OrderDetails,
 		Notifier: runtimeBundle.Notifier, Chat: runtimeBundle.Chat, ChatApplication: runtimeBundle.ChatApplication, Logger: infrastructure.Logger,
 		MTopClient: platformDependencies.MTOPClient, LongLoginClient: platformDependencies.LongLoginClient, QRLogin: platformDependencies.QRLoginService(),
-		UpdateRunningCookie: updateRunningCookie, SessionRecovery: sessionRecovery, LifecycleContext: lifecycleCoordinator.Context,
+		PendingVerifications: pendingVerifications,
+		UpdateRunningCookie:  updateRunningCookie, SessionRecovery: sessionRecovery, LifecycleContext: lifecycleCoordinator.Context,
 	})
 	if buildErr != nil {
 		return Runtime{}, fmt.Errorf("构造应用服务集合失败: %w", buildErr)

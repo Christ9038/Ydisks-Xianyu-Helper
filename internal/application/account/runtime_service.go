@@ -29,6 +29,8 @@ type RuntimeStatus struct {
 	TokenRemainingSeconds int64 `json:"token_remaining_seconds,omitempty"`
 	// TokenRefreshStatus 是令牌续期阶段的非敏感状态标签。
 	TokenRefreshStatus string `json:"token_refresh_status,omitempty"`
+	// VerificationPending 表示定时续期被平台要求安全验证且尚未完成；由 HTTP 层按内存登记补充，引擎不设置。
+	VerificationPending bool `json:"verification_pending,omitempty"`
 }
 
 // RuntimePort 定义账号应用层需要的最小运行时控制能力；实现方不得把 HTTP 或 engine 类型泄漏给调用者。
