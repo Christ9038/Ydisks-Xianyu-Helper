@@ -116,10 +116,10 @@ const OrderList: React.FC = () => {
           onSearchChange={handleSearchChange}
         />
 
-        {/* Table */}
-        <div className="overflow-x-auto min-h-[400px]">
-          <table className="w-full text-left border-collapse table-fixed">
-            <thead>
+        {/* 订单列表：lg 及以上保持原表格列布局；lg 以下同一份 DOM 退化为“每单一张卡片、内部上下排列”，避免五列表格在手机上被挤压。 */}
+        <div className="overflow-x-auto lg:min-h-[400px]">
+          <table className="block w-full text-left border-collapse lg:table lg:table-fixed">
+            <thead className="hidden lg:table-header-group">
               <tr className="bg-white text-gray-400 text-xs font-bold uppercase tracking-wider border-b border-gray-50">
                 <th className="px-6 py-5" style={{width: '28%'}}>订单信息</th>
                 <th className="px-6 py-5" style={{width: '26%'}}>买家信息</th>
@@ -128,11 +128,11 @@ const OrderList: React.FC = () => {
                 <th className="px-6 py-5 text-right" style={{width: '22%'}}>操作</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-50">
+            <tbody className="block divide-y divide-gray-50 lg:table-row-group">
               {orders.map(/* 当前回调处理集合中的单个元素。 */ (order) => (
-                <tr key={order.id} className="hover:bg-warning-50/50 transition-colors group">
-                  <td className="px-6 py-5">
-                    <div className="flex items-center gap-5">
+                <tr key={order.id} className="grid grid-cols-2 items-center gap-y-3 px-1 py-4 hover:bg-warning-50/50 transition-colors group lg:table-row lg:p-0">
+                  <td className="col-span-2 px-3 lg:table-cell lg:px-6 lg:py-5">
+                    <div className="flex items-center gap-4 lg:gap-5">
                       <div className="w-14 h-14 rounded-xl bg-gray-100 overflow-hidden shadow-sm border border-gray-100 flex-shrink-0">
                         {order.item_image ? (
                             <img src={order.item_image} alt="" className="w-full h-full object-cover" />
@@ -153,7 +153,7 @@ const OrderList: React.FC = () => {
                       </div>
                     </div>
                   </td>
-                  <td className="px-6 py-5">
+                  <td className="col-span-2 border-t border-gray-50 px-3 pt-3 lg:table-cell lg:border-0 lg:px-6 lg:py-5 lg:pt-5">
                       <div className="flex flex-col gap-1">
                           <div className="text-xs text-gray-500">买家ID</div>
                           <div className="text-sm font-bold text-gray-800">{order.buyer_id}</div>
@@ -177,13 +177,13 @@ const OrderList: React.FC = () => {
                           )}
                       </div>
                   </td>
-                  <td className="px-6 py-5 text-base font-extrabold text-gray-900 font-feature-settings-tnum">
+                  <td className="px-3 text-base font-extrabold text-gray-900 font-feature-settings-tnum before:mr-2 before:text-xs before:font-bold before:text-gray-400 before:content-['实付金额'] lg:table-cell lg:px-6 lg:py-5 lg:before:content-none">
                     {order.amount ? `¥${order.amount}` : <span className="text-xs text-amber-600 font-bold">待获取</span>}
                   </td>
-                  <td className="px-6 py-5">
+                  <td className="px-3 text-right lg:table-cell lg:px-6 lg:py-5 lg:text-left">
                     <StatusBadge status={order.status} />
                   </td>
-                  <td className="px-6 py-5 text-right">
+                  <td className="col-span-2 flex flex-wrap items-center justify-end gap-y-2 border-t border-gray-50 px-3 pt-3 lg:table-cell lg:border-0 lg:px-6 lg:py-5 lg:text-right">
                     {order.status === 'pending_ship' && (
                         <button
                             onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => handleShip(order.order_id)}
@@ -196,21 +196,21 @@ const OrderList: React.FC = () => {
                       href={`https://www.goofish.com/order-detail?orderId=${order.order_id}&role=seller`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="mr-2 inline-flex text-gray-400 hover:text-blue-600 p-2 rounded-xl hover:bg-blue-50 transition-colors"
+                      className="mr-2 inline-flex text-gray-400 hover:text-blue-600 p-3 lg:p-2 rounded-xl hover:bg-blue-50 transition-colors"
                       title="查看闲鱼详情"
                     >
                       <ExternalLink className="w-4 h-4" />
                     </a>
                     <button
                       onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => handleViewDetail(order)}
-                      className="mr-2 text-gray-400 hover:text-blue-600 p-2 rounded-xl hover:bg-blue-50 transition-colors"
+                      className="mr-2 text-gray-400 hover:text-blue-600 p-3 lg:p-2 rounded-xl hover:bg-blue-50 transition-colors"
                       title="查看详情"
                     >
                       <Eye className="w-4 h-4" />
                     </button>
                     <button
                       onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => handleEdit(order)}
-                      className="mr-2 text-gray-400 hover:text-black p-2 rounded-xl hover:bg-gray-100 transition-colors"
+                      className="mr-2 text-gray-400 hover:text-black p-3 lg:p-2 rounded-xl hover:bg-gray-100 transition-colors"
                       title="编辑订单"
                     >
                       <Edit className="w-4 h-4" />
@@ -218,7 +218,7 @@ const OrderList: React.FC = () => {
                     <button
                       onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => handleSyncSingle(order.order_id)}
                       disabled={syncingOrderId === order.order_id}
-                      className="mr-2 text-gray-400 hover:text-green-600 p-2 rounded-xl hover:bg-green-50 transition-colors disabled:opacity-50"
+                      className="mr-2 text-gray-400 hover:text-green-600 p-3 lg:p-2 rounded-xl hover:bg-green-50 transition-colors disabled:opacity-50"
                       title="同步订单"
                     >
                       <RefreshCw className={`w-4 h-4 ${syncingOrderId === order.order_id ? 'animate-spin' : ''}`} />
@@ -226,7 +226,7 @@ const OrderList: React.FC = () => {
                     <button
                       onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => handleDelete(order.order_id)}
                       disabled={deletingOrderId === order.order_id}
-                      className="text-gray-400 hover:text-red-500 p-2 rounded-xl hover:bg-red-50 transition-colors disabled:opacity-50"
+                      className="text-gray-400 hover:text-red-500 p-3 lg:p-2 rounded-xl hover:bg-red-50 transition-colors disabled:opacity-50"
                       title="删除订单"
                     >
                       <Trash2 className="w-4 h-4" />
