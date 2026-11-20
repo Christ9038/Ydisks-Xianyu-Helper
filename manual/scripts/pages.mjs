@@ -2,6 +2,7 @@
 export const groups = [
   { zh: '开始使用', en: 'Getting Started', pages: [
     ['index', 'Home.zh-CN', 'Home', '首页与上线路径', 'Home & launch path'],
+    ['quickstart', '新手入门.zh-CN', 'Quick-Start-Guide', '新手入门（分步手册）', 'Quick Start Guide'],
     ['deployment', '部署与数据库.zh-CN', 'Deployment-and-Database', '部署与数据库', 'Deployment and Database'],
     ['config', '配置参考.zh-CN', 'Configuration-Reference', '配置参考', 'Configuration Reference'],
     ['overview', '账号、库存与商品.zh-CN', 'Accounts-Inventory-and-Products', '上线前总览', 'Pre-launch Checklist'],

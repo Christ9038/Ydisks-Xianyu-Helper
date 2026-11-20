@@ -1,6 +1,7 @@
 ### Ydisks Xianyu Helper / Ydisks闲鱼助手
 
 - [Home](Home) · [首页](Home.zh-CN)
+- [Quick Start Guide](Quick-Start-Guide) · [新手入门](新手入门.zh-CN)
 - [Deployment and Database](Deployment-and-Database) · [部署与数据库](部署与数据库.zh-CN)
 - [Dashboard](Dashboard) · [仪表盘](仪表盘.zh-CN)
 - [Account Management](Account-Management) · [账号管理](账号管理.zh-CN)

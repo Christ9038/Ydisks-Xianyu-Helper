@@ -256,6 +256,7 @@ var forbiddenRules = []forbiddenRule{
 
 // pagePairs 是需要中英文事实对齐检查的页面对；与 manual/scripts/pages.mjs 保持一致由站点构建兜底。
 var pagePairs = []zhEnPair{
+	{"新手入门.zh-CN.md", "Quick-Start-Guide.md"},
 	{"账号管理.zh-CN.md", "Account-Management.md"},
 	{"在线聊天与账号自动任务.zh-CN.md", "Chat-and-Account-Automation.md"},
 	{"自动化发货与回复.zh-CN.md", "Automated-Delivery-and-Replies.md"},

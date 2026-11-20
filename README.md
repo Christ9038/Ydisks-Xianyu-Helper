@@ -12,7 +12,8 @@ English documentation · [Online Manual](https://xianyu.ydisks.com/manual/en/) �
 [Security policy](SECURITY.md) · [Code of Conduct](CODE_OF_CONDUCT.md) · [License](#license)
 
 The [English Wiki](docs/wiki/Home.md) is the default operational guide. The [Chinese Wiki](docs/wiki/Home.zh-CN.md)
-is available for the primary Chinese-speaking Xianyu community.
+is available for the primary Chinese-speaking Xianyu community. New users: follow the step-by-step
+[Quick Start Guide](docs/wiki/Quick-Start-Guide.md).
 
 > [!IMPORTANT]
 > This project is for personal technical learning and research only. It has no official authorization from Xianyu

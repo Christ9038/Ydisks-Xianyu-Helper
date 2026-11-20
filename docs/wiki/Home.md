@@ -2,7 +2,7 @@
 
 [中文](Home.zh-CN) | English
 
-This Wiki is for operators of the management console. Start with [Deployment and Database](Deployment-and-Database) and [Account Management](Account-Management), then configure inventory, products, delivery templates, chat, account tasks, transaction automation, AI, and notifications.
+This Wiki is for operators of the management console. **New here? Follow the step-by-step [Quick Start Guide](Quick-Start-Guide) first.** Otherwise start with [Deployment and Database](Deployment-and-Database) and [Account Management](Account-Management), then configure inventory, products, delivery templates, chat, account tasks, transaction automation, AI, and notifications.
 
 ## Recommended launch path
 
@@ -23,12 +23,15 @@ For desktop packages, the management URL is `http://127.0.0.1:59188`. Windows an
 
 The sidebar footer shows the running version and short commit ID. Source runs normally show `dev`/`unknown`; release packages and Docker images show build-injected version and commit information (the commit ID is shown with at most its first 12 characters; a release version such as `1.2.3` is displayed as `v1.2.3`).
 
+The management UI adapts to phones: below the desktop breakpoint a bottom bar offers Dashboard, Chat, Accounts, Orders and More (a drawer with the remaining pages), Online Chat shows one pane at a time, and each order is a card. See the [Quick Start Guide](Quick-Start-Guide).
+
 The management UI supports light and dark themes. The theme button above the collapse button at the bottom of the sidebar (in the “More” drawer on mobile) cycles through Follow system, Light and Dark; the choice is remembered per browser, and Follow system changes live with the operating system. The brand blue is identical in both themes, and large background surfaces in dark mode are neutral gray.
 
 Windows registers the `YdisksXianyuHelper` service. macOS provides Apple Silicon (`arm64`) and Intel (`amd64`) packages and registers `com.ydisks.xianyu-helper.server` and `com.ydisks.xianyu-helper.tray`. Linux packages are distributed for `amd64` and `arm64`; `sudo ./install.sh` registers `ydisks-xianyu-helper.service`. All three package types prepare matching Chromium during the build and do not depend on a Debian repository browser.
 
 ## Read these pages first
 
+- [Quick Start Guide](Quick-Start-Guide) — step-by-step for beginners, from installation to the first automatic delivery
 - [Deployment and Database](Deployment-and-Database)
 - [Dashboard](Dashboard)
 - [Account Management](Account-Management)
