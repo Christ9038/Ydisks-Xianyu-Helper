@@ -106,6 +106,11 @@ func (r NotificationChannelRepository) SetBindings(ctx context.Context, cookieID
 	return normalizeNotificationRepositoryError(r.store.Notifications.SetBindings(ctx, cookieID, channelIDs))
 }
 
+// SetChannelAccounts 以数据库事务整体替换渠道绑定的账号集合，并归一化归属错误。
+func (r NotificationChannelRepository) SetChannelAccounts(ctx context.Context, userID, channelID int64, cookieIDs []string) error {
+	return normalizeNotificationRepositoryError(r.store.Notifications.SetChannelAccounts(ctx, userID, channelID, cookieIDs))
+}
+
 // SetSingleBinding 更新单个账号绑定状态并归一化资源错误。
 func (r NotificationChannelRepository) SetSingleBinding(ctx context.Context, cookieID string, channelID int64, enabled bool) error {
 	return normalizeNotificationRepositoryError(r.store.Notifications.SetSingleBinding(ctx, cookieID, channelID, enabled))

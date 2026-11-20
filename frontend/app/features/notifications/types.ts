@@ -1,5 +1,5 @@
 import type { Dispatch,ElementType,SetStateAction } from 'react';
-import type { NotificationChannel,NotificationChannelType,NotificationEventType,SystemSettings } from './api';
+import type { NotificationAccountOption,NotificationChannel,NotificationChannelType,NotificationEventType,SystemSettings } from './api';
 
 // NotificationField 描述通知渠道表单中的一个配置字段。
 export interface NotificationField {
@@ -65,6 +65,8 @@ export interface NotificationForm {
   config: Record<string, unknown>;
   // event_types 保存用户选择的通知事件，空数组表示全部事件。
   event_types: NotificationEventType[];
+  // account_ids 保存渠道绑定的账号标识；只有账号选项加载成功（accountsStatus 为 ready）时才会随保存提交。
+  account_ids: string[];
 }
 
 // NotificationPayload 描述保存通知渠道时发送给 API 的请求体。
@@ -117,6 +119,12 @@ export interface NotificationState {
   showChannelSmtpPassword: boolean;
   // form 是当前渠道编辑表单值。
   form: NotificationForm;
+  // accountOptions 是可供渠道绑定的账号选项。
+  accountOptions: NotificationAccountOption[];
+  // accountsStatus 是账号选项与当前绑定的加载状态；非 ready 时保存不会改动绑定。
+  accountsStatus: 'loading' | 'ready' | 'error';
+  // reloadAccounts 重试加载账号选项与当前渠道的绑定。
+  reloadAccounts: () => Promise<void>;
   // setForm 更新渠道编辑表单。
   setForm: Dispatch<SetStateAction<NotificationForm>>;
   // setSmtp 更新系统 SMTP 配置表单。

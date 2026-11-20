@@ -141,6 +141,8 @@ type ChannelRepository interface {
 	GetBindingIDs(ctx context.Context, cookieID string) ([]int64, error)
 	// SetBindings 覆盖保存账号的渠道绑定。
 	SetBindings(ctx context.Context, cookieID string, channelIDs []int64) error
+	// SetChannelAccounts 在一个事务内整体替换渠道绑定的账号集合，并校验渠道与账号归属。
+	SetChannelAccounts(ctx context.Context, userID, channelID int64, cookieIDs []string) error
 	// SetSingleBinding 更新单个账号渠道绑定状态。
 	SetSingleBinding(ctx context.Context, cookieID string, channelID int64, enabled bool) error
 	// DeleteBinding 删除指定用户的一条绑定。
@@ -402,6 +404,15 @@ func (s *ChannelService) SetBindings(ctx context.Context, userID int64, cookieID
 		}
 	}
 	return s.repository.SetBindings(ctx, cookieID, channelIDs)
+}
+
+// SetChannelAccounts 整体替换渠道绑定的账号集合：accountIDs 中的账号绑定到该渠道，其余账号解绑，空集合表示全部解绑。
+// 渠道与全部账号必须属于 userID；写入在一个事务内完成，失败时不产生部分绑定。该入口与账号管理里的“通知渠道绑定”读写同一份数据。
+func (s *ChannelService) SetChannelAccounts(ctx context.Context, userID, channelID int64, accountIDs []string) error {
+	if s == nil || s.repository == nil || userID <= 0 || channelID <= 0 {
+		return ErrChannelInvalidInput
+	}
+	return s.repository.SetChannelAccounts(ctx, userID, channelID, accountIDs)
 }
 
 // SetSingleBinding 校验账号和渠道归属后更新单条绑定状态。

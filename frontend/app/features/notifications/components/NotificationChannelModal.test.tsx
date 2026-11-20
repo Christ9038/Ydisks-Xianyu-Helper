@@ -41,13 +41,19 @@ interface HarnessProps {
   initialType?: NotificationForm['type'];
   // showModal 表示弹窗是否打开，默认打开。
   showModal?: boolean;
+  // accountsStatus 是账号选项加载状态，默认 ready。
+  accountsStatus?: 'loading' | 'ready' | 'error';
+  // onRetryAccounts 是账号加载失败后的重试替身。
+  onRetryAccounts?: () => void;
+  // initialAccountIds 是表单初始绑定账号。
+  initialAccountIds?: string[];
 }
 
 // Harness 以真实 useState 驱动 form，使类型切换与弹窗联动与页面一致。
-const Harness: React.FC<HarnessProps> = ({ editing = false, withPanel = true, onBound, onSave = vi.fn(), initialType = 'feishu', showModal = true }) => {
+const Harness: React.FC<HarnessProps> = ({ editing = false, withPanel = true, onBound, onSave = vi.fn(), initialType = 'feishu', showModal = true, accountsStatus = 'ready', onRetryAccounts, initialAccountIds = [] }) => {
   // form 是弹窗表单值，初始类型由用例指定。
-  const [form, setForm] = React.useState<NotificationForm>({ ...emptyNotificationForm(), type: initialType });
-  return <NotificationChannelModal showModal={showModal} editing={editing ? { id: 1 } as never : null} form={form} setForm={setForm} smtp={{} as SystemSettings} showChannelSmtpPassword={false} setShowChannelSmtpPassword={vi.fn()} saving={false} onClose={vi.fn()} onSave={onSave} feishuBindingPanel={withPanel ? StubPanel : undefined} onFeishuBound={onBound} />;
+  const [form, setForm] = React.useState<NotificationForm>({ ...emptyNotificationForm(), type: initialType, account_ids: initialAccountIds });
+  return <NotificationChannelModal showModal={showModal} editing={editing ? { id: 1 } as never : null} form={form} setForm={setForm} smtp={{} as SystemSettings} showChannelSmtpPassword={false} setShowChannelSmtpPassword={vi.fn()} saving={false} onClose={vi.fn()} onSave={onSave} feishuBindingPanel={withPanel ? StubPanel : undefined} onFeishuBound={onBound} accountOptions={[{ id: 'a', label: '账号A' }, { id: 'b', label: '账号B' }]} accountsStatus={accountsStatus} onRetryAccounts={onRetryAccounts} />;
 };
 
 describe('NotificationChannelModal 飞书连接方式', /* 当前测试组验证飞书机器人在新建渠道弹窗内以链接为基本盘、扫码授权为可选连接方式。 */ () => {
@@ -82,7 +88,7 @@ describe('NotificationChannelModal 飞书连接方式', /* 当前测试组验证
     render(<Harness />);
     fireEvent.change(screen.getByPlaceholderText(/例如/), { target: { value: '值班飞书' } });
     fireEvent.click(screen.getByRole('tab', { name: '扫码授权' }));
-    expect(lastPanelForm).toEqual({ name: '值班飞书', eventTypes: [], enabled: true });
+    expect(lastPanelForm).toEqual({ name: '值班飞书', eventTypes: [], enabled: true, accountIds: [] });
   });
 
   test('扫码会话进行中锁定共用表单，离开扫码方式后解锁', /* 当前回调验证二维码已生成后表单不可再改，避免与已提交参数不一致。 */ () => {
@@ -155,5 +161,45 @@ describe('NotificationChannelModal 飞书连接方式', /* 当前测试组验证
     view.rerender(<Harness showModal={false} />);
     view.rerender(<Harness showModal />);
     expect(screen.getByRole('tab', { name: 'Webhook 链接' }).getAttribute('aria-selected')).toBe('true');
+  });
+});
+
+describe('NotificationChannelModal 绑定账号', /* 当前测试组验证启用渠道下方的账号绑定入口。 */ () => {
+  afterEach(/* 当前回调清理渲染。 */ () => cleanup());
+
+  test('启用开关下方展示账号复选框，勾选状态随表单变化', /* 当前回调验证切换账号会更新选择。 */ () => {
+    render(<Harness initialAccountIds={['a']} initialType="bark" />);
+    // boxA、boxB 是两个账号的复选框。
+    const boxA = screen.getByLabelText('账号A') as HTMLInputElement;
+    // boxB 是账号B的复选框，初始未勾选。
+    const boxB = screen.getByLabelText('账号B') as HTMLInputElement;
+    expect(boxA.checked).toBe(true);
+    expect(boxB.checked).toBe(false);
+    fireEvent.click(boxB);
+    fireEvent.click(boxA);
+    expect((screen.getByLabelText('账号A') as HTMLInputElement).checked).toBe(false);
+    expect((screen.getByLabelText('账号B') as HTMLInputElement).checked).toBe(true);
+  });
+
+  test('加载失败时提示不会改动绑定并可重试，加载中显示占位', /* 当前回调验证非 ready 状态。 */ () => {
+    // retry 是重试回调替身。
+    const retry = vi.fn();
+    render(<Harness accountsStatus="error" onRetryAccounts={retry} initialType="bark" />);
+    expect(screen.queryByLabelText('账号A')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+    expect(retry).toHaveBeenCalledTimes(1);
+    cleanup();
+    render(<Harness accountsStatus="loading" initialType="bark" />);
+    expect(screen.getByText('正在加载账号')).not.toBeNull();
+  });
+
+  test('扫码授权时账号选择随会话提交，账号未加载则不提交', /* 当前回调验证飞书扫码与绑定账号联动。 */ () => {
+    render(<Harness initialAccountIds={['b']} />);
+    fireEvent.click(screen.getByRole('tab', { name: '扫码授权' }));
+    expect(lastPanelForm?.accountIds).toEqual(['b']);
+    cleanup();
+    render(<Harness accountsStatus="error" initialAccountIds={['b']} />);
+    fireEvent.click(screen.getByRole('tab', { name: '扫码授权' }));
+    expect(lastPanelForm?.accountIds).toBeUndefined();
   });
 });

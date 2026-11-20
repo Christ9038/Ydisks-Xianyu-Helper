@@ -77,6 +77,44 @@ func (s *Server) mountNotificationsReal(r chi.Router) {
 	r.Post("/message-notifications/{cid}", s.setAccountBindings)
 }
 
+// notificationChannelAccountsRequest 是渠道侧整体替换绑定账号集合的具名 HTTP 请求 DTO。
+type notificationChannelAccountsRequest struct {
+	// AccountIDs 是该渠道应绑定的全部账号标识；必须出现在请求体中，空数组表示解绑全部账号，nil 表示缺少必填字段。
+	AccountIDs []string `json:"account_ids"`
+}
+
+// setChannelAccounts 整体替换某个渠道绑定的账号集合，渠道与账号必须都属于当前用户。
+func (s *Server) setChannelAccounts(w http.ResponseWriter, r *http.Request) {
+	// channelID、parseErr 保存路径中的渠道 ID 及解析错误。
+	channelID, parseErr := strconv.ParseInt(chi.URLParam(r, "channel_id"), 10, 64)
+	if parseErr != nil || channelID <= 0 {
+		writeErr(w, http.StatusBadRequest, "无效ID")
+		return
+	}
+	// request 保存账号集合请求；AccountIDs 为 nil 说明客户端遗漏了必填字段。
+	var request notificationChannelAccountsRequest
+	if // decodeErr 保存请求解码错误
+	decodeErr := decodeJSON(r, &request); decodeErr != nil || request.AccountIDs == nil {
+		writeErr(w, http.StatusBadRequest, "account_ids 必填")
+		return
+	}
+	// setErr 保存整体替换绑定的应用用例结果。
+	setErr := s.notificationChannelsApplication().SetChannelAccounts(r.Context(), authSess(r).UserID, channelID, request.AccountIDs)
+	if setErr != nil {
+		if errors.Is(setErr, notificationsapp.ErrChannelInvalidInput) {
+			writeErr(w, http.StatusBadRequest, "绑定参数无效")
+			return
+		}
+		if errors.Is(setErr, notificationsapp.ErrChannelForbidden) || errors.Is(setErr, notificationsapp.ErrChannelNotFound) || errors.Is(setErr, notificationsapp.ErrAccountForbidden) {
+			writeErr(w, http.StatusForbidden, "无权操作该通知渠道或账号")
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, "保存失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
+}
+
 // getChannelEditor 返回当前用户编辑渠道所需的非敏感配置字段。
 func (s *Server) getChannelEditor(w http.ResponseWriter, r *http.Request) {
 	// id、err 保存路径中的渠道 ID 及解析错误。

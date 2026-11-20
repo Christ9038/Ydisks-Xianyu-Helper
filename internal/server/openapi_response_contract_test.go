@@ -663,6 +663,31 @@ func TestOpenAPINotificationResponses(t *testing.T) {
 	updateChannelRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(updateChannelRecorder, updateChannelRequest)
 	assertOpenAPISuccessResponse(t, updateChannelRequest, updateChannelRecorder)
+	// bindAccountsRequest 是渠道侧整体替换绑定账号集合的成功请求（空集合表示全部解绑）。
+	bindAccountsRequest := httptest.NewRequest(http.MethodPut, "/api/v1/notifications/channels/"+channelID+"/accounts", strings.NewReader(`{"account_ids":[]}`))
+	bindAccountsRequest.AddCookie(sessionCookie)
+	// bindAccountsRecorder 捕获渠道侧绑定成功响应。
+	bindAccountsRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(bindAccountsRecorder, bindAccountsRequest)
+	assertOpenAPISuccessResponse(t, bindAccountsRequest, bindAccountsRecorder)
+	// missingFieldRequest 缺少必填 account_ids，应返回 400。
+	missingFieldRequest := httptest.NewRequest(http.MethodPut, "/api/v1/notifications/channels/"+channelID+"/accounts", strings.NewReader(`{}`))
+	missingFieldRequest.AddCookie(sessionCookie)
+	// missingFieldRecorder 捕获缺字段响应。
+	missingFieldRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(missingFieldRecorder, missingFieldRequest)
+	if missingFieldRecorder.Code != http.StatusBadRequest {
+		t.Fatalf("缺少 account_ids 应返回 400: %d %s", missingFieldRecorder.Code, missingFieldRecorder.Body.String())
+	}
+	// foreignAccountRequest 绑定不存在的账号，应返回 403 且不写入。
+	foreignAccountRequest := httptest.NewRequest(http.MethodPut, "/api/v1/notifications/channels/"+channelID+"/accounts", strings.NewReader(`{"account_ids":["not-mine"]}`))
+	foreignAccountRequest.AddCookie(sessionCookie)
+	// foreignAccountRecorder 捕获越权响应。
+	foreignAccountRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(foreignAccountRecorder, foreignAccountRequest)
+	if foreignAccountRecorder.Code != http.StatusForbidden {
+		t.Fatalf("越权账号应返回 403: %d %s", foreignAccountRecorder.Code, foreignAccountRecorder.Body.String())
+	}
 	// deleteChannelRequest 是删除已归属通知渠道的成功请求。
 	deleteChannelRequest := httptest.NewRequest(http.MethodDelete, "/api/v1/notifications/channels/"+channelID, nil)
 	deleteChannelRequest.AddCookie(sessionCookie)

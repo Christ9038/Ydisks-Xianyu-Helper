@@ -1,6 +1,6 @@
 import { useCallback,useEffect,useRef,useState } from 'react';
-import type { NotificationChannel,SystemSettings } from './api';
-import { createNotificationChannel,deleteNotificationChannel,getNotificationChannel,getNotificationChannels,getSystemSettings,testNotificationChannel,updateNotificationChannel,updateSystemSettings } from './api';
+import type { NotificationAccountOption,NotificationChannel,SystemSettings } from './api';
+import { createNotificationChannel,deleteNotificationChannel,getMessageNotifications,getNotificationAccountOptions,getNotificationChannel,getNotificationChannels,getSystemSettings,setChannelAccounts,testNotificationChannel,updateNotificationChannel,updateSystemSettings } from './api';
 import { buildNotificationPayload,emptyNotificationForm,isCurrentNotificationRequest,normalizeNotificationForm,notificationErrorMessage,validateNotificationForm } from './state';
 import type { NotificationForm,NotificationState } from './types';
 
@@ -30,6 +30,16 @@ export const useNotifications = (isAdmin: boolean): NotificationState => {
   const [showChannelSmtpPassword, setShowChannelSmtpPassword] = useState(false);
   // form 保存渠道编辑弹窗的当前表单。
   const [form, setForm] = useState<NotificationForm>(emptyNotificationForm);
+  // accountOptions 保存可供渠道绑定的账号选项。
+  const [accountOptions, setAccountOptions] = useState<NotificationAccountOption[]>([]);
+  // accountsStatus 表示账号选项与当前绑定是否加载完成；失败时保存不会改动任何绑定，避免用空选择误清空。
+  const [accountsStatus, setAccountsStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  // accountsGeneration 隔离连续打开弹窗或重试时产生的旧账号响应。
+  const accountsGeneration = useRef(0);
+  // accountsAbort 保存当前账号选项请求的取消控制器。
+  const accountsAbort = useRef<AbortController | null>(null);
+  // accountsChannelId 记录账号选项所属的渠道（新建为空串），供重试使用。
+  const accountsChannelId = useRef('');
   // channelGeneration 隔离渠道加载和刷新产生的旧响应。
   const channelGeneration = useRef(0);
   // channelAbort 保存当前渠道列表请求的取消控制器。
@@ -137,6 +147,8 @@ export const useNotifications = (isAdmin: boolean): NotificationState => {
           smtpAbort.current?.abort();
           editorGeneration.current += 1;
           editorAbort.current?.abort();
+          accountsGeneration.current += 1;
+          accountsAbort.current?.abort();
         }
       );
     },
@@ -156,6 +168,49 @@ export const useNotifications = (isAdmin: boolean): NotificationState => {
     [],
   );
 
+  // loadAccounts 并行读取账号选项和（编辑时）该渠道当前绑定的账号，成功后一次性写入选项与表单选择；新建渠道默认勾选全部账号，使新渠道开箱即用。
+  const loadAccounts = useCallback(
+    // channelId 是被编辑渠道的标识，新建时为空串。
+    async (channelId: string) => {
+    // generation 标记本次账号加载，隔离重试或切换渠道后的旧响应。
+    const generation = ++accountsGeneration.current;
+    accountsAbort.current?.abort();
+    // controller 允许关闭弹窗或重新加载时取消账号请求。
+    const controller = new AbortController();
+    accountsAbort.current = controller;
+    accountsChannelId.current = channelId;
+    setAccountsStatus('loading');
+    try {
+      // options 是全部账号选项；bindings 是各账号现有的渠道绑定，仅编辑时读取。
+      const [options, bindings] = await Promise.all([
+        getNotificationAccountOptions({ signal: controller.signal }),
+        channelId ? getMessageNotifications() : Promise.resolve(null),
+      ]);
+      if (generation !== accountsGeneration.current || controller.signal.aborted) return;
+      // selected 是表单初始勾选的账号：编辑取该渠道已启用绑定，新建默认全选。
+      const selected = bindings
+        ? options.filter(/* option 仅保留当前渠道已启用绑定的账号。 */ option => bindings.data.some(/* binding 是一条账号渠道绑定。 */ binding => binding.cookie_id === option.id && String(binding.channel_id) === channelId && binding.enabled)).map(/* option 取账号标识。 */ option => option.id)
+        : options.map(/* option 取账号标识。 */ option => option.id);
+      setAccountOptions(options);
+      setForm(/* current 写入初始账号选择，保留用户已填的其他字段。 */ current => ({ ...current, account_ids: selected }));
+      setAccountsStatus('ready');
+    } catch (error: unknown /* 账号选项加载失败：保持非 ready，保存时不改动绑定。 */) {
+      if (generation === accountsGeneration.current && !controller.signal.aborted) {
+        console.error('加载账号绑定选项失败', error);
+        setAccountsStatus('error');
+      }
+    }
+    },
+    [],
+  );
+
+  // reloadAccounts 重试加载当前弹窗对应渠道的账号选项。
+  const reloadAccounts = useCallback(
+    // 重试回调复用最近一次加载所属的渠道。
+    () => loadAccounts(accountsChannelId.current),
+    [loadAccounts],
+  );
+
   // openCreate 打开新建渠道表单并清理上一次编辑状态。
   const openCreate = useCallback(
     // 新建回调重置表单并打开渠道弹窗。
@@ -166,8 +221,9 @@ export const useNotifications = (isAdmin: boolean): NotificationState => {
     setForm(emptyNotificationForm());
     setShowChannelSmtpPassword(false);
     setShowModal(true);
+    void loadAccounts('');
     },
-    [],
+    [loadAccounts],
   );
 
   // openEdit 先读取脱敏编辑配置再开放表单；关闭、切换或新建使旧请求失效，避免晚到响应覆盖输入。
@@ -194,11 +250,12 @@ export const useNotifications = (isAdmin: boolean): NotificationState => {
         } : initialForm);
         setShowChannelSmtpPassword(false);
         setShowModal(true);
+        void loadAccounts(channel.id);
       } catch (error: unknown /* 编辑读取失败时仅显示可读错误，不开放缺少配置的表单。 */) {
         if (generation === editorGeneration.current && !controller.signal.aborted) showToast('error', notificationErrorMessage(error, '读取渠道配置失败'));
       }
     },
-    [showToast, smtp],
+    [loadAccounts, showToast, smtp],
   );
 
   // closeModal 关闭渠道弹窗并取消未完成的保存动作。
@@ -210,6 +267,8 @@ export const useNotifications = (isAdmin: boolean): NotificationState => {
     actionAbort.current?.abort();
     editorGeneration.current += 1;
     editorAbort.current?.abort();
+    accountsGeneration.current += 1;
+    accountsAbort.current?.abort();
     setSaving(false);
     setShowModal(false);
     },
@@ -238,16 +297,31 @@ export const useNotifications = (isAdmin: boolean): NotificationState => {
     try {
       // payload 是后端渠道接口使用的规范化请求体。
       const payload = buildNotificationPayload(form);
+      // channelId 是被保存渠道的标识，用于随后的账号绑定写入。
+      let channelId = editing?.id ?? '';
       if (editing) {
         await updateNotificationChannel(editing.id, payload, { signal: controller.signal });
       } else {
-        await createNotificationChannel({ ...payload, config: payload.config || {} }, { signal: controller.signal });
+        // created 是创建响应，其数值主键转为路径参数字符串。
+        const created = await createNotificationChannel({ ...payload, config: payload.config || {} }, { signal: controller.signal });
+        channelId = String(created.id);
       }
       if (!isCurrentNotificationRequest(generation, actionGeneration.current)) return;
+      // bindingError 记录渠道已保存但账号绑定写入失败的原因；账号选项未加载成功时不写绑定，避免误清空。
+      let bindingError = '';
+      if (accountsStatus === 'ready' && channelId) {
+        try {
+          await setChannelAccounts(channelId, form.account_ids, { signal: controller.signal });
+        } catch (error: unknown /* 绑定写入失败：渠道本身已保存，单独提示。 */) {
+          bindingError = notificationErrorMessage(error, '账号绑定保存失败');
+        }
+        if (!isCurrentNotificationRequest(generation, actionGeneration.current)) return;
+      }
       setShowModal(false);
       await loadChannels();
       if (!isCurrentNotificationRequest(generation, actionGeneration.current)) return;
-      showToast('success', editing ? '已更新' : '已创建');
+      if (bindingError) showToast('error', `渠道已保存，但账号绑定失败：${bindingError}`);
+      else showToast('success', editing ? '已更新' : '已创建');
     } catch (error: unknown /* 渠道保存异常 */) {
       if (isCurrentNotificationRequest(generation, actionGeneration.current) && !controller.signal.aborted) {
         showToast('error', notificationErrorMessage(error, '保存失败'));
@@ -256,7 +330,7 @@ export const useNotifications = (isAdmin: boolean): NotificationState => {
       if (isCurrentNotificationRequest(generation, actionGeneration.current)) setSaving(false);
     }
     },
-    [editing, form, loadChannels, showToast],
+    [accountsStatus, editing, form, loadChannels, showToast],
   );
 
   // handleDelete 删除渠道并在成功后刷新列表。
@@ -380,7 +454,7 @@ export const useNotifications = (isAdmin: boolean): NotificationState => {
 
   return {
     channels, loading, showModal, editing, saving, testingId, toast, smtp, smtpSaving,
-    showSmtpPassword, showChannelSmtpPassword, form, setForm, setSmtp, setShowSmtpPassword,
+    showSmtpPassword, showChannelSmtpPassword, form, accountOptions, accountsStatus, reloadAccounts, setForm, setSmtp, setShowSmtpPassword,
     setShowChannelSmtpPassword, loadChannels, openCreate, openEdit, closeModal, showToast,
     handleSave, handleDelete, handleToggleEnabled, handleTest, handleSaveSmtp,
   };

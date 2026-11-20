@@ -132,6 +132,14 @@ export interface NotificationBinding {
   enabled: boolean;
 }
 
+/** NotificationAccountOption 是渠道弹窗中可勾选绑定的账号选项，仅含标识和展示名，不含任何凭证。 */
+export interface NotificationAccountOption {
+  /** id 是账号稳定标识，提交绑定时使用。 */
+  id: string;
+  /** label 是供用户识别账号的展示名称。 */
+  label: string;
+}
+
 /** 简单资源创建接口的数值主键响应。 */
 /** 由当前 feature adapter 归一后的 MutationIDResponse UI 模型；不直接暴露 HTTP DTO。 */
 export interface MutationIDResponse {

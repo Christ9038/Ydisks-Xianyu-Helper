@@ -5,7 +5,7 @@ import type { NotificationForm } from './types';
 
 // createForm 创建通知渠道校验使用的最小表单对象。
 const createForm = (overrides: Partial<NotificationForm> = {}): NotificationForm => ({
-  name: '测试渠道', type: 'bark', enabled: true, config: { server_url: 'https://api.day.app', device_key: 'device-key' }, event_types: [], ...overrides,
+  name: '测试渠道', type: 'bark', enabled: true, config: { server_url: 'https://api.day.app', device_key: 'device-key' }, event_types: [], account_ids: [], ...overrides,
 });
 
 test('通知渠道校验阻止缺少名称和必填配置',

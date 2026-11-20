@@ -2,12 +2,15 @@
 import { act,renderHook,waitFor } from '@testing-library/react';
 import { beforeEach,describe,expect,test,vi } from 'vitest';
 import type { NotificationChannel,SystemSettings } from './api';
-import { createNotificationChannel,deleteNotificationChannel,getNotificationChannel,getNotificationChannels,getSystemSettings,testNotificationChannel,updateNotificationChannel,updateSystemSettings } from './api';
+import { createNotificationChannel,deleteNotificationChannel,getMessageNotifications,getNotificationAccountOptions,getNotificationChannel,getNotificationChannels,getSystemSettings,setChannelAccounts,testNotificationChannel,updateNotificationChannel,updateSystemSettings } from './api';
 import { useNotifications } from './hooks';
 
 vi.mock('./api', /* notificationsApiMockFactory 提供通知 Hook 的确定性 API 替身。 */ () => ({
   createNotificationChannel: vi.fn(),
   deleteNotificationChannel: vi.fn(),
+  getMessageNotifications: vi.fn(),
+  getNotificationAccountOptions: vi.fn(),
+  setChannelAccounts: vi.fn(),
   getNotificationChannel: vi.fn(),
   getNotificationChannels: vi.fn(),
   getSystemSettings: vi.fn(),
@@ -35,6 +38,13 @@ const updateSmtpMock = vi.mocked(updateSystemSettings);
 
 // channelFixture 是覆盖启用状态和事件订阅的通知渠道对象。
 const channelFixture: NotificationChannel = { id: 'channel-1', name: '测试渠道', type: 'bark', config: { server_url: 'https://api.day.app', device_key: 'device-key' }, event_types: ['system_error'], enabled: true };
+// accountOptionsMock 是账号选项读取替身；getBindingsMock 是现有绑定读取替身；setAccountsMock 是渠道侧绑定写入替身。
+const accountOptionsMock = vi.mocked(getNotificationAccountOptions);
+// getBindingsMock 是现有账号渠道绑定读取替身。
+const getBindingsMock = vi.mocked(getMessageNotifications);
+// setAccountsMock 是渠道侧绑定写入替身。
+const setAccountsMock = vi.mocked(setChannelAccounts);
+
 // smtpFixture 是管理员 SMTP 配置对象。
 const smtpFixture: SystemSettings = { smtp_server: 'smtp.example.com', smtp_port: 587, smtp_user: 'sender@example.com', smtp_password: 'secret' };
 
@@ -49,6 +59,9 @@ describe('useNotifications', /* 当前回调处理通知渠道、SMTP 和动作�
     testChannelMock.mockResolvedValue({ success: true });
     updateChannelMock.mockResolvedValue({ success: true });
     updateSmtpMock.mockResolvedValue({ success: true });
+    accountOptionsMock.mockResolvedValue([{ id: 'acc-a', label: '账号A' }, { id: 'acc-b', label: '账号B' }]);
+    getBindingsMock.mockResolvedValue({ success: true, data: [{ cookie_id: 'acc-b', channel_id: 1, channel_name: '测试渠道', enabled: true }] });
+    setAccountsMock.mockResolvedValue({ success: true });
     vi.spyOn(window, 'confirm').mockReturnValue(true);
   });
 
@@ -71,7 +84,7 @@ describe('useNotifications', /* 当前回调处理通知渠道、SMTP 和动作�
     );
     await act(
       // formAction 写入完整的渠道表单。
-      () => hook.result.current.setForm({ name: '新渠道', type: 'bark', enabled: true, config: { server_url: 'https://api.day.app', device_key: 'new-key' }, event_types: [] }),
+      () => hook.result.current.setForm({ name: '新渠道', type: 'bark', enabled: true, config: { server_url: 'https://api.day.app', device_key: 'new-key' }, event_types: [], account_ids: [] }),
     );
     await act(
       // saveAction 提交新建渠道请求。
@@ -96,6 +109,62 @@ describe('useNotifications', /* 当前回调处理通知渠道、SMTP 和动作�
       async () => hook.result.current.handleSaveSmtp(),
     );
     expect(updateSmtpMock).toHaveBeenCalledWith(expect.objectContaining({ smtp_port: 587 }), expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  });
+
+  test('新建渠道默认勾选全部账号，保存后按选择整体写入渠道账号绑定', /* 当前回调验证渠道侧账号绑定的新建路径。 */ async () => {
+    // hook 是通知 Hook 的渲染结果。
+    const hook = renderHook(/* 创建普通用户通知 Hook。 */ () => useNotifications(false));
+    await waitFor(/* 等待渠道列表加载。 */ () => expect(hook.result.current.loading).toBe(false));
+    await act(/* 打开新建弹窗并触发账号加载。 */ async () => hook.result.current.openCreate());
+    await waitFor(/* 账号选项加载完成。 */ () => expect(hook.result.current.accountsStatus).toBe('ready'));
+    expect(hook.result.current.form.account_ids).toEqual(['acc-a', 'acc-b']);
+    expect(getBindingsMock).not.toHaveBeenCalled();
+    await act(/* 填写表单并取消勾选账号B。 */ async () => hook.result.current.setForm(/* current 是当前表单。 */ current => ({ ...current, name: '新渠道', config: { server_url: 'https://api.day.app', device_key: 'k' }, account_ids: ['acc-a'] })));
+    await act(/* 提交保存。 */ async () => hook.result.current.handleSave());
+    expect(setAccountsMock).toHaveBeenCalledWith('2', ['acc-a'], expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(hook.result.current.toast).toEqual({ type: 'success', text: '已创建' });
+  });
+
+  test('编辑渠道回显该渠道已绑定账号，并可整体替换', /* 当前回调验证编辑路径与账号管理读取同一份绑定。 */ async () => {
+    // hook 是通知 Hook 的渲染结果。
+    const hook = renderHook(/* 创建普通用户通知 Hook。 */ () => useNotifications(false));
+    await waitFor(/* 等待渠道列表加载。 */ () => expect(hook.result.current.loading).toBe(false));
+    await act(/* 打开编辑弹窗。 */ async () => hook.result.current.openEdit({ ...channelFixture, id: '1' }));
+    await waitFor(/* 账号选项加载完成。 */ () => expect(hook.result.current.accountsStatus).toBe('ready'));
+    expect(hook.result.current.form.account_ids).toEqual(['acc-b']);
+    await act(/* 改为只绑定账号A。 */ async () => hook.result.current.setForm(/* current 是当前表单。 */ current => ({ ...current, account_ids: ['acc-a'] })));
+    await act(/* 提交保存。 */ async () => hook.result.current.handleSave());
+    expect(setAccountsMock).toHaveBeenCalledWith('1', ['acc-a'], expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  });
+
+  test('账号选项加载失败时保存不改动绑定且可重试', /* 当前回调验证失败时不会用空选择误清空绑定。 */ async () => {
+    accountOptionsMock.mockRejectedValueOnce(new Error('boom'));
+    vi.spyOn(console, 'error').mockImplementation(/* 屏蔽预期内的加载失败日志。 */ () => undefined);
+    // hook 是通知 Hook 的渲染结果。
+    const hook = renderHook(/* 创建普通用户通知 Hook。 */ () => useNotifications(false));
+    await waitFor(/* 等待渠道列表加载。 */ () => expect(hook.result.current.loading).toBe(false));
+    await act(/* 打开新建弹窗。 */ async () => hook.result.current.openCreate());
+    await waitFor(/* 账号加载失败。 */ () => expect(hook.result.current.accountsStatus).toBe('error'));
+    await act(/* 填写并保存。 */ async () => hook.result.current.setForm(/* current 是当前表单。 */ current => ({ ...current, name: 'x', config: { server_url: 'https://api.day.app', device_key: 'k' } })));
+    await act(/* 提交保存。 */ async () => hook.result.current.handleSave());
+    expect(createChannelMock).toHaveBeenCalled();
+    expect(setAccountsMock).not.toHaveBeenCalled();
+    await act(/* 重试加载账号。 */ async () => hook.result.current.reloadAccounts());
+    expect(hook.result.current.accountsStatus).toBe('ready');
+  });
+
+  test('渠道已保存但账号绑定写入失败时给出专门提示', /* 当前回调验证部分失败的提示。 */ async () => {
+    setAccountsMock.mockRejectedValueOnce(new Error('无权操作该通知渠道或账号'));
+    // hook 是通知 Hook 的渲染结果。
+    const hook = renderHook(/* 创建普通用户通知 Hook。 */ () => useNotifications(false));
+    await waitFor(/* 等待渠道列表加载。 */ () => expect(hook.result.current.loading).toBe(false));
+    await act(/* 打开新建弹窗。 */ async () => hook.result.current.openCreate());
+    await waitFor(/* 账号加载完成。 */ () => expect(hook.result.current.accountsStatus).toBe('ready'));
+    await act(/* 填写表单。 */ async () => hook.result.current.setForm(/* current 是当前表单。 */ current => ({ ...current, name: 'x', config: { server_url: 'https://api.day.app', device_key: 'k' } })));
+    await act(/* 提交保存。 */ async () => hook.result.current.handleSave());
+    expect(hook.result.current.showModal).toBe(false);
+    expect(hook.result.current.toast?.type).toBe('error');
+    expect(hook.result.current.toast?.text).toContain('渠道已保存，但账号绑定失败');
   });
 
   test('编辑邮件渠道时回显服务端保存的收件邮箱', /* 当前回调验证编辑配置异步加载不会丢失收件地址。 */ async () => {
@@ -147,7 +216,7 @@ describe('useNotifications', /* 当前回调处理通知渠道、SMTP 和动作�
     );
     await act(
       // invalidFormAction 写入缺少必填字段的表单。
-      () => hook.result.current.setForm({ name: '', type: 'bark', enabled: true, config: {}, event_types: [] }),
+      () => hook.result.current.setForm({ name: '', type: 'bark', enabled: true, config: {}, event_types: [], account_ids: [] }),
     );
     await act(
       // invalidSaveAction 提交非法渠道表单。
@@ -205,7 +274,7 @@ describe('useNotifications', /* 当前回调处理通知渠道、SMTP 和动作�
     );
     await act(
       // formAction 写入编辑渠道表单。
-      () => hook.result.current.setForm({ name: '修改渠道', type: 'bark', enabled: true, config: { server_url: 'https://api.day.app', device_key: 'key' }, event_types: [] }),
+      () => hook.result.current.setForm({ name: '修改渠道', type: 'bark', enabled: true, config: { server_url: 'https://api.day.app', device_key: 'key' }, event_types: [], account_ids: [] }),
     );
     updateChannelMock.mockRejectedValueOnce(new Error('渠道保存失败'));
     await act(

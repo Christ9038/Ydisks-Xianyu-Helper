@@ -22,6 +22,8 @@ export interface FeishuBindingForm {
   eventTypes: NotificationEventType[];
   /** enabled 表示绑定成功后渠道是否启用。 */
   enabled: boolean;
+  /** accountIds 是绑定成功后渠道应绑定的账号；undefined 表示账号选项未加载，不改动绑定。 */
+  accountIds?: string[];
 }
 
 /** FeishuBindingState 是飞书扫码绑定 Hook 暴露给弹窗和页面的状态与动作。 */
@@ -186,7 +188,7 @@ export const useFeishuAppBinding = (options: FeishuBindingOptions = {}): FeishuB
     setSessionID('');
     try {
       // result 是后端创建的扫码绑定会话，包含二维码和有效时长。
-      const result = await startFeishuAppBinding({ name: form.name, eventTypes: form.eventTypes, enabled: form.enabled }, { signal: controller.signal });
+      const result = await startFeishuAppBinding({ name: form.name, eventTypes: form.eventTypes, enabled: form.enabled, accountIds: form.accountIds }, { signal: controller.signal });
       if (generation !== generationRef.current || controller.signal.aborted) return;
       setQrCodeUrl(result.qr_code_url);
       setSessionID(result.session_id);

@@ -2,7 +2,7 @@ import { Bell,Check,Eye,EyeOff,Link2,Loader2,QrCode,X } from 'lucide-react';
 import React,{ Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { enableCustomSMTP } from '../../../../notificationEmailConfig';
-import type { NotificationChannel,NotificationChannelType,NotificationEventType,SystemSettings } from '../api';
+import type { NotificationAccountOption,NotificationChannel,NotificationChannelType,NotificationEventType,SystemSettings } from '../api';
 import { manualNotificationChannelTypes,notificationChannelTypes } from '../state';
 import type { NotificationForm } from '../types';
 import type { FeishuBindingPanelProps } from './FeishuBindingPanel';
@@ -37,10 +37,16 @@ export interface NotificationChannelModalProps {
   feishuBindingPanel?: React.ComponentType<FeishuBindingPanelProps>;
   // onFeishuBound 在扫码绑定成功后接收新渠道主键，供页面刷新渠道列表。
   onFeishuBound?: (channelID: number) => void;
+  // accountOptions 是可勾选绑定的账号；与账号管理编辑页的「通知渠道绑定」读写同一份数据。
+  accountOptions?: NotificationAccountOption[];
+  // accountsStatus 是账号选项加载状态，非 ready 时不提交绑定变更。
+  accountsStatus?: 'loading' | 'ready' | 'error';
+  // onRetryAccounts 在账号选项加载失败时重试。
+  onRetryAccounts?: () => void | Promise<void>;
 }
 
 // NotificationChannelModal 渲染渠道字段、SMTP 覆盖项和事件绑定表单。
-export const NotificationChannelModal: React.FC<NotificationChannelModalProps> = ({ showModal, editing, form, setForm, smtp, showChannelSmtpPassword, setShowChannelSmtpPassword, saving, onClose, onSave, feishuBindingPanel: FeishuBindingPanel, onFeishuBound }) => {
+export const NotificationChannelModal: React.FC<NotificationChannelModalProps> = ({ showModal, editing, form, setForm, smtp, showChannelSmtpPassword, setShowChannelSmtpPassword, saving, onClose, onSave, feishuBindingPanel: FeishuBindingPanel, onFeishuBound, accountOptions = [], accountsStatus = 'ready', onRetryAccounts }) => {
   // feishuMode 保存新建飞书渠道当前选择的连接方式；每次弹窗重新打开时回到链接方式。
   const [feishuMode, setFeishuMode] = React.useState<FeishuAddMode>('link');
   // formLocked 表示扫码会话进行中或已成功，此时共用表单（名称、类型、通知内容、启用状态）只读，避免与已提交的会话参数不一致。
@@ -108,6 +114,18 @@ export const NotificationChannelModal: React.FC<NotificationChannelModalProps> =
     // nextFormUpdater 使用函数式更新启用状态。
     current => ({ ...current, enabled: !current.enabled }),
   );
+  // handleToggleAccount 使用函数式更新切换某账号与当前渠道的绑定。
+  const handleToggleAccount = (event: React.ChangeEvent<HTMLInputElement>) => {
+    // accountID 是复选框数据属性中的账号标识。
+    const accountID = event.currentTarget.dataset.account;
+    if (!accountID) return;
+    setForm(
+      // nextFormUpdater 使用函数式更新账号绑定集合。
+      current => ({ ...current, account_ids: current.account_ids.includes(accountID) ? current.account_ids.filter(/* id 是已绑定的账号标识。 */ id => id !== accountID) : [...current.account_ids, accountID] }),
+    );
+  };
+  // handleRetryAccounts 重试加载账号选项。
+  const handleRetryAccounts = () => void onRetryAccounts?.();
   // handleToggleChannelPassword 切换独立 SMTP 密码明文显示。
   const handleToggleChannelPassword = () => setShowChannelSmtpPassword(
     // nextPasswordState 使用函数式更新密码显示状态。
@@ -154,7 +172,7 @@ export const NotificationChannelModal: React.FC<NotificationChannelModalProps> =
               </div>
             </div>
           )}
-          {scanMode && FeishuBindingPanel && <Suspense fallback={<div className="flex justify-center py-10"><Loader2 className="h-6 w-6 text-brand animate-spin" /></div>}><FeishuBindingPanel form={{ name: form.name, eventTypes: form.event_types, enabled: form.enabled }} onSuccess={onFeishuBound} onClose={onClose} onLockChange={setFormLocked} /></Suspense>}
+          {scanMode && FeishuBindingPanel && <Suspense fallback={<div className="flex justify-center py-10"><Loader2 className="h-6 w-6 text-brand animate-spin" /></div>}><FeishuBindingPanel form={{ name: form.name, eventTypes: form.event_types, enabled: form.enabled, accountIds: accountsStatus === 'ready' ? form.account_ids : undefined }} onSuccess={onFeishuBound} onClose={onClose} onLockChange={setFormLocked} /></Suspense>}
           {!scanMode && <div className="rounded-xl bg-amber-50 border border-amber-200 p-4 space-y-2"><div className="flex items-center gap-2"><Bell className="w-4 h-4 text-amber-600" /><span className="text-sm font-bold text-amber-800">{form.type === 'feishu_app' ? '关于扫码授权的渠道' : `如何获取 ${meta.label} 配置？`}</span></div><ol className="space-y-1.5 text-xs text-amber-900/90 leading-5 list-decimal pl-5">{meta.guide.steps.map(renderGuideStep)}</ol>{meta.guide.urlFormat && <div className="text-xs text-amber-900/90"><span className="font-bold">格式示例：</span><code className="mt-1 block bg-amber-100/70 px-2.5 py-1.5 rounded-lg break-all font-mono text-[11px]">{meta.guide.urlFormat}</code></div>}{meta.guide.note && <p className="text-xs text-amber-800/80 leading-5 pt-1">💡 {meta.guide.note}</p>}</div>}
           {!scanMode && <div className="space-y-3">
             {meta.fields.map(
@@ -185,6 +203,21 @@ export const NotificationChannelModal: React.FC<NotificationChannelModalProps> =
           <fieldset disabled={formLocked} className="m-0 min-w-0 space-y-5 border-0 p-0">
             <NotificationEventSelector selectedEvents={form.event_types} onToggleEvent={handleToggleEvent} />
             <label className="flex items-center gap-3 cursor-pointer"><button type="button" onClick={handleToggleEnabled} className={`relative w-11 h-6 rounded-full transition-colors ${form.enabled ? 'bg-brand' : 'bg-gray-300'}`}><span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-on-accent rounded-full transition-transform ${form.enabled ? 'translate-x-5' : ''}`} /></button><span className="text-sm font-bold text-gray-800">启用此渠道</span></label>
+            <div className="space-y-2" data-testid="channel-account-binding">
+              <label className="block text-sm font-bold text-gray-800">绑定账号</label>
+              <p className="text-xs text-gray-500">只有绑定的账号产生的通知才会发送到此渠道；此处修改会同步到「账号管理 → 编辑账号」中的通知渠道绑定。</p>
+              {accountsStatus === 'loading' && <div className="flex items-center gap-2 text-sm text-gray-500"><Loader2 className="w-4 h-4 animate-spin" />正在加载账号</div>}
+              {accountsStatus === 'error' && <div className="flex items-center justify-between gap-2 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700"><span>账号加载失败，保存时不会改动绑定。</span><button type="button" className="font-bold whitespace-nowrap" onClick={handleRetryAccounts}>重试</button></div>}
+              {accountsStatus === 'ready' && accountOptions.length === 0 && <p className="text-sm text-gray-500">暂无账号，请先在账号管理中添加账号。</p>}
+              {accountsStatus === 'ready' && accountOptions.length > 0 && (
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {accountOptions.map(
+                    // option 是当前可勾选的账号。
+                    option => <label key={option.id} className="flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-sm font-bold text-gray-700"><input type="checkbox" data-account={option.id} checked={form.account_ids.includes(option.id)} onChange={handleToggleAccount} /><span className="truncate">{option.label}</span></label>,
+                  )}
+                </div>
+              )}
+            </div>
           </fieldset>
         </div>
         {!scanMode && <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-end gap-3"><button onClick={onClose} className="px-5 py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 font-bold text-gray-700 transition-colors">取消</button><button onClick={onSave} disabled={saving} className="ios-btn-primary px-6 py-2.5 rounded-xl font-bold flex items-center gap-2 disabled:opacity-50">{saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}{saving ? '保存中...' : '保存'}</button></div>}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -576,5 +577,113 @@ func TestFeishuBindingDefaultsAndDisabledChannel(t *testing.T) {
 	}
 	if repository.createdInput.Name != feishuAppChannelName || repository.createdInput.EventTypes != "" || repository.createdInput.Enabled {
 		t.Fatalf("默认值或停用状态异常: %+v", repository.createdInput)
+	}
+}
+
+// TestFeishuBindingAppliesAccountSelection 验证扫码成功后按表单选择的账号整体替换绑定：非 nil（含空集合）写入，nil 不改动现有绑定。
+func TestFeishuBindingAppliesAccountSelection(t *testing.T) {
+	// cases 保存账号选择与期望调用次数的样例。
+	cases := []struct {
+		// name 是测试样例名称。
+		name string
+		// accountIDs 是传入的账号选择。
+		accountIDs []string
+		// wantCalls 是期望的整体替换调用次数。
+		wantCalls int
+	}{
+		{name: "选择两个账号", accountIDs: []string{"cid-1", "cid-2"}, wantCalls: 1},
+		{name: "空集合表示不绑定任何账号", accountIDs: []string{}, wantCalls: 1},
+		{name: "nil 不改动现有绑定", accountIDs: nil, wantCalls: 0},
+	}
+	// testCase 表示当前账号选择样例。
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// baseTime 是测试会话的固定创建时间；currentTime 保存可推进的测试时钟值。
+			baseTime := time.Date(2026, 7, 8, 9, 10, 11, 0, time.UTC)
+			// currentTime 保存可推进的测试时钟值
+			currentTime := baseTime
+			// repository 是记录渠道创建与账号集合写入的端口替身。
+			repository := &channelRepositoryStub{}
+			// registrar 是返回成功结果的协议替身。
+			registrar := &feishuRegistrarStub{pollResults: []FeishuPollResult{{Status: FeishuPollSuccess, Domain: "feishu", AppID: "cli-9", AppSecret: "secret-9", OpenID: "ou-9"}}}
+			// service 是待验证的飞书渠道应用服务。
+			service := fixedFeishuService(repository, registrar, func() time.Time { return currentTime })
+			// start、startErr 保存开始绑定结果。
+			start, startErr := service.StartFeishuAppBinding(context.Background(), 7, FeishuBindingOptions{Enabled: true, AccountIDs: testCase.accountIDs})
+			if startErr != nil {
+				t.Fatalf("StartFeishuAppBinding: %v", startErr)
+			}
+			// currentTime 推进到允许轮询的时间。
+			currentTime = baseTime.Add(6 * time.Second)
+			// status、statusErr 保存成功状态查询结果及错误。
+			status, statusErr := service.GetFeishuAppBindingStatus(context.Background(), 7, start.SessionID)
+			if statusErr != nil || status.Status != FeishuBindingStatusSuccess {
+				t.Fatalf("成功状态异常: status=%+v err=%v", status, statusErr)
+			}
+			if len(repository.channelAccountCalls) != testCase.wantCalls {
+				t.Fatalf("账号集合写入次数=%d want=%d", len(repository.channelAccountCalls), testCase.wantCalls)
+			}
+			if testCase.wantCalls == 1 && !reflect.DeepEqual(repository.channelAccountCalls[0], append([]string{}, testCase.accountIDs...)) {
+				t.Fatalf("账号集合=%v want=%v", repository.channelAccountCalls[0], testCase.accountIDs)
+			}
+		})
+	}
+}
+
+// TestFeishuBindingAccountSelectionFailureReturnsErrorStatus 验证账号集合写入失败时返回可展示的错误状态且不泄漏内部细节。
+func TestFeishuBindingAccountSelectionFailureReturnsErrorStatus(t *testing.T) {
+	// baseTime 是测试会话的固定创建时间；currentTime 保存可推进的测试时钟值。
+	baseTime := time.Date(2026, 7, 9, 9, 10, 11, 0, time.UTC)
+	// currentTime 保存可推进的测试时钟值
+	currentTime := baseTime
+	// repository 预置账号集合写入失败。
+	repository := &channelRepositoryStub{setChannelAccountsErr: errors.New("binding table down")}
+	// registrar 是返回成功结果的协议替身。
+	registrar := &feishuRegistrarStub{pollResults: []FeishuPollResult{{Status: FeishuPollSuccess, Domain: "feishu", AppID: "cli-8", AppSecret: "secret-8", OpenID: "ou-8"}}}
+	// service 是待验证的飞书渠道应用服务。
+	service := fixedFeishuService(repository, registrar, func() time.Time { return currentTime })
+	// start、startErr 保存开始绑定结果。
+	start, startErr := service.StartFeishuAppBinding(context.Background(), 7, FeishuBindingOptions{Enabled: true, AccountIDs: []string{"cid-1"}})
+	if startErr != nil {
+		t.Fatalf("StartFeishuAppBinding: %v", startErr)
+	}
+	// currentTime 推进到允许轮询的时间。
+	currentTime = baseTime.Add(6 * time.Second)
+	// status、statusErr 保存失败后的状态。
+	status, statusErr := service.GetFeishuAppBindingStatus(context.Background(), 7, start.SessionID)
+	if statusErr != nil || status.Status != FeishuBindingStatusError || strings.Contains(status.Message, "binding table down") {
+		t.Fatalf("失败状态异常: status=%+v err=%v", status, statusErr)
+	}
+}
+
+// TestSetChannelAccountsValidatesAndDelegates 验证渠道侧绑定入口的参数校验和仓储委托。
+func TestSetChannelAccountsValidatesAndDelegates(t *testing.T) {
+	// repository 记录整体替换调用。
+	repository := &channelRepositoryStub{}
+	// service 是待验证的渠道应用服务。
+	service := NewChannelService(repository, nil)
+	if // err 保存本步骤的错误结果
+	err := service.SetChannelAccounts(context.Background(), 0, 3, []string{"a"}); !errors.Is(err, ErrChannelInvalidInput) {
+		t.Fatalf("非法用户应返回 ErrChannelInvalidInput: %v", err)
+	}
+	if // err 保存本步骤的错误结果
+	err := service.SetChannelAccounts(context.Background(), 7, 0, []string{"a"}); !errors.Is(err, ErrChannelInvalidInput) {
+		t.Fatalf("非法渠道应返回 ErrChannelInvalidInput: %v", err)
+	}
+	// nilService 是 nil 服务实例，用于验证空接收者保护
+	var nilService *ChannelService
+	if // err 保存本步骤的错误结果
+	err := nilService.SetChannelAccounts(context.Background(), 7, 3, nil); !errors.Is(err, ErrChannelInvalidInput) {
+		t.Fatalf("nil 服务应返回 ErrChannelInvalidInput: %v", err)
+	}
+	if // err 保存本步骤的错误结果
+	err := service.SetChannelAccounts(context.Background(), 7, 3, []string{"a", "b"}); err != nil || len(repository.channelAccountCalls) != 1 {
+		t.Fatalf("正常委托失败: err=%v calls=%v", err, repository.channelAccountCalls)
+	}
+	// failing 预置仓储错误，确认错误被透传给调用方。
+	failing := &channelRepositoryStub{setChannelAccountsErr: ErrChannelForbidden}
+	if // err 保存本步骤的错误结果
+	err := NewChannelService(failing, nil).SetChannelAccounts(context.Background(), 7, 3, []string{"a"}); !errors.Is(err, ErrChannelForbidden) {
+		t.Fatalf("仓储错误应透传: %v", err)
 	}
 }

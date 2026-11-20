@@ -47,6 +47,10 @@ type channelRepositoryStub struct {
 	updatedRecord *ChannelRecord
 	// sentBindings 保存最近一次覆盖绑定请求。
 	sentBindings []int64
+	// channelAccountCalls 保存按渠道整体替换账号集合的调用记录，nil 表示未被调用。
+	channelAccountCalls [][]string
+	// setChannelAccountsErr 保存渠道侧绑定写入的专用错误。
+	setChannelAccountsErr error
 }
 
 // singleBindingCall 保存一次单条账号绑定调用参数。
@@ -125,6 +129,15 @@ func (r *channelRepositoryStub) GetBindingIDs(context.Context, string) ([]int64,
 // SetBindings 记录覆盖绑定请求。
 func (r *channelRepositoryStub) SetBindings(_ context.Context, _ string, channelIDs []int64) error {
 	r.sentBindings = append([]int64(nil), channelIDs...)
+	return r.err
+}
+
+// SetChannelAccounts 记录渠道侧整体替换账号集合的调用并返回专用错误或通用端口错误。
+func (r *channelRepositoryStub) SetChannelAccounts(_ context.Context, _, _ int64, cookieIDs []string) error {
+	r.channelAccountCalls = append(r.channelAccountCalls, append([]string{}, cookieIDs...))
+	if r.setChannelAccountsErr != nil {
+		return r.setChannelAccountsErr
+	}
 	return r.err
 }
 

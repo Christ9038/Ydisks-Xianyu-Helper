@@ -357,6 +357,61 @@ func (n *Notifications) SetBindings(ctx context.Context, cookieID string, channe
 	return tx.Commit()
 }
 
+// SetChannelAccounts 以事务整体替换某通知渠道绑定的账号集合（覆盖式）。
+// 渠道和每个账号都必须属于 userID，否则返回 ErrNotFound/ErrForbidden 且不写入任何绑定；
+// 只影响该渠道的绑定，账号绑定的其他渠道保持不变。
+func (n *Notifications) SetChannelAccounts(ctx context.Context, userID, channelID int64, cookieIDs []string) error {
+	// tx、err 保存事务及开启错误；失败路径统一回滚。
+	tx, err := n.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	// owned 表示渠道是否属于当前用户。
+	var owned bool
+	if // scanErr 保存查询扫描错误
+	scanErr := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM notification_channels WHERE id=? AND user_id=?)`, channelID, userID).Scan(&owned); scanErr != nil {
+		return scanErr
+	}
+	if !owned {
+		return ErrForbidden
+	}
+	// seen 用于去重账号标识，避免唯一约束冲突。
+	seen := make(map[string]struct{}, len(cookieIDs))
+	// unique 保存去重后的账号标识，保持调用方顺序。
+	unique := make([]string, 0, len(cookieIDs))
+	// cookieID 表示当前待校验归属的账号标识。
+	for _, cookieID := range cookieIDs {
+		if // duplicated 表示账号标识是否重复出现
+		_, duplicated := seen[cookieID]; duplicated || cookieID == "" {
+			continue
+		}
+		seen[cookieID] = struct{}{}
+		// accountOwned 表示该账号是否属于当前用户。
+		var accountOwned bool
+		if // scanErr 保存查询扫描错误
+		scanErr := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM cookies WHERE id=? AND user_id=?)`, cookieID, userID).Scan(&accountOwned); scanErr != nil {
+			return scanErr
+		}
+		if !accountOwned {
+			return ErrForbidden
+		}
+		unique = append(unique, cookieID)
+	}
+	if // execErr 保存写入语句错误
+	_, execErr := tx.ExecContext(ctx, `DELETE FROM message_notifications WHERE channel_id=?`, channelID); execErr != nil {
+		return execErr
+	}
+	// cookieID 表示当前待写入绑定的账号标识。
+	for _, cookieID := range unique {
+		if // execErr 保存写入语句错误
+		_, execErr := tx.ExecContext(ctx, `INSERT INTO message_notifications (cookie_id, channel_id, enabled) VALUES (?,?,1)`, cookieID, channelID); execErr != nil {
+			return execErr
+		}
+	}
+	return tx.Commit()
+}
+
 // ---- 系统设置 ----
 
 // SystemSettings 系统设置操作。

@@ -1683,6 +1683,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/notifications/channels/{channel_id}/accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * 整体替换通知渠道绑定的账号集合
+         * @description 渠道侧绑定入口：account_ids 中的账号绑定到该渠道，其余账号解绑，空数组表示全部解绑；与账号管理里的“通知渠道绑定”读写同一份数据。渠道与账号必须属于当前用户，写入在一个事务内完成。
+         */
+        put: operations["putApiV1NotificationsChannelsAccounts"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/notifications/messages": {
         parameters: {
             query?: never;
@@ -3341,6 +3361,8 @@ export interface components {
              * @default true
              */
             enabled: boolean;
+            /** @description 绑定成功后渠道应绑定的账号标识；省略表示不改动现有绑定，空数组表示不绑定任何账号。 */
+            account_ids?: string[];
         };
         FeishuAppBindingStartResponse: {
             session_id: string;
@@ -3389,6 +3411,10 @@ export interface components {
             email_recipient?: string;
             event_types?: string;
             enabled?: boolean;
+        };
+        NotificationChannelAccountsRequest: {
+            /** @description 该渠道应绑定的全部账号标识；空数组表示全部解绑。 */
+            account_ids: string[];
         };
         NotificationBindingRequest: {
             channel_ids?: number[];
@@ -13186,6 +13212,68 @@ export interface operations {
             };
             /** @description 统一错误响应 */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    putApiV1NotificationsChannelsAccounts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                channel_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationChannelAccountsRequest"];
+            };
+        };
+        responses: {
+            /** @description 成功 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -21,6 +21,8 @@ type feishuAppBindingStartRequest struct {
 	EventTypes string `json:"event_types"`
 	// Enabled 表示绑定成功后渠道是否启用；nil 按 true 处理。
 	Enabled *bool `json:"enabled"`
+	// AccountIDs 是绑定成功后渠道应绑定的账号集合；省略（nil）表示不改动现有绑定，空数组表示不绑定任何账号。
+	AccountIDs []string `json:"account_ids"`
 }
 
 // feishuAppBindingStartResponse 是开始扫码绑定的具名响应 DTO。

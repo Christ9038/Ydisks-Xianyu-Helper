@@ -275,6 +275,7 @@ type NotificationChannelsPort interface {
 	ListBindings(context.Context, int64) ([]notificationsapp.BindingSummary, error)
 	GetBindingIDs(context.Context, int64, string) ([]int64, error)
 	SetBindings(context.Context, int64, string, []int64) error
+	SetChannelAccounts(context.Context, int64, int64, []string) error
 	SetSingleBinding(context.Context, int64, string, int64, bool) error
 	DeleteBinding(context.Context, int64, int64) error
 	DeleteAccountBindings(context.Context, int64, string) error

@@ -91,7 +91,7 @@ export const notificationEvents: NotificationEventMeta[] = [
 ];
 
 // emptyNotificationForm 返回新建渠道的初始表单。
-export const emptyNotificationForm = (): NotificationForm => ({ name: '', type: 'bark', enabled: true, config: {}, event_types: [] });
+export const emptyNotificationForm = (): NotificationForm => ({ name: '', type: 'bark', enabled: true, config: {}, event_types: [], account_ids: [] });
 
 // notificationEventSummary 将事件值转换为渠道列表中的中文摘要。
 export const notificationEventSummary = (events?: NotificationEventType[]): string => {
@@ -113,7 +113,7 @@ export const normalizeNotificationForm = (channel: NotificationChannel, smtp: Sy
   const config = normalizedEmailConfig
     ? (normalizedEmailConfig.use_custom_smtp === true ? enableCustomSMTP(normalizedEmailConfig, smtp) : normalizedEmailConfig)
     : { ...(channel.config || {}) };
-  return { name: channel.name, type: channel.type, enabled: channel.enabled, config, event_types: normalizeNotificationEventTypes(channel.event_types || []) };
+  return { name: channel.name, type: channel.type, enabled: channel.enabled, config, event_types: normalizeNotificationEventTypes(channel.event_types || []), account_ids: [] };
 };
 
 // validateNotificationForm 校验渠道名称、渠道字段和独立 SMTP 必填项。

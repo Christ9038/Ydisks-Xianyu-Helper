@@ -6106,6 +6106,54 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/notifications/channels/{channel_id}/accounts":
+    put:
+      operationId: putApiV1NotificationsChannelsAccounts
+      summary: 整体替换通知渠道绑定的账号集合
+      description: 渠道侧绑定入口：account_ids 中的账号绑定到该渠道，其余账号解绑，空数组表示全部解绑；与账号管理里的“通知渠道绑定”读写同一份数据。渠道与账号必须属于当前用户，写入在一个事务内完成。
+      security: [{cookieAuth: []}]
+      parameters:
+        - name: channel_id
+          in: path
+          required: true
+          schema: {type: integer}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationChannelAccountsRequest'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationResponse'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   "/api/v1/notifications/messages":
     get:
       operationId: getApiV1NotificationsMessages
@@ -10142,6 +10190,10 @@ components:
           type: boolean
           default: true
           description: 绑定成功后渠道是否启用；省略时按 true 处理。
+        account_ids:
+          type: array
+          items: {type: string}
+          description: 绑定成功后渠道应绑定的账号标识；省略表示不改动现有绑定，空数组表示不绑定任何账号。
     FeishuAppBindingStartResponse:
       type: object
       required: [session_id, qr_code_url, expires_in]
@@ -10203,6 +10255,14 @@ components:
           description: 仅更新已有邮件渠道的收件地址，保留所有 SMTP 配置；与 config 互斥，不可同时改变渠道类型。
         event_types: {type: string}
         enabled: {type: boolean}
+    NotificationChannelAccountsRequest:
+      type: object
+      required: [account_ids]
+      properties:
+        account_ids:
+          type: array
+          items: {type: string}
+          description: 该渠道应绑定的全部账号标识；空数组表示全部解绑。
     NotificationBindingRequest:
       type: object
       properties:

@@ -112,6 +112,8 @@ type FeishuBindingOptions struct {
 	EventTypes string
 	// Enabled 表示绑定成功后渠道是否启用。
 	Enabled bool
+	// AccountIDs 是绑定成功后渠道应绑定的账号集合；nil 表示不改动现有绑定，非 nil（含空集合）表示整体替换。
+	AccountIDs []string
 }
 
 // FeishuBindingStart 是开始扫码绑定后返回给 transport 的非敏感结果。
@@ -175,7 +177,7 @@ type feishuAppChannelConfig struct {
 }
 
 // StartFeishuAppBinding 发起飞书扫码绑定并登记进程内会话。
-// userID 是发起用户；options 携带渠道名称、事件订阅和启用状态，会话内保存其副本。返回结果只包含 session_id、扫码地址和秒数。
+// userID 是发起用户；options 携带渠道名称、事件订阅、启用状态和绑定账号集合，会话内保存其副本。返回结果只包含 session_id、扫码地址和秒数。
 func (s *ChannelService) StartFeishuAppBinding(ctx context.Context, userID int64, options FeishuBindingOptions) (FeishuBindingStart, error) {
 	if s == nil || s.repository == nil || userID <= 0 {
 		return FeishuBindingStart{}, ErrChannelInvalidInput
@@ -339,7 +341,7 @@ func (s *ChannelService) GetFeishuAppBindingStatus(ctx context.Context, userID i
 	}
 }
 
-// persistFeishuAppChannel 创建或更新当前用户的 feishu_app 渠道；不改动任何账号绑定。
+// persistFeishuAppChannel 创建或更新当前用户的 feishu_app 渠道；仅当 options.AccountIDs 非 nil 时整体替换其绑定账号。
 // result 携带平台凭据，只允许写入加密渠道 Config；返回值是渠道标识，错误不应包含凭据。
 func (s *ChannelService) persistFeishuAppChannel(ctx context.Context, userID int64, result FeishuPollResult, options FeishuBindingOptions) (int64, error) {
 	// configBytes、configErr 保存加密前渠道配置 JSON 及序列化错误。
@@ -402,6 +404,12 @@ func (s *ChannelService) persistFeishuAppChannel(ctx context.Context, userID int
 			return 0, createErr
 		}
 		channelID = createdID
+	}
+	if options.AccountIDs != nil {
+		// bindErr 是整体替换渠道绑定账号的写入错误；账号归属在事务内校验，失败时不产生部分绑定。
+		if bindErr := s.repository.SetChannelAccounts(ctx, userID, channelID, options.AccountIDs); bindErr != nil {
+			return channelID, bindErr
+		}
 	}
 	return channelID, nil
 }
@@ -538,7 +546,15 @@ func normalizeFeishuBindingOptions(options FeishuBindingOptions) FeishuBindingOp
 	if name == "" {
 		name = feishuAppChannelName
 	}
-	return FeishuBindingOptions{Name: name, EventTypes: strings.TrimSpace(options.EventTypes), Enabled: options.Enabled}
+	return FeishuBindingOptions{Name: name, EventTypes: strings.TrimSpace(options.EventTypes), Enabled: options.Enabled, AccountIDs: copyAccountIDs(options.AccountIDs)}
+}
+
+// copyAccountIDs 复制账号标识集合并保持 nil 与空集合的区别：nil 表示调用方不要求改动绑定。
+func copyAccountIDs(accountIDs []string) []string {
+	if accountIDs == nil {
+		return nil
+	}
+	return append([]string{}, accountIDs...)
 }
 
 // mergePollDomain 合并锁内复制的当前域名与轮询结果域名，保证 Lark 识别后不回退到飞书。
