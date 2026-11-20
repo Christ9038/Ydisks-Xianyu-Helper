@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	orderapp "xianyu-go/internal/application/orders"
+	"xianyu-go/internal/xianyu/mtop"
 )
 
 // TestOrderRuntimeAdapterNilRuntimePaths 验证订单运行时适配器在运行时未装配时的安全返回值。
@@ -24,6 +25,10 @@ func TestOrderRuntimeAdapterNilRuntimePaths(t *testing.T) {
 	consignResult := adapter.ConfirmShipment(ctx, "cid", "order", 1)
 	if consignResult.Err == nil {
 		t.Fatal("nil runtime consign should fail")
+	}
+	// adjustResult 保存未装配运行时的改价结果。
+	if adjustResult := adapter.AdjustPrice(ctx, "cid", "order", 1, 100); adjustResult.Err == nil {
+		t.Fatal("nil runtime adjust price should fail")
 	}
 	// _, reconciliationErr 保存未装配运行时的补偿记录错误。
 	if _, reconciliationErr := adapter.RecordOrderReconciliation(ctx, "order", "cid", "kind", "message"); reconciliationErr == nil {
@@ -64,5 +69,33 @@ func TestOrderRuntimeAdapterNilRuntimePaths(t *testing.T) {
 	factoryAdapter := NewOrderRuntimeAdapter(nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	if factoryAdapter.runtime == nil {
 		t.Fatal("nil dependency factory should still create a safe runtime adapter")
+	}
+}
+
+// TestOrderRuntimeAdapterForwardsAdjustPrice 验证适配器在运行时已装配时把改价请求原样转发给运行时并返回其结果。
+func TestOrderRuntimeAdapterForwardsAdjustPrice(t *testing.T) {
+	// ctx 是本测试使用的非取消上下文。
+	ctx := context.Background()
+	// store、cleanup 是带 admin 与 cid 账号夹具的隔离数据库。
+	store, cleanup := newAdapterTestStore(t)
+	defer cleanup()
+	// admin 是账号 cid 的所有者。
+	admin, err := store.Users.GetByUsername(ctx, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// client 记录转发到平台的改价参数。
+	client := &orderRuntimeMTopFake{adjustPrice: func(_ context.Context, _ string, orderID string, cents int64) (bool, []string, string, error) {
+		if orderID != "order-fwd" || cents != 990 {
+			t.Fatalf("转发参数 order=%q cents=%d", orderID, cents)
+		}
+		return true, []string{"SUCCESS"}, "", nil
+	}}
+	// adapter 是包裹真实订单运行时的适配器。
+	adapter := OrderRuntimeAdapter{runtime: NewOrderRuntime(store, OrderRuntimeHooks{Client: func() mtop.Client { return client }}, nil, nil)}
+	// result 是经适配器转发得到的改价结果。
+	result := adapter.AdjustPrice(ctx, "cid", "order-fwd", admin.ID, 990)
+	if !result.Success || result.Err != nil || client.adjustPriceCalls != 1 {
+		t.Fatalf("转发结果=%+v calls=%d", result, client.adjustPriceCalls)
 	}
 }

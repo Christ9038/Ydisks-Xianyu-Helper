@@ -241,6 +241,18 @@ export interface OrderSingleRefreshResponse {
   order: OrderRefreshDetailResponse;
 }
 
+/** 未付款订单改价后的 UI 模型；由 feature adapter 从 transport DTO 归一，不直接暴露 HTTP DTO。 */
+export interface OrderPriceAdjustResult {
+  /** 已改价的订单标识。 */
+  orderId: string;
+  /** 改价后的订单金额，单位为元，固定两位小数。 */
+  amount: string;
+  /** 本地同步状态：succeeded 表示本地金额已更新，local_sync_pending 表示闲鱼已改价但本地待同步。 */
+  status: 'succeeded' | 'local_sync_pending';
+  /** 面向用户的结果说明。 */
+  message: string;
+}
+
 /** 订单批量变更接口的具名响应。 */
 /** 由当前 feature adapter 归一后的 OrderBatchResponse UI 模型；不直接暴露 HTTP DTO。 */
 export interface OrderBatchResponse {

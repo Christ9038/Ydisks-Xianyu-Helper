@@ -1,6 +1,7 @@
 import { useCallback,useEffect,useRef,useState,type Dispatch,type SetStateAction } from 'react';
 import type { Order } from './api';
-import { deleteOrder,manualShipOrder,syncOrders,syncSingleOrder,updateOrder } from './api';
+import { adjustOrderPrice,deleteOrder,manualShipOrder,syncOrders,syncSingleOrder,updateOrder } from './api';
+import { parseAdjustPriceInput } from './priceInput';
 import { OrderRefreshStillRunningError } from './refreshErrors';
 import { formatOrderSyncResult } from './syncResult';
 
@@ -12,6 +13,14 @@ export interface OrderShipResult {
   // success 表示发货操作是否成功。
   success: boolean;
   // message 保存发货操作的用户可见说明。
+  message: string;
+}
+
+// OrderPriceResult 描述改价弹窗展示的结果信息。
+export interface OrderPriceResult {
+  // success 表示平台是否已确认改价；本地待同步时仍为 true，提示文案说明后续同步。
+  success: boolean;
+  // message 保存改价操作的用户可见说明。
   message: string;
 }
 
@@ -51,6 +60,16 @@ export interface OrderActionsState {
   shipLoading: boolean;
   // shipResult 保存最近一次发货操作结果。
   shipResult: OrderShipResult | null;
+  // showPriceModal 表示订单改价弹窗是否打开。
+  showPriceModal: boolean;
+  // priceOrder 保存当前正在改价的订单。
+  priceOrder: Order | null;
+  // priceDraft 保存改价输入框中的金额文本草稿。
+  priceDraft: string;
+  // priceLoading 表示改价请求是否正在执行。
+  priceLoading: boolean;
+  // priceResult 保存最近一次改价操作结果。
+  priceResult: OrderPriceResult | null;
   // syncingOrderId 保存当前正在单笔同步的订单号。
   syncingOrderId: string | null;
   // deletingOrderId 保存当前正在删除的订单号。
@@ -61,6 +80,14 @@ export interface OrderActionsState {
   handleShip: (orderId: string) => void;
   // executeShip 执行指定模式的订单发货。
   executeShip: (mode: OrderShipMode) => Promise<void>;
+  // handleAdjustPrice 打开指定未付款订单的改价弹窗。
+  handleAdjustPrice: (order: Order) => void;
+  // setPriceDraft 更新改价输入框草稿。
+  setPriceDraft: (value: string) => void;
+  // executeAdjustPrice 校验并提交当前改价草稿。
+  executeAdjustPrice: () => Promise<void>;
+  // closePriceModal 关闭订单改价弹窗并清理结果。
+  closePriceModal: () => void;
   // handleViewDetail 打开指定订单的详情弹窗。
   handleViewDetail: (order: Order) => void;
   // handleEdit 打开指定订单的编辑弹窗。
@@ -102,6 +129,16 @@ export const useOrderActions = ({ orders, page, accountFilter, filter, searchTex
   const [shipLoading, setShipLoading] = useState(false);
   // shipResult 保存最近一次发货操作结果。
   const [shipResult, setShipResult] = useState<OrderShipResult | null>(null);
+  // showPriceModal 表示订单改价弹窗是否打开。
+  const [showPriceModal, setShowPriceModal] = useState(false);
+  // priceOrder 保存当前正在改价的订单。
+  const [priceOrder, setPriceOrder] = useState<Order | null>(null);
+  // priceDraft 保存改价输入框中的金额文本草稿。
+  const [priceDraft, setPriceDraft] = useState('');
+  // priceLoading 表示改价请求是否正在执行。
+  const [priceLoading, setPriceLoading] = useState(false);
+  // priceResult 保存最近一次改价操作结果。
+  const [priceResult, setPriceResult] = useState<OrderPriceResult | null>(null);
   // syncingOrderId 保存当前正在单笔同步的订单号。
   const [syncingOrderId, setSyncingOrderId] = useState<string | null>(null);
   // deletingOrderId 保存当前正在删除的订单号。
@@ -113,6 +150,10 @@ export const useOrderActions = ({ orders, page, accountFilter, filter, searchTex
   const shipGeneration = useRef(0);
   // shipBusy 防止同一 Hook 在发货未收束前重复提交；弹窗切换不会取消外部发货。
   const shipBusy = useRef(false);
+  // priceGeneration 绑定当前改价弹窗；关闭、换单或卸载使旧结果失效，已提交的平台改价不会被撤销。
+  const priceGeneration = useRef(0);
+  // priceBusy 防止同一 Hook 在改价未收束前重复提交，避免对平台发出第二次改价请求。
+  const priceBusy = useRef(false);
   // mounted 防止外部发货完成后写入已卸载页面。
   const mounted = useRef(true);
   // deleteGeneration 隔离不同页面和连续删除请求的迟到结果。
@@ -123,6 +164,7 @@ export const useOrderActions = ({ orders, page, accountFilter, filter, searchTex
     return /* 卸载使弹窗结果失效；在途动作仍由服务端负责完成。 */ () => {
       mounted.current = false;
       shipGeneration.current += 1;
+      priceGeneration.current += 1;
     };
   }, []);
 
@@ -199,6 +241,55 @@ export const useOrderActions = ({ orders, page, accountFilter, filter, searchTex
       if (mounted.current) setShipLoading(false);
     }
   }, [loadOrders, shipOrderId]);
+
+  // handleAdjustPrice 打开指定订单的改价弹窗，草稿预填当前金额；换单会使上一弹窗的迟到结果失效。
+  const handleAdjustPrice = useCallback(/* adjustPriceOpenAction 打开订单改价弹窗并预填当前金额。 */ (order: Order) => {
+    priceGeneration.current += 1;
+    setPriceOrder(order);
+    setPriceDraft(order.amount);
+    setPriceResult(null);
+    setShowPriceModal(true);
+  }, []);
+
+  // executeAdjustPrice 校验草稿后提交改价；平台动作不可撤销，因此只允许单次在途，关闭弹窗只丢弃结果展示。
+  const executeAdjustPrice = useCallback(/* adjustPriceAction 校验并提交订单改价。 */ async () => {
+    if (priceBusy.current || !priceOrder) return;
+    // parsed 是改价金额输入的校验结果，非法时不发起任何请求。
+    const parsed = parseAdjustPriceInput(priceDraft);
+    if (!parsed.ok) {
+      setPriceResult({ success: false, message: parsed.message });
+      return;
+    }
+    priceBusy.current = true;
+    // generation 是提交时弹窗代次，只有同一弹窗可展示结果。
+    const generation = priceGeneration.current;
+    setPriceLoading(true);
+    setPriceResult(null);
+    try {
+      // result 保存改价接口归一后的结果。
+      const result = await adjustOrderPrice(priceOrder.order_id, parsed.price);
+      if (generation !== priceGeneration.current) {
+        // 弹窗已关闭或换单，平台改价已生效，仍刷新列表让金额与平台一致。
+        if (mounted.current) void loadOrders();
+        return;
+      }
+      setPriceResult({ success: true, message: result.message });
+      void loadOrders();
+    } catch (/* error 表示订单改价请求异常。 */ error: unknown) {
+      if (generation !== priceGeneration.current) return;
+      setPriceResult({ success: false, message: orderErrorMessage(error, '改价失败，请重试') });
+    } finally {
+      priceBusy.current = false;
+      if (mounted.current) setPriceLoading(false);
+    }
+  }, [loadOrders, priceDraft, priceOrder]);
+
+  // closePriceModal 关闭订单改价弹窗；使旧结果失效，不假装撤销已提交的改价。
+  const closePriceModal = useCallback(/* closePriceAction 关闭订单改价弹窗。 */ () => {
+    priceGeneration.current += 1;
+    setShowPriceModal(false);
+    setPriceResult(null);
+  }, []);
 
   // handleViewDetail 打开指定订单的详情弹窗。
   const handleViewDetail = useCallback(/* detailAction 打开订单详情弹窗。 */ (order: Order) => {
@@ -306,11 +397,20 @@ export const useOrderActions = ({ orders, page, accountFilter, filter, searchTex
     shipOrderId,
     shipLoading,
     shipResult,
+    showPriceModal,
+    priceOrder,
+    priceDraft,
+    priceLoading,
+    priceResult,
     syncingOrderId,
     deletingOrderId,
     handleSync,
     handleShip,
     executeShip,
+    handleAdjustPrice,
+    setPriceDraft,
+    executeAdjustPrice,
+    closePriceModal,
     handleViewDetail,
     handleEdit,
     handleSaveEdit,

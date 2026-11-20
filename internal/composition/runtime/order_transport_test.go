@@ -43,7 +43,7 @@ func lastError(
 // TestOrdersTransportForwardsToEveryUseCase 通过未初始化依赖的确定性错误证明每个订单入口都转发到对应用例。
 func TestOrdersTransportForwardsToEveryUseCase(t *testing.T) {
 	// transport 保存使用空仓储构造的订单 transport；各用例会返回各自的未初始化错误。
-	transport := ordersTransport{services: orderapp.NewServiceSet(nil, nil, nil, nil, nil, 10)}
+	transport := ordersTransport{services: orderapp.NewServiceSet(nil, nil, nil, nil, nil, nil, 10)}
 	// ctx 是所有转发调用共用的请求 Context。
 	ctx := context.Background()
 	// cases 把入口名称映射为调用动作和期望的错误关键词。

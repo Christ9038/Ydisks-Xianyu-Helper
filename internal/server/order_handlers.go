@@ -269,6 +269,39 @@ func (s *Server) manualShipOrders(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// adjustOrderPrice 处理单个未付款订单改价；请求体 price 为元文本，业务规则全部在应用层。
+func (s *Server) adjustOrderPrice(w http.ResponseWriter, r *http.Request) {
+	// req 保存具名改价请求。
+	var req adjustOrderPriceRequestDTO
+	if // err 是请求体解码错误，格式错误统一返回 400。
+	err := decodeJSON(r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+	// sess 是当前登录会话，用于订单归属校验。
+	sess := auth.SessionFromContext(r.Context())
+	// result、err 是改价用例结果和错误。
+	result, err := s.orders().AdjustPrice(r.Context(), orderapp.AdjustPriceRequest{UserID: sess.UserID, OrderID: chi.URLParam(r, "order_id"), Price: req.Price})
+	switch {
+	case err == nil:
+		writeJSON(w, http.StatusOK, adjustOrderPriceResponseDTO{Success: true, OrderID: result.OrderID, Amount: result.Amount, Status: result.Status, Message: result.Message})
+	case errors.Is(err, orderapp.ErrNotFound):
+		writeErr(w, http.StatusNotFound, "订单不存在")
+	case errors.Is(err, orderapp.ErrForbidden):
+		writeErr(w, http.StatusForbidden, "无权操作此订单")
+	case errors.Is(err, orderapp.ErrInvalidPrice):
+		writeErr(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, orderapp.ErrOrderNotAwaitingPayment):
+		writeErr(w, http.StatusConflict, err.Error())
+	case errors.Is(err, orderapp.ErrPriceAdjustUnavailable):
+		writeErr(w, http.StatusServiceUnavailable, err.Error())
+	case errors.Is(err, orderapp.ErrPriceAdjustRejected):
+		writeErr(w, http.StatusBadGateway, err.Error())
+	default:
+		writeErr(w, http.StatusInternalServerError, "订单改价失败")
+	}
+}
+
 // importOrders 为旧客户端保留明确的退役响应；w 输出统一错误，r 不解析请求正文，也不执行订单写入。
 func (s *Server) importOrders(w http.ResponseWriter, r *http.Request) {
 	writeErr(w, http.StatusNotImplemented, "人工插入订单功能已移除，请使用一键同步订单")

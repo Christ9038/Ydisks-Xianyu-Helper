@@ -6505,6 +6505,79 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/orders/{order_id}/adjust-price":
+    post:
+      operationId: postApiV1OrdersByorder_idAdjustPrice
+      summary: 未付款订单改价
+      description: 仅当前用户名下、本地状态为未付款（processing）的订单可改价；每次调用最多对应一次平台改价请求，不自动重试。
+      parameters:
+          - name: order_id
+            in: path
+            required: true
+            schema:
+              type: string
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdjustOrderPriceRequest'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdjustOrderPriceResponse'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   "/api/v1/orders/import":
     post:
       operationId: postApiV1OrdersImport
@@ -10801,6 +10874,20 @@ components:
         success: {type: boolean}
         job_id: {type: string}
         status: {type: string, enum: [cancelled]}
+    AdjustOrderPriceRequest:
+      type: object
+      required: [price]
+      properties:
+        price: {type: string, description: 改价后的订单总价，单位为元的十进制文本，最多两位小数且大于 0}
+    AdjustOrderPriceResponse:
+      type: object
+      required: [success, order_id, amount, status, message]
+      properties:
+        success: {type: boolean}
+        order_id: {type: string}
+        amount: {type: string, description: 改价后的订单金额，单位为元，固定两位小数}
+        status: {type: string, enum: [succeeded, local_sync_pending]}
+        message: {type: string}
     ManualShipRequest:
       type: object
       required: [order_ids, ship_mode]

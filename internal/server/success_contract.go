@@ -614,6 +614,26 @@ type manualShipRequestDTO struct {
 	ShipMode string `json:"ship_mode"`
 }
 
+// adjustOrderPriceRequestDTO 是未付款订单改价接口的具名请求 DTO。
+type adjustOrderPriceRequestDTO struct {
+	// Price 是改价后的订单总价，单位为元的十进制文本，最多两位小数；使用文本避免浮点误差。
+	Price string `json:"price"`
+}
+
+// adjustOrderPriceResponseDTO 是未付款订单改价接口的具名响应 DTO。
+type adjustOrderPriceResponseDTO struct {
+	// Success 表示平台已确认改价。
+	Success bool `json:"success"`
+	// OrderID 是已改价的订单标识。
+	OrderID string `json:"order_id"`
+	// Amount 是改价后的订单金额，单位为元，固定两位小数。
+	Amount string `json:"amount"`
+	// Status 是本地同步状态：succeeded 或 local_sync_pending。
+	Status string `json:"status"`
+	// Message 是面向用户的结果说明。
+	Message string `json:"message"`
+}
+
 // qrVerificationRequestDTO 是扫码风控验证完成接口的具名请求 DTO。
 type qrVerificationRequestDTO struct {
 	// TargetAccountID 是可选的待重新授权本地账号标识。

@@ -124,6 +124,11 @@ func (transport testOrdersTransport) ManualShip(ctx context.Context, request ord
 	return transport.services.ManualShip.ManualShip(ctx, request)
 }
 
+// AdjustPrice 转发测试的未付款订单改价用例。
+func (transport testOrdersTransport) AdjustPrice(ctx context.Context, request orderapp.AdjustPriceRequest) (orderapp.AdjustPriceResult, error) {
+	return transport.services.AdjustPrice.AdjustPrice(ctx, request)
+}
+
 // newTestPlatformPort 将生产平台 Port 包装为可替换的测试 Port。
 func newTestPlatformPort(platform *adapter.PlatformDependencies) *testPlatformPort {
 	if platform == nil {

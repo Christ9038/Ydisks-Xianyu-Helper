@@ -31,7 +31,7 @@ import { getDashboardStats,getOrderAnalytics,getValidOrders } from './dashboard/
 import { cancelItemPublishBatch,createItem,deleteItem,deleteItemPublishBatch,getItemDetail,getItemPublishBatch,getItemPublishBatches,getItems,previewItemPublishBatch,publishItem,recommendPublishCategory,retryFailedItemPublishBatch,startItemPublishBatch,syncItemsFromAccount,updateItem } from './items/api';
 import { createNotificationChannel,deleteAccountNotifications,deleteMessageNotification,deleteNotificationChannel,getAccountBindings,getMessageNotifications,getNotificationChannel,getNotificationChannels,setAccountBindings,setMessageNotification,testNotificationChannel,updateNotificationChannel,updateSystemSettings as updateNotificationSystemSettings } from './notifications/api';
 import { OrderRefreshStillRunningError } from './orders/refreshErrors';
-import { cancelOrderRefreshJob,deleteOrder,getAdminStats,getOrderDeliveredCards,getOrderDetail,getOrders,manualShipOrder,syncOrders,syncSingleOrder,updateOrder } from './orders/api';
+import { adjustOrderPrice,cancelOrderRefreshJob,deleteOrder,getAdminStats,getOrderDeliveredCards,getOrderDetail,getOrders,manualShipOrder,syncOrders,syncSingleOrder,updateOrder } from './orders/api';
 import { clearDefaultReplyRecords,clearItemGreetingRecords,deleteDefaultReply,deleteItemGreeting,getItemGreetings,saveItemGreeting,deleteReplyRule,deleteShippingRule,getAutomationIssues,getDefaultReplies,getDefaultReply,getReplyRules,getShippingRules,getShippingRulesPage,resolveAutomationRun,resolveDeferredAutomationTask,updateDefaultReply,updateReplyRule,updateShippingRule } from './rules/api';
 import { initializeAdmin,login,logout,verifySession } from './session/api';
 import { changePassword,fetchAIModels,getSystemSettings,updateLoginCredentials,updateSystemSettings } from './settings/api';
@@ -1556,6 +1556,23 @@ const runVersionedOrderRefreshAPITest = async () => {
 };
 
 test('order refresh and batch APIs use versioned compatibility routes', runVersionedOrderRefreshAPITest);
+
+// 订单改价 API：请求体只含元文本金额，响应归一为 UI 模型，失败以统一错误抛出。
+const runAdjustOrderPriceAPITest = async () => {
+  // fetchMock 依次返回改价成功和平台拒绝（502 统一错误响应）。
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(jsonResponse({ success: true, order_id: 'order-1', amount: '8.80', status: 'local_sync_pending', message: '已改价' }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ code: 'bad_gateway', message: '订单改价失败: 订单已付款' }), { status: 502, headers: { 'content-type': 'application/json' } }));
+  stubContractFetch(fetchMock);
+
+  await expect(adjustOrderPrice('order-1', '8.8')).resolves.toEqual({ orderId: 'order-1', amount: '8.80', status: 'local_sync_pending', message: '已改价' });
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/orders/order-1/adjust-price', expect.objectContaining({ method: 'POST', credentials: 'include', body: JSON.stringify({ price: '8.8' }) }));
+  await expect(adjustOrderPrice('order-1', '8.8')).rejects.toThrow('订单改价失败: 订单已付款');
+  // 失败不得自动重试：两次调用共两次请求。
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+};
+
+test('adjustOrderPrice posts the yuan text and maps the response without retrying', runAdjustOrderPriceAPITest);
 
 // 商品列表、详情、发布、更新和删除 API 使用版本化兼容入口。
 const runVersionedItemAPITest = async () => {

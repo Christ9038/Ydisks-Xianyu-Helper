@@ -65,6 +65,7 @@ type OrdersPort interface {
 	Update(context.Context, int64, string, orderapp.UpdateRequest) error
 	Import(context.Context, int64, []orderapp.ImportOrder) (orderapp.ImportResult, error)
 	ManualShip(context.Context, orderapp.ManualShipRequest) (orderapp.ManualShipResult, error)
+	AdjustPrice(context.Context, orderapp.AdjustPriceRequest) (orderapp.AdjustPriceResult, error)
 }
 
 // OrderRefreshJobsPort 定义订单刷新任务 HTTP 接口所需的最小能力。

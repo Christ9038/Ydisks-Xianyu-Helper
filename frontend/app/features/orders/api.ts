@@ -7,6 +7,7 @@ Order,
 OrderBatchResponse,
 OrderDTOResponse,
 OrderDeliveredCard,
+OrderPriceAdjustResult,
 OrderRefreshJobCancelResponse,
 OrderRefreshResponse,
 OrderSingleRefreshResponse,
@@ -295,6 +296,23 @@ export const manualShipOrder = async (orderIds: string[], shipMode: 'status_only
     }));
     return normalizeOrderBatchResponse(response);
 }
+
+// adjustOrderPrice 修改未付款订单价格；price 是改价后的订单总价（元的十进制文本）。
+// 每次调用对应一次平台改价请求，调用方必须自行防止重复提交；失败以 ApiError 抛出，不在此重试。
+export const adjustOrderPrice = async (orderId: string, price: string): Promise<OrderPriceAdjustResult> => {
+  // response 是生成契约约束的改价 transport DTO，随后归一化为 UI 模型。
+  const response = await runContractRequest(/* signal 是本次改价请求的超时与取消控制信号。 */ signal => contractClient.POST('/api/v1/orders/{order_id}/adjust-price', {
+    params: { path: { order_id: orderId } },
+    body: { price },
+    signal,
+  }));
+  return {
+    orderId: response.order_id,
+    amount: response.amount,
+    status: response.status,
+    message: response.message,
+  };
+};
 
 // normalizeOrderBatchResponse 将生成 transport DTO 转为兼容历史订单页面的受限结果状态。
 const normalizeOrderBatchResponse = (response: OrderBatchTransportResponse): OrderBatchResponse => ({

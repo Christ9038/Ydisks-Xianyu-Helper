@@ -15,6 +15,8 @@ type ServiceSet struct {
 	Import *ImportService
 	// ManualShip 负责手动发货和补偿用例。
 	ManualShip *ManualShipService
+	// AdjustPrice 负责未付款订单改价用例。
+	AdjustPrice *AdjustPriceService
 	// Refresh 负责订单发现、详情刷新和缺失清理用例。
 	Refresh *RefreshService
 	// RefreshJobs 负责订单刷新后台任务的持久化操作。
@@ -22,7 +24,7 @@ type ServiceSet struct {
 }
 
 // NewServiceSet 使用应用层 Port 构造完整订单服务集合。
-func NewServiceSet(repository Repository, refreshRepository RefreshRepository, manualRuntime ManualShipRuntime, refreshRuntime RefreshRuntime, refreshJobs RefreshJobRepository, detailChunkSize int) *ServiceSet {
+func NewServiceSet(repository Repository, refreshRepository RefreshRepository, manualRuntime ManualShipRuntime, priceRuntime AdjustPriceRuntime, refreshRuntime RefreshRuntime, refreshJobs RefreshJobRepository, detailChunkSize int) *ServiceSet {
 	return &ServiceSet{
 		List:        NewListService(repository),
 		Detail:      NewDetailService(repository),
@@ -30,6 +32,7 @@ func NewServiceSet(repository Repository, refreshRepository RefreshRepository, m
 		Update:      NewUpdateService(repository),
 		Import:      NewImportService(repository),
 		ManualShip:  NewManualShipService(repository, manualRuntime),
+		AdjustPrice: NewAdjustPriceService(repository, priceRuntime),
 		Refresh:     NewRefreshService(refreshRepository, refreshRuntime, detailChunkSize),
 		RefreshJobs: refreshJobs,
 	}

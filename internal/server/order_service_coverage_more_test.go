@@ -28,6 +28,13 @@ type orderAdapterPortFake struct {
 	importFn func(context.Context, int64, []orderapp.ImportOrder) (orderapp.ImportResult, error)
 	// manualShipFn 保存手动发货测试行为。
 	manualShipFn func(context.Context, orderapp.ManualShipRequest) (orderapp.ManualShipResult, error)
+	// adjustPriceFn 保存订单改价测试行为。
+	adjustPriceFn func(context.Context, orderapp.AdjustPriceRequest) (orderapp.AdjustPriceResult, error)
+}
+
+// AdjustPrice 返回测试配置的订单改价结果。
+func (f orderAdapterPortFake) AdjustPrice(ctx context.Context, request orderapp.AdjustPriceRequest) (orderapp.AdjustPriceResult, error) {
+	return f.adjustPriceFn(ctx, request)
 }
 
 // RefreshSingle 返回测试配置的单订单刷新结果。

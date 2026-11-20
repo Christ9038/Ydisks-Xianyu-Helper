@@ -39,6 +39,10 @@ type orderRuntimeMTopFake struct {
 	consign func(context.Context, string, string) (bool, []string, string, error)
 	// consignCalls 记录确认发货调用次数。
 	consignCalls int
+	// adjustPrice 保存订单改价调用结果函数；为空时保持“未预期改价请求”。
+	adjustPrice func(ctx context.Context, cookies, orderID string, priceCents int64) (bool, []string, string, error)
+	// adjustPriceCalls 记录订单改价调用次数。
+	adjustPriceCalls int
 }
 
 // FetchUserProfile 满足基础 MTOP 客户端接口但不参与订单测试。
@@ -55,9 +59,13 @@ func (f *orderRuntimeMTopFake) ConsignContext(ctx context.Context, cookies, orde
 	return f.consign(ctx, cookies, orderID)
 }
 
-// AdjustOrderPriceContext 满足基础 MTOP 客户端接口但不参与订单测试。
-func (f *orderRuntimeMTopFake) AdjustOrderPriceContext(context.Context, string, string, int64) (bool, []string, string, error) {
-	return false, nil, "", errors.New("订单测试未预期改价请求")
+// AdjustOrderPriceContext 返回测试预置的改价结果；未配置时视为未预期请求。
+func (f *orderRuntimeMTopFake) AdjustOrderPriceContext(ctx context.Context, cookies, orderID string, priceCents int64) (bool, []string, string, error) {
+	f.adjustPriceCalls++
+	if f.adjustPrice == nil {
+		return false, nil, "", errors.New("订单测试未预期改价请求")
+	}
+	return f.adjustPrice(ctx, cookies, orderID, priceCents)
 }
 
 // FetchItemsPage 满足基础 MTOP 客户端接口但不参与订单测试。

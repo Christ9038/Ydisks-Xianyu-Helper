@@ -70,6 +70,7 @@ func TestOpenAPISuccessContractCoverage(t *testing.T) {
 		{name: "library-template-imports", run: TestLibraryTemplateImportHandlersContract},
 		{name: "automation-audit-events", run: TestAutomationAuditEventsEndpoint},
 		{name: "credential-verification", run: TestCredentialVerificationHandlersContract},
+		{name: "order-adjust-price", run: TestAdjustOrderPriceEndToEnd},
 	}
 	// scenario 是当前执行的领域真实响应场景。
 	for _, scenario := range scenarios {

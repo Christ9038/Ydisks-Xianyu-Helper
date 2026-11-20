@@ -592,7 +592,7 @@ func buildOrderServices(dependencies Dependencies) (*orderapp.ServiceSet, *order
 	// 订单详情协调器由 RuntimeBundle 在自动发货与订单刷新启动前共同固定，避免两条路径绕过彼此的限流。
 	orderRuntime := adapter.NewOrderRuntimeAdapterWithOrderDetails(dependencies.OrderDependencies, dependencies.Manager, dependencies.Automation, dependencies.Notifier, dependencies.MTopClient, dependencies.UpdateRunningCookie, dependencies.SessionRecovery, dependencies.Logger, orderReconciliation, dependencies.OrderDetails, chatRefreshCallback)
 	// orderServices 保存应用层统一构造的订单业务服务集合。
-	orderServices := orderapp.NewServiceSet(orderRepository, orderRepository, orderRuntime, orderRuntime, dependencies.OrderDependencies.NewOrderRefreshJobRepository(), refreshOrderChunkSize)
+	orderServices := orderapp.NewServiceSet(orderRepository, orderRepository, orderRuntime, orderRuntime, orderRuntime, dependencies.OrderDependencies.NewOrderRefreshJobRepository(), refreshOrderChunkSize)
 	// orderRefreshRunner 是订单刷新后台 worker 与恢复扫描的生命周期拥有者。
 	orderRefreshRunner, orderRefreshRunnerErr := orderapp.NewRefreshJobRunner(
 		orderServices.RefreshJobs,

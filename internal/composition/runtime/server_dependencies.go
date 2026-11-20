@@ -170,6 +170,11 @@ func (transport ordersTransport) ManualShip(ctx context.Context, request orderap
 	return transport.services.ManualShip.ManualShip(ctx, request)
 }
 
+// AdjustPrice 转发未付款订单改价用例。
+func (transport ordersTransport) AdjustPrice(ctx context.Context, request orderapp.AdjustPriceRequest) (orderapp.AdjustPriceResult, error) {
+	return transport.services.AdjustPrice.AdjustPrice(ctx, request)
+}
+
 // Recover 对确认会话失效的平台错误启动账号恢复。
 func (transport sessionRecoveryTransport) Recover(ctx context.Context, accountID string, err error) bool {
 	return transport.handler != nil && transport.handler(ctx, accountID, err)

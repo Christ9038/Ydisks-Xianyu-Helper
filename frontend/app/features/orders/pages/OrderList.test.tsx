@@ -18,6 +18,7 @@ const orderListMocks = vi.hoisted(/* orderListMockFactory 创建订单页面共�
   updateOrder: vi.fn(),
   deleteOrder: vi.fn(),
   getOrderDeliveredCards: vi.fn(),
+  adjustOrderPrice: vi.fn(),
 }));
 
 vi.mock('../hooks', /* ordersHooksMockFactory 提供订单查询与导入 Hook 替身。 */ () => ({
@@ -48,6 +49,7 @@ vi.mock('../api', /* ordersApiMockFactory 提供订单页面动作 API 替身。
   updateOrder: orderListMocks.updateOrder,
   deleteOrder: orderListMocks.deleteOrder,
   getOrderDeliveredCards: orderListMocks.getOrderDeliveredCards,
+  adjustOrderPrice: orderListMocks.adjustOrderPrice,
 }));
 
 vi.mock('../components/OrderFilterBar', /* filterBarMockFactory 提供订单筛选栏替身。 */ () => {
@@ -101,6 +103,7 @@ describe('OrderList 页面组合行为', /* 当前回调验证订单筛选、编
     orderListMocks.updateOrder.mockResolvedValue({ success: true });
     orderListMocks.deleteOrder.mockResolvedValue({ success: true });
     orderListMocks.getOrderDeliveredCards.mockResolvedValue([]);
+    orderListMocks.adjustOrderPrice.mockResolvedValue({ orderId: 'order-1', amount: '8.80', status: 'succeeded', message: '已修改订单价格为 ¥8.80' });
     vi.spyOn(window, 'alert').mockImplementation(/* alertImplementation 屏蔽订单页面提示。 */ () => undefined);
     vi.spyOn(window, 'confirm').mockReturnValue(true);
   });
@@ -178,5 +181,50 @@ describe('OrderList 页面组合行为', /* 当前回调验证订单筛选、编
     expect(pageUpdaters).toHaveLength(2);
     expect(pageUpdaters[0][0](2)).toBe(1);
     expect(pageUpdaters[1][0](2)).toBe(3);
+  });
+  test('仅未付款订单显示改价入口，提交后展示结果并刷新列表', /* 验证改价入口门禁、弹窗预填、提交和成功态。 */ async () => {
+    // 待发货订单不应出现改价入口。
+    render(<OrderList />);
+    expect(screen.queryByTitle('修改未付款订单价格')).toBeNull();
+    cleanup();
+
+    orderListMocks.orders = [{ ...orderFixture, status: 'processing' }];
+    render(<OrderList />);
+    fireEvent.click(screen.getByTitle('修改未付款订单价格'));
+    // input 是改价金额输入框，应预填订单当前金额。
+    const input = screen.getByLabelText('改价后的订单总价（元）') as HTMLInputElement;
+    expect(input.value).toBe('20.00');
+
+    fireEvent.change(input, { target: { value: '8.8' } });
+    fireEvent.click(screen.getByText('确认改价'));
+    await waitFor(/* priceAssertion 等待改价 API 完成。 */ () => expect(orderListMocks.adjustOrderPrice).toHaveBeenCalledWith('order-1', '8.8'));
+    expect(await screen.findByText(/已修改订单价格为 ¥8.80/)).toBeTruthy();
+    expect(orderListMocks.loadOrders).toHaveBeenCalled();
+    // 成功后不再提供第二次提交按钮，避免重复改价。
+    expect(screen.queryByText('确认改价')).toBeNull();
+    fireEvent.click(screen.getByText('完成'));
+    expect(screen.queryByText('修改订单价格')).toBeNull();
+  });
+
+  test('改价输入非法或接口失败时展示原因且可重新提交', /* 验证失败态不关闭弹窗。 */ async () => {
+    orderListMocks.orders = [{ ...orderFixture, status: 'processing', amount: '' }];
+    orderListMocks.adjustOrderPrice.mockRejectedValueOnce(new Error('订单改价失败: 订单已付款'));
+    render(<OrderList />);
+    fireEvent.click(screen.getByTitle('修改未付款订单价格'));
+    expect(screen.getByText('当前金额: 待获取')).toBeTruthy();
+
+    fireEvent.click(screen.getByText('确认改价'));
+    expect(await screen.findByText(/请输入改价后的订单金额/)).toBeTruthy();
+    expect(orderListMocks.adjustOrderPrice).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText('改价后的订单总价（元）'), { target: { value: '5' } });
+    fireEvent.click(screen.getByText('确认改价'));
+    expect(await screen.findByText(/订单改价失败: 订单已付款/)).toBeTruthy();
+    expect(orderListMocks.loadOrders).not.toHaveBeenCalled();
+    // 失败后仍可再次提交。
+    fireEvent.click(screen.getByText('确认改价'));
+    await waitFor(/* retryAssertion 等待第二次提交成功。 */ () => expect(orderListMocks.adjustOrderPrice).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByLabelText('关闭改价弹窗'));
+    expect(screen.queryByText('修改订单价格')).toBeNull();
   });
 });

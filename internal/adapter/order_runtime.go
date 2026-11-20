@@ -151,10 +151,28 @@ func (r *OrderRuntime) ConfirmShipment(ctx context.Context, cookieID, orderID st
 
 // consignWithCurrentCookie 使用账号平台凭证确认发货并保存响应 Cookie。
 func (r *OrderRuntime) consignWithCurrentCookie(ctx context.Context, cookieID, orderID string, userID int64) (bool, []string, string, bool, error) {
+	return r.callWithCurrentCookie(ctx, cookieID, userID, "发货", func(requestCtx context.Context, client mtop.Client, cookie string) (bool, []string, string, error) {
+		return client.ConsignContext(requestCtx, cookie, orderID)
+	})
+}
+
+// AdjustPrice 使用当前账号凭证调用平台订单改价接口，并以与确认发货相同的方式保存响应 Cookie。
+// priceCents 是改价后的订单总价（分）；单次调用只对应一次平台改价请求，不在此处重放。
+func (r *OrderRuntime) AdjustPrice(ctx context.Context, cookieID, orderID string, userID int64, priceCents int64) orderapp.AdjustPriceCallResult {
+	// success、messages、runtimeCookie、runtimeCookieChanged、callErr 保存改价结果及凭证变化。
+	success, messages, runtimeCookie, runtimeCookieChanged, callErr := r.callWithCurrentCookie(ctx, cookieID, userID, "改价", func(requestCtx context.Context, client mtop.Client, cookie string) (bool, []string, string, error) {
+		return client.AdjustOrderPriceContext(requestCtx, cookie, orderID, priceCents)
+	})
+	return orderapp.AdjustPriceCallResult{Success: success, Messages: messages, RuntimeCookie: runtimeCookie, RuntimeCookieChanged: runtimeCookieChanged, Err: callErr}
+}
+
+// callWithCurrentCookie 读取并校验账号平台凭证，释放凭证锁后执行一次平台调用，再按凭证指纹条件写回响应 Cookie。
+// action 是写入 Cookie 持久化错误上下文的动作名；call 在锁外执行，不得持有账号凭证锁做外部 I/O。
+func (r *OrderRuntime) callWithCurrentCookie(ctx context.Context, cookieID string, userID int64, action string, call func(context.Context, mtop.Client, string) (bool, []string, string, error)) (bool, []string, string, bool, error) {
 	if r == nil || r.store == nil || r.store.Cookies == nil {
 		return false, nil, "", false, errors.New("订单凭证存储未初始化")
 	}
-	// unlock 保护当前账号凭证读取；平台确认发货开始前必须释放账号锁。
+	// unlock 保护当前账号凭证读取；平台调用开始前必须释放账号锁。
 	unlock := r.store.LockAccountCredentials(cookieID)
 	// detail、loadErr 保存按账号读取的平台运行凭证及错误。
 	detail, loadErr := r.store.Cookies.GetCookiePlatformRuntimeData(ctx, cookieID)
@@ -178,13 +196,13 @@ func (r *OrderRuntime) consignWithCurrentCookie(ctx context.Context, cookieID, o
 	if client == nil {
 		return false, nil, "", false, errors.New("MTop 客户端未初始化")
 	}
-	// success、messages、updatedCookies、callErr 保存平台确认发货响应。
-	success, messages, updatedCookies, callErr := client.ConsignContext(requestCtx, detail.Value, orderID)
+	// success、messages、updatedCookies、callErr 保存平台响应。
+	success, messages, updatedCookies, callErr := call(requestCtx, client, detail.Value)
 	// value、valueChanged、handled、persistErr 保存响应 Cookie 会话写回结果。
 	value, valueChanged, handled, persistErr := r.persistCurrentOrderCookieSession(ctx, detail, session, updatedCookies, userID)
 	if persistErr != nil {
 		// wrappedPersistErr 保存包含订单语义的 Cookie 写回错误。
-		wrappedPersistErr := fmt.Errorf("保存发货响应 Cookie Jar: %w", persistErr)
+		wrappedPersistErr := fmt.Errorf("保存%s响应 Cookie Jar: %w", action, persistErr)
 		if callErr != nil {
 			return success, messages, "", false, errors.Join(callErr, wrappedPersistErr)
 		}
@@ -231,12 +249,12 @@ func (r *OrderRuntime) RecordReconciliation(ctx context.Context, orderID, cookie
 	return r.RecordOrderReconciliation(ctx, orderID, cookieID, kind, message)
 }
 
-// ReportPersistenceFailure 记录手动发货本地订单状态持久化失败。
+// ReportPersistenceFailure 记录手动发货、订单改价等平台动作成功后本地订单写入失败。
 func (r *OrderRuntime) ReportPersistenceFailure(orderID string, err error) {
 	if r == nil || err == nil {
 		return
 	}
-	r.logger.Error("更新订单为系统已发货失败", "order_id", orderID, "err", err)
+	r.logger.Error("平台动作成功后写入本地订单失败", "order_id", orderID, "err", err)
 	if r.hooks.ReportPersistenceFailure != nil {
 		r.hooks.ReportPersistenceFailure(orderID, err)
 	}
@@ -574,3 +592,4 @@ const orderRuntimeMaxSoldOrderPages = 100
 // 确保订单运行时覆盖手动发货和订单刷新应用层端口。
 var _ orderapp.ManualShipRuntime = (*OrderRuntime)(nil)
 var _ orderapp.RefreshRuntime = (*OrderRuntime)(nil)
+var _ orderapp.AdjustPriceRuntime = (*OrderRuntime)(nil)

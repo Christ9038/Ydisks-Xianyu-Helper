@@ -3,6 +3,7 @@ package adapter
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	orderapp "xianyu-go/internal/application/orders"
@@ -220,5 +221,93 @@ func TestOrderRuntimeCookiePersistenceBranches(t *testing.T) {
 	// PersistCookieSession 的数据库写入失败。
 	if _, _, handled, err := runtime.PersistCookieSession(ctx, &orderapp.PlatformRuntimeData{ID: "cid", Value: "unb=1"}, orderapp.RefreshCookieUpdate{Handled: true, Changed: true, Value: "unb=2"}); !handled || err == nil {
 		t.Fatalf("PersistCookieSession 写入失败: %v %v", handled, err)
+	}
+}
+
+// TestOrderRuntimeAdjustPriceBranches 覆盖订单改价的成功、业务失败、Cookie 写回冲突、越权、空凭证、客户端缺失和存储缺失路径，并确认每次只调用一次平台。
+func TestOrderRuntimeAdjustPriceBranches(t *testing.T) {
+	// ctx 是调用共用的后台上下文。
+	ctx := context.Background()
+	// store、cleanup 是隔离数据库。
+	store, cleanup := newAdapterTestStore(t)
+	defer cleanup()
+	// admin 是账号所有者。
+	admin, err := store.Users.GetByUsername(ctx, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// client 是可编排改价结果的平台替身。
+	client := &orderRuntimeMTopFake{}
+	// runtime 绑定存储与客户端。
+	runtime := NewOrderRuntime(store, OrderRuntimeHooks{Client: func() mtop.Client { return client }}, nil, nil)
+
+	// 成功：订单号与整数分原样传给平台，且只调用一次。
+	client.adjustPrice = func(_ context.Context, _ string, orderID string, cents int64) (bool, []string, string, error) {
+		if orderID != "o" || cents != 1250 {
+			t.Fatalf("平台入参 order=%q cents=%d", orderID, cents)
+		}
+		return true, []string{"SUCCESS"}, "", nil
+	}
+	// result 保存本步骤的改价结果，用于断言对应分支。
+	if result := runtime.AdjustPrice(ctx, "cid", "o", admin.ID, 1250); !result.Success || result.Err != nil || result.RuntimeCookieChanged {
+		t.Fatalf("成功路径: %+v", result)
+	}
+	if client.adjustPriceCalls != 1 {
+		t.Fatalf("单次改价应只调用一次平台: %d", client.adjustPriceCalls)
+	}
+
+	// 业务失败：保留平台提示且不标记成功。
+	client.adjustPrice = func(context.Context, string, string, int64) (bool, []string, string, error) {
+		return false, []string{"FAIL_BIZ"}, "", nil
+	}
+	// result 保存本步骤的改价结果，用于断言对应分支。
+	if result := runtime.AdjustPrice(ctx, "cid", "o", admin.ID, 100); result.Success || len(result.Messages) != 1 {
+		t.Fatalf("业务失败: %+v", result)
+	}
+
+	// 传输错误：不标记成功并带回错误。
+	client.adjustPrice = func(context.Context, string, string, int64) (bool, []string, string, error) {
+		return true, nil, "", errors.New("platform")
+	}
+	// result 保存本步骤的改价结果，用于断言对应分支。
+	if result := runtime.AdjustPrice(ctx, "cid", "o", admin.ID, 100); result.Err == nil || result.Success {
+		t.Fatalf("调用错误不应视为成功: %+v", result)
+	}
+
+	// 平台调用期间凭证被改写：写回复核失败，返回写回错误。
+	client.adjustPrice = func(context.Context, string, string, int64) (bool, []string, string, error) {
+		_ = store.Cookies.UpdateValueExisting(ctx, "cid", "unb=1; changed=1")
+		return true, nil, "unb=1; new=1", nil
+	}
+	// result 保存本步骤的改价结果，用于断言对应分支。
+	if result := runtime.AdjustPrice(ctx, "cid", "o", admin.ID, 100); result.Err == nil || !strings.Contains(result.Err.Error(), "改价响应") {
+		t.Fatalf("写回冲突应带改价上下文: %+v", result)
+	}
+
+	// 越权：账号不属于该用户，且不得触达平台。
+	client.adjustPriceCalls = 0
+	// result 保存本步骤的改价结果，用于断言对应分支。
+	if result := runtime.AdjustPrice(ctx, "cid", "o", admin.ID+99, 100); !errors.Is(result.Err, orderapp.ErrForbidden) || client.adjustPriceCalls != 0 {
+		t.Fatalf("越权: %+v calls=%d", result, client.adjustPriceCalls)
+	}
+
+	// 客户端缺失。
+	noClient := NewOrderRuntime(store, OrderRuntimeHooks{Client: func() mtop.Client { return nil }}, nil, nil)
+	// result 保存本步骤的改价结果，用于断言对应分支。
+	if result := noClient.AdjustPrice(ctx, "cid", "o", admin.ID, 100); result.Err == nil {
+		t.Fatal("缺客户端应失败")
+	}
+	// 凭证为空。
+	if err := store.Cookies.UpdateValueExisting(ctx, "cid", ""); err != nil {
+		t.Fatal(err)
+	}
+	// result 保存本步骤的改价结果，用于断言对应分支。
+	if result := runtime.AdjustPrice(ctx, "cid", "o", admin.ID, 100); result.Err == nil {
+		t.Fatal("空凭证应失败")
+	}
+	// 存储缺失。
+	// result 保存本步骤的改价结果，用于断言对应分支。
+	if result := (*OrderRuntime)(nil).AdjustPrice(ctx, "cid", "o", admin.ID, 100); result.Err == nil {
+		t.Fatal("空运行时应失败")
 	}
 }

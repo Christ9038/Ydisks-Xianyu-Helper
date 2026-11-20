@@ -429,6 +429,11 @@ func (a *orderHTTPAdapter) ManualShip(ctx context.Context, request manualShipReq
 	return manualShipResultFromApplication(result), nil
 }
 
+// AdjustPrice 转发未付款订单改价用例；请求和结果已是应用层模型，无需兼容转换。
+func (a *orderHTTPAdapter) AdjustPrice(ctx context.Context, request orderapp.AdjustPriceRequest) (orderapp.AdjustPriceResult, error) {
+	return a.services.AdjustPrice(ctx, request)
+}
+
 // manualShipResultFromApplication 将应用层手动发货结果转换为旧 HTTP 响应兼容模型。
 func manualShipResultFromApplication(result orderapp.ManualShipResult) manualShipResult {
 	// results 保存兼容客户端使用的逐条具名结果。

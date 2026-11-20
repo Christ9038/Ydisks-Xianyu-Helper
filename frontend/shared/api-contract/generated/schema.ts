@@ -1790,6 +1790,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/orders/{order_id}/adjust-price": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 未付款订单改价
+         * @description 仅当前用户名下、本地状态为未付款（processing）的订单可改价；每次调用最多对应一次平台改价请求，不自动重试。
+         */
+        post: operations["postApiV1OrdersByorder_idAdjustPrice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/orders/import": {
         parameters: {
             query?: never;
@@ -3831,6 +3851,19 @@ export interface components {
             job_id: string;
             /** @enum {string} */
             status: "cancelled";
+        };
+        AdjustOrderPriceRequest: {
+            /** @description 改价后的订单总价，单位为元的十进制文本，最多两位小数且大于 0 */
+            price: string;
+        };
+        AdjustOrderPriceResponse: {
+            success: boolean;
+            order_id: string;
+            /** @description 改价后的订单金额，单位为元，固定两位小数 */
+            amount: string;
+            /** @enum {string} */
+            status: "succeeded" | "local_sync_pending";
+            message: string;
         };
         ManualShipRequest: {
             order_ids: string[];
@@ -13648,6 +13681,104 @@ export interface operations {
             };
             /** @description 统一错误响应 */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    postApiV1OrdersByorder_idAdjustPrice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdjustOrderPriceRequest"];
+            };
+        };
+        responses: {
+            /** @description 成功 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdjustOrderPriceResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 统一错误响应 */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

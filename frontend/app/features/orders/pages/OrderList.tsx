@@ -1,4 +1,4 @@
-import { ChevronLeft,ChevronRight,Edit,ExternalLink,Eye,PackageCheck,RefreshCw,Save,Trash2,Truck,User as UserIcon,X } from 'lucide-react';
+import { ChevronLeft,ChevronRight,Edit,ExternalLink,Eye,PackageCheck,RefreshCw,Save,Tag,Trash2,Truck,User as UserIcon,X } from 'lucide-react';
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { formatLocalDateTime } from '../../../../dateTime';
@@ -57,11 +57,20 @@ const OrderList: React.FC = () => {
     showShipModal,
     shipLoading,
     shipResult,
+    showPriceModal,
+    priceOrder,
+    priceDraft,
+    priceLoading,
+    priceResult,
     syncingOrderId,
     deletingOrderId,
     handleSync,
     handleShip,
     executeShip,
+    handleAdjustPrice,
+    setPriceDraft,
+    executeAdjustPrice,
+    closePriceModal,
     handleViewDetail,
     handleEdit,
     handleSaveEdit,
@@ -190,6 +199,16 @@ const OrderList: React.FC = () => {
                             className="mr-2 text-white bg-black hover:bg-gray-800 shadow-lg shadow-gray-200 text-xs font-bold px-3 py-2 rounded-xl transition-all active:scale-95"
                         >
                             立即发货
+                        </button>
+                    )}
+                    {order.status === 'processing' && (
+                        <button
+                            onClick={/* 打开该未付款订单的改价弹窗。 */ () => handleAdjustPrice(order)}
+                            className="mr-2 inline-flex items-center gap-1 text-amber-700 bg-amber-50 hover:bg-amber-100 text-xs font-bold px-3 py-2 rounded-xl transition-all active:scale-95"
+                            title="修改未付款订单价格"
+                        >
+                            <Tag className="w-3.5 h-3.5" />
+                            改价
                         </button>
                     )}
                     <a
@@ -474,6 +493,86 @@ const OrderList: React.FC = () => {
                 {shipResult?.success ? '完成' : '取消'}
               </button>
             </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Price Modal - 未付款订单改价 */}
+      {showPriceModal && priceOrder && createPortal(
+        <div className="modal-overlay-centered">
+          <div className="modal-container" style={{ maxWidth: '440px' }}>
+            <div className="modal-header">
+              <div className="flex items-center justify-between w-full">
+                <h3 className="text-2xl font-extrabold text-gray-900">修改订单价格</h3>
+                <button
+                  onClick={closePriceModal}
+                  aria-label="关闭改价弹窗"
+                  className="p-2 bg-gray-100 rounded-full hover:bg-gray-200 transition-colors"
+                >
+                  <X className="w-5 h-5 text-gray-600" />
+                </button>
+              </div>
+            </div>
+
+            <form
+              onSubmit={/* 提交改价；Enter 与按钮共用同一提交路径。 */ event => { event.preventDefault(); void executeAdjustPrice(); }}
+            >
+              <div className="modal-body space-y-4">
+                <div className="text-xs text-gray-500 font-medium">
+                  订单ID: {priceOrder.order_id}
+                  <div className="mt-1">当前金额: {priceOrder.amount ? `¥${priceOrder.amount}` : '待获取'}</div>
+                </div>
+                <label className="block">
+                  <span className="text-sm font-bold text-gray-800">改价后的订单总价（元）</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    autoFocus
+                    value={priceDraft}
+                    onChange={/* 同步改价金额草稿。 */ event => setPriceDraft(event.target.value)}
+                    disabled={priceLoading || priceResult?.success === true}
+                    placeholder="例如 8.80"
+                    className="mt-2 w-full rounded-xl border-2 border-gray-200 px-4 py-3 text-base font-bold text-gray-900 focus:border-brand focus:outline-none disabled:bg-gray-50"
+                  />
+                </label>
+                <p className="text-xs text-gray-500 leading-relaxed">
+                  仅买家尚未付款的订单可改价，运费固定为 0。改价会直接提交到闲鱼，提交后无法在此撤销，请确认金额无误。
+                </p>
+
+                {priceLoading && (
+                  <div className="flex items-center justify-center gap-2 py-2">
+                    <RefreshCw className="w-4 h-4 animate-spin text-gray-500" />
+                    <span className="text-sm text-gray-500">正在提交改价...</span>
+                  </div>
+                )}
+
+                {priceResult && (
+                  <div role="status" className={`p-3 rounded-xl text-sm ${priceResult.success ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
+                    {priceResult.success ? '✓ ' : '✗ '}{priceResult.message}
+                  </div>
+                )}
+              </div>
+
+              <div className="modal-footer flex gap-3">
+                <button
+                  type="button"
+                  onClick={closePriceModal}
+                  className="flex-1 px-6 py-3 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold transition-colors"
+                >
+                  {priceResult?.success ? '完成' : '取消'}
+                </button>
+                {!priceResult?.success && (
+                  <button
+                    type="submit"
+                    disabled={priceLoading}
+                    className="flex-1 px-6 py-3 rounded-xl bg-black hover:bg-gray-800 text-white font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    确认改价
+                  </button>
+                )}
+              </div>
+            </form>
           </div>
         </div>,
         document.body

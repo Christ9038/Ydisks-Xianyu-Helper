@@ -95,6 +95,14 @@ func (adapter OrderRuntimeAdapter) ConfirmShipment(ctx context.Context, cookieID
 	return adapter.runtime.ConfirmShipment(ctx, cookieID, orderID, userID)
 }
 
+// AdjustPrice 执行平台订单改价并返回应用层结果。
+func (adapter OrderRuntimeAdapter) AdjustPrice(ctx context.Context, cookieID, orderID string, userID int64, priceCents int64) orderapp.AdjustPriceCallResult {
+	if adapter.runtime == nil {
+		return orderapp.AdjustPriceCallResult{Err: errors.New("订单运行时未初始化")}
+	}
+	return adapter.runtime.AdjustPrice(ctx, cookieID, orderID, userID, priceCents)
+}
+
 // UpdateRunningCookie 同步运行时账号 Cookie。
 func (adapter OrderRuntimeAdapter) UpdateRunningCookie(ctx context.Context, cookieID, value string) {
 	if adapter.runtime != nil {
