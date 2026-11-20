@@ -56,8 +56,6 @@ func (s *Server) mountVersionedSettingsCardNotificationRoutes(r chi.Router) {
 		r.Delete("/api/v1/notifications/channels/{channel_id}", s.deleteChannel)
 		r.Post("/api/v1/notifications/channels/{channel_id}/test", s.testChannel)
 		// 飞书应用渠道的分类开关只允许普通登录用户操作自己的渠道。
-		r.Get("/api/v1/notifications/channels/{channel_id}/feishu-categories", s.getFeishuChannelCategories)
-		r.Put("/api/v1/notifications/channels/{channel_id}/feishu-categories", s.setFeishuChannelCategories)
 		// 飞书应用扫码绑定由普通登录用户发起，会话按用户隔离。
 		r.Post("/api/v1/notifications/feishu-app/qr", s.startFeishuAppBinding)
 		r.Get("/api/v1/notifications/feishu-app/qr/{session_id}", s.getFeishuAppBindingStatus)

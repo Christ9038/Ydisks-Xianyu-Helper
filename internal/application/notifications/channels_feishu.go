@@ -1,7 +1,6 @@
 package notifications
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -25,8 +24,6 @@ const (
 	feishuAppChannelType = "feishu_app"
 	// feishuAppChannelName 是新建飞书应用渠道的默认名称，不包含 open_id 或任何凭据。
 	feishuAppChannelName = "飞书应用"
-	// feishuAppDefaultEventTypes 是新建渠道默认订阅的事件类型 JSON。
-	feishuAppDefaultEventTypes = `["chat_message_received"]`
 	// feishuAppDefaultExpiresIn 是注册结果缺少有效期时的本地会话兜底有效期。
 	feishuAppDefaultExpiresIn = 5 * time.Minute
 	// feishuAppDefaultPollInterval 是注册结果缺少间隔时的最小轮询间隔。
@@ -107,22 +104,14 @@ type FeishuRegistrar interface {
 	PollRegistration(ctx context.Context, request FeishuPollRequest) (FeishuPollResult, error)
 }
 
-// FeishuBindingOptions 是一次飞书扫码绑定需要保存的渠道行为选项，使用具名字段避免多个裸布尔参数混淆。
+// FeishuBindingOptions 是一次飞书扫码绑定需要保存的渠道表单选项，与链接添加共用同一组渠道字段；渠道与账号的绑定与其他渠道一样在账号管理中完成。
 type FeishuBindingOptions struct {
-	// BindAllAccounts 表示绑定成功后是否把渠道绑定到当前用户全部账号。
-	BindAllAccounts bool
-	// NotifyWarning 表示是否推送警告类通知。
-	NotifyWarning bool
-	// NotifyInfo 表示是否推送普通提示类通知。
-	NotifyInfo bool
-}
-
-// FeishuChannelCategories 是飞书应用渠道的警告与普通提示推送开关。
-type FeishuChannelCategories struct {
-	// Warning 表示是否推送警告类通知。
-	Warning bool
-	// Info 表示是否推送普通提示类通知。
-	Info bool
+	// Name 是新渠道名称；空白时使用默认名称。
+	Name string
+	// EventTypes 是渠道订阅的事件类型编码，格式与其他通知渠道一致（JSON 数组文本或兼容分隔文本）；空字符串表示接收全部事件。
+	EventTypes string
+	// Enabled 表示绑定成功后渠道是否启用。
+	Enabled bool
 }
 
 // FeishuBindingStart 是开始扫码绑定后返回给 transport 的非敏感结果。
@@ -161,12 +150,8 @@ type feishuBindingSession struct {
 	Interval time.Duration
 	// NextPollAt 是允许下一次平台轮询的最早时间。
 	NextPollAt time.Time
-	// BindAll 表示成功后是否把渠道绑定到当前用户全部账号。
-	BindAll bool
-	// NotifyWarning 表示该渠道是否推送警告类通知。
-	NotifyWarning bool
-	// NotifyInfo 表示该渠道是否推送普通提示类通知。
-	NotifyInfo bool
+	// Options 是发起绑定时登记的渠道表单选项（名称、事件订阅、启用状态）；会话创建后不可变。
+	Options FeishuBindingOptions
 	// Status 是当前绑定状态。
 	Status string
 	// Message 是可展示的稳定说明。
@@ -187,14 +172,10 @@ type feishuAppChannelConfig struct {
 	OpenID string `json:"open_id"`
 	// Domain 是开放平台站点域名，取值为 feishu 或 lark。
 	Domain string `json:"domain"`
-	// NotifyWarning 表示是否推送警告类通知。
-	NotifyWarning bool `json:"notify_warning"`
-	// NotifyInfo 表示是否推送普通提示类通知。
-	NotifyInfo bool `json:"notify_info"`
 }
 
 // StartFeishuAppBinding 发起飞书扫码绑定并登记进程内会话。
-// userID 是发起用户；options 同时携带账号绑定策略和两个分类推送开关。返回结果只包含 session_id、扫码地址和秒数。
+// userID 是发起用户；options 携带渠道名称、事件订阅和启用状态，会话内保存其副本。返回结果只包含 session_id、扫码地址和秒数。
 func (s *ChannelService) StartFeishuAppBinding(ctx context.Context, userID int64, options FeishuBindingOptions) (FeishuBindingStart, error) {
 	if s == nil || s.repository == nil || userID <= 0 {
 		return FeishuBindingStart{}, ErrChannelInvalidInput
@@ -228,18 +209,16 @@ func (s *ChannelService) StartFeishuAppBinding(ctx context.Context, userID int64
 	interval := normalizePollInterval(deviceCode.Interval)
 	// session 是即将登记的扫码会话；其状态和字段只在 feishuMu 锁内修改。
 	session := &feishuBindingSession{
-		ID:            sessionID,
-		UserID:        userID,
-		DeviceCode:    deviceCode.DeviceCode,
-		Domain:        "feishu",
-		ExpiresAt:     now.Add(expiresIn),
-		Interval:      interval,
-		NextPollAt:    now.Add(interval),
-		BindAll:       options.BindAllAccounts,
-		NotifyWarning: options.NotifyWarning,
-		NotifyInfo:    options.NotifyInfo,
-		Status:        FeishuBindingStatusWaiting,
-		Message:       "等待飞书扫码确认",
+		ID:         sessionID,
+		UserID:     userID,
+		DeviceCode: deviceCode.DeviceCode,
+		Domain:     "feishu",
+		ExpiresAt:  now.Add(expiresIn),
+		Interval:   interval,
+		NextPollAt: now.Add(interval),
+		Options:    normalizeFeishuBindingOptions(options),
+		Status:     FeishuBindingStatusWaiting,
+		Message:    "等待飞书扫码确认",
 	}
 	s.feishuMu.Lock()
 	if s.feishuSessions == nil {
@@ -295,8 +274,8 @@ func (s *ChannelService) GetFeishuAppBindingStatus(ctx context.Context, userID i
 	}
 	// pollRequest 是本轮平台轮询所需的不可变请求快照。
 	pollRequest := FeishuPollRequest{Domain: session.Domain, DeviceCode: session.DeviceCode}
-	// bindingOptions 是创建或更新渠道时使用的账号绑定与分类推送开关快照。
-	bindingOptions := FeishuBindingOptions{BindAllAccounts: session.BindAll, NotifyWarning: session.NotifyWarning, NotifyInfo: session.NotifyInfo}
+	// bindingOptions 是创建或更新渠道时使用的表单选项快照。
+	bindingOptions := session.Options
 	// currentInterval 是当前会话轮询间隔的锁内快照。
 	currentInterval := normalizePollInterval(session.Interval)
 	// currentDomain 是当前会话站点域名的锁内快照。
@@ -360,21 +339,21 @@ func (s *ChannelService) GetFeishuAppBindingStatus(ctx context.Context, userID i
 	}
 }
 
-// persistFeishuAppChannel 创建或更新当前用户的 feishu_app 渠道，并按 options 绑定全部账号。
+// persistFeishuAppChannel 创建或更新当前用户的 feishu_app 渠道；不改动任何账号绑定。
 // result 携带平台凭据，只允许写入加密渠道 Config；返回值是渠道标识，错误不应包含凭据。
 func (s *ChannelService) persistFeishuAppChannel(ctx context.Context, userID int64, result FeishuPollResult, options FeishuBindingOptions) (int64, error) {
 	// configBytes、configErr 保存加密前渠道配置 JSON 及序列化错误。
 	configBytes, configErr := json.Marshal(feishuAppChannelConfig{
-		AppID:         result.AppID,
-		AppSecret:     result.AppSecret,
-		OpenID:        result.OpenID,
-		Domain:        normalizeFeishuDomain(result.Domain),
-		NotifyWarning: options.NotifyWarning,
-		NotifyInfo:    options.NotifyInfo,
+		AppID:     result.AppID,
+		AppSecret: result.AppSecret,
+		OpenID:    result.OpenID,
+		Domain:    normalizeFeishuDomain(result.Domain),
 	})
 	if configErr != nil {
 		return 0, fmt.Errorf("编码飞书应用渠道配置失败")
 	}
+	// eventTypes 是写入渠道的事件订阅编码；空字符串表示接收全部事件。
+	eventTypes := options.EventTypes
 	// channels、listErr 保存当前用户渠道摘要及查询错误；摘要不包含任何配置。
 	channels, listErr := s.repository.ListChannels(ctx, userID)
 	if listErr != nil {
@@ -399,11 +378,10 @@ func (s *ChannelService) persistFeishuAppChannel(ctx context.Context, userID int
 		}
 		if record != nil {
 			record.Config = string(configBytes)
-			record.Enabled = true
+			record.Enabled = options.Enabled
 			record.Type = feishuAppChannelType
-			if strings.TrimSpace(record.EventTypes) == "" {
-				record.EventTypes = feishuAppDefaultEventTypes
-			}
+			record.Name = options.Name
+			record.EventTypes = eventTypes
 			// updateErr 是已有渠道更新写入错误；nil 表示更新成功。
 			if updateErr := s.repository.UpdateChannel(ctx, userID, *record); updateErr != nil {
 				return 0, updateErr
@@ -414,34 +392,16 @@ func (s *ChannelService) persistFeishuAppChannel(ctx context.Context, userID int
 	if channelID == 0 {
 		// createdID、createErr 保存新渠道创建结果及错误。
 		createdID, createErr := s.repository.CreateChannel(ctx, userID, ChannelInput{
-			Name:       feishuAppChannelName,
+			Name:       options.Name,
 			Type:       feishuAppChannelType,
 			Config:     string(configBytes),
-			EventTypes: feishuAppDefaultEventTypes,
-			Enabled:    true,
+			EventTypes: eventTypes,
+			Enabled:    options.Enabled,
 		})
 		if createErr != nil {
 			return 0, createErr
 		}
 		channelID = createdID
-	}
-	if !options.BindAllAccounts {
-		return channelID, nil
-	}
-	// accountIDs、accountsErr 保存当前用户账号标识及查询错误；不读取 Cookie。
-	accountIDs, accountsErr := s.repository.ListOwnedAccountIDs(ctx, userID)
-	if accountsErr != nil {
-		return channelID, accountsErr
-	}
-	// accountID 是当前待绑定渠道的账号标识。
-	for _, accountID := range accountIDs {
-		if strings.TrimSpace(accountID) == "" {
-			continue
-		}
-		// bindingErr 保存当前账号单条绑定写入错误；SetSingleBinding 只增改本渠道，保留其他绑定。
-		if bindingErr := s.repository.SetSingleBinding(ctx, accountID, channelID, true); bindingErr != nil {
-			return channelID, bindingErr
-		}
 	}
 	return channelID, nil
 }
@@ -571,116 +531,14 @@ func feishuBindingStatusFromSession(session *feishuBindingSession) FeishuBinding
 	return FeishuBindingStatus{Status: session.Status, Message: session.Message, ChannelID: session.ChannelID}
 }
 
-// GetFeishuChannelCategories 读取飞书应用渠道的警告与普通提示开关。
-// 只允许 type=feishu_app 的渠道；配置中的开关缺失时按 true 处理，错误不包含配置内容。
-func (s *ChannelService) GetFeishuChannelCategories(ctx context.Context, userID, channelID int64) (FeishuChannelCategories, error) {
-	if s == nil || s.repository == nil || userID <= 0 || channelID <= 0 {
-		return FeishuChannelCategories{}, ErrChannelInvalidInput
+// normalizeFeishuBindingOptions 返回去除空白并补全默认名称的选项副本，使会话内保存的选项与调用方后续修改隔离。
+func normalizeFeishuBindingOptions(options FeishuBindingOptions) FeishuBindingOptions {
+	// name 是去除首尾空白后的渠道名称，空值使用默认名称。
+	name := strings.TrimSpace(options.Name)
+	if name == "" {
+		name = feishuAppChannelName
 	}
-	// record、lookupErr 保存归属校验后的渠道完整记录及读取错误；Config 只在本方法内解析。
-	record, lookupErr := s.repository.GetChannelForUpdate(ctx, channelID, userID)
-	if lookupErr != nil {
-		return FeishuChannelCategories{}, lookupErr
-	}
-	if record == nil {
-		return FeishuChannelCategories{}, ErrChannelNotFound
-	}
-	if record.Type != feishuAppChannelType {
-		return FeishuChannelCategories{}, ErrChannelInvalidInput
-	}
-	return parseFeishuChannelCategories(record.Config)
-}
-
-// SetFeishuChannelCategories 更新飞书应用渠道的警告与普通提示开关，并保留其余配置字段。
-// 仅允许 type=feishu_app；写入失败或配置无效时返回不包含配置值的错误。
-func (s *ChannelService) SetFeishuChannelCategories(ctx context.Context, userID, channelID int64, categories FeishuChannelCategories) error {
-	if s == nil || s.repository == nil || userID <= 0 || channelID <= 0 {
-		return ErrChannelInvalidInput
-	}
-	// record、lookupErr 保存归属校验后的渠道完整记录及读取错误；Config 只在本方法内合并。
-	record, lookupErr := s.repository.GetChannelForUpdate(ctx, channelID, userID)
-	if lookupErr != nil {
-		return lookupErr
-	}
-	if record == nil {
-		return ErrChannelNotFound
-	}
-	if record.Type != feishuAppChannelType {
-		return ErrChannelInvalidInput
-	}
-	// updatedConfig、updateErr 保存只修改两个开关后的完整配置 JSON 及合并错误。
-	updatedConfig, updateErr := updateFeishuChannelCategories(record.Config, categories)
-	if updateErr != nil {
-		return updateErr
-	}
-	record.Config = updatedConfig
-	record.UserID = userID
-	return s.repository.UpdateChannel(ctx, userID, *record)
-}
-
-// parseFeishuChannelCategories 解析渠道配置中的两个分类开关；字段缺失或为 null 时按 true 处理。
-func parseFeishuChannelCategories(config string) (FeishuChannelCategories, error) {
-	// fields 保存配置对象的原始 JSON 字段；未知字段只用于保留，不进入响应。
-	var fields map[string]json.RawMessage
-	// unmarshalErr 是配置对象解析失败原因；nil 表示配置是 JSON 对象。
-	if unmarshalErr := json.Unmarshal([]byte(config), &fields); unmarshalErr != nil || fields == nil {
-		return FeishuChannelCategories{}, fmt.Errorf("飞书渠道配置无法解析")
-	}
-	// warning、warningErr 保存警告类开关及解析错误。
-	warning, warningErr := parseFeishuCategorySwitch(fields, "notify_warning")
-	if warningErr != nil {
-		return FeishuChannelCategories{}, warningErr
-	}
-	// info、infoErr 保存普通提示类开关及解析错误。
-	info, infoErr := parseFeishuCategorySwitch(fields, "notify_info")
-	if infoErr != nil {
-		return FeishuChannelCategories{}, infoErr
-	}
-	return FeishuChannelCategories{Warning: warning, Info: info}, nil
-}
-
-// parseFeishuCategorySwitch 读取单个布尔开关；缺失、空值或 null 按 true 处理，类型错误返回稳定错误。
-func parseFeishuCategorySwitch(fields map[string]json.RawMessage, key string) (bool, error) {
-	// raw、exists 保存配置字段原始值和是否存在。
-	raw, exists := fields[key]
-	if !exists || len(bytes.TrimSpace(raw)) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-		return true, nil
-	}
-	// enabled 保存解析后的布尔开关值。
-	var enabled bool
-	// unmarshalErr 是布尔开关解析失败原因；nil 表示字段类型合法。
-	if unmarshalErr := json.Unmarshal(raw, &enabled); unmarshalErr != nil {
-		return false, fmt.Errorf("飞书渠道分类开关无效")
-	}
-	return enabled, nil
-}
-
-// updateFeishuChannelCategories 在原配置对象上只覆盖两个开关，保留 app_secret、open_id、domain 和未知字段。
-func updateFeishuChannelCategories(config string, categories FeishuChannelCategories) (string, error) {
-	// fields 保存配置对象的原始 JSON 字段，确保未修改字段按原值写回。
-	var fields map[string]json.RawMessage
-	// unmarshalErr 是配置对象解析失败原因；nil 表示配置是 JSON 对象。
-	if unmarshalErr := json.Unmarshal([]byte(config), &fields); unmarshalErr != nil || fields == nil {
-		return "", fmt.Errorf("飞书渠道配置无法解析")
-	}
-	// warningRaw、warningErr 保存警告类开关的 JSON 布尔值及序列化错误。
-	warningRaw, warningErr := json.Marshal(categories.Warning)
-	if warningErr != nil {
-		return "", fmt.Errorf("编码飞书渠道分类开关失败")
-	}
-	// infoRaw、infoErr 保存普通提示类开关的 JSON 布尔值及序列化错误。
-	infoRaw, infoErr := json.Marshal(categories.Info)
-	if infoErr != nil {
-		return "", fmt.Errorf("编码飞书渠道分类开关失败")
-	}
-	fields["notify_warning"] = warningRaw
-	fields["notify_info"] = infoRaw
-	// encoded、encodeErr 保存合并后的完整配置 JSON 与序列化错误；内容只用于持久化。
-	encoded, encodeErr := json.Marshal(fields)
-	if encodeErr != nil {
-		return "", fmt.Errorf("编码飞书渠道配置失败")
-	}
-	return string(encoded), nil
+	return FeishuBindingOptions{Name: name, EventTypes: strings.TrimSpace(options.EventTypes), Enabled: options.Enabled}
 }
 
 // mergePollDomain 合并锁内复制的当前域名与轮询结果域名，保证 Lark 识别后不回退到飞书。

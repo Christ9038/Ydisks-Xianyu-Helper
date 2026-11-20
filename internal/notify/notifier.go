@@ -445,11 +445,6 @@ func (n *Notifier) eligibleChannels(ctx context.Context, ev NotificationEvent) (
 		if !allowed {
 			continue
 		}
-		// 订阅匹配后再应用飞书应用渠道的分类开关；其他渠道类型的行为保持不变。
-		if !feishuAppAllowsNotification(ch, ev) {
-			n.logger.Debug("飞书应用渠道分类开关已关闭，跳过渠道", "channel", ch.ID, "event_type", ev.Type, "warning", isWarningNotificationEvent(ev))
-			continue
-		}
 		eligible = append(eligible, ch)
 	}
 	if len(eligible) == 0 {

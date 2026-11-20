@@ -1,5 +1,6 @@
 import { useCallback,useEffect,useRef,useState } from 'react';
 import { getFeishuAppBindingStatus,startFeishuAppBinding } from './api';
+import type { NotificationEventType } from './models';
 import { notificationErrorMessage } from './state';
 
 /** FeishuBindingStatus 是飞书机器人扫码绑定弹窗的阶段；closed 表示弹窗未打开，starting 表示等待用户点击或正在创建会话。 */
@@ -13,6 +14,16 @@ export interface FeishuBindingOptions {
   pollIntervalMs?: number;
 }
 
+/** FeishuBindingForm 是创建扫码会话时从「新建渠道」弹窗取得的共用表单快照；会话创建后修改表单不影响已发起的会话。 */
+export interface FeishuBindingForm {
+  /** name 是渠道名称，空白时后端使用默认名称。 */
+  name: string;
+  /** eventTypes 是订阅的事件类型，空数组表示接收全部事件。 */
+  eventTypes: NotificationEventType[];
+  /** enabled 表示绑定成功后渠道是否启用。 */
+  enabled: boolean;
+}
+
 /** FeishuBindingState 是飞书扫码绑定 Hook 暴露给弹窗和页面的状态与动作。 */
 export interface FeishuBindingState {
   /** status 是当前绑定阶段，closed 时弹窗不渲染。 */
@@ -23,26 +34,14 @@ export interface FeishuBindingState {
   message: string;
   /** sessionID 是当前绑定会话标识；轮询期间保持后端返回值。 */
   sessionID: string;
-  /** bindAllAccounts 表示绑定成功后是否把新渠道绑定到当前用户全部账号，默认开启。 */
-  bindAllAccounts: boolean;
-  /** notifyWarning 表示新渠道是否推送警告类通知，默认开启。 */
-  notifyWarning: boolean;
-  /** notifyInfo 表示新渠道是否推送普通提示类通知，默认开启。 */
-  notifyInfo: boolean;
   /** requesting 表示创建绑定会话的请求是否仍在进行，用于禁用开始按钮和展示加载状态。 */
   requesting: boolean;
-  /** setBindAllAccounts 更新“绑定全部账号”选项；弹窗在开始绑定后禁用该开关。 */
-  setBindAllAccounts: (value: boolean) => void;
-  /** setNotifyWarning 更新警告类通知开关；弹窗在开始绑定后禁用该开关。 */
-  setNotifyWarning: (value: boolean) => void;
-  /** setNotifyInfo 更新普通提示类通知开关；弹窗在开始绑定后禁用该开关。 */
-  setNotifyInfo: (value: boolean) => void;
   /** open 打开弹窗并把状态重置为待开始，不发起网络请求。 */
   open: () => void;
   /** close 关闭弹窗并取消进行中的请求和轮询。 */
   close: () => void;
-  /** start 使用当前三个设置开关创建扫码会话并开始轮询。 */
-  start: () => Promise<void>;
+  /** start 使用「新建渠道」表单快照创建扫码会话并开始轮询。 */
+  start: (form: FeishuBindingForm) => Promise<void>;
 }
 
 // defaultPollIntervalMs 是扫码状态轮询的默认间隔，避免高频请求后端绑定会话。
@@ -58,12 +57,6 @@ export const useFeishuAppBinding = (options: FeishuBindingOptions = {}): FeishuB
   const [message, setMessage] = useState('');
   // sessionID 保存当前绑定会话标识，关闭弹窗时清空。
   const [sessionID, setSessionID] = useState('');
-  // bindAllAccounts 保存用户的账号绑定选项；开始新会话时以调用参数为准。
-  const [bindAllAccounts, setBindAllAccountsState] = useState(true);
-  // notifyWarning 保存警告类通知开关，默认开启并与后端 default true 保持一致。
-  const [notifyWarning, setNotifyWarningState] = useState(true);
-  // notifyInfo 保存普通提示类通知开关，默认开启并与后端 default true 保持一致。
-  const [notifyInfo, setNotifyInfoState] = useState(true);
   // requesting 保存会话创建请求是否仍在进行，与 status starting 组合区分待开始和请求中。
   const [requesting, setRequesting] = useState(false);
   // generationRef 保存绑定流程代次；关闭、重新开始或卸载后旧响应不能写回状态。
@@ -175,8 +168,11 @@ export const useFeishuAppBinding = (options: FeishuBindingOptions = {}): FeishuB
 
   // start 开始飞书扫码绑定，保存二维码并启动状态轮询；重复调用会先取消上一轮流程。
   const start = useCallback(
-    // startCallback 使用当前绑定范围与分类开关创建扫码会话。
-    async () => {
+    // startCallback 使用表单快照和当前账号绑定范围创建扫码会话。
+    async (
+      // form 是用户点击“生成二维码”时的渠道表单快照。
+      form: FeishuBindingForm,
+    ) => {
     stopFlow();
     // generation 是本次绑定流程的代次，用于拒绝旧请求的晚到响应。
     const generation = generationRef.current;
@@ -190,7 +186,7 @@ export const useFeishuAppBinding = (options: FeishuBindingOptions = {}): FeishuB
     setSessionID('');
     try {
       // result 是后端创建的扫码绑定会话，包含二维码和有效时长。
-      const result = await startFeishuAppBinding({ bindAllAccounts, notifyWarning, notifyInfo }, { signal: controller.signal });
+      const result = await startFeishuAppBinding({ name: form.name, eventTypes: form.eventTypes, enabled: form.enabled }, { signal: controller.signal });
       if (generation !== generationRef.current || controller.signal.aborted) return;
       setQrCodeUrl(result.qr_code_url);
       setSessionID(result.session_id);
@@ -213,7 +209,7 @@ export const useFeishuAppBinding = (options: FeishuBindingOptions = {}): FeishuB
       setMessage(notificationErrorMessage(error, '创建飞书绑定二维码失败'));
       setRequesting(false);
     }
-  }, [bindAllAccounts, notifyInfo, notifyWarning, options.pollIntervalMs, pollBinding, stopFlow]);
+  }, [options.pollIntervalMs, pollBinding, stopFlow]);
 
   // open 打开扫码绑定弹窗并清理上一次会话的二维码和错误状态。
   const open = useCallback(
@@ -225,9 +221,6 @@ export const useFeishuAppBinding = (options: FeishuBindingOptions = {}): FeishuB
       setQrCodeUrl('');
       setMessage('');
       setSessionID('');
-      setBindAllAccountsState(true);
-      setNotifyWarningState(true);
-      setNotifyInfoState(true);
     },
     [stopFlow],
   );
@@ -242,9 +235,6 @@ export const useFeishuAppBinding = (options: FeishuBindingOptions = {}): FeishuB
       setQrCodeUrl('');
       setMessage('');
       setSessionID('');
-      setBindAllAccountsState(true);
-      setNotifyWarningState(true);
-      setNotifyInfoState(true);
     },
     [stopFlow],
   );
@@ -255,35 +245,8 @@ export const useFeishuAppBinding = (options: FeishuBindingOptions = {}): FeishuB
     [stopFlow],
   );
 
-  // updateBindAllAccounts 写入用户在开始绑定前选择的账号绑定选项。
-  const updateBindAllAccounts = useCallback(
-    // updateCallback 把开关状态写入本地选项，请求参数在开始绑定时确定。
-    (value: boolean) => {
-      setBindAllAccountsState(value);
-    },
-    [],
-  );
-
-  // updateNotifyWarning 写入警告类通知开关，开始绑定时随会话请求提交。
-  const updateNotifyWarning = useCallback(
-    // warningCallback 保存警告类通知的本地选择。
-    (value: boolean) => {
-      setNotifyWarningState(value);
-    },
-    [],
-  );
-
-  // updateNotifyInfo 写入普通提示类通知开关，开始绑定时随会话请求提交。
-  const updateNotifyInfo = useCallback(
-    // infoCallback 保存普通提示类通知的本地选择。
-    (value: boolean) => {
-      setNotifyInfoState(value);
-    },
-    [],
-  );
-
   return {
-    status, qrCodeUrl, message, sessionID, bindAllAccounts, notifyWarning, notifyInfo, requesting,
-    setBindAllAccounts: updateBindAllAccounts, setNotifyWarning: updateNotifyWarning, setNotifyInfo: updateNotifyInfo, open, close, start,
+    status, qrCodeUrl, message, sessionID, requesting,
+    open, close, start,
   };
 };

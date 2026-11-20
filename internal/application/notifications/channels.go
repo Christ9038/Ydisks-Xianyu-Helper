@@ -135,8 +135,6 @@ type ChannelRepository interface {
 	OwnsChannel(ctx context.Context, channelID, userID int64) (bool, error)
 	// OwnsAccount 判断账号是否属于指定用户，不读取账号凭证。
 	OwnsAccount(ctx context.Context, userID int64, cookieID string) (bool, error)
-	// ListOwnedAccountIDs 返回指定用户拥有的账号标识，不解密 Cookie 或其他凭证。
-	ListOwnedAccountIDs(ctx context.Context, userID int64) ([]string, error)
 	// ListBindings 查询指定用户的非敏感绑定摘要。
 	ListBindings(ctx context.Context, userID int64) ([]BindingSummary, error)
 	// GetBindingIDs 查询账号当前启用的渠道标识。

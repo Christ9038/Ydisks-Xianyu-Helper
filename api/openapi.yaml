@@ -6106,105 +6106,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-  "/api/v1/notifications/channels/{channel_id}/feishu-categories":
-    get:
-      operationId: getApiV1NotificationsChannelsFeishuCategories
-      summary: 查询飞书应用渠道的警告与普通提示开关
-      security: [{cookieAuth: []}]
-      parameters:
-        - name: channel_id
-          in: path
-          required: true
-          schema: {type: integer}
-      responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/FeishuChannelCategoriesResponse'
-        '400':
-          description: 统一错误响应
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '401':
-          description: 统一错误响应
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '403':
-          description: 统一错误响应
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '404':
-          description: 统一错误响应
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '500':
-          description: 统一错误响应
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-    put:
-      operationId: putApiV1NotificationsChannelsFeishuCategories
-      summary: 更新飞书应用渠道的警告与普通提示开关
-      security: [{cookieAuth: []}]
-      parameters:
-        - name: channel_id
-          in: path
-          required: true
-          schema: {type: integer}
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/FeishuChannelCategoriesUpdateRequest'
-      responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/OperationResponse'
-        '400':
-          description: 统一错误响应
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '401':
-          description: 统一错误响应
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '403':
-          description: 统一错误响应
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '404':
-          description: 统一错误响应
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '500':
-          description: 统一错误响应
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
   "/api/v1/notifications/messages":
     get:
       operationId: getApiV1NotificationsMessages
@@ -10229,31 +10130,18 @@ components:
         multi_quantity_delivery: {type: boolean}
     FeishuAppBindingStartRequest:
       type: object
+      description: 扫码添加飞书机器人时提交的渠道表单，与链接添加共用名称、通知内容和启用状态。
       properties:
-        bind_all_accounts:
+        name:
+          type: string
+          description: 渠道名称；省略或空白时使用默认名称。
+        event_types:
+          type: string
+          description: 订阅的事件类型 JSON 数组文本，格式与通知渠道保存接口一致；空字符串或省略表示接收全部事件。
+        enabled:
           type: boolean
           default: true
-          description: 绑定成功后是否把新飞书渠道绑定到当前用户全部账号；省略时按 true 处理。
-        notify_warning:
-          type: boolean
-          default: true
-          description: 是否推送警告类通知（账号异常、风控、需要人工处理、失败结果等）；省略时按 true 处理。
-        notify_info:
-          type: boolean
-          default: true
-          description: 是否推送普通提示类通知（新消息、发货结果、自动化成功结果等）；省略时按 true 处理。
-    FeishuChannelCategoriesResponse:
-      type: object
-      required: [warning, info]
-      properties:
-        warning: {type: boolean}
-        info: {type: boolean}
-    FeishuChannelCategoriesUpdateRequest:
-      type: object
-      required: [warning, info]
-      properties:
-        warning: {type: boolean}
-        info: {type: boolean}
+          description: 绑定成功后渠道是否启用；省略时按 true 处理。
     FeishuAppBindingStartResponse:
       type: object
       required: [session_id, qr_code_url, expires_in]

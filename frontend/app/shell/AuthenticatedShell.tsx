@@ -87,10 +87,8 @@ const AutomationAuditPanel = lazy(/* 规则日志面板随规则页签按需加�
 const DeliveryTemplates = lazy(/* DeliveryTemplates 页面按路由激活时加载。 */ () => import('../features/delivery-templates/pages/DeliveryTemplates'));
 // Notifications 是按需加载的通知页面，避免首屏载入通知配置代码。
 const Notifications = lazy(/* Notifications 页面按路由激活时加载。 */ () => import('../features/notifications/pages/Notifications'));
-// FeishuBindingPanel 是通知页的扫码绑定交互，仅在用户点击按钮后才下载，避免撑大通知页分片。
-const FeishuBindingPanel = lazy(/* FeishuBindingPanel 在用户打开扫码绑定弹窗时加载。 */ () => import('../features/notifications/components/FeishuBindingPanel').then(/* module 提供扫码绑定面板的具名导出。 */ module => ({ default: module.FeishuBindingPanel })));
-// FeishuSettingsPanel 是飞书渠道分类设置交互，仅在用户点击渠道设置时加载，避免撑大通知页分片。
-const FeishuSettingsPanel = lazy(/* FeishuSettingsPanel 在用户打开渠道设置时加载。 */ () => import('../features/notifications/components/FeishuSettingsPanel').then(/* module 提供飞书渠道设置面板的具名导出。 */ module => ({ default: module.FeishuSettingsPanel })));
+// FeishuBindingPanel 是新建渠道弹窗里“飞书 → 扫码授权”的交互，仅在用户选择该连接方式后才下载，避免撑大通知页分片。
+const FeishuBindingPanel = lazy(/* FeishuBindingPanel 在用户选择扫码授权连接方式时加载。 */ () => import('../features/notifications/components/FeishuBindingPanel').then(/* module 提供扫码绑定面板的具名导出。 */ module => ({ default: module.FeishuBindingPanel })));
 // Chat 是按需加载的聊天页面，避免未访问时载入聊天历史和 WebSocket 视图。
 const Chat = lazy(/* Chat 页面按路由激活时加载。 */ () => import('../features/chat/pages/Chat'));
 // RuntimeLogs 是按需加载的运行日志页面，仅在管理员访问时加载，避免普通用户下载诊断代码。
@@ -161,7 +159,7 @@ export const AppContent: React.FC<AppContentProps> = ({
       />;
       case 'delivery-templates': return <DeliveryTemplates libraryImageChooser={LibraryImageChooser} />;
       case 'library': return <ResourceLibrary onBatchStarted={onNavigateToItems} locationField={PublishLocationField} categoryField={PublishCategoryField} />;
-      case 'notifications': return <Notifications isAdmin={isAdmin} feishuBindingPanel={FeishuBindingPanel} feishuSettingsPanel={FeishuSettingsPanel} />;
+      case 'notifications': return <Notifications isAdmin={isAdmin} feishuBindingPanel={FeishuBindingPanel} />;
       case 'logs': return isAdmin ? <RuntimeLogs /> : <Dashboard />;
       case 'settings': return isAdmin ? <Settings /> : <Dashboard />;
       case 'api-access': return <APIAccessTokensPage />;

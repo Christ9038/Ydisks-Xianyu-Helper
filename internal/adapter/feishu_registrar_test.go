@@ -2,7 +2,6 @@ package adapter
 
 import (
 	"context"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -27,35 +26,6 @@ func (t feishuTestTransport) RoundTrip(req *http.Request) (*http.Response, error
 	cloned.URL.Host = t.target
 	cloned.Host = t.target
 	return http.DefaultTransport.RoundTrip(cloned)
-}
-
-// TestNotificationChannelRepositoryListOwnedAccountIDs 验证账号列表只返回自有账号标识。
-func TestNotificationChannelRepositoryListOwnedAccountIDs(t *testing.T) {
-	// store 是带管理员和测试账号的临时 SQLite 数据库。
-	store, cleanup := newAdapterTestStore(t)
-	defer cleanup()
-	// ctx 是本测试数据库操作的上下文。
-	ctx := context.Background()
-	// owner、ownerErr 保存测试用户及查询错误。
-	owner, ownerErr := store.Users.GetByUsername(ctx, "admin")
-	if ownerErr != nil {
-		t.Fatal(ownerErr)
-	}
-	// repository 是通知渠道应用端口适配器。
-	repository := NewNotificationChannelRepository(store)
-	// accountIDs、listErr 保存自有账号标识及查询错误。
-	accountIDs, listErr := repository.ListOwnedAccountIDs(ctx, owner.ID)
-	if listErr != nil {
-		t.Fatalf("ListOwnedAccountIDs: %v", listErr)
-	}
-	if len(accountIDs) != 1 || accountIDs[0] != "cid" {
-		t.Fatalf("账号标识=%v", accountIDs)
-	}
-	// unknownIDs、unknownErr 保存不存在用户的账号列表，必须为空而不是泄漏其他用户账号。
-	unknownIDs, unknownErr := repository.ListOwnedAccountIDs(ctx, owner.ID+1000)
-	if unknownErr != nil || len(unknownIDs) != 0 {
-		t.Fatalf("未知用户账号=%v err=%v", unknownIDs, unknownErr)
-	}
 }
 
 // TestFeishuRegistrarMapsProtocolResults 验证适配器把协议包结果映射为应用层 plain 类型。
@@ -143,30 +113,5 @@ func TestFeishuRegistrarReturnsProtocolErrorsAndRejectsNilClient(t *testing.T) {
 	var interfaceAssertion = productionRegistrar
 	if interfaceAssertion == nil {
 		t.Fatal("生产适配器未满足应用端口")
-	}
-}
-
-// TestNotificationChannelRepositoryListOwnedAccountIDsClosedStore 验证数据库关闭后账号列表返回基础设施错误。
-func TestNotificationChannelRepositoryListOwnedAccountIDsClosedStore(t *testing.T) {
-	// store 是随后关闭连接的临时 SQLite 数据库。
-	store, cleanup := newAdapterTestStore(t)
-	defer cleanup()
-	// repository 是绑定测试存储的通知渠道适配器。
-	repository := NewNotificationChannelRepository(store)
-	// closeErr 保存关闭数据库的错误。
-	if closeErr := store.DB.Close(); closeErr != nil {
-		t.Fatal(closeErr)
-	}
-	// _, listErr 保存数据库关闭后的账号列表错误。
-	if _, listErr := repository.ListOwnedAccountIDs(context.Background(), 1); listErr == nil {
-		t.Fatal("数据库关闭后账号列表应返回错误")
-	}
-	// invalidErr 保存非法用户 ID 的校验错误；该错误不能被适配器映射为通知业务错误。
-	_, invalidErr := repository.ListOwnedAccountIDs(context.Background(), 0)
-	if invalidErr == nil {
-		t.Fatal("非法用户 ID 应返回错误")
-	}
-	if errors.Is(invalidErr, notificationsapp.ErrChannelNotFound) {
-		t.Fatal("非法用户 ID 不应映射为渠道不存在")
 	}
 }

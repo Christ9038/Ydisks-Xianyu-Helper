@@ -1,11 +1,15 @@
-import { Bell,Check,Eye,EyeOff,Loader2,X } from 'lucide-react';
-import React from 'react';
+import { Bell,Check,Eye,EyeOff,Link2,Loader2,QrCode,X } from 'lucide-react';
+import React,{ Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { enableCustomSMTP } from '../../../../notificationEmailConfig';
 import type { NotificationChannel,NotificationChannelType,NotificationEventType,SystemSettings } from '../api';
 import { manualNotificationChannelTypes,notificationChannelTypes } from '../state';
 import type { NotificationForm } from '../types';
+import type { FeishuBindingPanelProps } from './FeishuBindingPanel';
 import { NotificationEventSelector } from './NotificationEventSelector';
+
+// FeishuAddMode 是新建飞书机器人渠道的两种连接方式：link 为手动填写 Webhook 链接（基本方式），scan 为扫码授权后自动创建应用机器人；两者共用名称、通知内容和启用状态。
+type FeishuAddMode = 'scan' | 'link';
 
 // NotificationChannelModalProps 描述渠道编辑弹窗所需的状态和回调。
 export interface NotificationChannelModalProps {
@@ -29,10 +33,26 @@ export interface NotificationChannelModalProps {
   onClose: () => void;
   // onSave 提交渠道表单。
   onSave: () => void | Promise<void>;
+  // feishuBindingPanel 是应用壳按需加载的扫码绑定面板；未注入时飞书只提供链接添加。
+  feishuBindingPanel?: React.ComponentType<FeishuBindingPanelProps>;
+  // onFeishuBound 在扫码绑定成功后接收新渠道主键，供页面刷新渠道列表。
+  onFeishuBound?: (channelID: number) => void;
 }
 
 // NotificationChannelModal 渲染渠道字段、SMTP 覆盖项和事件绑定表单。
-export const NotificationChannelModal: React.FC<NotificationChannelModalProps> = ({ showModal, editing, form, setForm, smtp, showChannelSmtpPassword, setShowChannelSmtpPassword, saving, onClose, onSave }) => {
+export const NotificationChannelModal: React.FC<NotificationChannelModalProps> = ({ showModal, editing, form, setForm, smtp, showChannelSmtpPassword, setShowChannelSmtpPassword, saving, onClose, onSave, feishuBindingPanel: FeishuBindingPanel, onFeishuBound }) => {
+  // feishuMode 保存新建飞书渠道当前选择的连接方式；每次弹窗重新打开时回到链接方式。
+  const [feishuMode, setFeishuMode] = React.useState<FeishuAddMode>('link');
+  // formLocked 表示扫码会话进行中或已成功，此时共用表单（名称、类型、通知内容、启用状态）只读，避免与已提交的会话参数不一致。
+  const [formLocked, setFormLocked] = React.useState(false);
+  // wasShown 记录上一次渲染时弹窗是否打开，用于在重新打开的那次渲染中重置添加方式。
+  const [wasShown, setWasShown] = React.useState(showModal);
+  if (wasShown !== showModal) {
+    setWasShown(showModal);
+    if (showModal) setFeishuMode('link');
+  }
+  // scanMode 表示当前是否处于“新建飞书渠道 + 扫码授权”连接方式；编辑已有渠道或面板不可用时始终为 false。
+  const scanMode = !editing && form.type === 'feishu' && feishuMode === 'scan' && FeishuBindingPanel !== undefined;
   // meta 是当前渠道类型对应的字段和指南。
   const meta = notificationChannelTypes[form.type];
   // handleNameChange 更新渠道名称。
@@ -93,6 +113,8 @@ export const NotificationChannelModal: React.FC<NotificationChannelModalProps> =
     // nextPasswordState 使用函数式更新密码显示状态。
     value => !value,
   );
+  // handleFeishuModeChange 切换飞书连接方式；离开扫码授权会卸载面板并取消进行中的绑定。
+  const handleFeishuModeChange = (event: React.MouseEvent<HTMLButtonElement>) => setFeishuMode(event.currentTarget.dataset.mode === 'link' ? 'link' : 'scan');
   // renderGuideStep 渲染当前渠道指南中的单个步骤。
   const renderGuideStep = (step: string, index: number) => <li key={index}>{step}</li>;
 
@@ -103,7 +125,8 @@ export const NotificationChannelModal: React.FC<NotificationChannelModalProps> =
       <div className="modal-container" style={{ maxWidth: '36rem' }}>
         <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between"><h3 className="text-xl font-extrabold text-gray-900">{editing ? '编辑通知渠道' : '新建通知渠道'}</h3><button onClick={onClose} className="w-10 h-10 rounded-2xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center"><X className="w-5 h-5 text-gray-600" /></button></div>
         <div className="px-6 py-5 space-y-5 overflow-y-auto flex-1 min-h-0">
-          <div className="space-y-2"><label className="block text-sm font-bold text-gray-800">渠道名称</label><input type="text" value={form.name} onChange={handleNameChange} placeholder="例如：我的 Bark" className="w-full ios-input px-4 py-3 rounded-xl text-sm" /></div>
+          <fieldset disabled={formLocked} className="m-0 min-w-0 space-y-5 border-0 p-0">
+            <div className="space-y-2"><label className="block text-sm font-bold text-gray-800">渠道名称</label><input type="text" value={form.name} onChange={handleNameChange} placeholder="例如：我的 Bark" className="w-full ios-input px-4 py-3 rounded-xl text-sm" /></div>
           <div className="space-y-2">
             <label className="block text-sm font-bold text-gray-800">渠道类型</label>
             <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
@@ -121,13 +144,24 @@ export const NotificationChannelModal: React.FC<NotificationChannelModalProps> =
               )}
             </div>
           </div>
-          <div className="rounded-xl bg-amber-50 border border-amber-200 p-4 space-y-2"><div className="flex items-center gap-2"><Bell className="w-4 h-4 text-amber-600" /><span className="text-sm font-bold text-amber-800">如何获取 {meta.label} 配置？</span></div><ol className="space-y-1.5 text-xs text-amber-900/90 leading-5 list-decimal pl-5">{meta.guide.steps.map(renderGuideStep)}</ol>{meta.guide.urlFormat && <div className="text-xs text-amber-900/90"><span className="font-bold">格式示例：</span><code className="mt-1 block bg-amber-100/70 px-2.5 py-1.5 rounded-lg break-all font-mono text-[11px]">{meta.guide.urlFormat}</code></div>}{meta.guide.note && <p className="text-xs text-amber-800/80 leading-5 pt-1">💡 {meta.guide.note}</p>}</div>
-          <div className="space-y-3">
+          </fieldset>
+          {!editing && form.type === 'feishu' && FeishuBindingPanel && (
+            <div className="space-y-2">
+              <label className="block text-sm font-bold text-gray-800">连接方式</label>
+              <div role="tablist" aria-label="飞书机器人连接方式" className="grid grid-cols-2 gap-2 rounded-xl bg-gray-100 p-1">
+                <button type="button" role="tab" aria-selected={feishuMode === 'link'} data-mode="link" onClick={handleFeishuModeChange} className={`flex items-center justify-center gap-1.5 rounded-lg py-2 text-sm font-bold transition-colors ${feishuMode === 'link' ? 'bg-white text-brand shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}><Link2 className="h-4 w-4" />Webhook 链接</button>
+                <button type="button" role="tab" aria-selected={feishuMode === 'scan'} data-mode="scan" onClick={handleFeishuModeChange} className={`flex items-center justify-center gap-1.5 rounded-lg py-2 text-sm font-bold transition-colors ${feishuMode === 'scan' ? 'bg-white text-brand shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}><QrCode className="h-4 w-4" />扫码授权</button>
+              </div>
+            </div>
+          )}
+          {scanMode && FeishuBindingPanel && <Suspense fallback={<div className="flex justify-center py-10"><Loader2 className="h-6 w-6 text-brand animate-spin" /></div>}><FeishuBindingPanel form={{ name: form.name, eventTypes: form.event_types, enabled: form.enabled }} onSuccess={onFeishuBound} onClose={onClose} onLockChange={setFormLocked} /></Suspense>}
+          {!scanMode && <div className="rounded-xl bg-amber-50 border border-amber-200 p-4 space-y-2"><div className="flex items-center gap-2"><Bell className="w-4 h-4 text-amber-600" /><span className="text-sm font-bold text-amber-800">{form.type === 'feishu_app' ? '关于扫码授权的渠道' : `如何获取 ${meta.label} 配置？`}</span></div><ol className="space-y-1.5 text-xs text-amber-900/90 leading-5 list-decimal pl-5">{meta.guide.steps.map(renderGuideStep)}</ol>{meta.guide.urlFormat && <div className="text-xs text-amber-900/90"><span className="font-bold">格式示例：</span><code className="mt-1 block bg-amber-100/70 px-2.5 py-1.5 rounded-lg break-all font-mono text-[11px]">{meta.guide.urlFormat}</code></div>}{meta.guide.note && <p className="text-xs text-amber-800/80 leading-5 pt-1">💡 {meta.guide.note}</p>}</div>}
+          {!scanMode && <div className="space-y-3">
             {meta.fields.map(
               // field 是当前渠道配置字段。
               field => <div key={field.key} className="space-y-2"><label className="block text-sm font-bold text-gray-800">{field.label}{field.required && <span className="text-red-500 ml-1">*</span>}</label><input data-field={field.key} type={field.type === 'password' ? 'password' : field.type === 'number' ? 'number' : 'text'} value={String(form.config[field.key] || '')} onChange={handleConfigFieldChange} placeholder={field.placeholder} className="w-full ios-input px-4 py-3 rounded-xl text-sm" />{field.help && <p className="text-xs text-gray-500">{field.help}</p>}</div>,
             )}
-          </div>
+          </div>}
           {form.type === 'email' && form.preserveSMTP && (
             <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm">
               <p>保留已保存的 SMTP 配置（{form.config.use_custom_smtp ? '自定义发件配置' : '继承系统配置'}），本次仅更新收件邮箱和渠道信息。</p>
@@ -148,10 +182,13 @@ export const NotificationChannelModal: React.FC<NotificationChannelModalProps> =
               )}
             </div>
           )}
-          <NotificationEventSelector selectedEvents={form.event_types} onToggleEvent={handleToggleEvent} />
-          <label className="flex items-center gap-3 cursor-pointer"><button type="button" onClick={handleToggleEnabled} className={`relative w-11 h-6 rounded-full transition-colors ${form.enabled ? 'bg-brand' : 'bg-gray-300'}`}><span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-on-accent rounded-full transition-transform ${form.enabled ? 'translate-x-5' : ''}`} /></button><span className="text-sm font-bold text-gray-800">启用此渠道</span></label>
+          <fieldset disabled={formLocked} className="m-0 min-w-0 space-y-5 border-0 p-0">
+            <NotificationEventSelector selectedEvents={form.event_types} onToggleEvent={handleToggleEvent} />
+            <label className="flex items-center gap-3 cursor-pointer"><button type="button" onClick={handleToggleEnabled} className={`relative w-11 h-6 rounded-full transition-colors ${form.enabled ? 'bg-brand' : 'bg-gray-300'}`}><span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-on-accent rounded-full transition-transform ${form.enabled ? 'translate-x-5' : ''}`} /></button><span className="text-sm font-bold text-gray-800">启用此渠道</span></label>
+          </fieldset>
         </div>
-        <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-end gap-3"><button onClick={onClose} className="px-5 py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 font-bold text-gray-700 transition-colors">取消</button><button onClick={onSave} disabled={saving} className="ios-btn-primary px-6 py-2.5 rounded-xl font-bold flex items-center gap-2 disabled:opacity-50">{saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}{saving ? '保存中...' : '保存'}</button></div>
+        {!scanMode && <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-end gap-3"><button onClick={onClose} className="px-5 py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 font-bold text-gray-700 transition-colors">取消</button><button onClick={onSave} disabled={saving} className="ios-btn-primary px-6 py-2.5 rounded-xl font-bold flex items-center gap-2 disabled:opacity-50">{saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}{saving ? '保存中...' : '保存'}</button></div>}
+        {scanMode && <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-end"><button onClick={onClose} className="px-5 py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 font-bold text-gray-700 transition-colors">取消</button></div>}
       </div>
     </div>,
     document.body,

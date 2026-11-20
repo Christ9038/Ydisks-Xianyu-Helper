@@ -35,13 +35,13 @@ export const notificationChannelTypes: Record<NotificationChannelType, Notificat
   },
   feishu_app: {
     label: '飞书机器人（扫码）', icon: Bot,
-    // 扫码绑定渠道的凭据由飞书授权流程直接写入服务端，因此不提供任何手动配置字段。
+    // 扫码授权渠道的应用凭据由飞书授权流程直接写入服务端，因此不提供任何手动配置字段，保存时也不提交 config。
     fields: [],
     // manualCreatable 关闭后新建渠道弹窗只展示可通过表单配置的渠道，避免手工填写无法保存的凭据。
     manualCreatable: false,
     guide: {
-      steps: ['在通知设置页点击「扫码绑定飞书机器人」生成二维码', '使用飞书扫描二维码，并在飞书客户端确认授权', '授权成功后系统会自动创建本渠道，并按选项绑定到账号', '本渠道由扫码流程自动创建，请不要手动新建'],
-      note: '扫码绑定会把飞书应用凭据保存在服务端，因此本渠道不开放手动编辑；需要更换或重新授权时，请再次扫码绑定。',
+      steps: ['本渠道由「飞书机器人 → 扫码授权」创建，应用凭据保存在服务端，无法在此查看或修改', '可以在这里修改渠道名称、通知内容和启用状态', '需要更换授权账号时，新建渠道并再次选择飞书机器人 → 扫码授权，会更新本渠道'],
+      note: '保存时只更新名称、通知内容和启用状态，不会改动已保存的应用凭据。',
     },
   },
   wechat: {
@@ -153,7 +153,9 @@ export const buildNotificationPayload = (form: NotificationForm): NotificationPa
   type: form.type,
   ...(form.type === 'email' && form.preserveSMTP
     ? { email_recipient: String(form.config.to_email ?? '').trim() }
-    : { config: form.type === 'email' ? buildEmailChannelConfig(form.config) : form.config }),
+    : form.type === 'feishu_app'
+      ? {}
+      : { config: form.type === 'email' ? buildEmailChannelConfig(form.config) : form.config }),
   event_types: form.event_types,
   enabled: form.enabled,
 });

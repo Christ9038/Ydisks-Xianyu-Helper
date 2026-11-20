@@ -3,7 +3,7 @@ import { act,renderHook } from '@testing-library/react';
 import { afterEach,beforeEach,describe,expect,test,vi } from 'vitest';
 import type { FeishuAppBindingStartResult } from './models';
 import { getFeishuAppBindingStatus,startFeishuAppBinding } from './api';
-import { useFeishuAppBinding } from './feishuBinding';
+import { useFeishuAppBinding,type FeishuBindingForm } from './feishuBinding';
 
 vi.mock('./api', /* feishuBindingApiMockFactory 提供扫码绑定 Hook 的确定性 API 替身。 */ () => ({
   startFeishuAppBinding: vi.fn(),
@@ -45,6 +45,9 @@ const createDeferred = <T,>(): Deferred<T> => {
   return { promise, resolve: resolveFn, reject: rejectFn };
 };
 
+// bindingForm 是「新建渠道」弹窗传给扫码 Hook 的共用表单快照，订阅新消息并保持启用。
+const bindingForm: FeishuBindingForm = { name: '值班飞书', eventTypes: ['chat_message_received'], enabled: true };
+
 describe('useFeishuAppBinding', /* 当前测试组验证扫码绑定的轮询、终态和取消边界。 */ () => {
   beforeEach(/* 当前回调启用假定时器并重置 API 替身。 */ () => {
     vi.useFakeTimers();
@@ -66,15 +69,11 @@ describe('useFeishuAppBinding', /* 当前测试组验证扫码绑定的轮询、
     const hook = renderHook(/* bindingHookFactory 创建扫码绑定状态。 */ () => useFeishuAppBinding({ onSuccess }));
     act(/* openAction 打开扫码绑定弹窗。 */ () => hook.result.current.open());
     expect(hook.result.current.status).toBe('starting');
-    expect(hook.result.current.bindAllAccounts).toBe(true);
-    expect(hook.result.current.notifyWarning).toBe(true);
-    expect(hook.result.current.notifyInfo).toBe(true);
-    await act(/* startAction 创建扫码会话。 */ async () => { await hook.result.current.start(); });
-    expect(startBindingMock).toHaveBeenCalledWith({ bindAllAccounts: true, notifyWarning: true, notifyInfo: true }, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    await act(/* startAction 创建扫码会话。 */ async () => { await hook.result.current.start(bindingForm); });
+    expect(startBindingMock).toHaveBeenCalledWith({ name: '值班飞书', eventTypes: ['chat_message_received'], enabled: true }, expect.objectContaining({ signal: expect.any(AbortSignal) }));
     expect(hook.result.current.status).toBe('waiting');
     expect(hook.result.current.qrCodeUrl).toBe(bindingStartResult.qr_code_url);
     expect(hook.result.current.sessionID).toBe('session-1');
-    expect(hook.result.current.bindAllAccounts).toBe(true);
     expect(statusBindingMock).not.toHaveBeenCalled();
 
     await act(/* firstPollAction 推进首个两秒轮询。 */ async () => { await vi.advanceTimersByTimeAsync(2_000); });
@@ -90,20 +89,13 @@ describe('useFeishuAppBinding', /* 当前测试组验证扫码绑定的轮询、
     hook.unmount();
   });
 
-  test('自定义账号与分类开关随开始请求提交', /* 当前回调验证 setter 写入的三个开关都会进入扫码会话请求。 */ async () => {
+  test('表单快照随开始请求提交', /* 当前回调验证名称、事件订阅和启用状态都会进入扫码会话请求。 */ async () => {
     startBindingMock.mockResolvedValue(bindingStartResult);
-    // hook 是分类开关传值场景的 Hook 渲染结果。
+    // hook 是表单传值场景的 Hook 渲染结果。
     const hook = renderHook(/* customOptionsHookFactory 创建扫码绑定状态。 */ () => useFeishuAppBinding({ onSuccess: vi.fn() }));
-    act(/* openAction 打开扫码绑定弹窗。 */ () => hook.result.current.open());
-    await act(/* optionActions 关闭三个账号与分类开关。 */ async () => {
-      hook.result.current.setBindAllAccounts(false);
-      hook.result.current.setNotifyWarning(false);
-      hook.result.current.setNotifyInfo(false);
-    });
-    expect(hook.result.current.notifyWarning).toBe(false);
-    expect(hook.result.current.notifyInfo).toBe(false);
-    await act(/* customStartAction 使用自定义开关创建扫码会话。 */ async () => { await hook.result.current.start(); });
-    expect(startBindingMock).toHaveBeenCalledWith({ bindAllAccounts: false, notifyWarning: false, notifyInfo: false }, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    act(/* openAction 进入扫码待开始阶段。 */ () => hook.result.current.open());
+    await act(/* customStartAction 使用自定义表单创建扫码会话。 */ async () => { await hook.result.current.start({ name: '  备用机器人 ', eventTypes: [], enabled: false }); });
+    expect(startBindingMock).toHaveBeenCalledWith({ name: '  备用机器人 ', eventTypes: [], enabled: false }, expect.objectContaining({ signal: expect.any(AbortSignal) }));
     hook.unmount();
   });
 
@@ -115,7 +107,7 @@ describe('useFeishuAppBinding', /* 当前测试组验证扫码绑定的轮询、
     // hook 是扫码终态场景的 Hook 渲染结果。
     const hook = renderHook(/* terminalHookFactory 创建扫码终态状态。 */ () => useFeishuAppBinding({ onSuccess: vi.fn() }));
     act(/* openAction 打开扫码绑定弹窗。 */ () => hook.result.current.open());
-    await act(/* startAction 创建扫码会话。 */ async () => { await hook.result.current.start(); });
+    await act(/* startAction 创建扫码会话。 */ async () => { await hook.result.current.start(bindingForm); });
     await act(/* expireAction 推进轮询获得过期结果。 */ async () => { await vi.advanceTimersByTimeAsync(2_000); });
     expect(hook.result.current.status).toBe('expired');
     expect(hook.result.current.message).toBe('二维码已过期');
@@ -123,7 +115,7 @@ describe('useFeishuAppBinding', /* 当前测试组验证扫码绑定的轮询、
     expect(statusBindingMock).toHaveBeenCalledTimes(1);
 
     // retryAction 在过期后重试并以错误状态结束，验证第二条终态路径。
-    await act(/* retryAction 重新创建扫码会话。 */ async () => { await hook.result.current.start(); });
+    await act(/* retryAction 重新创建扫码会话。 */ async () => { await hook.result.current.start(bindingForm); });
     await act(/* errorAction 推进轮询获得错误结果。 */ async () => { await vi.advanceTimersByTimeAsync(2_000); });
     expect(hook.result.current.status).toBe('error');
     expect(hook.result.current.message).toBe('授权被拒绝');
@@ -137,14 +129,14 @@ describe('useFeishuAppBinding', /* 当前测试组验证扫码绑定的轮询、
     const hook = renderHook(/* failureHookFactory 创建扫码请求失败状态。 */ () => useFeishuAppBinding({ onSuccess: vi.fn() }));
     await act(/* failedStartAction 提交会失败的扫码会话请求。 */ async () => {
       hook.result.current.open();
-      await hook.result.current.start();
+      await hook.result.current.start(bindingForm);
     });
     expect(hook.result.current.status).toBe('error');
     expect(hook.result.current.message).toBe('网络失败');
     expect(hook.result.current.requesting).toBe(false);
 
     startBindingMock.mockResolvedValueOnce(bindingStartResult);
-    await act(/* retryAction 重试创建扫码会话。 */ async () => { await hook.result.current.start(); });
+    await act(/* retryAction 重试创建扫码会话。 */ async () => { await hook.result.current.start(bindingForm); });
     expect(hook.result.current.status).toBe('waiting');
     await act(/* failedPollAction 推进轮询并触发状态查询错误。 */ async () => { await vi.advanceTimersByTimeAsync(2_000); });
     expect(hook.result.current.status).toBe('error');
@@ -157,7 +149,7 @@ describe('useFeishuAppBinding', /* 当前测试组验证扫码绑定的轮询、
     const startDeferred = createDeferred<FeishuAppBindingStartResult>();
     // requestSignal 保存会话请求使用的取消信号。
     let requestSignal: AbortSignal | undefined;
-    startBindingMock.mockImplementation(/* pendingStartFactory 保存取消信号并返回未完成响应。 */ (_bindAllAccounts, options) => {
+    startBindingMock.mockImplementation(/* pendingStartFactory 保存取消信号并返回未完成响应。 */ (_startOptions, options) => {
       requestSignal = options?.signal;
       return startDeferred.promise;
     });
@@ -166,13 +158,12 @@ describe('useFeishuAppBinding', /* 当前测试组验证扫码绑定的轮询、
     act(/* openAction 打开扫码绑定弹窗。 */ () => hook.result.current.open());
     // pendingStart 是尚未完成的开始绑定动作。
     let pendingStart!: Promise<void>;
-    act(/* beginStartAction 发起扫码会话请求。 */ () => { pendingStart = hook.result.current.start(); });
+    act(/* beginStartAction 发起扫码会话请求。 */ () => { pendingStart = hook.result.current.start(bindingForm); });
     expect(hook.result.current.requesting).toBe(true);
     act(/* closeAction 关闭弹窗并取消请求。 */ () => hook.result.current.close());
     expect(requestSignal?.aborted).toBe(true);
     expect(hook.result.current.status).toBe('closed');
     expect(hook.result.current.qrCodeUrl).toBe('');
-    expect(hook.result.current.bindAllAccounts).toBe(true);
 
     startDeferred.resolve(bindingStartResult);
     await act(/* lateResponseAction 等待已取消响应到达。 */ async () => { await pendingStart; });
@@ -186,14 +177,14 @@ describe('useFeishuAppBinding', /* 当前测试组验证扫码绑定的轮询、
     startBindingMock.mockResolvedValue(bindingStartResult);
     // pollSignal 保存轮询流程共享的取消信号。
     let pollSignal: AbortSignal | undefined;
-    startBindingMock.mockImplementation(/* signalFactory 记录取消信号并返回成功会话。 */ (_bindAllAccounts, options) => {
+    startBindingMock.mockImplementation(/* signalFactory 记录取消信号并返回成功会话。 */ (_startOptions, options) => {
       pollSignal = options?.signal;
       return Promise.resolve(bindingStartResult);
     });
     // closeHook 是关闭场景的 Hook 渲染结果。
     const closeHook = renderHook(/* closeTimerHookFactory 创建关闭场景状态。 */ () => useFeishuAppBinding({ onSuccess: vi.fn() }));
     act(/* openAction 打开扫码绑定弹窗。 */ () => closeHook.result.current.open());
-    await act(/* startAction 创建扫码会话。 */ async () => { await closeHook.result.current.start(); });
+    await act(/* startAction 创建扫码会话。 */ async () => { await closeHook.result.current.start(bindingForm); });
     act(/* closeAction 关闭弹窗并取消定时器。 */ () => closeHook.result.current.close());
     await act(/* advanceAfterCloseAction 推进两秒确认没有状态请求。 */ async () => { await vi.advanceTimersByTimeAsync(2_000); });
     expect(statusBindingMock).not.toHaveBeenCalled();
@@ -203,7 +194,7 @@ describe('useFeishuAppBinding', /* 当前测试组验证扫码绑定的轮询、
     // unmountHook 是卸载场景的 Hook 渲染结果。
     const unmountHook = renderHook(/* unmountTimerHookFactory 创建卸载场景状态。 */ () => useFeishuAppBinding({ onSuccess: vi.fn() }));
     act(/* openAction 打开扫码绑定弹窗。 */ () => unmountHook.result.current.open());
-    await act(/* startAction 创建扫码会话。 */ async () => { await unmountHook.result.current.start(); });
+    await act(/* startAction 创建扫码会话。 */ async () => { await unmountHook.result.current.start(bindingForm); });
     unmountHook.unmount();
     await act(/* advanceAfterUnmountAction 推进两秒确认卸载后不再轮询。 */ async () => { await vi.advanceTimersByTimeAsync(2_000); });
     expect(statusBindingMock).not.toHaveBeenCalled();
@@ -217,7 +208,7 @@ describe('useFeishuAppBinding', /* 当前测试组验证扫码绑定的轮询、
     // firstSignal 保存首个会话的取消信号。
     let firstSignal: AbortSignal | undefined;
     startBindingMock
-      .mockImplementationOnce(/* firstStartFactory 保存首个会话取消信号。 */ (_bindAllAccounts, options) => {
+      .mockImplementationOnce(/* firstStartFactory 保存首个会话取消信号。 */ (_startOptions, options) => {
         firstSignal = options?.signal;
         return firstStart.promise;
       })
@@ -230,8 +221,8 @@ describe('useFeishuAppBinding', /* 当前测试组验证扫码绑定的轮询、
     // secondTask 是第二个开始绑定动作。
     let secondTask!: Promise<void>;
     act(/* startActions 连续发起两个扫码会话。 */ () => {
-      firstTask = hook.result.current.start();
-      secondTask = hook.result.current.start();
+      firstTask = hook.result.current.start(bindingForm);
+      secondTask = hook.result.current.start(bindingForm);
     });
     expect(firstSignal?.aborted).toBe(true);
 

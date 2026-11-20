@@ -100,7 +100,7 @@ func TestFeishuBindingStartSchedulesPollAndReturnsStableSession(t *testing.T) {
 	// service 是待验证的飞书渠道应用服务。
 	service := fixedFeishuService(repository, registrar, func() time.Time { return currentTime })
 	// start、startErr 保存开始绑定结果及错误。
-	start, startErr := service.StartFeishuAppBinding(context.Background(), 7, FeishuBindingOptions{BindAllAccounts: true})
+	start, startErr := service.StartFeishuAppBinding(context.Background(), 7, FeishuBindingOptions{})
 	if startErr != nil {
 		t.Fatalf("StartFeishuAppBinding: %v", startErr)
 	}
@@ -127,20 +127,20 @@ func TestFeishuBindingStartSchedulesPollAndReturnsStableSession(t *testing.T) {
 	}
 }
 
-// TestFeishuBindingSuccessCreatesChannelAndBindsOwnedAccounts 验证成功结果保存加密配置、默认事件类型并绑定全部账号。
+// TestFeishuBindingSuccessCreatesChannelAndBindsOwnedAccounts 验证成功结果保存加密配置、按表单保存名称与事件订阅，且不自动绑定账号。
 func TestFeishuBindingSuccessCreatesChannelAndBindsOwnedAccounts(t *testing.T) {
 	// baseTime 是测试会话的固定创建时间。
 	baseTime := time.Date(2026, 2, 3, 4, 5, 6, 0, time.UTC)
 	// currentTime 保存可推进的测试时钟值。
 	currentTime := baseTime
 	// repository 是记录渠道创建、更新与账号绑定的端口替身。
-	repository := &channelRepositoryStub{ownedAccountIDs: []string{"cid-1", "cid-2"}}
+	repository := &channelRepositoryStub{}
 	// registrar 是返回成功结果的协议替身，租户品牌为 lark。
 	registrar := &feishuRegistrarStub{pollResults: []FeishuPollResult{{Status: FeishuPollSuccess, Domain: "lark", AppID: "cli-1", AppSecret: "secret-1", OpenID: "ou-1"}}}
 	// service 是待验证的飞书渠道应用服务。
 	service := fixedFeishuService(repository, registrar, func() time.Time { return currentTime })
 	// start、startErr 保存开始绑定结果。
-	start, startErr := service.StartFeishuAppBinding(context.Background(), 7, FeishuBindingOptions{BindAllAccounts: true, NotifyWarning: false, NotifyInfo: true})
+	start, startErr := service.StartFeishuAppBinding(context.Background(), 7, FeishuBindingOptions{Name: "  值班飞书  ", EventTypes: `["chat_message_received","account_offline"]`, Enabled: true})
 	if startErr != nil {
 		t.Fatalf("StartFeishuAppBinding: %v", startErr)
 	}
@@ -151,7 +151,7 @@ func TestFeishuBindingSuccessCreatesChannelAndBindsOwnedAccounts(t *testing.T) {
 	if statusErr != nil || status.Status != FeishuBindingStatusSuccess || status.ChannelID != 41 {
 		t.Fatalf("成功状态异常: status=%+v err=%v", status, statusErr)
 	}
-	if repository.createdInput.Type != feishuAppChannelType || repository.createdInput.Name != feishuAppChannelName || repository.createdInput.EventTypes != feishuAppDefaultEventTypes || !repository.createdInput.Enabled {
+	if repository.createdInput.Type != feishuAppChannelType || repository.createdInput.Name != "值班飞书" || repository.createdInput.EventTypes != `["chat_message_received","account_offline"]` || !repository.createdInput.Enabled {
 		t.Fatalf("渠道创建输入异常: %+v", repository.createdInput)
 	}
 	// config 保存解析后的渠道配置，仅用于测试断言。
@@ -163,14 +163,11 @@ func TestFeishuBindingSuccessCreatesChannelAndBindsOwnedAccounts(t *testing.T) {
 	if config.AppID != "cli-1" || config.AppSecret != "secret-1" || config.OpenID != "ou-1" || config.Domain != "lark" {
 		t.Fatalf("渠道配置异常: %+v", config)
 	}
-	if config.NotifyWarning || !config.NotifyInfo {
-		t.Fatalf("分类开关未按扫码会话落库: warning=%v info=%v", config.NotifyWarning, config.NotifyInfo)
-	}
 	if repository.createdInput.Config == "" || strings.Contains(status.Message, "secret-1") {
 		t.Fatalf("配置或状态泄漏凭据: config=%q message=%q", repository.createdInput.Config, status.Message)
 	}
-	if len(repository.singleBindings) != 2 || repository.singleBindings[0].CookieID != "cid-1" || repository.singleBindings[1].CookieID != "cid-2" || repository.singleBindings[0].ChannelID != 41 || !repository.singleBindings[0].Enabled {
-		t.Fatalf("账号绑定记录异常: %+v", repository.singleBindings)
+	if len(repository.singleBindings) != 0 {
+		t.Fatalf("扫码授权不应自动绑定账号，账号绑定在账号管理中完成: %+v", repository.singleBindings)
 	}
 	// repeated、repeatedErr 保存终态会话再次查询的结果。
 	repeated, repeatedErr := service.GetFeishuAppBindingStatus(context.Background(), 7, start.SessionID)
@@ -182,13 +179,13 @@ func TestFeishuBindingSuccessCreatesChannelAndBindsOwnedAccounts(t *testing.T) {
 	}
 }
 
-// TestFeishuBindingUpdatesExistingChannelWithoutDuplicate 验证已有 feishu_app 渠道只更新配置，不重复创建。
+// TestFeishuBindingUpdatesExistingChannelWithoutDuplicate 验证已有 feishu_app 渠道重新授权时只更新而不重复创建，并以本次表单覆盖名称、事件订阅和启用状态。
 func TestFeishuBindingUpdatesExistingChannelWithoutDuplicate(t *testing.T) {
 	// baseTime 是测试会话的固定创建时间。
 	baseTime := time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC)
 	// currentTime 保存可推进的测试时钟值。
 	currentTime := baseTime
-	// repository 是预置已有飞书渠道且禁止账号绑定的端口替身。
+	// repository 是预置已有飞书渠道的端口替身。
 	repository := &channelRepositoryStub{
 		summaries: []ChannelSummary{{ID: 7, Name: "自定义飞书", Type: feishuAppChannelType}},
 		record:    &ChannelRecord{ID: 7, Name: "自定义飞书", Type: feishuAppChannelType, Config: `{"old":true}`, EventTypes: "", Enabled: false},
@@ -198,7 +195,7 @@ func TestFeishuBindingUpdatesExistingChannelWithoutDuplicate(t *testing.T) {
 	// service 是待验证的飞书渠道应用服务。
 	service := fixedFeishuService(repository, registrar, func() time.Time { return currentTime })
 	// start、startErr 保存开始绑定结果。
-	start, startErr := service.StartFeishuAppBinding(context.Background(), 7, FeishuBindingOptions{BindAllAccounts: false})
+	start, startErr := service.StartFeishuAppBinding(context.Background(), 7, FeishuBindingOptions{Name: "值班飞书", EventTypes: `["account_offline"]`, Enabled: true})
 	if startErr != nil {
 		t.Fatalf("StartFeishuAppBinding: %v", startErr)
 	}
@@ -212,11 +209,11 @@ func TestFeishuBindingUpdatesExistingChannelWithoutDuplicate(t *testing.T) {
 	if repository.createdInput.Type != "" {
 		t.Fatalf("不应重复创建渠道: %+v", repository.createdInput)
 	}
-	if repository.updatedRecord == nil || repository.updatedRecord.Name != "自定义飞书" || repository.updatedRecord.EventTypes != feishuAppDefaultEventTypes || !repository.updatedRecord.Enabled {
+	if repository.updatedRecord == nil || repository.updatedRecord.Name != "值班飞书" || repository.updatedRecord.EventTypes != `["account_offline"]` || !repository.updatedRecord.Enabled {
 		t.Fatalf("渠道更新记录异常: %+v", repository.updatedRecord)
 	}
 	if len(repository.singleBindings) != 0 {
-		t.Fatalf("bind_all_accounts=false 不应绑定账号: %+v", repository.singleBindings)
+		t.Fatalf("重新授权不应改动账号绑定: %+v", repository.singleBindings)
 	}
 }
 
@@ -253,7 +250,7 @@ func TestFeishuBindingTerminalPollStates(t *testing.T) {
 			// service 是待验证的飞书渠道应用服务。
 			service := fixedFeishuService(repository, registrar, func() time.Time { return currentTime })
 			// start、startErr 保存开始绑定结果。
-			start, startErr := service.StartFeishuAppBinding(context.Background(), 7, FeishuBindingOptions{BindAllAccounts: false})
+			start, startErr := service.StartFeishuAppBinding(context.Background(), 7, FeishuBindingOptions{Name: "值班飞书", EventTypes: `["account_offline"]`, Enabled: true})
 			if startErr != nil {
 				t.Fatalf("StartFeishuAppBinding: %v", startErr)
 			}
@@ -277,25 +274,21 @@ func TestFeishuBindingTerminalPollStates(t *testing.T) {
 	}
 }
 
-// TestFeishuBindingPersistFailureReturnsErrorStatus 验证渠道写入或账号绑定失败时返回可展示错误状态。
+// TestFeishuBindingPersistFailureReturnsErrorStatus 验证渠道写入失败时返回可展示错误状态。
 func TestFeishuBindingPersistFailureReturnsErrorStatus(t *testing.T) {
 	// baseTime 是测试会话的固定创建时间。
 	baseTime := time.Date(2026, 5, 6, 7, 8, 9, 0, time.UTC)
-	// cases 保存渠道保存或账号绑定失败的测试样例。
+	// cases 保存渠道保存失败的测试样例。
 	cases := []struct {
 		// name 是测试样例名称。
 		name string
 		// repository 是预置失败条件的端口替身。
 		repository *channelRepositoryStub
-		// bindAll 表示是否请求绑定全部账号。
-		bindAll bool
 	}{
-		{name: "创建渠道失败", repository: &channelRepositoryStub{createErr: errors.New("database down")}, bindAll: false},
-		{name: "渠道列表失败", repository: &channelRepositoryStub{listErr: errors.New("list down")}, bindAll: false},
-		{name: "渠道详情失败", repository: &channelRepositoryStub{summaries: []ChannelSummary{{ID: 7, Type: feishuAppChannelType}}, recordErr: errors.New("record down")}, bindAll: false},
-		{name: "渠道更新失败", repository: &channelRepositoryStub{summaries: []ChannelSummary{{ID: 7, Type: feishuAppChannelType}}, record: &ChannelRecord{ID: 7, Type: feishuAppChannelType, Name: "已有"}, updateErr: errors.New("update down")}, bindAll: false},
-		{name: "绑定账号失败", repository: &channelRepositoryStub{ownedAccountIDs: []string{"cid-1"}, singleBindingErr: errors.New("binding down")}, bindAll: true},
-		{name: "账号列表失败", repository: &channelRepositoryStub{ownedAccountsErr: errors.New("account list down")}, bindAll: true},
+		{name: "创建渠道失败", repository: &channelRepositoryStub{createErr: errors.New("database down")}},
+		{name: "渠道列表失败", repository: &channelRepositoryStub{listErr: errors.New("list down")}},
+		{name: "渠道详情失败", repository: &channelRepositoryStub{summaries: []ChannelSummary{{ID: 7, Type: feishuAppChannelType}}, recordErr: errors.New("record down")}},
+		{name: "渠道更新失败", repository: &channelRepositoryStub{summaries: []ChannelSummary{{ID: 7, Type: feishuAppChannelType}}, record: &ChannelRecord{ID: 7, Type: feishuAppChannelType, Name: "已有"}, updateErr: errors.New("update down")}},
 	}
 	// testCase 表示当前保存失败样例。
 	for _, testCase := range cases {
@@ -307,7 +300,7 @@ func TestFeishuBindingPersistFailureReturnsErrorStatus(t *testing.T) {
 			// service 是待验证的飞书渠道应用服务。
 			service := fixedFeishuService(testCase.repository, registrar, func() time.Time { return currentTime })
 			// start、startErr 保存开始绑定结果。
-			start, startErr := service.StartFeishuAppBinding(context.Background(), 7, FeishuBindingOptions{BindAllAccounts: testCase.bindAll})
+			start, startErr := service.StartFeishuAppBinding(context.Background(), 7, FeishuBindingOptions{})
 			if startErr != nil {
 				t.Fatalf("StartFeishuAppBinding: %v", startErr)
 			}
@@ -342,7 +335,7 @@ func TestFeishuBindingSessionOwnershipExpiryAndCleanup(t *testing.T) {
 	generated := "session-1"
 	service.newSessionID = func() (string, error) { return generated, nil }
 	// start、startErr 保存第一个会话。
-	start, startErr := service.StartFeishuAppBinding(context.Background(), 7, FeishuBindingOptions{BindAllAccounts: false})
+	start, startErr := service.StartFeishuAppBinding(context.Background(), 7, FeishuBindingOptions{Name: "值班飞书", EventTypes: `["account_offline"]`, Enabled: true})
 	if startErr != nil {
 		t.Fatalf("StartFeishuAppBinding: %v", startErr)
 	}
@@ -359,7 +352,7 @@ func TestFeishuBindingSessionOwnershipExpiryAndCleanup(t *testing.T) {
 	// generated 切换到第二个会话标识，验证 begin 时清理已过期会话。
 	generated = "session-2"
 	// second、secondErr 保存第二个会话。
-	second, secondErr := service.StartFeishuAppBinding(context.Background(), 7, FeishuBindingOptions{BindAllAccounts: false})
+	second, secondErr := service.StartFeishuAppBinding(context.Background(), 7, FeishuBindingOptions{Name: "值班飞书", EventTypes: `["account_offline"]`, Enabled: true})
 	if secondErr != nil {
 		t.Fatalf("第二次 StartFeishuAppBinding: %v", secondErr)
 	}
@@ -393,7 +386,7 @@ func TestFeishuBindingConcurrentStatusPollsOnce(t *testing.T) {
 	// service 是待验证的飞书渠道应用服务。
 	service := fixedFeishuService(repository, registrar, func() time.Time { return currentTime })
 	// start、startErr 保存开始绑定结果。
-	start, startErr := service.StartFeishuAppBinding(context.Background(), 7, FeishuBindingOptions{BindAllAccounts: false})
+	start, startErr := service.StartFeishuAppBinding(context.Background(), 7, FeishuBindingOptions{Name: "值班飞书", EventTypes: `["account_offline"]`, Enabled: true})
 	if startErr != nil {
 		t.Fatalf("StartFeishuAppBinding: %v", startErr)
 	}
@@ -432,7 +425,7 @@ func TestFeishuBindingRejectsUnavailableAndInvalidInput(t *testing.T) {
 	// plainService 是未装配飞书协议端口的普通渠道服务。
 	plainService := NewChannelService(repository, nil)
 	// startErr 是未装配端口服务的开始绑定错误，必须映射为飞书绑定不可用。
-	if _, startErr := plainService.StartFeishuAppBinding(context.Background(), 7, FeishuBindingOptions{BindAllAccounts: false}); !errors.Is(startErr, ErrFeishuUnavailable) {
+	if _, startErr := plainService.StartFeishuAppBinding(context.Background(), 7, FeishuBindingOptions{}); !errors.Is(startErr, ErrFeishuUnavailable) {
 		t.Fatalf("未装配协议端口应返回不可用: %v", startErr)
 	}
 	// statusErr 是未装配端口服务的状态查询错误，必须映射为飞书绑定不可用。
@@ -442,13 +435,13 @@ func TestFeishuBindingRejectsUnavailableAndInvalidInput(t *testing.T) {
 	// nilService 是零值服务，必须拒绝所有调用。
 	var nilService *ChannelService
 	// startErr 是 nil 服务的开始绑定错误，必须映射为输入无效。
-	if _, startErr := nilService.StartFeishuAppBinding(context.Background(), 7, FeishuBindingOptions{BindAllAccounts: false}); !errors.Is(startErr, ErrChannelInvalidInput) {
+	if _, startErr := nilService.StartFeishuAppBinding(context.Background(), 7, FeishuBindingOptions{}); !errors.Is(startErr, ErrChannelInvalidInput) {
 		t.Fatalf("nil 服务应返回输入错误: %v", startErr)
 	}
 	// service 是已装配端口的服务，用于验证用户与会话标识校验。
 	service := NewChannelServiceWithFeishu(repository, nil, &feishuRegistrarStub{})
 	// startErr 是非法用户标识的开始绑定错误，必须在调用协议端口前失败。
-	if _, startErr := service.StartFeishuAppBinding(context.Background(), 0, FeishuBindingOptions{BindAllAccounts: false}); !errors.Is(startErr, ErrChannelInvalidInput) {
+	if _, startErr := service.StartFeishuAppBinding(context.Background(), 0, FeishuBindingOptions{}); !errors.Is(startErr, ErrChannelInvalidInput) {
 		t.Fatalf("非法用户应返回输入错误: %v", startErr)
 	}
 	// statusErr 是空会话标识的状态查询错误，必须映射为输入无效。
@@ -460,7 +453,7 @@ func TestFeishuBindingRejectsUnavailableAndInvalidInput(t *testing.T) {
 	// failingService 是 begin 阶段失败的渠道服务。
 	failingService := NewChannelServiceWithFeishu(repository, nil, &feishuRegistrarStub{beginErr: beginFailure})
 	// startErr 是注册端口 begin 失败错误，必须原样透传。
-	if _, startErr := failingService.StartFeishuAppBinding(context.Background(), 7, FeishuBindingOptions{BindAllAccounts: false}); !errors.Is(startErr, beginFailure) {
+	if _, startErr := failingService.StartFeishuAppBinding(context.Background(), 7, FeishuBindingOptions{}); !errors.Is(startErr, beginFailure) {
 		t.Fatalf("begin 错误应透传: %v", startErr)
 	}
 }
@@ -474,7 +467,7 @@ func TestFeishuBindingStartDefaultsAndGenerationFailure(t *testing.T) {
 	// service 是使用默认时间与固定生成器的渠道服务。
 	service := NewChannelServiceWithFeishu(repository, nil, registrar)
 	// start、startErr 保存使用默认时间参数的结果。
-	start, startErr := service.StartFeishuAppBinding(context.Background(), 7, FeishuBindingOptions{BindAllAccounts: false})
+	start, startErr := service.StartFeishuAppBinding(context.Background(), 7, FeishuBindingOptions{Name: "值班飞书", EventTypes: `["account_offline"]`, Enabled: true})
 	if startErr != nil {
 		t.Fatalf("StartFeishuAppBinding: %v", startErr)
 	}
@@ -492,7 +485,7 @@ func TestFeishuBindingStartDefaultsAndGenerationFailure(t *testing.T) {
 	failingGeneratorService := NewChannelServiceWithFeishu(repository, nil, registrar)
 	failingGeneratorService.newSessionID = func() (string, error) { return "", generationFailure }
 	// failingErr 是会话标识生成失败时的开始绑定错误，必须阻止登记无标识会话。
-	if _, failingErr := failingGeneratorService.StartFeishuAppBinding(context.Background(), 7, FeishuBindingOptions{BindAllAccounts: false}); failingErr == nil {
+	if _, failingErr := failingGeneratorService.StartFeishuAppBinding(context.Background(), 7, FeishuBindingOptions{}); failingErr == nil {
 		t.Fatal("会话标识生成失败应返回错误")
 	}
 }
@@ -554,5 +547,34 @@ func TestFeishuBindingHelpers(t *testing.T) {
 	// normalizeFeishuDomain 验证未知域名按飞书中国站处理。
 	if normalizeFeishuDomain("LARK") != "lark" || normalizeFeishuDomain("unknown") != "feishu" {
 		t.Fatal("域名归一化异常")
+	}
+}
+
+// TestFeishuBindingDefaultsAndDisabledChannel 验证空名称回退默认名称、空事件订阅表示全部事件，并保留停用状态。
+func TestFeishuBindingDefaultsAndDisabledChannel(t *testing.T) {
+	// baseTime 是测试会话的固定创建时间。
+	baseTime := time.Date(2026, 5, 6, 7, 8, 9, 0, time.UTC)
+	// currentTime 保存可推进的测试时钟值。
+	currentTime := baseTime
+	// repository 是记录渠道创建输入的端口替身。
+	repository := &channelRepositoryStub{}
+	// registrar 是返回成功结果的协议替身。
+	registrar := &feishuRegistrarStub{pollResults: []FeishuPollResult{{Status: FeishuPollSuccess, Domain: "feishu", AppID: "cli-3", AppSecret: "secret-3", OpenID: "ou-3"}}}
+	// service 是待验证的飞书渠道应用服务。
+	service := fixedFeishuService(repository, registrar, func() time.Time { return currentTime })
+	// start、startErr 保存开始绑定结果；名称仅含空白，事件订阅为空，渠道停用。
+	start, startErr := service.StartFeishuAppBinding(context.Background(), 7, FeishuBindingOptions{Name: "   ", Enabled: false})
+	if startErr != nil {
+		t.Fatalf("StartFeishuAppBinding: %v", startErr)
+	}
+	// currentTime 推进到允许轮询的时间。
+	currentTime = baseTime.Add(6 * time.Second)
+	// status、statusErr 保存成功状态查询结果及错误。
+	status, statusErr := service.GetFeishuAppBindingStatus(context.Background(), 7, start.SessionID)
+	if statusErr != nil || status.Status != FeishuBindingStatusSuccess {
+		t.Fatalf("成功状态异常: status=%+v err=%v", status, statusErr)
+	}
+	if repository.createdInput.Name != feishuAppChannelName || repository.createdInput.EventTypes != "" || repository.createdInput.Enabled {
+		t.Fatalf("默认值或停用状态异常: %+v", repository.createdInput)
 	}
 }

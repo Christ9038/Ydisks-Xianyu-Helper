@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"strconv"
 
 	qrcode "github.com/skip2/go-qrcode"
 
@@ -14,14 +13,14 @@ import (
 	notificationsapp "xianyu-go/internal/application/notifications"
 )
 
-// feishuAppBindingStartRequest 是开始飞书应用扫码绑定的具名请求 DTO。
+// feishuAppBindingStartRequest 是开始飞书应用扫码绑定的具名请求 DTO，字段与通知渠道表单共用。
 type feishuAppBindingStartRequest struct {
-	// BindAllAccounts 表示绑定成功后是否把新渠道绑定到当前用户全部账号；nil 按 true 处理。
-	BindAllAccounts *bool `json:"bind_all_accounts"`
-	// NotifyWarning 表示是否推送警告类通知；nil 按 true 处理。
-	NotifyWarning *bool `json:"notify_warning"`
-	// NotifyInfo 表示是否推送普通提示类通知；nil 按 true 处理。
-	NotifyInfo *bool `json:"notify_info"`
+	// Name 是渠道名称；空白时由应用层使用默认名称。
+	Name string `json:"name"`
+	// EventTypes 是订阅事件类型 JSON 数组文本或兼容分隔文本；空值表示接收全部事件。
+	EventTypes string `json:"event_types"`
+	// Enabled 表示绑定成功后渠道是否启用；nil 按 true 处理。
+	Enabled *bool `json:"enabled"`
 }
 
 // feishuAppBindingStartResponse 是开始扫码绑定的具名响应 DTO。
@@ -44,53 +43,27 @@ type feishuAppBindingStatusResponse struct {
 	ChannelID int64 `json:"channel_id,omitempty"`
 }
 
-// feishuChannelCategoriesResponse 是飞书应用渠道分类开关键控的具名响应 DTO。
-type feishuChannelCategoriesResponse struct {
-	// Warning 表示是否推送警告类通知。
-	Warning bool `json:"warning"`
-	// Info 表示是否推送普通提示类通知。
-	Info bool `json:"info"`
-}
-
-// feishuChannelCategoriesUpdateRequest 是飞书应用渠道分类开关更新的具名请求 DTO；两个字段都必须提供。
-type feishuChannelCategoriesUpdateRequest struct {
-	// Warning 是警告类推送开关；nil 表示请求缺少必填字段。
-	Warning *bool `json:"warning"`
-	// Info 是普通提示类推送开关；nil 表示请求缺少必填字段。
-	Info *bool `json:"info"`
-}
-
 // startFeishuAppBinding 发起飞书应用扫码绑定并返回二维码 PNG data URL。
 func (s *Server) startFeishuAppBinding(w http.ResponseWriter, r *http.Request) {
 	// 二维码包含短期设备码，禁止浏览器或中间层缓存该响应。
 	w.Header().Set("Cache-Control", "no-store")
-	// request 保存可选绑定请求；空请求体按默认绑定全部账号处理。
+	// request 保存可选绑定请求；空请求体按默认名称、全部事件、启用处理。
 	var request feishuAppBindingStartRequest
 	// decodeErr 是可选请求体解码错误；仅 EOF 表示允许的空请求体。
 	if decodeErr := decodeJSON(r, &request); decodeErr != nil && !errors.Is(decodeErr, io.EOF) {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
-	// bindAll 是最终账号绑定策略；请求省略时默认为 true。
-	bindAll := true
-	if request.BindAllAccounts != nil {
-		bindAll = *request.BindAllAccounts
-	}
-	// notifyWarning 是最终警告类推送开关；请求省略时默认为 true。
-	notifyWarning := true
-	if request.NotifyWarning != nil {
-		notifyWarning = *request.NotifyWarning
-	}
-	// notifyInfo 是最终普通提示类推送开关；请求省略时默认为 true。
-	notifyInfo := true
-	if request.NotifyInfo != nil {
-		notifyInfo = *request.NotifyInfo
+	// enabled 是最终启用状态；请求省略时默认为 true。
+	enabled := true
+	if request.Enabled != nil {
+		enabled = *request.Enabled
 	}
 	// start、startErr 保存开始绑定结果及应用错误。
 	start, startErr := s.notificationChannelsApplication().StartFeishuAppBinding(r.Context(), authSess(r).UserID, notificationsapp.FeishuBindingOptions{
-		BindAllAccounts: bindAll,
-		NotifyWarning:   notifyWarning,
-		NotifyInfo:      notifyInfo,
+		Name:       request.Name,
+		EventTypes: request.EventTypes,
+		Enabled:    enabled,
 	})
 	if startErr != nil {
 		if errors.Is(startErr, notificationsapp.ErrChannelInvalidInput) {
@@ -138,64 +111,6 @@ func (s *Server) getFeishuAppBindingStatus(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	writeJSON(w, http.StatusOK, feishuAppBindingStatusResponse{Status: status.Status, Message: status.Message, ChannelID: status.ChannelID})
-}
-
-// getFeishuChannelCategories 返回飞书应用渠道当前的警告与普通提示开关。
-func (s *Server) getFeishuChannelCategories(w http.ResponseWriter, r *http.Request) {
-	// channelID、parseErr 保存路径中的渠道 ID 及解析错误。
-	channelID, parseErr := strconv.ParseInt(chi.URLParam(r, "channel_id"), 10, 64)
-	if parseErr != nil || channelID <= 0 {
-		writeErr(w, http.StatusBadRequest, "无效ID")
-		return
-	}
-	// categories、categoriesErr 保存分类开关读取结果及应用错误。
-	categories, categoriesErr := s.notificationChannelsApplication().GetFeishuChannelCategories(r.Context(), authSess(r).UserID, channelID)
-	if categoriesErr != nil {
-		writeFeishuChannelCategoriesError(w, categoriesErr)
-		return
-	}
-	writeJSON(w, http.StatusOK, feishuChannelCategoriesResponse{Warning: categories.Warning, Info: categories.Info})
-}
-
-// setFeishuChannelCategories 更新飞书应用渠道的警告与普通提示开关。
-func (s *Server) setFeishuChannelCategories(w http.ResponseWriter, r *http.Request) {
-	// channelID、parseErr 保存路径中的渠道 ID 及解析错误。
-	channelID, parseErr := strconv.ParseInt(chi.URLParam(r, "channel_id"), 10, 64)
-	if parseErr != nil || channelID <= 0 {
-		writeErr(w, http.StatusBadRequest, "无效ID")
-		return
-	}
-	// request 保存两个必填布尔开关；nil 表示客户端遗漏字段。
-	var request feishuChannelCategoriesUpdateRequest
-	// decodeErr 是分类开关请求体解码错误；nil 表示请求体可解析。
-	if decodeErr := decodeJSON(r, &request); decodeErr != nil || request.Warning == nil || request.Info == nil {
-		writeErr(w, http.StatusBadRequest, "warning 和 info 必填")
-		return
-	}
-	// setErr 保存分类开关写回结果及应用错误。
-	setErr := s.notificationChannelsApplication().SetFeishuChannelCategories(r.Context(), authSess(r).UserID, channelID, notificationsapp.FeishuChannelCategories{Warning: *request.Warning, Info: *request.Info})
-	if setErr != nil {
-		writeFeishuChannelCategoriesError(w, setErr)
-		return
-	}
-	writeJSON(w, http.StatusOK, operationResponse{Success: true})
-}
-
-// writeFeishuChannelCategoriesError 将分类开关用例错误映射为统一错误 envelope，不返回渠道配置内容。
-func writeFeishuChannelCategoriesError(w http.ResponseWriter, err error) {
-	if errors.Is(err, notificationsapp.ErrChannelInvalidInput) {
-		writeErr(w, http.StatusBadRequest, "该通知渠道不支持飞书分类开关")
-		return
-	}
-	if errors.Is(err, notificationsapp.ErrChannelNotFound) {
-		writeErr(w, http.StatusNotFound, "通知渠道不存在")
-		return
-	}
-	if errors.Is(err, notificationsapp.ErrChannelForbidden) {
-		writeErr(w, http.StatusForbidden, "无权操作该通知渠道")
-		return
-	}
-	writeErr(w, http.StatusInternalServerError, "飞书渠道分类开关操作失败")
 }
 
 // feishuQRCodeDataURL 把扫码地址编码为 PNG data URL，供前端直接放入图片源。

@@ -1683,24 +1683,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/notifications/channels/{channel_id}/feishu-categories": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** 查询飞书应用渠道的警告与普通提示开关 */
-        get: operations["getApiV1NotificationsChannelsFeishuCategories"];
-        /** 更新飞书应用渠道的警告与普通提示开关 */
-        put: operations["putApiV1NotificationsChannelsFeishuCategories"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/notifications/messages": {
         parameters: {
             query?: never;
@@ -3348,30 +3330,17 @@ export interface components {
             is_multi_spec: boolean;
             multi_quantity_delivery: boolean;
         };
+        /** @description 扫码添加飞书机器人时提交的渠道表单，与链接添加共用名称、通知内容和启用状态。 */
         FeishuAppBindingStartRequest: {
+            /** @description 渠道名称；省略或空白时使用默认名称。 */
+            name?: string;
+            /** @description 订阅的事件类型 JSON 数组文本，格式与通知渠道保存接口一致；空字符串或省略表示接收全部事件。 */
+            event_types?: string;
             /**
-             * @description 绑定成功后是否把新飞书渠道绑定到当前用户全部账号；省略时按 true 处理。
+             * @description 绑定成功后渠道是否启用；省略时按 true 处理。
              * @default true
              */
-            bind_all_accounts: boolean;
-            /**
-             * @description 是否推送警告类通知（账号异常、风控、需要人工处理、失败结果等）；省略时按 true 处理。
-             * @default true
-             */
-            notify_warning: boolean;
-            /**
-             * @description 是否推送普通提示类通知（新消息、发货结果、自动化成功结果等）；省略时按 true 处理。
-             * @default true
-             */
-            notify_info: boolean;
-        };
-        FeishuChannelCategoriesResponse: {
-            warning: boolean;
-            info: boolean;
-        };
-        FeishuChannelCategoriesUpdateRequest: {
-            warning: boolean;
-            info: boolean;
+            enabled: boolean;
         };
         FeishuAppBindingStartResponse: {
             session_id: string;
@@ -13186,144 +13155,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FeishuAppBindingStatusResponse"];
-                };
-            };
-            /** @description 统一错误响应 */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description 统一错误响应 */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description 统一错误响应 */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description 统一错误响应 */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description 统一错误响应 */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    getApiV1NotificationsChannelsFeishuCategories: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                channel_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description 成功 */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FeishuChannelCategoriesResponse"];
-                };
-            };
-            /** @description 统一错误响应 */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description 统一错误响应 */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description 统一错误响应 */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description 统一错误响应 */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description 统一错误响应 */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    putApiV1NotificationsChannelsFeishuCategories: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                channel_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["FeishuChannelCategoriesUpdateRequest"];
-            };
-        };
-        responses: {
-            /** @description 成功 */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OperationResponse"];
                 };
             };
             /** @description 统一错误响应 */

@@ -78,14 +78,6 @@ export interface FeishuAppBindingStatusResult {
   channel_id?: number;
 }
 
-/** FeishuChannelCategories 是飞书应用渠道的推送分类开关；warning 控制告警，info 控制普通提示。 */
-export interface FeishuChannelCategories {
-  /** warning 表示是否推送账号异常、风控、人工处理等警告类通知。 */
-  warning: boolean;
-  /** info 表示是否推送新消息、成功结果等普通提示类通知。 */
-  info: boolean;
-}
-
 /** automationNotificationEventTypes 是四类自动化任务使用的独立通知开关编码。 */
 export const automationNotificationEventTypes: NotificationEventType[] = [
   'automation_order_created',

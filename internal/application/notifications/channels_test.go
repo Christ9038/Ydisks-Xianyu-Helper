@@ -25,9 +25,7 @@ type channelRepositoryStub struct {
 	channelErr error
 	// ownedAccount 表示账号归属校验结果。
 	ownedAccount bool
-	// ownedAccountIDs 保存按用户查询返回的自有账号标识。
-	ownedAccountIDs []string
-	// singleBindings 保存单条账号绑定调用序列，便于验证飞书渠道绑定全部账号。
+	// singleBindings 保存单条账号绑定调用序列，便于验证绑定写入。
 	singleBindings []singleBindingCall
 	// singleBindingErr 保存单条账号绑定专用错误，便于区分渠道创建失败。
 	singleBindingErr error
@@ -112,14 +110,6 @@ func (r *channelRepositoryStub) OwnsChannel(context.Context, int64, int64) (bool
 // OwnsAccount 返回预置账号归属结果。
 func (r *channelRepositoryStub) OwnsAccount(context.Context, int64, string) (bool, error) {
 	return r.ownedAccount, r.err
-}
-
-// ListOwnedAccountIDs 返回预置的自有账号标识及账号列表专用错误或通用端口错误。
-func (r *channelRepositoryStub) ListOwnedAccountIDs(context.Context, int64) ([]string, error) {
-	if r.ownedAccountsErr != nil {
-		return nil, r.ownedAccountsErr
-	}
-	return r.ownedAccountIDs, r.err
 }
 
 // ListBindings 返回预置绑定摘要。

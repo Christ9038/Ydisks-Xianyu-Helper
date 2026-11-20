@@ -58,6 +58,8 @@ export default {
         red: palette('danger'),
         yellow: palette('warning'),
         purple: palette('accent'),
+        // violet 与 purple 共用 accent 令牌，使“拍下改价”等紫色卡片在深色模式下随主题变为深紫底，而不是 Tailwind 默认的近白淡紫。
+        violet: palette('accent'),
         pink: palette('accent'),
       },
       // text-white 表示“实心色块上的白字”，不随 --color-white（深色下为表面灰）变化。
