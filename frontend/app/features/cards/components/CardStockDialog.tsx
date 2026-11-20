@@ -66,12 +66,12 @@ export const CardStockDialog: React.FC<CardStockDialogProps> = ({ card, onClose 
           <div className="flex gap-2" role="tablist">
             {supportsUnsold && (
               <button role="tab" aria-selected={tab === 'unsold'} onClick={/* 点击切换到未售页签。 */ () => setTab('unsold')}
-                className={`px-4 py-2 rounded-xl font-bold ${tab === 'unsold' ? 'bg-black text-white' : 'bg-gray-100 text-gray-600'}`}>
+                className={`px-4 py-2 rounded-xl font-bold ${tab === 'unsold' ? 'bg-contrast text-on-contrast' : 'bg-gray-100 text-gray-600'}`}>
                 未售 {lines.length}
               </button>
             )}
             <button role="tab" aria-selected={tab === 'sold'} onClick={/* 点击切换到已售页签。 */ () => setTab('sold')}
-              className={`px-4 py-2 rounded-xl font-bold ${tab === 'sold' ? 'bg-black text-white' : 'bg-gray-100 text-gray-600'}`}>
+              className={`px-4 py-2 rounded-xl font-bold ${tab === 'sold' ? 'bg-contrast text-on-contrast' : 'bg-gray-100 text-gray-600'}`}>
               已售 {card.sold_count ?? 0}
             </button>
           </div>

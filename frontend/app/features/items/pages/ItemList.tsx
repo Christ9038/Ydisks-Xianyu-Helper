@@ -323,7 +323,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery, publishImagesE
             </button>
             <button
               onClick={openAddModal}
-              className="px-5 py-3 rounded-2xl font-bold bg-gray-900 text-white hover:bg-gray-800 transition-colors flex items-center gap-2 shadow-lg"
+              className="px-5 py-3 rounded-2xl font-bold bg-contrast text-on-contrast hover:bg-contrast/90 transition-colors flex items-center gap-2 shadow-lg"
             >
               <Plus className="w-4 h-4" />
               添加商品
@@ -493,7 +493,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery, publishImagesE
                       </button>
                       <button
                         onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => onConfigureDelivery(item)}
-                        className={`w-full flex items-center justify-between gap-1 px-2.5 py-2 rounded-lg text-[11px] font-extrabold transition-all ${hasRule ? 'bg-gray-900 text-white hover:bg-black' : 'bg-brand text-white hover:bg-brand-highlight shadow-md shadow-blue-100'}`}
+                        className={`w-full flex items-center justify-between gap-1 px-2.5 py-2 rounded-lg text-[11px] font-extrabold transition-all ${hasRule ? 'bg-contrast text-on-contrast hover:bg-contrast/90' : 'bg-brand text-on-contrast hover:bg-brand-highlight shadow-md shadow-blue-100'}`}
                       >
                         <span className="flex items-center gap-1.5"><Link2 className="w-3.5 h-3.5" />{deliveryRuleCount > 0 ? `${deliveryRuleCount} 条发货规则` : hasRule ? '查看发货规则' : '关联发货规则'}</span>
                         <ArrowRight className="w-3.5 h-3.5" />
@@ -1076,7 +1076,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery, publishImagesE
               {(batchPhase === 'running' || batchPhase === 'done') && batchDetail && (
                 <div className="flex gap-3 w-full">
                   {batchDetail.status === 'running' ? (
-                    <button disabled={batchLoading} onClick={handleCancelBatch} className="flex-1 px-6 py-3.5 rounded-xl bg-gray-900 text-white hover:bg-black font-bold">
+                    <button disabled={batchLoading} onClick={handleCancelBatch} className="flex-1 px-6 py-3.5 rounded-xl bg-contrast text-on-contrast hover:bg-contrast/90 font-bold">
                       取消任务
                     </button>
                   ) : batchDetail.status === 'canceling' ? (
@@ -1084,7 +1084,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery, publishImagesE
                       正在保存远端结果并安全取消…
                     </button>
                   ) : (
-                    <button onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => window.open(`/api/v1/items/publish-batches/${batchDetail.id}/result.csv`, '_blank')} className="flex-1 px-6 py-3.5 rounded-xl bg-gray-900 text-white hover:bg-black font-bold">
+                    <button onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => window.open(`/api/v1/items/publish-batches/${batchDetail.id}/result.csv`, '_blank')} className="flex-1 px-6 py-3.5 rounded-xl bg-contrast text-on-contrast hover:bg-contrast/90 font-bold">
                       下载结果
                     </button>
                   )}

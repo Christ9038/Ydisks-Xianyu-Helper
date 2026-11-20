@@ -104,7 +104,7 @@ const SalesStats: React.FC = () => {
             className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-all ${
               timeRange === option.key
                 ? 'bg-brand text-white shadow-md'
-                : 'bg-white text-gray-600 hover:text-black hover:bg-gray-50'
+                : 'bg-white text-gray-600 hover:text-ink hover:bg-gray-50'
             }`}
           >
             {option.label}
@@ -127,7 +127,7 @@ const SalesStats: React.FC = () => {
             />
             <button
               onClick={applyCustomRange}
-              className="px-4 py-2 rounded-xl text-sm font-bold bg-black text-white hover:bg-gray-800 transition-colors"
+              className="px-4 py-2 rounded-xl text-sm font-bold bg-contrast text-on-contrast hover:bg-contrast/90 transition-colors"
             >
               应用
             </button>

@@ -81,7 +81,7 @@ const ItemGreetingPanel: React.FC<ItemGreetingPanelProps> = ({ accountID, librar
             </div>
             <div className="flex items-center gap-3">
               <button onClick={/* 当前回调切换启停。 */ () => void greetings.toggle(rule)} className="px-3 py-2 text-xs font-bold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors">{rule.enabled ? '停用' : '启用'}</button>
-              <button onClick={/* 当前回调打开编辑器。 */ () => greetings.openEdit(rule)} className="p-2 text-gray-400 hover:text-black hover:bg-gray-100 rounded-xl transition-colors" title="编辑"><Edit className="w-4 h-4" /></button>
+              <button onClick={/* 当前回调打开编辑器。 */ () => greetings.openEdit(rule)} className="p-2 text-gray-400 hover:text-ink hover:bg-gray-100 rounded-xl transition-colors" title="编辑"><Edit className="w-4 h-4" /></button>
               <button onClick={/* 当前回调确认后删除。 */ () => confirmDelete(rule)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors" title="删除"><Trash2 className="w-5 h-5" /></button>
             </div>
           </div>

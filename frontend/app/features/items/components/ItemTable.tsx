@@ -71,7 +71,7 @@ const ItemTable: React.FC<ItemTableProps> = ({ items, rules, accountNickname, fo
               </td>
               <td className="px-4 py-3">
                 <div className="flex justify-end gap-1.5">
-                  <button type="button" onClick={/* 点击打开该商品的发货规则配置。 */ () => onConfigureDelivery(item)} className="inline-flex items-center gap-1 rounded-lg bg-gray-900 px-2.5 py-1.5 font-bold text-white hover:bg-black"><Link2 className="h-3 w-3" />发货规则</button>
+                  <button type="button" onClick={/* 点击打开该商品的发货规则配置。 */ () => onConfigureDelivery(item)} className="inline-flex items-center gap-1 rounded-lg bg-contrast px-2.5 py-1.5 font-bold text-on-contrast hover:bg-contrast/90"><Link2 className="h-3 w-3" />发货规则</button>
                   <button type="button" onClick={/* 点击编辑商品。 */ () => onEdit(item)} className="rounded-lg bg-gray-100 p-1.5 text-gray-600 hover:bg-brand hover:text-white" title="编辑" aria-label="编辑"><Edit className="h-3.5 w-3.5" /></button>
                   <button type="button" onClick={/* 点击删除商品。 */ () => onDelete(item)} className="rounded-lg bg-gray-100 p-1.5 text-red-500 hover:bg-red-100" title="删除" aria-label="删除"><Trash2 className="h-3.5 w-3.5" /></button>
                 </div>

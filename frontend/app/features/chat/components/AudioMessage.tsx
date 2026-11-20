@@ -215,7 +215,7 @@ export const AudioMessage: React.FC<AudioMessageProps> = ({ messageKey, src, out
         title={buttonLabel}
         disabled={playbackState === 'loading'}
         onClick={/* 当前回调把用户点击交给可重试的异步播放流程。 */ () => void handleToggle()}
-        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-wait ${outgoing ? 'bg-white text-sky-600 hover:bg-sky-50 focus-visible:ring-white' : 'bg-sky-50 text-sky-600 hover:bg-sky-100 focus-visible:ring-sky-400'}`}
+        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-wait ${outgoing ? 'bg-on-accent text-sky-600 hover:bg-on-accent/90 focus-visible:ring-on-accent' : 'bg-sky-50 text-sky-600 hover:bg-sky-100 focus-visible:ring-sky-400'}`}
       >
         {playbackState === 'loading' ? <Loader2 className="h-4 w-4 animate-spin" />
           : playbackState === 'playing' ? <Pause className="h-4 w-4 fill-current" />

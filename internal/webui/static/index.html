@@ -4,19 +4,27 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      /* 首帧前应用已保存的主题偏好，避免深色模式用户先看到白屏闪烁；失败时保持浅色。 */
+      try {
+        var pref = localStorage.getItem('ydisks.theme.v1');
+        var dark = pref === 'dark' || (pref !== 'light' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+      } catch (e) {}
+    </script>
     <title>Ydisks闲鱼助手 - 自动发货与管家系统</title>
     <meta name="description" content="Ydisks闲鱼助手 - 自动回复、自动发货、订单管理、AI智能议价一体化解决方案" />
-    <script type="module" crossorigin src="/static/assets/index-xfLoFjjV.js"></script>
+    <script type="module" crossorigin src="/static/assets/index-C_6CcAac.js"></script>
     <link rel="modulepreload" crossorigin href="/static/assets/react-vendor-Bf9ELcll.js">
     <link rel="modulepreload" crossorigin href="/static/assets/vendor-MPw9mnqr.js">
     <link rel="modulepreload" crossorigin href="/static/assets/chat-api-CK-6pawL.js">
-    <link rel="modulepreload" crossorigin href="/static/assets/icons-vendor-zHIllxa9.js">
-    <link rel="modulepreload" crossorigin href="/static/assets/chat-items-CsBBZrBg.js">
-    <link rel="modulepreload" crossorigin href="/static/assets/rules-reply-controls-DVkYcAy5.js">
-    <link rel="modulepreload" crossorigin href="/static/assets/rules-reply-editor-yJx6OBLa.js">
-    <link rel="modulepreload" crossorigin href="/static/assets/chat-runtime-CcRKVrkZ.js">
+    <link rel="modulepreload" crossorigin href="/static/assets/icons-vendor-DhMU_43z.js">
+    <link rel="modulepreload" crossorigin href="/static/assets/chat-items-CvVtTd2p.js">
+    <link rel="modulepreload" crossorigin href="/static/assets/rules-reply-controls-aApDgQ16.js">
+    <link rel="modulepreload" crossorigin href="/static/assets/rules-reply-editor-BRBM-iyj.js">
+    <link rel="modulepreload" crossorigin href="/static/assets/chat-runtime-C6Yx1t8V.js">
     <link rel="stylesheet" crossorigin href="/static/assets/vendor-DUblxfbA.css">
-    <link rel="stylesheet" crossorigin href="/static/assets/index-Cb8j8QJX.css">
+    <link rel="stylesheet" crossorigin href="/static/assets/index-CF_XEy_G.css">
   </head>
   <body>
     <div id="root"></div>

@@ -118,7 +118,7 @@ const DeliveryTemplates: React.FC<DeliveryTemplatesProps> = ({ libraryImageChoos
     <div className="min-w-0 space-y-8 animate-fade-in">
       {requestError && <div role="alert" className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">{requestError}</div>}
       <PageHeader title="发货模板" description="把多条消息和卡密变量组合成可复用的自动化发货内容。">
-        <button type="button" onClick={openNewTemplate} className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800"><Plus className="h-4 w-4" />新建模板</button>
+        <button type="button" onClick={openNewTemplate} className="inline-flex items-center gap-2 rounded-xl bg-contrast px-4 py-3 text-sm font-bold text-on-contrast hover:bg-contrast/90"><Plus className="h-4 w-4" />新建模板</button>
       </PageHeader>
 
       <div className="grid gap-4 md:grid-cols-2">

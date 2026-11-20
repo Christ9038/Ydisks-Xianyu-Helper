@@ -1,4 +1,6 @@
 import React from 'react';
+import ThemeToggle from './ThemeToggle';
+import type { ThemePreference } from '../browser/themePreference';
 import {
   Bell, Box, ChevronLeft, ChevronRight, CreditCard, FileStack, Library, LayoutDashboard, KeyRound,
   GitCommitHorizontal, LogOut, MessageCircleMore, ScrollText, Settings, ShoppingBag, TrendingUp, Users, Zap,
@@ -23,11 +25,13 @@ interface SidebarProps {
   /** onLogout 表示注销当前会话的回调。 */ onLogout: () => void;
   /** buildInfo 是由应用壳加载并传入的公开构建版本信息。 */ buildInfo: SidebarBuildInfo;
   /** hasUnreadChatMessage 表示在线聊天入口是否仍有未读消息，需要展示红点。 */ hasUnreadChatMessage?: boolean;
+  /** themePreference 是当前主题偏好；与 onCycleTheme 同时提供时才展示主题切换入口。 */ themePreference?: ThemePreference;
+  /** onCycleTheme 循环切换主题偏好。 */ onCycleTheme?: () => void;
 }
 
 // Sidebar 渲染侧边栏导航组件。
 const Sidebar: React.FC<SidebarProps> = ({
-  activeTab, isAdmin = false, collapsed, onToggleCollapsed, onNavigate, onLogout, buildInfo, hasUnreadChatMessage = false,
+  activeTab, isAdmin = false, collapsed, onToggleCollapsed, onNavigate, onLogout, buildInfo, hasUnreadChatMessage = false, themePreference, onCycleTheme,
 }) => {
   // menuItems 侧边栏菜单项。
   const menuItems = [
@@ -87,7 +91,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 {item.id === 'chat' && hasUnreadChatMessage && <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-white bg-red-500" role="status" aria-label="在线聊天有未读消息" />}
               </span>
               {!collapsed && <span className="truncate text-sm font-bold">{item.label}</span>}
-              {active && !collapsed && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-white/90" />}
+              {active && !collapsed && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-on-accent/90" />}
               </button>
             </React.Fragment>
           );
@@ -115,6 +119,14 @@ const Sidebar: React.FC<SidebarProps> = ({
           )}
         </div>
         <div className={`space-y-2 p-2 ${collapsed ? '' : 'p-3'}`}>
+          {themePreference && onCycleTheme && (
+            <ThemeToggle
+              preference={themePreference}
+              onCycle={onCycleTheme}
+              compact={collapsed}
+              className={`flex h-10 w-full items-center rounded-xl text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 ${collapsed ? 'justify-center' : 'gap-3 px-3'}`}
+            />
+          )}
           <button
             type="button"
             onClick={onToggleCollapsed}

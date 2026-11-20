@@ -320,7 +320,7 @@ export const APIRequestBuilder = ({
 	      </div>
 	      {onTest && (
 		<div className="flex flex-wrap items-center gap-3">
-		  <button type="button" onClick={runTest} disabled={testState.loading} className="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-gray-700 disabled:cursor-wait disabled:opacity-60">
+		  <button type="button" onClick={runTest} disabled={testState.loading} className="inline-flex items-center gap-2 rounded-xl bg-contrast px-4 py-2.5 text-sm font-bold text-on-contrast transition-colors hover:bg-contrast/90 disabled:cursor-wait disabled:opacity-60">
 			{testState.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
 			测试请求
 		  </button>

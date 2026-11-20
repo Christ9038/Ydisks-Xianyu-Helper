@@ -283,7 +283,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
               className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all ${
                 activeTab === tab.id
                   ? 'bg-brand text-white shadow-md'
-                  : 'bg-white text-gray-600 hover:text-black hover:bg-gray-50'
+                  : 'bg-white text-gray-600 hover:text-ink hover:bg-gray-50'
               }`}
             >
               <Icon className="w-4 h-4" />
@@ -574,7 +574,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
               <div key={rule.id} className="flex flex-col md:flex-row md:items-center justify-between p-5 rounded-2xl border border-gray-100 bg-surface-subtle hover:bg-white hover:shadow-lg transition-all gap-4">
                 <div className="flex-1 min-w-0">
                   <div className="flex flex-wrap items-center gap-3 mb-2">
-                    <span className={`px-3 py-1 rounded-lg text-xs font-bold ${rule.match_type === 'regexp' ? 'bg-purple-100 text-purple-700' : 'bg-black text-white'}`}>{matchLabel}</span>
+                    <span className={`px-3 py-1 rounded-lg text-xs font-bold ${rule.match_type === 'regexp' ? 'bg-purple-100 text-purple-700' : 'bg-contrast text-on-contrast'}`}>{matchLabel}</span>
                     <h3 className="font-bold text-gray-900">“{firstExpression}”</h3>
                     {additionalExpressionCount > 0 && (
                       <span className="px-3 py-1 bg-amber-50 text-amber-700 rounded-lg text-xs font-bold">+{additionalExpressionCount} 个表达式</span>
@@ -604,7 +604,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                       setEditingReplyRule({ ...rule, expressions: editExpressions, keyword: editExpressions[0] || '', match_type: editMatchType });
                       setShowReplyModal(true);
                     }}
-                    className="p-2 text-gray-400 hover:text-black hover:bg-gray-100 rounded-xl transition-colors"
+                    className="p-2 text-gray-400 hover:text-ink hover:bg-gray-100 rounded-xl transition-colors"
                     title="编辑"
                   >
                     <Edit className="w-4 h-4" />
@@ -657,7 +657,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                   <div className="flex items-center gap-3 border-t md:border-t-0 md:border-l border-gray-200 pt-4 md:pt-0 md:pl-6">
                     <button
                       onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => void openDefaultReplyModal(account.id)}
-                      className="p-2 text-gray-400 hover:text-black hover:bg-gray-100 rounded-xl transition-colors"
+                      className="p-2 text-gray-400 hover:text-ink hover:bg-gray-100 rounded-xl transition-colors"
                       title="编辑"
                     >
                       <Edit className="w-4 h-4" />
@@ -716,7 +716,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
             </div>
 
             <div className="grid min-w-0 grid-cols-1 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)] min-h-0">
-              <aside className="bg-slate-900 text-white p-5 overflow-y-auto">
+              <aside className="bg-dark-panel text-white p-5 overflow-y-auto">
                 <div className="text-xs font-bold text-slate-400 mb-3">选择自动化类型</div>
                 <div className="space-y-3">
                   {triggerOrder.map(/* 当前回调处理集合中的单个元素。 */ trigger => {
@@ -732,7 +732,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                         type="button"
                         onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => handleTriggerChange(trigger)}
                         className={`w-full rounded-2xl p-4 text-left border transition-all ${
-                          selected ? 'bg-white text-slate-950 border-white' : 'bg-white/5 text-white border-white/10 hover:bg-white/10'
+                          selected ? 'bg-on-accent text-dark-panel border-on-accent' : 'bg-on-accent/5 text-white border-on-accent/10 hover:bg-on-accent/10'
                         }`}
                       >
                         <div className="flex items-start gap-3">
@@ -747,7 +747,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                   })}
                 </div>
 
-                <div className="mt-6 rounded-2xl bg-white/5 border border-white/10 p-4">
+                <div className="mt-6 rounded-2xl bg-on-accent/5 border border-on-accent/10 p-4">
                   <div className="text-xs font-bold text-slate-400 mb-3">执行流程</div>
                   <div className="space-y-3">
                     {currentMeta.flow.map(/* 当前回调处理集合中的单个元素。 */ (step, index) => (
@@ -892,7 +892,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                         <button
                           type="button"
                           onClick={appendDeliveryContent}
-                          className="px-3 py-2 rounded-xl bg-gray-900 text-white text-xs font-bold hover:bg-black flex items-center gap-1.5"
+                          className="px-3 py-2 rounded-xl bg-contrast text-on-contrast text-xs font-bold hover:bg-contrast/90 flex items-center gap-1.5"
                         >
                           <Plus className="w-3.5 h-3.5" />
                           添加发货内容
@@ -1186,7 +1186,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                   onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setDefaultForm({ ...defaultForm, enabled: !defaultForm.enabled })}
                   className={`w-14 h-8 rounded-full transition-colors duration-300 relative ${defaultForm.enabled ? 'bg-brand' : 'bg-gray-300'}`}
                 >
-                  <span className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow-md transition-transform duration-300 block ${defaultForm.enabled ? 'translate-x-7' : 'translate-x-1'}`} />
+                  <span className={`absolute top-1 w-6 h-6 bg-on-accent rounded-full shadow-md transition-transform duration-300 block ${defaultForm.enabled ? 'translate-x-7' : 'translate-x-1'}`} />
                 </button>
               </div>
 

@@ -85,7 +85,7 @@ export const PublishImagesEditor = ({ images, previews, maxImages = 9, onChange,
             className={`group relative overflow-hidden rounded-2xl border bg-white shadow-sm transition ${dragIndex === index ? 'border-emerald-300 opacity-60' : 'border-slate-200 hover:border-emerald-300'}`}
           >
             <img src={preview.url} alt={`第 ${index + 1} 张商品图片`} className="aspect-square w-full object-cover" />
-            <div className="absolute inset-x-0 top-0 flex items-center justify-between bg-slate-950/70 px-2 py-1.5 text-[11px] font-bold text-white">
+            <div className="absolute inset-x-0 top-0 flex items-center justify-between bg-black/70 px-2 py-1.5 text-[11px] font-bold text-white">
               <span>{index === 0 ? '主图' : `第 ${index + 1} 张`}</span>
               <GripVertical className="h-3.5 w-3.5" aria-hidden="true" />
             </div>

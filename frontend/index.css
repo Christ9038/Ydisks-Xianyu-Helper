@@ -11,6 +11,13 @@
   --color-transparent: transparent;
   --color-black: 0 0 0;
   --color-white: 255 255 255;
+  /* 品牌色/状态色实心块上的前景文字，两种主题均为白色（不随 --color-white 变成表面色）。 */
+  --color-on-accent: 255 255 255;
+  /* 刻意的高对比块（深色按钮、深色信息面板）的底色与其上的文字色。 */
+  --color-contrast: 17 24 39;
+  --color-on-contrast: 255 255 255;
+  /* 两种主题都保持深色的信息面板底色。 */
+  --color-dark-panel: 15 23 42;
 
   --color-brand: 0 148 247;
   --color-brand-highlight: 0 113 227;
@@ -146,6 +153,138 @@
   --mobile-nav-height: 4rem;
 }
 
+/*
+ * 深色模式令牌覆盖：由 <html data-theme="dark"> 激活，只覆盖浅色令牌，主题蓝（brand / brand-highlight /
+ * brand-light / brand-500..700）保持不变。
+ * 约束：页面底色、卡片/面板/弹窗/侧边栏表面、区块浅底等大面积背景必须 R=G=B 纯灰；边框、按钮、文字沿用 Tailwind 色阶。
+ */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* 大面积背景：纯灰，禁止出现色彩倾向。--color-white 即 bg-white 卡片/面板表面。 */
+  --color-white: 28 28 28;
+  --color-canvas: 18 18 18;
+  --color-surface: 28 28 28;
+  --color-surface-subtle: 36 36 36;
+  --color-surface-muted: 32 32 32;
+
+  --color-contrast: 243 244 246;
+  --color-on-contrast: 18 18 18;
+
+  --color-ink: 243 244 246;
+  --color-muted: 156 163 175;
+  --color-line: 55 65 81;
+  --color-selection: 0 91 181;
+
+  /* gray 色阶：50/100 属于大面积浅底，使用纯灰；其余沿用 Tailwind gray 并镜像反转。 */
+  --color-neutral-50: 24 24 24;
+  --color-neutral-100: 34 34 34;
+  --color-neutral-200: 55 65 81;
+  --color-neutral-300: 75 85 99;
+  --color-neutral-400: 107 114 128;
+  --color-neutral-500: 156 163 175;
+  --color-neutral-600: 209 213 219;
+  --color-neutral-700: 229 231 235;
+  --color-neutral-800: 243 244 246;
+  --color-neutral-900: 249 250 251;
+  --color-neutral-950: 255 255 255;
+
+  /* slate 色阶：同 gray 规则，沿用 Tailwind slate 并镜像反转。 */
+  --color-slate-50: 24 24 24;
+  --color-slate-100: 34 34 34;
+  --color-slate-200: 51 65 85;
+  --color-slate-300: 71 85 105;
+  --color-slate-400: 100 116 139;
+  --color-slate-500: 148 163 184;
+  --color-slate-600: 203 213 225;
+  --color-slate-700: 226 232 240;
+  --color-slate-800: 241 245 249;
+  --color-slate-900: 248 250 252;
+  --color-slate-950: 255 255 255;
+
+  /* 主色阶：500–700 与 400 保持原品牌蓝，仅浅底（50–300）与深字（800–950）按深色反转。 */
+  --color-brand-50: 6 34 56;
+  --color-brand-100: 8 46 76;
+  --color-brand-200: 0 75 147;
+  --color-brand-300: 0 91 181;
+  --color-brand-800: 143 210 255;
+  --color-brand-900: 191 229 255;
+  --color-brand-950: 223 241 255;
+
+  --color-success-50: 3 34 26;
+  --color-success-100: 2 44 34;
+  --color-success-200: 6 78 59;
+  --color-success-300: 6 95 70;
+  --color-success-700: 110 231 183;
+  --color-success-800: 167 243 208;
+  --color-success-900: 209 250 229;
+  --color-success-950: 236 253 245;
+
+  --color-warning-50: 40 25 5;
+  --color-warning-100: 69 38 8;
+  --color-warning-200: 120 53 15;
+  --color-warning-300: 146 64 14;
+  --color-warning-700: 252 211 77;
+  --color-warning-800: 253 230 138;
+  --color-warning-900: 254 243 199;
+  --color-warning-950: 255 251 235;
+
+  --color-danger-50: 48 14 14;
+  --color-danger-100: 69 10 10;
+  --color-danger-200: 127 29 29;
+  --color-danger-300: 153 27 27;
+  --color-danger-700: 252 165 165;
+  --color-danger-800: 254 202 202;
+  --color-danger-900: 254 226 226;
+  --color-danger-950: 254 242 242;
+
+  --color-info-50: 14 24 52;
+  --color-info-100: 23 37 84;
+  --color-info-200: 30 58 138;
+  --color-info-300: 30 64 175;
+  --color-info-700: 147 197 253;
+  --color-info-800: 191 219 254;
+  --color-info-900: 219 234 254;
+  --color-info-950: 239 246 255;
+
+  --color-accent-50: 36 12 56;
+  --color-accent-100: 59 7 100;
+  --color-accent-200: 88 28 135;
+  --color-accent-300: 107 33 168;
+  --color-accent-700: 216 180 254;
+  --color-accent-800: 233 213 255;
+  --color-accent-900: 243 232 255;
+  --color-accent-950: 250 245 255;
+
+  /* 深色背景上阴影需要更高的黑色不透明度才可见。 */
+  --shadow-default: 0 1px 3px 0 rgb(var(--color-black) / 0.4), 0 1px 2px -1px rgb(var(--color-black) / 0.4);
+  --shadow-sm: 0 1px 2px 0 rgb(var(--color-black) / 0.3);
+  --shadow-md: 0 4px 6px -1px rgb(var(--color-black) / 0.4), 0 2px 4px -2px rgb(var(--color-black) / 0.4);
+  --shadow-lg: 0 10px 15px -3px rgb(var(--color-black) / 0.45), 0 4px 6px -4px rgb(var(--color-black) / 0.45);
+  --shadow-xl: 0 20px 25px -5px rgb(var(--color-black) / 0.5), 0 8px 10px -6px rgb(var(--color-black) / 0.5);
+  --shadow-2xl: 0 25px 50px -12px rgb(var(--color-black) / 0.6);
+  --shadow-inner: inset 0 2px 4px 0 rgb(var(--color-black) / 0.3);
+  --shadow-card: 0 8px 24px rgb(var(--color-black) / 0.3);
+  --shadow-panel: 0 20px 60px -15px rgb(var(--color-black) / 0.4);
+  --shadow-modal: 0 25px 50px -12px rgb(var(--color-black) / 0.6);
+  --shadow-sidebar: 4px 0 24px rgb(var(--color-black) / 0.3);
+  --shadow-chat: 0 16px 45px rgb(var(--color-black) / 0.35);
+  --shadow-chat-input: 0 -8px 24px rgb(var(--color-black) / 0.3);
+}
+
+/* 深色模式下的滚动条与卡片描边改用浅色半透明，避免黑色描边消失。 */
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: rgb(var(--color-on-accent) / 0.16);
+}
+
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--color-on-accent) / 0.28);
+}
+
+:root[data-theme="dark"] .ios-card {
+  border-color: rgb(var(--color-on-accent) / 0.06);
+}
+
 /* 覆盖 Tailwind 默认的蓝色焦点环和黑色占位阴影，避免预设色偷偷进入页面。 */
 *,
 ::before,
@@ -270,7 +409,7 @@ body {
 /* 主按钮 */
 .ios-btn-primary {
   background: rgb(var(--color-brand));
-  color: rgb(var(--color-white));
+  color: rgb(var(--color-on-accent));
   font-weight: 700;
   border: none;
   transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);

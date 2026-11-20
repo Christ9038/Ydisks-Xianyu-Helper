@@ -124,7 +124,7 @@ export const TemplateEditorDialog = ({ template, busy, options, categoryField: C
               {draft.imageIds.map(/* id、index 渲染一张主图。 */ (id, index) => (
                 <figure key={id} className="relative overflow-hidden rounded-2xl border border-gray-200 bg-white">
                   <img src={libraryImageUrl(id)} alt={`第 ${index + 1} 张主图`} className="aspect-square w-full object-cover" />
-                  <figcaption className="absolute inset-x-0 top-0 bg-gray-900/70 px-2 py-1 text-[11px] font-bold text-white">{index === 0 ? '主图' : `第 ${index + 1} 张`}</figcaption>
+                  <figcaption className="absolute inset-x-0 top-0 bg-black/70 px-2 py-1 text-[11px] font-bold text-white">{index === 0 ? '主图' : `第 ${index + 1} 张`}</figcaption>
                   <div className="flex items-center justify-between bg-white p-1">
                     <button type="button" aria-label={`第 ${index + 1} 张前移`} disabled={index === 0} className="rounded p-1 disabled:opacity-30" onClick={/* 前移。 */ () => moveImage(index, index - 1)}><ChevronUp className="h-4 w-4" /></button>
                     <button type="button" aria-label={`第 ${index + 1} 张后移`} disabled={index === draft.imageIds.length - 1} className="rounded p-1 disabled:opacity-30" onClick={/* 后移。 */ () => moveImage(index, index + 1)}><ChevronDown className="h-4 w-4" /></button>

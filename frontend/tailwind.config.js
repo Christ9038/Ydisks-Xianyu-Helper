@@ -28,6 +28,13 @@ export default {
           highlight: color('brand-highlight'),
           light: color('brand-light'),
         },
+        // 高对比块（深色按钮/面板）及其前景：浅色为深底白字，深色模式自动反转。
+        contrast: color('contrast'),
+        'on-contrast': color('on-contrast'),
+        // 两种主题下都保持深色的信息面板底色（如规则编辑器侧栏）。
+        'dark-panel': color('dark-panel'),
+        // 品牌色/状态色实心块上的前景文字，任何主题均为白色。
+        'on-accent': color('on-accent'),
         ink: color('ink'),
         muted: color('muted'),
         line: color('line'),
@@ -52,6 +59,10 @@ export default {
         yellow: palette('warning'),
         purple: palette('accent'),
         pink: palette('accent'),
+      },
+      // text-white 表示“实心色块上的白字”，不随 --color-white（深色下为表面灰）变化。
+      textColor: {
+        white: color('on-accent'),
       },
       // 圆角统一收紧到 5–10px 区间，UI 更紧凑、信息密度更高。
       borderRadius: {

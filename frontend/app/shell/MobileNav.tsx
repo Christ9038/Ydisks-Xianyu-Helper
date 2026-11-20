@@ -1,4 +1,6 @@
 import React,{ useEffect,useState } from 'react';
+import ThemeToggle from '../../shared/ui/ThemeToggle';
+import type { ThemePreference } from '../../shared/browser/themePreference';
 import type { LucideIcon } from 'lucide-react';
 import {
   Bell, Box, CreditCard, FileStack, GitCommitHorizontal, LayoutDashboard, Library, LogOut,
@@ -27,6 +29,10 @@ export interface MobileNavProps {
   onNavigate: (tab: string) => void;
   /** onLogout 负责注销当前会话并清理认证状态。 */
   onLogout: () => void;
+  /** themePreference 是当前主题偏好；与 onCycleTheme 同时提供时抽屉展示主题切换入口。 */
+  themePreference?: ThemePreference;
+  /** onCycleTheme 循环切换主题偏好。 */
+  onCycleTheme?: () => void;
 }
 
 /** MobileNavItem 描述一个移动端导航入口的稳定标识、中文标签和图标。 */
@@ -72,6 +78,8 @@ const MobileNav: React.FC<MobileNavProps> = ({
   isAdmin,
   buildInfo,
   hasUnreadChatMessage = false,
+  themePreference,
+  onCycleTheme,
   onNavigate,
   onLogout,
 }) => {
@@ -164,7 +172,7 @@ const MobileNav: React.FC<MobileNavProps> = ({
         <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-labelledby="mobile-more-title">
           {/* 半透明遮罩独立成层，点击只关闭抽屉，不把事件传给底层导航或业务页面。 */}
           <div
-            className="absolute inset-0 bg-slate-950/40 backdrop-blur-[2px]"
+            className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
             data-testid="mobile-nav-backdrop"
             aria-hidden="true"
             onClick={handleCloseMore}
@@ -207,6 +215,16 @@ const MobileNav: React.FC<MobileNavProps> = ({
                   );
                 })}
               </div>
+
+              {themePreference && onCycleTheme && (
+                <div className="px-4 pb-3">
+                  <ThemeToggle
+                    preference={themePreference}
+                    onCycle={onCycleTheme}
+                    className="flex min-h-[44px] w-full items-center gap-3 rounded-xl bg-surface-subtle px-3 text-ink transition-colors hover:bg-brand/5 hover:text-brand"
+                  />
+                </div>
+              )}
 
               <div className="flex items-center justify-between gap-3 border-t border-line/70 px-5 pb-4 pt-3">
                 <div className="min-w-0">

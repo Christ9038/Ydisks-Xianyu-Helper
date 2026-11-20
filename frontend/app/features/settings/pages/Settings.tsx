@@ -340,7 +340,7 @@ const Settings: React.FC = () => {
 
           <section className="space-y-4">
             <h3 className="text-lg font-extrabold text-gray-800 flex items-center gap-2">
-              <div className="p-1.5 rounded-lg bg-gray-900 text-white">
+              <div className="p-1.5 rounded-lg bg-contrast text-on-contrast">
                 <LockKeyhole className="w-4 h-4" />
               </div>
               登录凭据
@@ -418,7 +418,7 @@ const Settings: React.FC = () => {
               <button
                 type="submit"
                 disabled={credentialsSaving || !credentials.new_username || !credentials.current_password}
-                className="w-full bg-gray-900 hover:bg-black text-white px-5 py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-40"
+                className="w-full bg-contrast hover:bg-contrast/90 text-on-contrast px-5 py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-40"
               >
                 <LockKeyhole className="w-4 h-4" />
                 {credentialsSaving ? '正在更新...' : '更新登录凭据'}

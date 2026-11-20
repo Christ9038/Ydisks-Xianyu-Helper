@@ -130,7 +130,7 @@ const APIAccessTokensSection: React.FC = () => {
             <p className="text-xs text-amber-800">离开此页面或关闭本提示后，系统不会再次显示完整令牌。不要把令牌发到聊天记录、代码仓库或截图中。</p>
             <div className="flex gap-2">
               <input readOnly value={createdToken} className="min-w-0 flex-1 rounded-lg border border-amber-200 bg-white px-3 py-2 font-mono text-xs text-gray-800" />
-              <button type="button" onClick={handleCopy} className="shrink-0 rounded-lg bg-gray-900 px-3 py-2 text-xs font-bold text-white flex items-center gap-1"><Copy className="w-3.5 h-3.5" />复制</button>
+              <button type="button" onClick={handleCopy} className="shrink-0 rounded-lg bg-contrast px-3 py-2 text-xs font-bold text-on-contrast flex items-center gap-1"><Copy className="w-3.5 h-3.5" />复制</button>
             </div>
             <button type="button" onClick={/* 点击后关闭一次性令牌展示并清除页面内的明文。 */ () => setCreatedToken('')} className="text-xs font-bold text-amber-900 underline">我已安全保存，关闭一次性展示</button>
           </div>
@@ -166,7 +166,7 @@ const APIAccessTokensSection: React.FC = () => {
               ))}
             </div>
           </div>
-          <button type="submit" disabled={creating || !name.trim() || scopes.length === 0} className="rounded-lg bg-gray-900 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-40">{creating ? '正在签发...' : '创建 API 访问令牌'}</button>
+          <button type="submit" disabled={creating || !name.trim() || scopes.length === 0} className="rounded-lg bg-contrast px-5 py-2.5 text-sm font-bold text-on-contrast disabled:opacity-40">{creating ? '正在签发...' : '创建 API 访问令牌'}</button>
         </form>
 
         <div className="space-y-3 border-t border-gray-100 pt-5">

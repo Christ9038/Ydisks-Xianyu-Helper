@@ -50,7 +50,7 @@ export const DeliveredCardsSection: React.FC<DeliveredCardsSectionProps> = ({ or
                 </div>
               </div>
               <button type="button" onClick={/* 点击复制该条卡密。 */ () => void copyContent(card.id, card.content)} aria-label={`复制卡密 ${card.content}`}
-                className="shrink-0 rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-black">
+                className="shrink-0 rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-ink">
                 {copiedId === card.id ? <span className="text-xs font-bold text-green-600">已复制</span> : <Copy className="h-4 w-4" />}
               </button>
             </li>

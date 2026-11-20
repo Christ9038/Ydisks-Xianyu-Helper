@@ -80,6 +80,7 @@ links and view data.
 | AI replies | OpenAI-compatible APIs, model discovery, end-to-end connection testing, Bargaining Only or Full Service modes, per-product enable/disable and product-specific reference material, custom prompts, bargaining rounds, and discount limits. Optionally gives the AI the buyer's local order stage. |
 | Agent replies | Forwards buyer messages that match no keyword to your own external HTTP agent (protocol v1, optional Bearer token, polling for long-running replies) and sends its text or image replies; it can also receive the buyer's order stage. Falls back to AI and default replies when the agent does not handle the message. |
 | Manual takeover | After you reply to a buyer yourself, automatic replies (AI only, or all) pause in that conversation for a configurable time; keyword rules can notify you when a buyer asks for a human. |
+| Light and dark themes | Follow-system, light and dark themes switchable from the sidebar or mobile “More” drawer and remembered per browser; the brand blue stays the same and dark backgrounds are neutral gray. |
 | Dashboard and sales | Active accounts, orders, revenue, and card inventory, plus sales statistics by period. |
 | Runtime logs | Administrator-only in-memory log viewer with level, source, and keyword filters; entries carry caller, route, run, and request IDs and are redacted. |
 | Request pacing | Per-account MTOP pacing, bounded batches that stop on risk control, and an account-level block of automatic reviews and polishing after a risk hit. |

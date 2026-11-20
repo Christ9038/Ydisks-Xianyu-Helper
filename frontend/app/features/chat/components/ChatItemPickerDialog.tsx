@@ -79,22 +79,22 @@ export const ChatItemPickerDialog: React.FC<ChatItemPickerDialogProps> = ({ open
   };
 
   return (
-	<div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/55 p-3 backdrop-blur-[2px] sm:p-6" onMouseDown={/* 当前回调仅在没有发送任务且点击遮罩本身时关闭商品弹窗。 */ event => { if (!sendingAny && event.target === event.currentTarget) onClose(); }}>
+	<div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/55 p-3 backdrop-blur-[2px] sm:p-6" onMouseDown={/* 当前回调仅在没有发送任务且点击遮罩本身时关闭商品弹窗。 */ event => { if (!sendingAny && event.target === event.currentTarget) onClose(); }}>
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="chat-item-picker-title" className="flex h-[min(720px,88vh)] w-full max-w-2xl flex-col overflow-hidden rounded-[24px] bg-white shadow-2xl">
         <header className="relative shrink-0 overflow-hidden bg-sky-600 px-5 pb-4 pt-5 sm:px-6">
-          <div className="pointer-events-none absolute -right-16 -top-20 h-52 w-52 rounded-full bg-white/20 blur-2xl" />
-          <div className="pointer-events-none absolute right-8 -top-8 h-28 w-28 rounded-full bg-white/10 blur-xl" />
+          <div className="pointer-events-none absolute -right-16 -top-20 h-52 w-52 rounded-full bg-on-accent/20 blur-2xl" />
+          <div className="pointer-events-none absolute right-8 -top-8 h-28 w-28 rounded-full bg-on-accent/10 blur-xl" />
           <div className="relative flex items-start justify-between gap-4">
             <div>
               <div className="flex items-center gap-2">
-                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-sky-600 shadow-sm"><PackageSearch className="h-5 w-5" /></span>
+                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-on-accent text-sky-600 shadow-sm"><PackageSearch className="h-5 w-5" /></span>
                 <div>
                   <h2 id="chat-item-picker-title" className="text-lg font-black tracking-tight text-white">发送宝贝</h2>
                   <p className="text-xs font-medium text-white/75">选择商品卡片，直接发到当前聊天</p>
                 </div>
               </div>
             </div>
-			<button type="button" onClick={/* 当前回调关闭商品选择弹窗。 */ onClose} disabled={sendingAny} className="relative rounded-xl p-2 text-white/80 transition hover:bg-white/15 hover:text-white disabled:cursor-not-allowed disabled:opacity-40" aria-label="关闭商品选择"><X className="h-5 w-5" /></button>
+			<button type="button" onClick={/* 当前回调关闭商品选择弹窗。 */ onClose} disabled={sendingAny} className="relative rounded-xl p-2 text-white/80 transition hover:bg-on-accent/15 hover:text-white disabled:cursor-not-allowed disabled:opacity-40" aria-label="关闭商品选择"><X className="h-5 w-5" /></button>
           </div>
         </header>
 
@@ -112,7 +112,7 @@ export const ChatItemPickerDialog: React.FC<ChatItemPickerDialogProps> = ({ open
               <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
 			<input ref={searchInputRef} value={picker.queryDraft} onChange={/* 当前回调只更新搜索输入，不立即访问平台。 */ event => picker.setQueryDraft(event.target.value)} disabled={sendingAny} maxLength={100} placeholder={picker.role === 'peer' ? '搜索 TA 在卖的宝贝' : '搜索我在卖的宝贝'} className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-sky-400 focus:ring-4 focus:ring-sky-100 disabled:cursor-not-allowed disabled:bg-slate-50" />
             </label>
-			<button type="submit" disabled={sendingAny} className="flex h-11 shrink-0 items-center gap-1.5 rounded-xl bg-slate-950 px-4 text-sm font-bold text-white transition hover:bg-slate-800 focus:outline-none focus:ring-4 focus:ring-slate-200 disabled:cursor-not-allowed disabled:bg-slate-300"><Search className="h-4 w-4" />搜索</button>
+			<button type="submit" disabled={sendingAny} className="flex h-11 shrink-0 items-center gap-1.5 rounded-xl bg-contrast px-4 text-sm font-bold text-on-contrast transition hover:bg-contrast/90 focus:outline-none focus:ring-4 focus:ring-slate-200 disabled:cursor-not-allowed disabled:bg-slate-300"><Search className="h-4 w-4" />搜索</button>
           </div>
         </form>
 

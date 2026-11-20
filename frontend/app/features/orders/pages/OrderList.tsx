@@ -103,7 +103,7 @@ const OrderList: React.FC = () => {
     <div className="min-w-0 space-y-8 animate-fade-in">
       <PageHeader title="订单中心" description="查看所有闲鱼交易记录与状态。">
         <div className="flex items-center gap-3">
-            <button onClick={loadOrders} className="p-3 rounded-2xl bg-white border border-gray-100 text-gray-600 hover:bg-gray-50 hover:text-black transition-colors shadow-sm">
+            <button onClick={loadOrders} className="p-3 rounded-2xl bg-white border border-gray-100 text-gray-600 hover:bg-gray-50 hover:text-ink transition-colors shadow-sm">
                 <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
             </button>
             <button onClick={handleSync} className="ios-btn-primary px-6 py-3 rounded-2xl font-bold shadow-lg shadow-blue-200 text-sm flex items-center gap-2">
@@ -196,7 +196,7 @@ const OrderList: React.FC = () => {
                     {order.status === 'pending_ship' && (
                         <button
                             onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => handleShip(order.order_id)}
-                            className="mr-2 text-white bg-black hover:bg-gray-800 shadow-lg shadow-gray-200 text-xs font-bold px-3 py-2 rounded-xl transition-all active:scale-95"
+                            className="mr-2 text-on-contrast bg-contrast hover:bg-contrast/90 shadow-lg shadow-gray-200 text-xs font-bold px-3 py-2 rounded-xl transition-all active:scale-95"
                         >
                             立即发货
                         </button>
@@ -229,7 +229,7 @@ const OrderList: React.FC = () => {
                     </button>
                     <button
                       onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => handleEdit(order)}
-                      className="mr-2 text-gray-400 hover:text-black p-3 lg:p-2 rounded-xl hover:bg-gray-100 transition-colors"
+                      className="mr-2 text-gray-400 hover:text-ink p-3 lg:p-2 rounded-xl hover:bg-gray-100 transition-colors"
                       title="编辑订单"
                     >
                       <Edit className="w-4 h-4" />
@@ -566,7 +566,7 @@ const OrderList: React.FC = () => {
                   <button
                     type="submit"
                     disabled={priceLoading}
-                    className="flex-1 px-6 py-3 rounded-xl bg-black hover:bg-gray-800 text-white font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex-1 px-6 py-3 rounded-xl bg-contrast hover:bg-contrast/90 text-on-contrast font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     确认改价
                   </button>

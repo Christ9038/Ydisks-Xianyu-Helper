@@ -71,7 +71,7 @@ export const DeleteConversationDialog: React.FC<DeleteConversationDialogProps> =
   }, []);
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-[2px]" onMouseDown={/* 当前回调只在未提交时允许点击遮罩关闭。 */ event => { if (!deleting && event.target === event.currentTarget) onCancel(); }}>
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px]" onMouseDown={/* 当前回调只在未提交时允许点击遮罩关闭。 */ event => { if (!deleting && event.target === event.currentTarget) onCancel(); }}>
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="delete-conversation-title" aria-describedby="delete-conversation-description" className="w-full max-w-md overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
         <div className="flex items-start gap-4 px-6 pb-4 pt-6">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-red-50 text-red-600"><Trash2 className="h-5 w-5" /></div>

@@ -179,7 +179,7 @@ export const AccountEditModal: React.FC<AccountEditModalProps> = ({
               aria-checked={editForm.auto_confirm}
               className={`w-14 min-w-14 h-8 shrink-0 rounded-full transition-colors duration-300 relative ${editForm.auto_confirm ? 'bg-brand' : 'bg-gray-300'}`}
             >
-              <span className={`absolute left-1 top-1 w-6 h-6 bg-white rounded-full shadow-md transition-transform duration-300 ${editForm.auto_confirm ? 'translate-x-6' : 'translate-x-0'}`} />
+              <span className={`absolute left-1 top-1 w-6 h-6 bg-on-accent rounded-full shadow-md transition-transform duration-300 ${editForm.auto_confirm ? 'translate-x-6' : 'translate-x-0'}`} />
             </button>
           </div>
 
@@ -195,7 +195,7 @@ export const AccountEditModal: React.FC<AccountEditModalProps> = ({
               aria-checked={editForm.auto_consign}
               className={`w-14 min-w-14 h-8 shrink-0 rounded-full transition-colors duration-300 relative ${editForm.auto_consign ? 'bg-brand' : 'bg-gray-300'}`}
             >
-              <span className={`absolute left-1 top-1 w-6 h-6 bg-white rounded-full shadow-md transition-transform duration-300 ${editForm.auto_consign ? 'translate-x-6' : 'translate-x-0'}`} />
+              <span className={`absolute left-1 top-1 w-6 h-6 bg-on-accent rounded-full shadow-md transition-transform duration-300 ${editForm.auto_consign ? 'translate-x-6' : 'translate-x-0'}`} />
             </button>
           </div>
 
@@ -219,7 +219,7 @@ export const AccountEditModal: React.FC<AccountEditModalProps> = ({
               aria-checked={editForm.auto_bargain}
               className={`w-14 min-w-14 h-8 shrink-0 rounded-full transition-colors duration-300 relative ${editForm.auto_bargain ? 'bg-brand' : 'bg-gray-300'}`}
             >
-              <span className={`absolute left-1 top-1 w-6 h-6 bg-white rounded-full shadow-md transition-transform duration-300 ${editForm.auto_bargain ? 'translate-x-6' : 'translate-x-0'}`} />
+              <span className={`absolute left-1 top-1 w-6 h-6 bg-on-accent rounded-full shadow-md transition-transform duration-300 ${editForm.auto_bargain ? 'translate-x-6' : 'translate-x-0'}`} />
             </button>
           </div>
 
@@ -266,7 +266,7 @@ export const AccountEditModal: React.FC<AccountEditModalProps> = ({
                   onClick={handleLongLoginToggle}
                   className={`relative h-8 w-14 flex-shrink-0 rounded-full transition-colors ${longLogin.enabled ? 'bg-brand' : 'bg-gray-300'} disabled:cursor-not-allowed disabled:opacity-50`}
                 >
-                  <span className={`absolute left-1 top-1 h-6 w-6 rounded-full bg-white shadow-md transition-transform ${longLogin.enabled ? 'translate-x-6' : 'translate-x-0'}`} />
+                  <span className={`absolute left-1 top-1 h-6 w-6 rounded-full bg-on-accent shadow-md transition-transform ${longLogin.enabled ? 'translate-x-6' : 'translate-x-0'}`} />
                 </button>
               </div>
 
@@ -306,7 +306,7 @@ export const AccountEditModal: React.FC<AccountEditModalProps> = ({
                   <div className="text-xs text-gray-500">调试时可开启查看登录过程</div>
                 </div>
                 <button type="button" onClick={handleShowBrowserToggle} className={`w-14 h-8 rounded-full transition-colors duration-300 relative ${editForm.show_browser ? 'bg-brand' : 'bg-gray-300'}`}>
-                  <span className={`absolute left-1 top-1 w-6 h-6 bg-white rounded-full shadow-md transition-transform duration-300 ${editForm.show_browser ? 'translate-x-6' : 'translate-x-0'}`} />
+                  <span className={`absolute left-1 top-1 w-6 h-6 bg-on-accent rounded-full shadow-md transition-transform duration-300 ${editForm.show_browser ? 'translate-x-6' : 'translate-x-0'}`} />
                 </button>
               </div>
 

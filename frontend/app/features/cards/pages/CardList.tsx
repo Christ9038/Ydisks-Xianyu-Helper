@@ -190,7 +190,7 @@ const CardList: React.FC<CardListProps> = ({ libraryImageChooser }) => {
                           card.enabled ? 'bg-green-500' : 'bg-gray-300'
                         }`}
                       >
-                        <div className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow-sm transition-transform ${
+                        <div className={`absolute top-1 w-6 h-6 bg-on-accent rounded-full shadow-sm transition-transform ${
                           card.enabled ? 'left-5' : 'left-1'
                         }`}></div>
                       </button>
@@ -201,7 +201,7 @@ const CardList: React.FC<CardListProps> = ({ libraryImageChooser }) => {
                           <button
                             onClick={/* 打开该卡密组的库存记录弹窗。 */ () => setStockCard(card)}
                             aria-label={`查看卡密 ${card.name} 库存记录`}
-                            className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-black"
+                            className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-ink"
                             title="库存记录"
                           >
                             <ClipboardList className="w-4 h-4" />
@@ -209,7 +209,7 @@ const CardList: React.FC<CardListProps> = ({ libraryImageChooser }) => {
                         )}
                         <button
                           onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => handleEdit(card)}
-                          className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-black"
+                          className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-ink"
                           title="编辑"
                         >
                           <Edit className="w-4 h-4" />
@@ -400,7 +400,7 @@ const CardList: React.FC<CardListProps> = ({ libraryImageChooser }) => {
                     }`}
                   >
                     <span
-                      className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow-md transition-transform duration-300 block ${
+                      className={`absolute top-1 w-6 h-6 bg-on-accent rounded-full shadow-md transition-transform duration-300 block ${
                         editForm.enabled ? 'translate-x-7' : 'translate-x-1'
                       }`}
                     />

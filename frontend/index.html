@@ -4,6 +4,14 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      /* 首帧前应用已保存的主题偏好，避免深色模式用户先看到白屏闪烁；失败时保持浅色。 */
+      try {
+        var pref = localStorage.getItem('ydisks.theme.v1');
+        var dark = pref === 'dark' || (pref !== 'light' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+      } catch (e) {}
+    </script>
     <title>Ydisks闲鱼助手 - 自动发货与管家系统</title>
     <meta name="description" content="Ydisks闲鱼助手 - 自动回复、自动发货、订单管理、AI智能议价一体化解决方案" />
   </head>

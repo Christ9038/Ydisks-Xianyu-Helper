@@ -150,8 +150,8 @@ const ResourceLibrary: React.FC<ResourceLibraryProps> = ({ onBatchStarted, locat
     <div className="min-w-0 space-y-8 animate-fade-in">
       <PageHeader title="本地资源库" description="保存常用商品模板与图片，一键把同款商品铺到多个账号。">
         <div className="flex gap-2" role="tablist" aria-label="资源库分类">
-          <button type="button" role="tab" aria-selected={tab === 'templates'} onClick={/* 切换到商品模板。 */ () => setTab('templates')} className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold ${tab === 'templates' ? 'bg-gray-950 text-white' : 'ios-btn-secondary '}`}><Package className="h-4 w-4" />商品模板</button>
-          <button type="button" role="tab" aria-selected={tab === 'images'} onClick={/* 切换到图片库。 */ () => setTab('images')} className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold ${tab === 'images' ? 'bg-gray-950 text-white' : 'ios-btn-secondary '}`}><ImageIcon className="h-4 w-4" />图片库</button>
+          <button type="button" role="tab" aria-selected={tab === 'templates'} onClick={/* 切换到商品模板。 */ () => setTab('templates')} className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold ${tab === 'templates' ? 'bg-contrast text-on-contrast' : 'ios-btn-secondary '}`}><Package className="h-4 w-4" />商品模板</button>
+          <button type="button" role="tab" aria-selected={tab === 'images'} onClick={/* 切换到图片库。 */ () => setTab('images')} className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold ${tab === 'images' ? 'bg-contrast text-on-contrast' : 'ios-btn-secondary '}`}><ImageIcon className="h-4 w-4" />图片库</button>
         </div>
       </PageHeader>
 

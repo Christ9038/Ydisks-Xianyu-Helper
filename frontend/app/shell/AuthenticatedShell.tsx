@@ -2,6 +2,7 @@ import React,{ lazy,Suspense,useEffect,useState } from 'react';
 import type { Item } from '../features/items/api';
 import Sidebar from '../../shared/ui/Sidebar';
 import MobileNav from './MobileNav';
+import { useThemePreference } from '../../shared/browser/useThemePreference';
 import { requestChatAccount } from '../../shared/browser/chatAccountTarget';
 import { useChatTitleNotification } from '../features/chat/titleNotification';
 import { getHealth } from '../features/system/api';
@@ -196,6 +197,9 @@ const AuthenticatedShell: React.FC<AuthenticatedShellProps> = ({
     return /* cleanup 在壳层卸载时释放健康检查请求。 */ () => controller.abort();
   }, []);
 
+  // themePreference 与 cycleThemePreference 是主题偏好及切换回调，主题同步到 <html> 由 Hook 完成。
+  const { preference: themePreference, cyclePreference: cycleThemePreference } = useThemePreference();
+
   // handleOpenChatAccount 由账号页“进入聊天”点击触发，写入一次性目标账号后切换到聊天页。
   const handleOpenChatAccount = (accountID /* accountID 是用户希望进入聊天时优先选中的账号标识。 */: string): void => {
     requestChatAccount(accountID);
@@ -215,6 +219,8 @@ const AuthenticatedShell: React.FC<AuthenticatedShellProps> = ({
       onLogout={onLogout}
       buildInfo={buildInfo}
       hasUnreadChatMessage={hasUnreadChatMessage}
+      themePreference={themePreference}
+      onCycleTheme={cycleThemePreference}
     />
     </div>
 
@@ -243,6 +249,8 @@ const AuthenticatedShell: React.FC<AuthenticatedShellProps> = ({
       hasUnreadChatMessage={hasUnreadChatMessage}
       onNavigate={onNavigate}
       onLogout={onLogout}
+      themePreference={themePreference}
+      onCycleTheme={cycleThemePreference}
     />
     </div>
   );

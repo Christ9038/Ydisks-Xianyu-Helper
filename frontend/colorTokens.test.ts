@@ -43,4 +43,24 @@ describe('global color token contract', () => {
     expect(globalStyles).toContain('--color-warning-500:');
     expect(globalStyles).toContain('--color-danger-500:');
   } /* 测试回调断言全局样式提供全部核心色彩令牌。 */);
+  test('dark theme keeps large background surfaces pure gray and leaves the brand blue untouched', /* 测试回调解析深色令牌块并断言纯灰背景与未改动的品牌蓝。 */ () => {
+    const globalStyles = readFileSync(resolve(__dirname, 'index.css'), 'utf8'); /* globalStyles 是全局样式原文。 */
+    // darkBlock 是 data-theme="dark" 令牌覆盖块的内容。
+    const darkBlock = globalStyles.match(/:root\[data-theme="dark"\] \{([\s\S]*?)\n\}/)?.[1] ?? '';
+    expect(darkBlock).not.toBe('');
+
+    // pureGrayTokens 是深色下的大面积背景令牌，三个通道必须相等，避免出现色彩倾向。
+    const pureGrayTokens = ['white', 'canvas', 'surface', 'surface-subtle', 'surface-muted', 'neutral-50', 'neutral-100', 'slate-50', 'slate-100'];
+    for (const token /* token 是待检查的深色背景令牌名。 */ of pureGrayTokens) {
+      // match 是该令牌在深色块中的 RGB 声明。
+      const match = darkBlock.match(new RegExp(`--color-${token}: (\\d+) (\\d+) (\\d+);`));
+      expect(match, token).not.toBeNull();
+      expect(match![1] === match![2] && match![2] === match![3], `${token} 必须是纯灰`).toBe(true);
+    }
+
+    // 主题蓝不得在深色块中被覆盖。
+    for (const token /* token 是不得被深色块覆盖的品牌蓝令牌名。 */ of ['brand', 'brand-highlight', 'brand-light', 'brand-500', 'brand-600', 'brand-700']) {
+      expect(darkBlock, token).not.toContain(`--color-${token}:`);
+    }
+  });
 } /* 测试套件回调汇总页面颜色令牌的静态契约。 */);

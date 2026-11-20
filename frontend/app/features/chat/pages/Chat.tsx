@@ -212,7 +212,7 @@ const Chat: React.FC<ChatProps> = ({ libraryImageChooser: LibraryChooser }) => {
                               <img src={message.content} alt="聊天图片" className="max-h-80 max-w-full rounded-xl object-contain" />
                             </button>
                           ) : message.message_type === 'video' ? (
-                            <video src={message.content} controls preload="metadata" className="max-h-80 max-w-full rounded-2xl bg-black" />
+                            <video src={message.content} controls preload="metadata" className="max-h-80 max-w-full rounded-2xl bg-contrast" />
                           ) : message.message_type === 'audio' ? (
                             <AudioMessage messageKey={message.message_key} src={message.content} outgoing={outgoing} initialDuration={message.media_duration} />
                           ) : (
@@ -284,7 +284,7 @@ const Chat: React.FC<ChatProps> = ({ libraryImageChooser: LibraryChooser }) => {
         </div>
       )}
 
-      {pendingImage && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4" onClick={/* 当前回调点击遮罩取消图片预览。 */ closeImagePreview}>
+      {pendingImage && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={/* 当前回调点击遮罩取消图片预览。 */ closeImagePreview}>
         <div className="flex max-h-full w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={/* 当前回调阻止预览内容点击冒泡到遮罩。 */ event => event.stopPropagation()}>
           <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-5 py-3">
             <div className="text-sm font-black text-slate-900">发送图片预览</div>

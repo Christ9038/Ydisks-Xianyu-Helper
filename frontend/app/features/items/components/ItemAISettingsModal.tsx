@@ -167,7 +167,7 @@ export const ItemAISettingsModal: React.FC<ItemAISettingsModalProps> = ({ item, 
             <div className="flex min-h-52 flex-col items-center justify-center gap-4 text-center">
               <AlertCircle className="h-7 w-7 text-red-500" />
               <p role="alert" className="max-w-md text-sm font-medium leading-6 text-red-700">{errorMessage}</p>
-              <button type="button" onClick={/* reloadClickHandler 重新读取当前商品配置，成功前仍禁止保存。 */ () => setLoadRevision(/* previousRevision 保证连续重试都产生新请求代次。 */ previousRevision => previousRevision + 1)} className="rounded-xl bg-gray-900 px-5 py-2.5 text-sm font-bold text-white hover:bg-black">
+              <button type="button" onClick={/* reloadClickHandler 重新读取当前商品配置，成功前仍禁止保存。 */ () => setLoadRevision(/* previousRevision 保证连续重试都产生新请求代次。 */ previousRevision => previousRevision + 1)} className="rounded-xl bg-contrast px-5 py-2.5 text-sm font-bold text-on-contrast hover:bg-contrast/90">
                 重新加载
               </button>
             </div>

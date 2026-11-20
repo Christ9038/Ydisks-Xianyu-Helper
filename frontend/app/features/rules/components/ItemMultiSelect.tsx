@@ -143,7 +143,7 @@ const ItemMultiSelect = ({ options, value, onChange, disabled = false, placehold
             <span className="text-gray-400">{placeholder}</span>
           ) : (
             selectedIDs.map(/* 当前回调渲染单个已选商品标签。 */ itemID => (
-              <span key={itemID} className="inline-flex max-w-full items-center gap-1 rounded-lg bg-black px-2.5 py-1 text-xs font-bold text-white">
+              <span key={itemID} className="inline-flex max-w-full items-center gap-1 rounded-lg bg-contrast px-2.5 py-1 text-xs font-bold text-on-contrast">
                 <span className="truncate">{itemTitle(itemID)}</span>
                 <button
                   type="button"

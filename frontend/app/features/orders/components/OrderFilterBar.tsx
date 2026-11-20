@@ -51,7 +51,7 @@ export const OrderFilterBar: React.FC<OrderFilterBarProps> = ({
               key={option.key}
               data-status={option.key}
               onClick={handleStatusClick}
-              className={`px-5 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${filter === option.key ? 'bg-white text-black shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              className={`px-5 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${filter === option.key ? 'bg-white text-ink shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
             >
               {option.label}
             </button>

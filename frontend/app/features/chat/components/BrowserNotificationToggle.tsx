@@ -29,7 +29,7 @@ const BrowserNotificationToggle: React.FC = () => {
         onClick={/* 当前回调由用户手势触发权限申请或关闭本地通知偏好。 */ () => void preference.setEnabled(!preference.enabled)}
         className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${preference.enabled ? 'bg-sky-500' : 'bg-slate-200'} disabled:cursor-not-allowed disabled:opacity-50`}
       >
-        <span className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${preference.enabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
+        <span className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-on-accent shadow-sm transition-transform ${preference.enabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
       </button>
       <span className="whitespace-nowrap text-slate-400">{statusText}</span>
       {hint && <span className="hidden max-w-[16rem] text-amber-600 sm:inline">{hint}</span>}

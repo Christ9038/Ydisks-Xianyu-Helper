@@ -13,7 +13,7 @@ interface Props {
 const Toggle: React.FC<{/** checked 表示开关当前是否选中。 */ checked: boolean; /** onChange 表示开关状态变化的回调。 */ onChange: () => void; /** label 表示控件的无障碍名称。 */ label: string}> = ({ checked, onChange, label }) => (
   <button type="button" aria-label={label} aria-pressed={checked} onClick={onChange}
     className={`relative h-8 w-14 shrink-0 rounded-full transition-colors ${checked ? 'bg-sky-500' : 'bg-slate-300'}`}>
-    <span className={`absolute left-1 top-1 h-6 w-6 rounded-full bg-white shadow-sm transition-transform ${checked ? 'translate-x-6' : ''}`} />
+    <span className={`absolute left-1 top-1 h-6 w-6 rounded-full bg-on-accent shadow-sm transition-transform ${checked ? 'translate-x-6' : ''}`} />
   </button>
 );
 
