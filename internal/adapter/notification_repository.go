@@ -80,6 +80,11 @@ func (r NotificationChannelRepository) OwnsAccount(ctx context.Context, userID i
 	return r.store.Cookies.ExistsOwned(ctx, userID, cookieID)
 }
 
+// ListOwnedAccountIDs 返回指定用户拥有的账号标识，不读取 Cookie 值或任何凭证字段。
+func (r NotificationChannelRepository) ListOwnedAccountIDs(ctx context.Context, userID int64) ([]string, error) {
+	return r.store.Cookies.ListOwnedIDs(ctx, userID)
+}
+
 // ListBindings 查询绑定摘要并转换为应用模型。
 func (r NotificationChannelRepository) ListBindings(ctx context.Context, userID int64) ([]notificationsapp.BindingSummary, error) {
 	// rows、err 保存数据库绑定摘要及错误。

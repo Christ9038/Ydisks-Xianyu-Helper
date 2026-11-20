@@ -146,7 +146,22 @@ export interface AIReplySettings {
 }
 
 /** 由当前 feature adapter 归一后的 NotificationChannelType UI 模型；不直接暴露 HTTP DTO。 */
-export type NotificationChannelType = 'dingtalk' | 'feishu' | 'bark' | 'webhook' | 'wechat' | 'telegram' | 'email';
+export type NotificationChannelType = 'dingtalk' | 'feishu' | 'feishu_app' | 'bark' | 'webhook' | 'wechat' | 'telegram' | 'email';
+
+/** notificationChannelTypeLabel 把账号编辑页的通知渠道类型转换为用户可读名称；未知类型保持原值便于诊断。 */
+export const notificationChannelTypeLabel = (type: NotificationChannelType | string): string => {
+  switch (type) {
+    case 'dingtalk': return '钉钉机器人';
+    case 'feishu': return '飞书群机器人';
+    case 'feishu_app': return '飞书机器人（扫码）';
+    case 'bark': return 'Bark';
+    case 'webhook': return '自定义 Webhook';
+    case 'wechat': return '企业微信机器人';
+    case 'telegram': return 'Telegram';
+    case 'email': return '邮件';
+    default: return String(type);
+  }
+};
 /** 由当前 feature adapter 归一后的 NotificationEventType UI 模型；不直接暴露 HTTP DTO。 */
 export type NotificationEventType =
   | 'account_offline'
@@ -157,6 +172,7 @@ export type NotificationEventType =
   | 'delivery_result'
   | 'manual_intervention_required'
   | 'chat_manual_requested'
+  | 'chat_message_received'
   | 'system_error';
 
 /** 由当前 feature adapter 归一后的 NotificationChannel UI 模型；不直接暴露 HTTP DTO。 */

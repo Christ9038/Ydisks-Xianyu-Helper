@@ -33,6 +33,7 @@ func TestOpenAPISuccessContractCoverage(t *testing.T) {
 		{name: "items-and-cards", run: TestOpenAPIItemAndCardResponses},
 		{name: "card-api-editor", run: TestCardAPIEditorContract},
 		{name: "notifications", run: TestOpenAPINotificationResponses},
+		{name: "feishu-app-binding", run: TestOpenAPIFeishuAppBindingResponses},
 		{name: "versioned-session", run: TestVersionedSessionRoutesPreserveLegacyContracts},
 		{name: "api-access-tokens", run: TestAPIAccessTokenManagementAndBearerUse},
 		{name: "chat-manual-takeover", run: TestChatManualTakeoverBearerScopeUsesNarrowSettingsOnly},

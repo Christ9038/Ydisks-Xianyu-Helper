@@ -6017,6 +6017,194 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/notifications/feishu-app/qr":
+    post:
+      operationId: postApiV1NotificationsFeishuAppQr
+      summary: 开始飞书应用扫码绑定
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeishuAppBindingStartRequest'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeishuAppBindingStartResponse'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/notifications/feishu-app/qr/{session_id}":
+    get:
+      operationId: getApiV1NotificationsFeishuAppQrStatus
+      summary: 查询飞书应用扫码绑定状态
+      security: [{cookieAuth: []}]
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeishuAppBindingStatusResponse'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/notifications/channels/{channel_id}/feishu-categories":
+    get:
+      operationId: getApiV1NotificationsChannelsFeishuCategories
+      summary: 查询飞书应用渠道的警告与普通提示开关
+      security: [{cookieAuth: []}]
+      parameters:
+        - name: channel_id
+          in: path
+          required: true
+          schema: {type: integer}
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeishuChannelCategoriesResponse'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      operationId: putApiV1NotificationsChannelsFeishuCategories
+      summary: 更新飞书应用渠道的警告与普通提示开关
+      security: [{cookieAuth: []}]
+      parameters:
+        - name: channel_id
+          in: path
+          required: true
+          schema: {type: integer}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeishuChannelCategoriesUpdateRequest'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationResponse'
+        '400':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   "/api/v1/notifications/messages":
     get:
       operationId: getApiV1NotificationsMessages
@@ -10039,6 +10227,52 @@ components:
         item_detail: {type: string}
         is_multi_spec: {type: boolean}
         multi_quantity_delivery: {type: boolean}
+    FeishuAppBindingStartRequest:
+      type: object
+      properties:
+        bind_all_accounts:
+          type: boolean
+          default: true
+          description: 绑定成功后是否把新飞书渠道绑定到当前用户全部账号；省略时按 true 处理。
+        notify_warning:
+          type: boolean
+          default: true
+          description: 是否推送警告类通知（账号异常、风控、需要人工处理、失败结果等）；省略时按 true 处理。
+        notify_info:
+          type: boolean
+          default: true
+          description: 是否推送普通提示类通知（新消息、发货结果、自动化成功结果等）；省略时按 true 处理。
+    FeishuChannelCategoriesResponse:
+      type: object
+      required: [warning, info]
+      properties:
+        warning: {type: boolean}
+        info: {type: boolean}
+    FeishuChannelCategoriesUpdateRequest:
+      type: object
+      required: [warning, info]
+      properties:
+        warning: {type: boolean}
+        info: {type: boolean}
+    FeishuAppBindingStartResponse:
+      type: object
+      required: [session_id, qr_code_url, expires_in]
+      properties:
+        session_id: {type: string}
+        qr_code_url:
+          type: string
+          description: 可直接展示的飞书扫码绑定二维码 PNG data URL。
+        expires_in: {type: integer}
+    FeishuAppBindingStatusResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [waiting, success, expired, error]
+          description: 扫码绑定的当前阶段；success 时附带已创建或更新的通知渠道 ID。
+        message: {type: string}
+        channel_id: {type: integer}
     NotificationChannelResponse:
       type: object
       required: [id, name, type, enabled]

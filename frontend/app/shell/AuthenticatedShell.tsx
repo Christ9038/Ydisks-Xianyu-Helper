@@ -7,6 +7,7 @@ import { requestChatAccount } from '../../shared/browser/chatAccountTarget';
 import { useChatTitleNotification } from '../features/chat/titleNotification';
 import { getHealth } from '../features/system/api';
 import type { BuildInfo } from '../features/system/types';
+import type { ChatDeepLink } from '../router/routes';
 
 // DeliveryRuleTarget 描述商品页跳转到自动化规则页时需要携带的目标信息。
 export interface DeliveryRuleTarget {
@@ -28,6 +29,8 @@ export interface AuthenticatedShellProps {
   collapsed: boolean;
   // deliveryRuleTarget 表示待传递给规则页的商品发货目标。
   deliveryRuleTarget?: DeliveryRuleTarget;
+  // chatDeepLink 表示 URL 通知深链指定的一次性聊天账号与会话目标。
+  chatDeepLink?: ChatDeepLink;
   // onToggleCollapsed 负责切换侧边栏折叠状态。
   onToggleCollapsed: () => void;
   // onNavigate 负责切换业务页面并同步外部路由。
@@ -84,6 +87,10 @@ const AutomationAuditPanel = lazy(/* 规则日志面板随规则页签按需加�
 const DeliveryTemplates = lazy(/* DeliveryTemplates 页面按路由激活时加载。 */ () => import('../features/delivery-templates/pages/DeliveryTemplates'));
 // Notifications 是按需加载的通知页面，避免首屏载入通知配置代码。
 const Notifications = lazy(/* Notifications 页面按路由激活时加载。 */ () => import('../features/notifications/pages/Notifications'));
+// FeishuBindingPanel 是通知页的扫码绑定交互，仅在用户点击按钮后才下载，避免撑大通知页分片。
+const FeishuBindingPanel = lazy(/* FeishuBindingPanel 在用户打开扫码绑定弹窗时加载。 */ () => import('../features/notifications/components/FeishuBindingPanel').then(/* module 提供扫码绑定面板的具名导出。 */ module => ({ default: module.FeishuBindingPanel })));
+// FeishuSettingsPanel 是飞书渠道分类设置交互，仅在用户点击渠道设置时加载，避免撑大通知页分片。
+const FeishuSettingsPanel = lazy(/* FeishuSettingsPanel 在用户打开渠道设置时加载。 */ () => import('../features/notifications/components/FeishuSettingsPanel').then(/* module 提供飞书渠道设置面板的具名导出。 */ module => ({ default: module.FeishuSettingsPanel })));
 // Chat 是按需加载的聊天页面，避免未访问时载入聊天历史和 WebSocket 视图。
 const Chat = lazy(/* Chat 页面按路由激活时加载。 */ () => import('../features/chat/pages/Chat'));
 // RuntimeLogs 是按需加载的运行日志页面，仅在管理员访问时加载，避免普通用户下载诊断代码。
@@ -104,6 +111,8 @@ export interface AppContentProps {
   isAdmin: boolean;
   // deliveryRuleTarget 表示商品页传递给规则页的目标信息。
   deliveryRuleTarget?: DeliveryRuleTarget;
+  // chatDeepLink 表示 URL 通知深链指定的一次性聊天账号与会话目标。
+  chatDeepLink?: ChatDeepLink;
   // onConfigureDelivery 负责接收商品页面发起的规则配置目标。
   onConfigureDelivery: (target: DeliveryRuleTarget) => void;
   // onDeliveryTargetHandled 负责确认规则页已经消费跳转目标。
@@ -119,6 +128,7 @@ export const AppContent: React.FC<AppContentProps> = ({
   activeTab,
   isAdmin,
   deliveryRuleTarget,
+  chatDeepLink,
   onConfigureDelivery,
   onDeliveryTargetHandled,
   onNavigateToItems,
@@ -138,7 +148,7 @@ export const AppContent: React.FC<AppContentProps> = ({
     switch (activeTab) {
       case 'dashboard': return <Dashboard />;
       case 'accounts': return <AccountList accountEditModal={AccountEditModal} onOpenChat={onOpenChat} />;
-      case 'chat': return <Chat libraryImageChooser={LibraryImageChooser} />;
+      case 'chat': return <Chat libraryImageChooser={LibraryImageChooser} initialChatLink={chatDeepLink} />;
       case 'orders': return <OrderList />;
       case 'sales': return <SalesStats />;
       case 'cards': return <CardList libraryImageChooser={LibraryImageChooser} />;
@@ -151,7 +161,7 @@ export const AppContent: React.FC<AppContentProps> = ({
       />;
       case 'delivery-templates': return <DeliveryTemplates libraryImageChooser={LibraryImageChooser} />;
       case 'library': return <ResourceLibrary onBatchStarted={onNavigateToItems} locationField={PublishLocationField} categoryField={PublishCategoryField} />;
-      case 'notifications': return <Notifications isAdmin={isAdmin} />;
+      case 'notifications': return <Notifications isAdmin={isAdmin} feishuBindingPanel={FeishuBindingPanel} feishuSettingsPanel={FeishuSettingsPanel} />;
       case 'logs': return isAdmin ? <RuntimeLogs /> : <Dashboard />;
       case 'settings': return isAdmin ? <Settings /> : <Dashboard />;
       case 'api-access': return <APIAccessTokensPage />;
@@ -172,6 +182,7 @@ const AuthenticatedShell: React.FC<AuthenticatedShellProps> = ({
   isAdmin,
   collapsed,
   deliveryRuleTarget,
+  chatDeepLink,
   onToggleCollapsed,
   onNavigate,
   onLogout,
@@ -233,6 +244,7 @@ const AuthenticatedShell: React.FC<AuthenticatedShellProps> = ({
           activeTab={activeTab}
           isAdmin={isAdmin}
           deliveryRuleTarget={deliveryRuleTarget}
+          chatDeepLink={chatDeepLink}
           onConfigureDelivery={onConfigureDelivery}
           onDeliveryTargetHandled={onDeliveryTargetHandled}
           onNavigateToItems={/* 批次启动后进入商品页查看进度。 */ () => onNavigate('items')}

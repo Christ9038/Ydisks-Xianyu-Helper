@@ -242,4 +242,19 @@ describe('frontend navigation routing', () => {
     expect(sidebar).toContain("{ id: 'logs', icon: ScrollText, label: '运行日志' }");
     expect(sidebar).toContain("...(isAdmin ? [{ id: 'settings'");
   } /* 测试回调断言运行日志页面只对管理员开放。 */);
+
+  test('chat deep link flows from the URL into the chat page only while active', /* 当前回调断言通知深链从路由壳传递到聊天页且主动导航会清除目标。 */ () => {
+    const router = readFrontendFile('app/router/AppRouter.tsx'); /* router 表示认证后路由组合器源码。 */
+    const shell = readFrontendFile('app/shell/AuthenticatedShell.tsx'); /* shell 表示认证后应用壳源码。 */
+    const routes = readFrontendFile('app/router/routes.ts'); /* routes 表示业务路由表与深链解析源码。 */
+    const chatPage = readFrontendFile('app/features/chat/pages/Chat.tsx'); /* chatPage 表示聊天页组合源码。 */
+
+    expect(routes).toContain('chatDeepLinkFromLocation');
+    expect(router).toContain('chatDeepLinkFromLocation');
+    expect(router).toContain('setChatDeepLink(undefined)');
+    expect(router).toContain('chatDeepLink={chatDeepLink}');
+    expect(shell).toContain('initialChatLink={chatDeepLink}');
+    expect(chatPage).toContain('useChat(initialChatLink)');
+    expect(chatPage).toContain('deepLinkOpenedRef');
+  } /* 测试回调断言聊天深链只在用户主动导航前保留。 */);
 } /* 测试套件回调汇总路由装配与访问边界契约。 */);

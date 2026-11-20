@@ -26,3 +26,7 @@ export const pathByRoute: Readonly<Record<AppRoute, string>> = Object.fromEntrie
 
 /** routeFromLocation 从当前浏览器地址解析业务路由，未知地址安全回退到仪表盘。 */
 export const routeFromLocation = (): AppRoute => routeByPath[window.location.pathname] ?? 'dashboard';
+
+// 兼容应用壳既有导入路径：深链类型和解析器由 shared 层实现，feature 不从 app 反向导入。
+export type { ChatDeepLink } from '../../shared/browser/chatDeepLink';
+export { chatDeepLinkFromLocation } from '../../shared/browser/chatDeepLink';

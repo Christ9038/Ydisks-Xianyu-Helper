@@ -278,6 +278,7 @@ type NotificationChannelsPort interface {
 	SetSingleBinding(context.Context, int64, string, int64, bool) error
 	DeleteBinding(context.Context, int64, int64) error
 	DeleteAccountBindings(context.Context, int64, string) error
+	FeishuAppNotificationPort
 }
 
 // AnalyticsPort 定义仪表盘和订单分析能力。
@@ -768,21 +769,6 @@ func (server *Server) platformCredentialApplication() PlatformCredentialPort {
 // authenticationApplication 返回用户登录认证用例。
 func (server *Server) authenticationApplication() AuthenticationPort {
 	return server.applicationServiceSet().authentication
-}
-
-// accountSummaryApplication 返回账号摘要用例。
-func (server *Server) accountSummaryApplication() AccountSummaryPort {
-	return server.applicationServiceSet().accountSummaries
-}
-
-// accountDeleteApplication 返回账号删除用例。
-func (server *Server) accountDeleteApplication() AccountDeletePort {
-	return server.applicationServiceSet().accountDelete
-}
-
-// loginAuditApplication 返回登录审计用例。
-func (server *Server) loginAuditApplication() LoginAuditPort {
-	return server.applicationServiceSet().loginAudit
 }
 
 // settingsApplication 返回系统设置用例。

@@ -7,6 +7,7 @@ import { confirmedOutgoingMessageFromError,deleteChatSession,getAccountDetails,g
 import { publishChatUnreadStatus,subscribeToChatLiveEvents } from './liveEvents';
 import { collectChatReadReceipts,filterChatSessions,formatClock,isChatAbortError,isCurrentChatRequest,markOutgoingMessagesReadByIncoming,mergeChatSessions,mergeLiveMessage,mergeOlderMessages,messageTime } from './state';
 import type { ChatFeatureState,ChatLiveState,SessionsByAccount } from './types';
+import type { ChatDeepLink } from '../../../shared/browser/chatDeepLink';
 import { libraryImageContentUrl,type LibraryImageChoice } from '../../../shared/ui/imageSource';
 
 /** ChatImageSource 是一次图片发送的来源：本地文件，或图片库图片（由服务端读取字节）。 */
@@ -37,9 +38,9 @@ export type UseChatResult = ChatFeatureState & {
   scrollRef: React.MutableRefObject<HTMLDivElement | null>;
   /** 图片文件输入引用。 */
   imageInputRef: React.MutableRefObject<HTMLInputElement | null>;
-  /** 更新当前账号。 */
+  /** 更新当前账号；用户主动切换时同时丢弃尚未消费的深链目标。 */
   setActiveAccountID: React.Dispatch<React.SetStateAction<string>>;
-  /** 更新当前会话。 */
+  /** 更新当前会话；用户手动选择时同时丢弃尚未消费的深链目标。 */
   setActiveChatID: React.Dispatch<React.SetStateAction<string>>;
   /** 更新搜索文本。 */
   setSearch: React.Dispatch<React.SetStateAction<string>>;
@@ -101,16 +102,19 @@ export type UseChatResult = ChatFeatureState & {
   messageTime: typeof messageTime;
 };
 
-/** 统一管理聊天账号、会话、消息分页、实时连接和发送重试状态。 */
-export const useChat = (): UseChatResult => {
+/**
+ * 统一管理聊天账号、会话、消息分页、实时连接和发送重试状态。
+ * initialChatLink 是通知深链传入的一次性账号与会话目标；初始加载优先选中该目标，用户后续主动操作会覆盖并清除它。
+ */
+export const useChat = (initialChatLink?: ChatDeepLink): UseChatResult => {
   // accounts 保存启用账号及其运行状态。
   const [accounts, setAccounts] = useState<AccountDetail[]>([]);
-  // activeAccountID 保存当前选中的账号。
-  const [activeAccountID, setActiveAccountID] = useState('');
+  // activeAccountID 保存当前选中的账号；setActiveAccountIDState 只由 Hook 内部初始化写入。
+  const [activeAccountID, setActiveAccountIDState] = useState('');
   // sessionsByAccount 按账号隔离会话列表。
   const [sessionsByAccount, setSessionsByAccount] = useState<SessionsByAccount>({});
-  // activeChatID 保存当前选中的会话。
-  const [activeChatID, setActiveChatID] = useState('');
+  // activeChatID 保存当前选中的会话；setActiveChatIDState 由自动选择和删除收口内部写入。
+  const [activeChatID, setActiveChatIDState] = useState('');
   // messages 保存当前会话消息。
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   // search 保存会话搜索文本。
@@ -163,6 +167,10 @@ export const useChat = (): UseChatResult => {
   const activeAccountRef = useRef('');
   // activeChatRef 供实时回调读取最新会话。
   const activeChatRef = useRef('');
+  // pendingDeepLinkChatRef 保存尚未匹配到会话列表的深链目标；匹配成功或用户主动切换账号/会话后清空，避免迟到列表意外覆盖手动选择。
+  const pendingDeepLinkChatRef = useRef<ChatDeepLink | undefined>(
+    initialChatLink && initialChatLink.accountID && initialChatLink.chatID ? initialChatLink : undefined,
+  );
   // sessionsByAccountRef 保存最近一次已提交的本地会话快照，实时消息只用它判断是否允许平台补齐。
   const sessionsByAccountRef = useRef<SessionsByAccount>({});
   // scrollRef 指向消息滚动容器。
@@ -211,6 +219,18 @@ export const useChat = (): UseChatResult => {
 	const deletingSessionIDRef = useRef('');
 	// deletionNeedsLocalReloadRef 记录删除隔离期间是否收到目标事件，收口后只追加一次本地读取。
 	const deletionNeedsLocalReloadRef = useRef(false);
+
+  /** setActiveAccountID 处理用户主动切换账号，并丢弃尚未消费的深链目标；调用语义与 React setState 一致。 */
+  const setActiveAccountID = useCallback<React.Dispatch<React.SetStateAction<string>>>(/* action 是新的账号标识或基于旧标识的更新函数。 */ action => {
+    pendingDeepLinkChatRef.current = undefined;
+    setActiveAccountIDState(action);
+  }, []);
+
+  /** setActiveChatID 处理用户手动选择会话，并丢弃尚未消费的深链目标；调用语义与 React setState 一致。 */
+  const setActiveChatID = useCallback<React.Dispatch<React.SetStateAction<string>>>(/* action 是新的会话标识或基于旧标识的更新函数。 */ action => {
+    pendingDeepLinkChatRef.current = undefined;
+    setActiveChatIDState(action);
+  }, []);
 
   useEffect(/* 当前回调同步 React 副作用和资源生命周期。 */ () => { activeAccountRef.current = activeAccountID; }, [activeAccountID]);
   useEffect(/* 当前回调同步当前会话并在用户主动选择后解除该账号的自动选择屏蔽。 */ () => {
@@ -324,13 +344,17 @@ export const useChat = (): UseChatResult => {
         setStoredHasMoreContacts(Object.fromEntries(sessionPages.map(/* 当前回调记录每个账号本地联系人分页状态。 */ ([id, page]) => [id, page.stored_has_more ?? page.has_more])));
         // target 保存账号页交接的一次性目标账号；初始加载只消费一次，避免后续导航复用旧账号。
         const target = consumeChatAccountTarget();
-        // stored 保存上一次由用户选择的账号标识，作为没有交接目标时的回退。
+        // stored 保存上一次由用户选择的账号标识，作为没有交接目标和深链目标时的回退。
         const stored = window.localStorage.getItem('ydisks.chat.account.v1') || '';
-        // first 保存初始选中的账号：优先账号页交接目标，其次上次选择，最后首个启用账号。
-        const first = enabled.some(/* 当前回调判断交接目标是否为当前可用的启用账号。 */ account => account.id === target)
-          ? target
-          : enabled.some(/* 当前回调判断上次选择是否仍为当前可用的启用账号。 */ account => account.id === stored) ? stored : enabled[0]?.id || '';
-        setActiveAccountID(first);
+        // deepLinkAccountID 保存 URL 深链指定的账号；只有该账号仍启用时才会被优先选中。
+        const deepLinkAccountID = initialChatLink?.accountID || '';
+        // first 保存初始选中的账号：优先 URL 深链，其次账号页交接目标，再次上次选择，最后首个启用账号。
+        const first = enabled.some(/* 当前回调判断深链账号是否为当前可用的启用账号。 */ account => account.id === deepLinkAccountID)
+          ? deepLinkAccountID
+          : enabled.some(/* 当前回调判断交接目标是否为当前可用的启用账号。 */ account => account.id === target)
+            ? target
+            : enabled.some(/* 当前回调判断上次选择是否仍为当前可用的启用账号。 */ account => account.id === stored) ? stored : enabled[0]?.id || '';
+        setActiveAccountIDState(first);
       } catch (/* loadError 表示加载错误。 */ loadError) {
         if (!controller.signal.aborted) setError(loadError instanceof Error ? loadError.message : '加载聊天数据失败');
       } finally {
@@ -373,13 +397,20 @@ export const useChat = (): UseChatResult => {
     };
   }, []);
 
-  useEffect(/* 当前回调同步 React 副作用和资源生命周期。 */ () => {
+  useEffect(/* 当前副作用在账号切换或会话列表变化时修正当前会话，并消费一次性深链目标。 */ () => {
     if (!activeAccountID) return;
     window.localStorage.setItem('ydisks.chat.account.v1', activeAccountID);
-    // sessions 会话列表。
+    // sessions 保存当前账号已加载的会话列表；深链会话可能分布在后续分页中。
     const sessions = sessionsByAccount[activeAccountID] || [];
+    // deepLink 保存尚未消费的深链目标；只有账号匹配且目标会话已加载时才消费，未命中时保留等待后续会话更新。
+    const deepLink = pendingDeepLinkChatRef.current;
+    if (deepLink && deepLink.accountID === activeAccountID && sessions.some(/* 当前回调判断深链会话是否已出现在当前账号列表中。 */ session => session.chat_id === deepLink.chatID)) {
+      pendingDeepLinkChatRef.current = undefined;
+      setActiveChatIDState(deepLink.chatID);
+      return;
+    }
     if (suppressAutoSelectAccountRef.current === activeAccountID && !activeChatRef.current) return;
-    setActiveChatID(/* 当前回调处理集合中的单个元素。 */ current => sessions.some(/* 当前回调处理集合中的单个元素。 */ session => session.chat_id === current) ? current : sessions[0]?.chat_id || '');
+    setActiveChatIDState(/* 当前回调在会话上下文失效时回退到首条会话。 */ current => sessions.some(/* 当前回调判断当前会话是否仍属于最新会话列表。 */ session => session.chat_id === current) ? current : sessions[0]?.chat_id || '');
   }, [activeAccountID, sessionsByAccount]);
 
   useEffect(/* 当前副作用将所有已加载账号会话的未读聚合状态回传给应用壳，红点只能在没有任何未读时消失。 */ () => {
@@ -842,7 +873,7 @@ export const useChat = (): UseChatResult => {
 				olderController.current?.abort();
 				sendSequence.current += 1;
 				sendController.current?.abort();
-				setActiveChatID('');
+				setActiveChatIDState('');
 				setMessages([]);
 				setMessagesLoading(false);
 				setOlderLoading(false);

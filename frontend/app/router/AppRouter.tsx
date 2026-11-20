@@ -3,7 +3,7 @@ import { readSidebarCollapsed, writeSidebarCollapsed } from '../../shared/browse
 import { SessionGate } from '../features/session/pages/SessionGate';
 import { useSession } from '../providers/SessionProvider';
 import AuthenticatedShell, { type DeliveryRuleTarget } from '../shell/AuthenticatedShell';
-import { pathByRoute, routeFromLocation, type AppRoute } from './routes';
+import { chatDeepLinkFromLocation, pathByRoute, routeFromLocation, type AppRoute, type ChatDeepLink } from './routes';
 
 /** AppRouter 管理认证后的浏览器路由、侧边栏偏好与跨页面规则配置载荷。 */
 export const AppRouter: React.FC = () => {
@@ -11,6 +11,8 @@ export const AppRouter: React.FC = () => {
   const { isLoggedIn, isAdmin, signOut } = useSession();
   // activeRoute 是当前 URL 对应的短暂导航状态，浏览器前进后退会同步更新。
   const [activeRoute, setActiveRoute] = useState<AppRoute>(routeFromLocation);
+  // chatDeepLink 保存当前地址携带的一次性聊天深链目标；setChatDeepLink 只由历史事件和主动导航同步更新。
+  const [chatDeepLink, setChatDeepLink] = useState<ChatDeepLink | undefined>(chatDeepLinkFromLocation);
   // deliveryRuleTarget 是商品页发起、规则页消费后即清除的短暂跨页面载荷。
   const [deliveryRuleTarget, setDeliveryRuleTarget] = useState<DeliveryRuleTarget | undefined>();
   // sidebarCollapsed 是用户本地偏好，不属于服务端业务数据。
@@ -18,8 +20,11 @@ export const AppRouter: React.FC = () => {
 
   /** effect 同步浏览器历史事件，并在路由退回时拒绝非管理员设置页。 */
   useEffect(/* historyEffect 负责订阅并在卸载时移除浏览器历史监听。 */ () => {
-    /** handlePopState 读取历史记录对应的路由，不从异步请求恢复旧状态。 */
-    const handlePopState = (): void => setActiveRoute(routeFromLocation());
+    /** handlePopState 读取历史记录对应的路由和聊天深链，不从异步请求恢复旧状态。 */
+    const handlePopState = (): void => {
+      setActiveRoute(routeFromLocation());
+      setChatDeepLink(chatDeepLinkFromLocation());
+    };
     window.addEventListener('popstate', handlePopState);
     return /* historyCleanup 在路由组件卸载时释放全局历史监听。 */ () => window.removeEventListener('popstate', handlePopState);
   }, []);
@@ -38,8 +43,12 @@ export const AppRouter: React.FC = () => {
     const permittedRoute = (route === 'settings' || route === 'logs') && !isAdmin ? 'dashboard' : route;
     // nextPath 是最终路由对应的规范浏览器地址。
     const nextPath = pathByRoute[permittedRoute];
-    if (nextPath !== window.location.pathname) window.history.pushState({}, '', nextPath);
+    // currentPath 保存当前地址的路径与查询；带深链参数时也必须用规范地址覆盖，避免刷新后重新应用旧通知目标。
+    const currentPath = `${window.location.pathname}${window.location.search}`;
+    if (nextPath !== currentPath) window.history.pushState({}, '', nextPath);
     setActiveRoute(permittedRoute);
+    // 用户主动导航后丢弃一次性聊天深链，之后的历史回退只按新地址重新解析。
+    setChatDeepLink(undefined);
   };
 
   /** handleShellNavigation 接收侧边栏的字符串标识，并拒绝不在应用路由表中的遗留值。 */
@@ -85,6 +94,7 @@ export const AppRouter: React.FC = () => {
       isAdmin={isAdmin}
       collapsed={sidebarCollapsed}
       deliveryRuleTarget={deliveryRuleTarget}
+      chatDeepLink={chatDeepLink}
       onToggleCollapsed={handleToggleSidebar}
       onNavigate={handleShellNavigation}
       onLogout={handleLogout}

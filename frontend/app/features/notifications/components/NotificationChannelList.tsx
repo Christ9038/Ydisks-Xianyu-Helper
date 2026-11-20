@@ -1,4 +1,4 @@
-import { Bell,Edit2,Loader2,Send,Trash2 } from 'lucide-react';
+import { Bell,Edit2,Loader2,Send,Settings2,Trash2 } from 'lucide-react';
 import React from 'react';
 import type { NotificationChannel } from '../api';
 import { notificationChannelTypes,notificationEventSummary } from '../state';
@@ -17,10 +17,12 @@ export interface NotificationChannelListProps {
   onToggleEnabled: (channel: NotificationChannel) => void | Promise<void>;
   // onTest 发送指定渠道的测试通知。
   onTest: (channel: NotificationChannel) => void | Promise<void>;
+  // onOpenFeishuSettings 打开飞书应用渠道的警告类与普通提示类通知设置；未提供时不绑定该入口。
+  onOpenFeishuSettings?: (channel: NotificationChannel) => void | Promise<void>;
 }
 
 // NotificationChannelList 渲染渠道摘要、启用状态和操作按钮。
-export const NotificationChannelList: React.FC<NotificationChannelListProps> = ({ channels, testingId, onEdit, onDelete, onToggleEnabled, onTest }) => {
+export const NotificationChannelList: React.FC<NotificationChannelListProps> = ({ channels, testingId, onEdit, onDelete, onToggleEnabled, onTest, onOpenFeishuSettings }) => {
   // findChannel 从按钮数据属性中查找对应渠道。
   const findChannel = (event: React.MouseEvent<HTMLButtonElement>): NotificationChannel | null => channels.find(
     // channel 是当前待匹配的渠道数据。
@@ -49,6 +51,12 @@ export const NotificationChannelList: React.FC<NotificationChannelListProps> = (
     // channel 是按钮对应的渠道数据。
     const channel = findChannel(event);
     if (channel) void onDelete(channel);
+  };
+  // handleFeishuSettingsClick 处理飞书应用渠道的通知分类设置按钮点击。
+  const handleFeishuSettingsClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    // channel 是按钮对应的飞书应用渠道数据。
+    const channel = findChannel(event);
+    if (channel && onOpenFeishuSettings) void onOpenFeishuSettings(channel);
   };
   // renderChannel 渲染单个通知渠道卡片。
   const renderChannel = (channel: NotificationChannel) => {
@@ -83,7 +91,10 @@ export const NotificationChannelList: React.FC<NotificationChannelListProps> = (
           <button data-channel-id={channel.id} onClick={handleTestClick} disabled={testingId === channel.id} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-50 text-brand hover:bg-blue-100 transition-colors flex items-center gap-1 disabled:opacity-50">
             {testingId === channel.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}测试
           </button>
-          <button data-channel-id={channel.id} onClick={handleEditClick} className="w-8 h-8 rounded-lg bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-600 transition-colors" title="编辑"><Edit2 className="w-4 h-4" /></button>
+          {/* 扫码绑定的飞书渠道凭据保存在服务端，普通编辑无法安全回填秘密，因此改为可安全读写的分类通知设置。 */}
+          {channel.type === 'feishu_app'
+            ? <button data-channel-id={channel.id} onClick={handleFeishuSettingsClick} className="px-2 sm:px-3 py-1.5 rounded-lg text-xs font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors flex items-center gap-1" title="通知设置" aria-label="通知设置"><Settings2 className="w-3 h-3" /><span className="hidden sm:inline">通知设置</span></button>
+            : <button data-channel-id={channel.id} onClick={handleEditClick} className="w-8 h-8 rounded-lg bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-600 transition-colors" title="编辑"><Edit2 className="w-4 h-4" /></button>}
           <button data-channel-id={channel.id} onClick={handleDeleteClick} className="w-8 h-8 rounded-lg bg-red-50 hover:bg-red-100 flex items-center justify-center text-red-500 transition-colors" title="删除"><Trash2 className="w-4 h-4" /></button>
         </div>
       </div>

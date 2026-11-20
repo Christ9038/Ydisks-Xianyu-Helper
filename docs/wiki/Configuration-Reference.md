@@ -33,6 +33,7 @@ Every way to configure the server: command-line flags, environment variables and
 | `DATABASE_URL` | Database connection URL; when set it wins over `-db-url` and `-db`. URL-encode special characters in the password. |
 | `XIANYU_DATA_KEY` | AES-256-GCM key for Cookies, passwords, AI keys, SMTP and notification secrets. **Fix it once and back it up with the database**; changing it makes existing encrypted data unreadable. |
 | `XIANYU_ADMIN_PASSWORD` | Initial `admin` password for non-interactive deployments (Docker Compose). Later restarts do not reset it. |
+| `XIANYU_PUBLIC_URL` | Public base URL used by new-message notification links, for example `https://xianyu.example.com`. When empty, notifications omit the conversation link. |
 | `XIANYU_UPLOAD_DIR` | Root directory of uploaded images and library files. Defaults to `data/uploads`; Docker uses `/app/data/uploads`. |
 | `XIANYU_LOG_DIR` | Directory for log files; logs are appended to `server.log` there. When unset, logs go to standard output (on Windows the default is the `logs` folder under the data directory). The Linux package sets it in its systemd unit. |
 | `LOG_LEVEL`, `LOG_FORMAT` | Same as the flags; `LOG_FORMAT=json` suits log collectors. |
@@ -44,7 +45,7 @@ Every way to configure the server: command-line flags, environment variables and
 
 ## Docker Compose `.env`
 
-`.env.example` documents the variables the Compose files read: `COMPOSE_PROJECT_NAME`, `POSTGRES_IMAGE` (default `postgres:17-trixie`), `POSTGRES_DB/USER/PASSWORD`, `DATABASE_URL`, `XIANYU_IMAGE` (default `ghcr.io/christ9038/ydisks-xianyu-helper:latest`), `XIANYU_DATA_KEY`, `XIANYU_BIND_ADDRESS` (default `0.0.0.0`), `XIANYU_HTTP_PORT` (default `59188`), `XIANYU_UPLOAD_DIR` (default `/app/data/uploads`), `TZ` (default `Asia/Shanghai`), `LOG_LEVEL` (default `info`), `LOG_FORMAT` (default `json`), `BROWSER_HEADLESS` (default `true`) and `XIANYU_ADMIN_PASSWORD`. `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `DATABASE_URL`, `XIANYU_DATA_KEY` and `XIANYU_ADMIN_PASSWORD` have no default; Compose fails if any is missing. The app container starts with `-addr :59188 -ensure-admin`.
+`.env.example` documents the variables the Compose files read: `COMPOSE_PROJECT_NAME`, `POSTGRES_IMAGE` (default `postgres:17-trixie`), `POSTGRES_DB/USER/PASSWORD`, `DATABASE_URL`, `XIANYU_IMAGE` (default `ghcr.io/christ9038/ydisks-xianyu-helper:latest`), `XIANYU_DATA_KEY`, `XIANYU_BIND_ADDRESS` (default `0.0.0.0`), `XIANYU_HTTP_PORT` (default `59188`), `XIANYU_UPLOAD_DIR` (default `/app/data/uploads`), `TZ` (default `Asia/Shanghai`), `LOG_LEVEL` (default `info`), `LOG_FORMAT` (default `json`), `BROWSER_HEADLESS` (default `true`), `XIANYU_PUBLIC_URL` and `XIANYU_ADMIN_PASSWORD`. `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `DATABASE_URL`, `XIANYU_DATA_KEY` and `XIANYU_ADMIN_PASSWORD` have no default; Compose fails if any is missing. The app container starts with `-addr :59188 -ensure-admin`.
 
 `XIANYU_CONTINUE_AFTER_UNCERTAIN` is a commented-out option in `.env.example`; Compose passes it as `1` by default. `XIANYU_PENDING_SHIP_CATCHUP` is also commented out, but `compose.yml` does not pass it into the container, so setting it only in `.env` has no effect; to turn it off, add the variable to the app environment in `compose.yml` yourself. Never commit `.env`.
 

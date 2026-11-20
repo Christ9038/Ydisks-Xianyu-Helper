@@ -1,6 +1,9 @@
 package notify
 
-import "strings"
+import (
+	"net/url"
+	"strings"
+)
 
 // levelLabel 封装levelLabel业务协调。
 func levelLabel(level string) string {
@@ -47,6 +50,8 @@ func eventLabel(eventType string) string {
 		return "系统错误"
 	case EventChatManualRequested:
 		return "人工客服"
+	case EventChatMessageReceived:
+		return "新消息"
 	default:
 		if eventType == "" {
 			return "通知"
@@ -163,4 +168,86 @@ func formatEvent(ev NotificationEvent) string {
 		b.WriteString(body)
 	}
 	return b.String()
+}
+
+// chatMessageURL 生成管理后台消息页深链接；账号与会话都经过 URL 编码，避免特殊字符改变查询参数结构。
+// accountID 是账号标识，chatID 是会话标识；两者只用于定位页面，不包含凭证。
+func (n *Notifier) chatMessageURL(accountID, chatID string) string {
+	return n.publicBaseURL + "/app/chat?account=" + url.QueryEscape(accountID) + "&chat=" + url.QueryEscape(chatID)
+}
+
+// chatPeerLabel 组合买家名称与平台用户 ID；任意一侧缺失时只展示可用部分，全部缺失时显示“未知”。
+func chatPeerLabel(peerName, peerID string) string {
+	// name、id 是去除首尾空白后的买家展示名称与平台用户标识。
+	name, id := strings.TrimSpace(peerName), strings.TrimSpace(peerID)
+	switch {
+	case name != "" && id != "":
+		return name + " (ID: " + id + ")"
+	case name != "":
+		return name
+	case id != "":
+		return "ID: " + id
+	default:
+		return "未知"
+	}
+}
+
+// chatMessageTypeLabel 把平台消息类型转换成中文展示标签；未知类型保留原始编码，空值显示“未知”。
+func chatMessageTypeLabel(messageType string) string {
+	// normalized 是去除空白并转为小写的消息类型编码，用于稳定匹配平台取值。
+	normalized := strings.TrimSpace(strings.ToLower(messageType))
+	switch normalized {
+	case "text":
+		return "文本"
+	case "image":
+		return "图片"
+	case "item":
+		return "商品卡片"
+	case "video":
+		return "视频"
+	case "audio":
+		return "语音"
+	case "system":
+		return "系统消息"
+	default:
+		if normalized != "" {
+			return normalized
+		}
+		return "未知"
+	}
+}
+
+// chatMessagePreview 生成非敏感消息摘要；媒体与商品卡片只显示类型说明，文本按字符数安全截断。
+func chatMessagePreview(messageType, preview string) string {
+	// normalized 是去除空白并转为小写的消息类型编码，用于决定摘要展示方式。
+	normalized := strings.TrimSpace(strings.ToLower(messageType))
+	switch normalized {
+	case "image":
+		return "[图片]"
+	case "item":
+		return "[商品卡片]"
+	case "video":
+		return "[视频]"
+	case "audio":
+		return "[语音]"
+	}
+	// text 是去除首尾空白后的文本消息内容，空内容用通用提示替代。
+	text := strings.TrimSpace(preview)
+	if text == "" {
+		return "[新消息]"
+	}
+	return truncateRunes(text, 160)
+}
+
+// truncateRunes 按 Unicode 字符而不是字节截断文本，避免中文或表情被截成非法 UTF-8；超长时追加省略号。
+func truncateRunes(value string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	// runes 保存按字符切分的文本，长度以字符数而非字节数计算。
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+	return string(runes[:limit]) + "…"
 }

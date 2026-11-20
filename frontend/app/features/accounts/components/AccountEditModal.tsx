@@ -5,7 +5,7 @@ import type { NotificationChannel } from '../api';
 import type { AccountEditForm,AccountEditModalProps } from '../types';
 import { consignProofFormError } from '../consignProof';
 import { manualTakeoverFormError } from '../manualTakeover';
-import type { ConsignProofMode,ManualTakeoverScope } from '../models';
+import { notificationChannelTypeLabel,type ConsignProofMode,type ManualTakeoverScope } from '../models';
 import { ConsignProofSettings } from './ConsignProofSettings';
 import { ManualTakeoverSettings } from './ManualTakeoverSettings';
 import { SquareQRCode } from './SquareQRCode';
@@ -119,7 +119,7 @@ export const AccountEditModal: React.FC<AccountEditModalProps> = ({
         </button>
         <div className="flex-1 min-w-0">
           <div className="font-bold text-gray-900 text-sm">{channel.name}</div>
-          <div className="text-xs text-gray-500">{channel.type}{channel.enabled ? '' : ' · 已停用'}</div>
+          <div className="text-xs text-gray-500">{notificationChannelTypeLabel(channel.type)}{channel.enabled ? '' : ' · 已停用'}</div>
         </div>
       </label>
     );

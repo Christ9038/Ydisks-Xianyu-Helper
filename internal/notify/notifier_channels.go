@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/feishu"
 	"xianyu-go/internal/logsafe"
 )
 
@@ -32,6 +33,8 @@ func (n *Notifier) send(ch db.NotificationChannel, message string) error {
 		return n.sendDingTalk(cfg, message)
 	case "feishu", "lark":
 		return n.sendFeishu(cfg, message)
+	case "feishu_app":
+		return n.sendFeishuApp(cfg, message)
 	case "bark":
 		return n.sendBark(cfg, message)
 	case "webhook":
@@ -132,6 +135,31 @@ func (n *Notifier) sendFeishu(cfg map[string]any, message string) error {
 		data["sign"] = base64.StdEncoding.EncodeToString(h.Sum(nil))
 	}
 	return n.postJSON(webhook, data)
+}
+
+// sendFeishuApp 通过扫码创建的个人应用向授权用户发送文本消息。
+// cfg 中的 app_secret 只用于获取租户令牌，禁止写入日志或错误文本；message 是已格式化的通知正文。
+func (n *Notifier) sendFeishuApp(cfg map[string]any, message string) error {
+	// appID 是扫码创建的应用标识。
+	appID := strOr(cfg, "app_id", "")
+	// appSecret 是应用密钥明文，只在本次发送内使用。
+	appSecret := strOr(cfg, "app_secret", "")
+	// openID 是授权用户的飞书 open_id。
+	openID := strOr(cfg, "open_id", "")
+	// domain 是开放平台站点域名，缺省使用飞书中国站。
+	domain := strOr(cfg, "domain", "feishu")
+	if strings.TrimSpace(appID) == "" || strings.TrimSpace(appSecret) == "" || strings.TrimSpace(openID) == "" {
+		return fmt.Errorf("飞书应用配置不完整")
+	}
+	// requestCtx、requestCancel 为令牌与消息请求提供有界取消路径。
+	requestCtx, requestCancel := context.WithTimeout(context.Background(), legacyNotifierOperationTimeout)
+	defer requestCancel()
+	// sendErr 是飞书协议客户端返回的令牌或消息发送错误。
+	sendErr := feishu.SendText(requestCtx, n.httpc, appID, appSecret, openID, domain, message)
+	if sendErr != nil {
+		return notificationRequestError(sendErr)
+	}
+	return nil
 }
 
 // ---- Bark ----

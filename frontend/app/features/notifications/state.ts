@@ -1,4 +1,4 @@
-import { Bell,Mail,MessageCircle,Send as Telegram,Webhook } from 'lucide-react';
+import { Bell,Bot,Mail,MessageCircle,Send as Telegram,Webhook } from 'lucide-react';
 import { buildEmailChannelConfig,enableCustomSMTP,normalizeEmailChannelConfig } from '../../../notificationEmailConfig';
 import type { NotificationChannel,NotificationChannelType,NotificationEventType,SystemSettings } from './api';
 import type { NotificationChannelMeta,NotificationEventMeta,NotificationForm,NotificationPayload } from './types';
@@ -33,6 +33,17 @@ export const notificationChannelTypes: Record<NotificationChannelType, Notificat
     ],
     guide: { steps: ['飞书进入目标群 → 右上角 更多 → 设置', '群机器人 → 添加机器人 → 自定义机器人', '安全设置选择「签名校验」，复制生成的秘钥', '完成会给 Webhook 地址，复制', 'Webhook URL 填上面，秘钥填签名校验密钥'], urlFormat: 'https://open.feishu.cn/open-apis/bot/v2/hook/xxx', note: '签名密钥可选，建议启用。频率限制：单机器人 100 次/分钟。' },
   },
+  feishu_app: {
+    label: '飞书机器人（扫码）', icon: Bot,
+    // 扫码绑定渠道的凭据由飞书授权流程直接写入服务端，因此不提供任何手动配置字段。
+    fields: [],
+    // manualCreatable 关闭后新建渠道弹窗只展示可通过表单配置的渠道，避免手工填写无法保存的凭据。
+    manualCreatable: false,
+    guide: {
+      steps: ['在通知设置页点击「扫码绑定飞书机器人」生成二维码', '使用飞书扫描二维码，并在飞书客户端确认授权', '授权成功后系统会自动创建本渠道，并按选项绑定到账号', '本渠道由扫码流程自动创建，请不要手动新建'],
+      note: '扫码绑定会把飞书应用凭据保存在服务端，因此本渠道不开放手动编辑；需要更换或重新授权时，请再次扫码绑定。',
+    },
+  },
   wechat: {
     label: '企业微信机器人', icon: MessageCircle,
     fields: [{ key: 'webhook_url', label: 'Webhook URL', placeholder: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...', required: true }],
@@ -55,6 +66,12 @@ export const notificationChannelTypes: Record<NotificationChannelType, Notificat
   },
 };
 
+// manualNotificationChannelTypes 保存新建渠道弹窗可以手动选择的类型；扫码自动创建的渠道被排除，编辑已有渠道仍使用完整元数据。
+export const manualNotificationChannelTypes: NotificationChannelType[] = (Object.keys(notificationChannelTypes) as NotificationChannelType[]).filter(
+  // type 是当前待判断能否手动创建的渠道类型。
+  type => notificationChannelTypes[type].manualCreatable !== false,
+);
+
 // notificationEvents 是可绑定到通知渠道的事件定义。
 export const notificationEvents: NotificationEventMeta[] = [
   { value: 'account_offline', label: '掉线通知', description: '账号过期、断线或登录态失效' },
@@ -68,6 +85,7 @@ export const notificationEvents: NotificationEventMeta[] = [
   { value: 'manual_delivery_result', label: '手动发货结果', description: '人工发货或确认发货的结果，不属于自动化任务分类' },
   { value: 'manual_intervention_required', label: '需要人工处理', description: '自动化因结果不确定、状态缺失或无法安全续跑而停止，需要用户检查订单' },
   { value: 'chat_manual_requested', label: '人工客服', description: '买家消息命中勾选了“命中后通知人工”的关键词规则，需要人工接手会话' },
+  { value: 'chat_message_received', label: '新消息', description: '买家发来新消息时通知；同一会话短时间连续消息会合并' },
   { value: 'token_renewal', label: '续期通知', description: 'Cookie/token 续期和自动恢复过程' },
   { value: 'system_error', label: '系统错误', description: '后台任务或系统级异常' },
 ];

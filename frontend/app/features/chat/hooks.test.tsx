@@ -6,6 +6,7 @@ import { confirmedOutgoingMessageFromError,deleteChatSession,getAccountDetails,g
 import { useChat } from './hooks';
 import { publishChatConnectionState,publishChatLiveMessage } from './liveEvents';
 import { requestChatAccount } from '../../../shared/browser/chatAccountTarget';
+import type { ChatDeepLink } from '../../router/routes';
 
 vi.mock('./api', /* chatApiMockFactory 提供聊天 Hook 的确定性 API 替身。 */ () => ({
   getAccountDetails: vi.fn(),
@@ -1080,4 +1081,56 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
     expect(hook.result.current.error).toBe('');
     hook.unmount();
   });
+
+	test('初始加载优先选择 URL 深链的账号与会话', /* 当前回调验证深链优先级高于账号页交接和本地记忆。 */ async () => {
+		// secondAccount 是深链指定的启用账号。
+		const secondAccount: AccountDetail = { ...accountFixture, id: 'account-2', nickname: '第二账号' };
+		// secondSession 是该账号的深链目标会话。
+		const secondSession: ChatSession = { ...sessionFixture, account_id: 'account-2', chat_id: 'chat-2', peer_user_id: 'buyer-2' };
+		// onlineStatus 是初始化加载两个账号时需要的在线运行状态。
+		const onlineStatus = { state: 'online' as const, connected: true, failures: 0, updated_at: '2026-08-15T00:00:00Z' };
+		getDetailsMock.mockResolvedValue([accountFixture, secondAccount]);
+		getRuntimeMock.mockResolvedValue({ 'account-1': onlineStatus, 'account-2': onlineStatus });
+		getSessionPageMock.mockImplementation(/* accountID 指定当前初始化请求返回哪个账号的隔离会话。 */ async accountID => ({ sessions: accountID === 'account-2' ? [secondSession] : [sessionFixture], has_more: false }));
+		// 本地记忆和账号页交接都指向 account-1，深链目标必须仍有更高优先级。
+		vi.mocked(window.localStorage.getItem).mockReturnValue('account-1');
+		requestChatAccount('account-1');
+		// deepLink 是通知深链传入的初始账号与会话目标。
+		const deepLink: ChatDeepLink = { accountID: 'account-2', chatID: 'chat-2' };
+		// hook 是深链优先级测试的聊天 Hook 渲染结果。
+		const hook = renderHook(/* deepLinkHookFactory 创建带初始深链目标的聊天 Hook。 */ () => useChat(deepLink));
+		await waitFor(/* accountAssertion 等待深链账号成为当前账号。 */ () => expect(hook.result.current.activeAccountID).toBe('account-2'));
+		await waitFor(/* chatAssertion 等待深链会话成为当前会话。 */ () => expect(hook.result.current.activeChatID).toBe('chat-2'));
+		hook.unmount();
+	});
+
+	test('深链账号不可用时回退到本地记忆的启用账号', /* 当前回调验证无效深链账号不会阻止既有回退选择。 */ async () => {
+		// 本地记忆指向唯一启用账号，深链目标不存在时必须回退到它。
+		vi.mocked(window.localStorage.getItem).mockReturnValue('account-1');
+		// deepLink 指向不存在的账号与会话，用于验证安全回退。
+		const deepLink: ChatDeepLink = { accountID: 'account-missing', chatID: 'chat-missing' };
+		// hook 是深链账号缺失场景的聊天 Hook 渲染结果。
+		const hook = renderHook(/* missingDeepLinkHookFactory 创建带无效深链目标的聊天 Hook。 */ () => useChat(deepLink));
+		await waitFor(/* accountAssertion 等待本地记忆账号成为当前账号。 */ () => expect(hook.result.current.activeAccountID).toBe('account-1'));
+		await waitFor(/* chatAssertion 等待该账号的默认会话被选中。 */ () => expect(hook.result.current.activeChatID).toBe('chat-1'));
+		hook.unmount();
+	});
+
+	test('深链会话迟到时继续等待，手动选择后不再自动跳转', /* 当前回调验证深链引用在匹配前保留、手动切换后清除。 */ async () => {
+		// lateSession 是后续会话更新才出现的深链目标会话。
+		const lateSession: ChatSession = { ...sessionFixture, chat_id: 'chat-9', peer_user_id: 'buyer-9', peer_name: '深链买家' };
+		// deepLink 是当前账号下尚未加载的深链会话目标。
+		const deepLink: ChatDeepLink = { accountID: 'account-1', chatID: 'chat-9' };
+		// hook 是深链会话迟到场景的聊天 Hook 渲染结果。
+		const hook = renderHook(/* pendingDeepLinkHookFactory 创建等待迟到会话的聊天 Hook。 */ () => useChat(deepLink));
+		await waitFor(/* fallbackAssertion 等待深链会话缺失时仍选中默认会话。 */ () => expect(hook.result.current.activeChatID).toBe('chat-1'));
+		getSessionPageMock.mockResolvedValueOnce({ sessions: [sessionFixture, lateSession], has_more: false });
+		await act(/* lateSessionsAction 返回包含深链会话的新会话列表。 */ async () => { await hook.result.current.reloadSessions('account-1'); });
+		await waitFor(/* deepLinkChatAssertion 等待迟到的深链会话被自动选中。 */ () => expect(hook.result.current.activeChatID).toBe('chat-9'));
+		await act(/* manualChatAction 模拟用户手动选择另一条会话。 */ () => hook.result.current.setActiveChatID('chat-1'));
+		getSessionPageMock.mockResolvedValueOnce({ sessions: [sessionFixture, lateSession], has_more: false });
+		await act(/* afterManualReloadAction 再次返回包含深链会话的列表。 */ async () => { await hook.result.current.reloadSessions('account-1'); });
+		expect(hook.result.current.activeChatID).toBe('chat-1');
+		hook.unmount();
+	});
 });

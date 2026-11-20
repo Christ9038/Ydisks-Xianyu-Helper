@@ -1,9 +1,12 @@
+import type { ChatDeepLink } from '../../../shared/browser/chatDeepLink';
 import type { LibraryImageChooserComponent } from '../../../shared/ui/imageSource';
 
 /** ChatProps 描述聊天页面从应用壳接收的可选注入项。 */
 export interface ChatProps {
   /** libraryImageChooser 是应用壳按需注入的图片库选择器；缺省时聊天页不显示图片库入口。 */
   libraryImageChooser?: LibraryImageChooserComponent;
+  /** initialChatLink 是通知深链指定的初始账号与会话目标；仅在聊天页首次挂载时消费，缺省时沿用既有选择逻辑。 */
+  initialChatLink?: ChatDeepLink;
 }
 
 import type { AccountDetail,ChatMessage,ChatSession } from './api';

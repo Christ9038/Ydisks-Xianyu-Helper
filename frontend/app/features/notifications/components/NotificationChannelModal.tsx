@@ -3,7 +3,7 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import { enableCustomSMTP } from '../../../../notificationEmailConfig';
 import type { NotificationChannel,NotificationChannelType,NotificationEventType,SystemSettings } from '../api';
-import { notificationChannelTypes } from '../state';
+import { manualNotificationChannelTypes,notificationChannelTypes } from '../state';
 import type { NotificationForm } from '../types';
 import { NotificationEventSelector } from './NotificationEventSelector';
 
@@ -107,7 +107,7 @@ export const NotificationChannelModal: React.FC<NotificationChannelModalProps> =
           <div className="space-y-2">
             <label className="block text-sm font-bold text-gray-800">渠道类型</label>
             <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-              {(Object.keys(notificationChannelTypes) as NotificationChannelType[]).map(
+              {manualNotificationChannelTypes.map(
                 // type 是当前渠道类型选择项。
                 type => {
                   // channelMeta 是当前类型的展示元数据。
