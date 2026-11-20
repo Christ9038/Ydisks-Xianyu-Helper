@@ -729,3 +729,28 @@ func (c *Cookies) StatusWithReason(ctx context.Context, cookieID string) (bool, 
 	}
 	return enabled != 0, reason, nil
 }
+
+// GetDisplayName 返回通知等非敏感展示场景使用的账号名称：用户备注优先，其次平台昵称，最后回退账号 ID。
+// 查询只读取 remark 与 nickname 两个非敏感列，不读取、不解密 Cookie、Token、密码或加密 metadata。
+// 账号不存在时返回 ErrNotFound；空值或纯空白字段视为未设置。
+func (c *Cookies) GetDisplayName(ctx context.Context, cookieID string) (string, error) {
+	// remark、nickname 分别保存用户备注和平台昵称缓存，均只用于展示，不含任何平台凭证。
+	var remark, nickname string
+	// queryErr 表示账号不存在或非敏感名称查询失败的原因。
+	if queryErr := c.DB.QueryRowContext(ctx, `SELECT COALESCE(remark,''), COALESCE(nickname,'') FROM cookies WHERE id=?`, cookieID).
+		Scan(&remark, &nickname); queryErr != nil {
+		if errors.Is(queryErr, sql.ErrNoRows) {
+			return "", ErrNotFound
+		}
+		return "", queryErr
+	}
+	// displayName 按备注、昵称、账号 ID 的顺序回退，确保调用方总能得到可展示名称。
+	displayName := strings.TrimSpace(remark)
+	if displayName == "" {
+		displayName = strings.TrimSpace(nickname)
+	}
+	if displayName == "" {
+		displayName = cookieID
+	}
+	return displayName, nil
+}

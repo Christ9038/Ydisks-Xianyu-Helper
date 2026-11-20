@@ -43,7 +43,35 @@ func (a *Adapter) HandleChatMessage(ctx context.Context, message engine.ChatMess
 		a.logger.Debug("实时聊天消息已入库", "account", message.AccountID, "chat_id", message.ChatID,
 			"message_key", stored.MessageKey, "message_type", stored.MessageType, "inserted", inserted)
 	}
+	if stored != nil && inserted && err == nil {
+		a.notifyIncomingChatMessage(ctx, message, stored)
+	}
 	return err
+}
+
+// notifyIncomingChatMessage 把首次落库的买家消息交给可选新消息通知能力；系统消息、重复消息和缺失通知器均静默跳过。
+// ctx 只用于通知入队与展示名称读取；通知侧任何失败都不得改变消息已成功落库的结果。
+func (a *Adapter) notifyIncomingChatMessage(ctx context.Context, message engine.ChatMessage, stored *db.ChatMessage) {
+	if a == nil || a.notifier == nil || stored == nil || stored.MessageType == "system" {
+		return
+	}
+	// notifier 保存实现新消息提醒能力的通知器；旧通知器没有该方法时继续保留原有账号告警行为。
+	notifier, ok := a.notifier.(notifyChatMessageNotifier)
+	if !ok {
+		return
+	}
+	// accountName 保存通知展示用的账号名称；读取失败时留空并由通知器回退账号 ID，不阻断消息落库。
+	accountName := ""
+	if a.store != nil && a.store.Cookies != nil {
+		// name、lookupErr 保存账号备注/昵称回退链得到的展示名称及非敏感查询错误。
+		name, lookupErr := a.store.Cookies.GetDisplayName(ctx, message.AccountID)
+		if lookupErr != nil {
+			a.logger.Warn("读取账号显示名称失败，消息通知回退账号 ID", "account", message.AccountID, "err", logsafe.Error(lookupErr))
+		} else {
+			accountName = name
+		}
+	}
+	notifier.NotifyChatMessage(ctx, message.AccountID, accountName, message.ChatID, message.SenderName, message.SenderUserID, message.ItemID, stored.MessageType, stored.Content, stored.MessageKey)
 }
 
 // ChatSessionRole 返回消息所属会话和商品的本地角色结论，不读取账号凭证明文。

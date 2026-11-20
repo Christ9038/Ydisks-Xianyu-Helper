@@ -111,6 +111,12 @@ type notifyEventNotifier interface {
 	NotifyAccountEvent(cookieID, eventType, level, title, body string)
 }
 
+// notifyChatMessageNotifier 是通知器可选的新消息提醒能力；只实现账号告警的旧通知器可继续工作。
+type notifyChatMessageNotifier interface {
+	// NotifyChatMessage 将首次落库的买家消息写入通知渠道；所有参数都是非敏感展示信息，不包含 Cookie 或 Token。
+	NotifyChatMessage(ctx context.Context, accountID, accountName, chatID, peerName, peerID, itemID, messageType, preview, messageKey string)
+}
+
 // New 构造可隔离测试的 Adapter；生产进程必须使用 NewRuntimeBundle 完成不可变运行时装配。
 func New(store *db.Store, bm *browser.Manager, logger *slog.Logger) *Adapter {
 	return newAdapter(store, bm, logger, NewOrderDetailCoordinator(logger))
@@ -157,13 +163,25 @@ type RuntimeBundle struct {
 	OrderDetails *OrderDetailCoordinator
 }
 
+// RuntimeBundleOptions 是运行时装配的可选配置；可变参数只读取第一项，兼容既有四参数调用方。
+type RuntimeBundleOptions struct {
+	// PublicBaseURL 是管理后台对外根地址，透传给通知器生成消息查看链接；空值表示不生成链接。
+	PublicBaseURL string
+}
+
 // NewRuntimeBundle 在进程启动前一次性完成运行时闭环装配，禁止通过运行期 setter 补齐必需依赖。
-func NewRuntimeBundle(store *db.Store, bm *browser.Manager, logger *slog.Logger, initialOrderSync func(context.Context, string) error) (*RuntimeBundle, error) {
+// options 是可选装配配置，首个元素用于生成通知查看链接；不传时保持历史行为。
+func NewRuntimeBundle(store *db.Store, bm *browser.Manager, logger *slog.Logger, initialOrderSync func(context.Context, string) error, options ...RuntimeBundleOptions) (*RuntimeBundle, error) {
 	if store == nil {
 		return nil, fmt.Errorf("运行时装配需要数据库存储")
 	}
 	if logger == nil {
 		logger = slog.Default()
+	}
+	// bundleOptions 保存调用方传入的首个可选配置；旧调用方省略该参数时使用零值。
+	bundleOptions := RuntimeBundleOptions{}
+	if len(options) > 0 {
+		bundleOptions = options[0]
 	}
 	// orderDetails 是自动发货和订单刷新共用的限流协调器；它不持有凭证，必须在两个运行时启动前固定注入。
 	orderDetails := NewOrderDetailCoordinator(logger)
@@ -182,8 +200,8 @@ func NewRuntimeBundle(store *db.Store, bm *browser.Manager, logger *slog.Logger,
 	// chatApplication 是人工消息页面和自动回复共用的聊天应用服务。
 	chatApplication := NewChatSendingApplication(chatService, store, manager, func() mtop.Client { return mtop.NewClient() })
 	replyDelivery = NewChatReplyDelivery(chatApplication)
-	// notifier 是自动化与账号告警共用的通知出口，构造完成后不可替换。
-	notifier := notify.New("", store, logger)
+	// notifier 是自动化与账号告警共用的通知出口，构造完成后不可替换；对外地址用于消息通知查看链接。
+	notifier := notify.NewWithOptions("", store, logger, notify.Options{PublicBaseURL: bundleOptions.PublicBaseURL})
 	// automationSenders 为自动化图片卡密注入“临时下载、平台上传、WebSocket 发送”链路，不在本地保存图片。
 	automationSenders := NewAutomationImageSenderProvider(store, manager, func() mtop.Client { return mtop.NewClient() })
 	// autoCenter 依赖已构造但尚未启动的 manager 与 adapter，避免运行期形成部分可用状态。

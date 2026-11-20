@@ -39,7 +39,7 @@ export interface SystemSettings {
 }
 
 /** 由当前 feature adapter 归一后的 NotificationChannelType UI 模型；不直接暴露 HTTP DTO。 */
-export type NotificationChannelType = 'dingtalk' | 'feishu' | 'bark' | 'webhook' | 'wechat' | 'telegram' | 'email';
+export type NotificationChannelType = 'dingtalk' | 'feishu' | 'feishu_app' | 'bark' | 'webhook' | 'wechat' | 'telegram' | 'email';
 /** 由当前 feature adapter 归一后的 NotificationEventType UI 模型；不直接暴露 HTTP DTO。 */
 export type NotificationEventType =
   | 'account_offline'
@@ -55,7 +55,36 @@ export type NotificationEventType =
   | 'manual_delivery_result'
   | 'manual_intervention_required'
   | 'chat_manual_requested'
+  | 'chat_message_received'
   | 'system_error';
+
+/** FeishuAppBindingStartResult 是开始飞书扫码绑定时返回的 UI 模型；二维码地址由后端直接生成。 */
+export interface FeishuAppBindingStartResult {
+  /** 绑定会话标识，用于后续轮询扫码状态。 */
+  session_id: string;
+  /** 可直接展示的飞书扫码绑定二维码 PNG data URL。 */
+  qr_code_url: string;
+  /** 二维码剩余有效秒数。 */
+  expires_in: number;
+}
+
+/** FeishuAppBindingStatusResult 是飞书扫码绑定轮询返回的阶段结果。 */
+export interface FeishuAppBindingStatusResult {
+  /** 绑定流程当前阶段；success 表示渠道已经创建或更新完成。 */
+  status: 'waiting' | 'success' | 'expired' | 'error';
+  /** 当前阶段的用户可读说明，后端可省略。 */
+  message?: string;
+  /** 绑定成功时创建或更新的通知渠道主键。 */
+  channel_id?: number;
+}
+
+/** FeishuChannelCategories 是飞书应用渠道的推送分类开关；warning 控制告警，info 控制普通提示。 */
+export interface FeishuChannelCategories {
+  /** warning 表示是否推送账号异常、风控、人工处理等警告类通知。 */
+  warning: boolean;
+  /** info 表示是否推送新消息、成功结果等普通提示类通知。 */
+  info: boolean;
+}
 
 /** automationNotificationEventTypes 是四类自动化任务使用的独立通知开关编码。 */
 export const automationNotificationEventTypes: NotificationEventType[] = [

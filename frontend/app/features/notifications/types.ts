@@ -37,6 +37,8 @@ export interface NotificationChannelMeta {
   fields: NotificationField[];
   // guide 是渠道凭据获取指南。
   guide: NotificationGuide;
+  // manualCreatable 表示渠道能否在新建渠道弹窗中手动选择；扫码自动创建的渠道保持省略或 false。
+  manualCreatable?: boolean;
 }
 
 // NotificationEventMeta 描述可供渠道订阅的一类系统事件。

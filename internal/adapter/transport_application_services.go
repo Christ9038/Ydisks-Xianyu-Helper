@@ -109,7 +109,7 @@ func NewTransportApplicationServices(options TransportApplicationServiceOptions)
 		Admin:                  adminapp.NewServiceWithRuntime(options.AdminSettingsDependencies.NewAdminRepository(), options.AdminRuntime),
 		AccountTasks:           automationapp.NewService(options.AutomationDependencies.NewAccountTaskRepository(), options.AccountTaskRunner),
 		UncertainNotifications: notificationsapp.New(options.MiscDependencies.NewNotificationUncertainRepository()),
-		NotificationChannels:   notificationsapp.NewChannelService(options.MiscDependencies.NewNotificationChannelRepository(), options.ChannelSender),
+		NotificationChannels:   notificationsapp.NewChannelServiceWithFeishu(options.MiscDependencies.NewNotificationChannelRepository(), options.ChannelSender, NewFeishuRegistrar()),
 		Analytics:              analyticsapp.NewService(options.MiscDependencies.NewAnalyticsRepository()),
 		AutomationIssues:       automationapp.NewIssueService(automationRepository),
 		AutomationAudit:        automationapp.NewAuditService(automationRepository),

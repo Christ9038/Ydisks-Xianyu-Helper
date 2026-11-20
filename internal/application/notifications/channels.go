@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -134,6 +135,8 @@ type ChannelRepository interface {
 	OwnsChannel(ctx context.Context, channelID, userID int64) (bool, error)
 	// OwnsAccount 判断账号是否属于指定用户，不读取账号凭证。
 	OwnsAccount(ctx context.Context, userID int64, cookieID string) (bool, error)
+	// ListOwnedAccountIDs 返回指定用户拥有的账号标识，不解密 Cookie 或其他凭证。
+	ListOwnedAccountIDs(ctx context.Context, userID int64) ([]string, error)
 	// ListBindings 查询指定用户的非敏感绑定摘要。
 	ListBindings(ctx context.Context, userID int64) ([]BindingSummary, error)
 	// GetBindingIDs 查询账号当前启用的渠道标识。
@@ -154,17 +157,45 @@ type ChannelSender interface {
 	SendToChannel(channelID int64, body string) error
 }
 
-// ChannelService 编排通知渠道 CRUD、账号绑定和测试发送，不依赖 HTTP 或数据库模型。
+// ChannelService 编排通知渠道 CRUD、账号绑定、测试发送与飞书应用扫码绑定，不依赖 HTTP 或数据库模型。
 type ChannelService struct {
 	// repository 保存渠道与绑定的最小持久化端口。
 	repository ChannelRepository
 	// sender 保存测试通知发送端口；普通 CRUD 不依赖该端口。
 	sender ChannelSender
+	// registrar 保存飞书扫码注册协议端口；为空时仅飞书绑定能力不可用。
+	registrar FeishuRegistrar
+	// feishuMu 保护 feishuSessions、会话字段及 now/newSessionID 的测试注入；锁内禁止外部 HTTP 或数据库 I/O。
+	feishuMu sync.Mutex
+	// feishuSessions 保存当前进程内的扫码绑定会话，按随机 session_id 索引。
+	feishuSessions map[string]*feishuBindingSession
+	// now 返回当前时间，默认 time.Now；测试可替换以确定会话过期和轮询节流。
+	now func() time.Time
+	// newSessionID 生成不可猜测的会话标识，默认使用 crypto/rand；测试可替换以保证稳定断言。
+	newSessionID func() (string, error)
 }
 
-// NewChannelService 构造通知渠道应用服务。
+// NewChannelService 构造不启用飞书扫码绑定的通知渠道应用服务，供既有 CRUD 与测试路径保持兼容。
 func NewChannelService(repository ChannelRepository, sender ChannelSender) *ChannelService {
-	return &ChannelService{repository: repository, sender: sender}
+	return newChannelService(repository, sender, nil)
+}
+
+// NewChannelServiceWithFeishu 构造启用飞书应用扫码绑定的通知渠道应用服务。
+// registrar 是调用方注入的消费者定义端口；生产装配必须提供，测试可注入本地替身。
+func NewChannelServiceWithFeishu(repository ChannelRepository, sender ChannelSender, registrar FeishuRegistrar) *ChannelService {
+	return newChannelService(repository, sender, registrar)
+}
+
+// newChannelService 统一初始化会话状态与会话标识生成器，避免构造路径遗漏可变字段默认值。
+func newChannelService(repository ChannelRepository, sender ChannelSender, registrar FeishuRegistrar) *ChannelService {
+	return &ChannelService{
+		repository:     repository,
+		sender:         sender,
+		registrar:      registrar,
+		feishuSessions: make(map[string]*feishuBindingSession),
+		now:            time.Now,
+		newSessionID:   newFeishuSessionID,
+	}
 }
 
 // ListChannels 查询用户拥有的非敏感通知渠道摘要。

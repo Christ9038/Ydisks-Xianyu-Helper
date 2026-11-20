@@ -277,6 +277,14 @@ type NotificationChannelsPort interface {
 	SetSingleBinding(context.Context, int64, string, int64, bool) error
 	DeleteBinding(context.Context, int64, int64) error
 	DeleteAccountBindings(context.Context, int64, string) error
+	// StartFeishuAppBinding 发起飞书应用扫码绑定并返回一次性的会话与二维码地址。
+	StartFeishuAppBinding(context.Context, int64, notificationsapp.FeishuBindingOptions) (notificationsapp.FeishuBindingStart, error)
+	// GetFeishuAppBindingStatus 查询扫码状态，并在到达轮询时间时执行一次平台轮询。
+	GetFeishuAppBindingStatus(context.Context, int64, string) (notificationsapp.FeishuBindingStatus, error)
+	// GetFeishuChannelCategories 读取飞书应用渠道的警告与普通提示开关。
+	GetFeishuChannelCategories(context.Context, int64, int64) (notificationsapp.FeishuChannelCategories, error)
+	// SetFeishuChannelCategories 更新飞书应用渠道的警告与普通提示开关。
+	SetFeishuChannelCategories(context.Context, int64, int64, notificationsapp.FeishuChannelCategories) error
 }
 
 // AnalyticsPort 定义仪表盘和订单分析能力。

@@ -9,6 +9,8 @@ x-app-env: &app-env
   LOG_FORMAT: ${LOG_FORMAT:-json}
   BROWSER_HEADLESS: ${BROWSER_HEADLESS:-true}
   XIANYU_CONTINUE_AFTER_UNCERTAIN: ${XIANYU_CONTINUE_AFTER_UNCERTAIN:-1}
+  # 通知中的“查看链接”使用的管理后台对外根地址；留空时不生成链接。
+  XIANYU_PUBLIC_URL: ${XIANYU_PUBLIC_URL:-}
 
 x-app-volumes: &app-volumes
   - app_data:/app/data

@@ -19,7 +19,7 @@ import type { ChatProps } from '../types';
 import { unreadBadgeClassName,unreadBadgeLabel } from '../state';
 
 // Chat 展示实时会话、消息分页和消息发送界面。
-const Chat: React.FC<ChatProps> = ({ libraryImageChooser: LibraryChooser }) => {
+const Chat: React.FC<ChatProps> = ({ libraryImageChooser: LibraryChooser, initialChatLink }) => {
   // chatState 是 Chat feature Hook 提供的状态、引用和交互动作。
   const {
     accounts, activeAccountID, activeChatID, activeAccount, selectedSession, filteredSessions,
@@ -28,10 +28,20 @@ const Chat: React.FC<ChatProps> = ({ libraryImageChooser: LibraryChooser }) => {
     setActiveChatID, setSearch, setUnreadOnly, setDraft, setEmojiOpen, reloadSessions, loadMoreContacts,
     loadOlderMessages, handleMessageScroll, handleSend, handleQuickReply, handleQuickReplyImage, handleLibraryImage, handleImage, handlePastedImages, confirmSendImage, closeImagePreview, retrySend, retryAvailable,
     deletingChatID, deleteError, deleteConversation, clearDeleteError, acceptOutgoingMessage, unreadForAccount, emojiURL, xianyuEmojis, renderXianyuText, formatClock, messageTime,
-  } = useChat();
+  } = useChat(initialChatLink);
 
   // mobilePane 保存移动端当前显示的单栏面板；openChat 在选中会话后进入消息详情，showList 在返回、切换账号或删除后回到列表。
   const { mobilePane, openChat, showList } = useChatMobilePane(activeAccountID, activeChatID);
+  // deepLinkOpenedRef 记录深链会话是否已经自动切入移动端消息面板，避免后续渲染覆盖用户手动返回列表。
+  const deepLinkOpenedRef = React.useRef(false);
+
+  /** 当前副作用在深链目标真正成为当前会话时切入移动端消息面板一次；桌面端两栏始终可见，不受该面板状态影响。 */
+  React.useEffect(/* deepLinkOpenEffect 只执行一次移动端自动导航，不重复改变用户后续返回操作。 */ () => {
+    if (deepLinkOpenedRef.current || !initialChatLink) return;
+    if (activeAccountID !== initialChatLink.accountID || activeChatID !== initialChatLink.chatID) return;
+    deepLinkOpenedRef.current = true;
+    openChat();
+  }, [activeAccountID, activeChatID, initialChatLink, openChat]);
 
 
   // imageMessages 保存当前会话中的图片消息，供灯箱按消息顺序浏览。

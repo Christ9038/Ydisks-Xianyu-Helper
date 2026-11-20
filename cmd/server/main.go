@@ -439,9 +439,12 @@ func openServerInfrastructure(ctx context.Context, startup serverStartupConfig, 
 
 // buildServerRuntime 构造浏览器、账号、自动化、通知、应用服务和 HTTP 服务依赖，并登记全部生命周期组件但不启动它们。
 func buildServerRuntime(opts serverOptions, infrastructure serverInfrastructure) (serverRuntime, error) {
+	// publicBaseURL 是通知中“查看链接”使用的管理后台对外根地址；未配置时通知省略链接字段。
+	publicBaseURL := strings.TrimSpace(os.Getenv("XIANYU_PUBLIC_URL"))
 	// runtime、buildErr 分别是组合层返回的完整运行时快照及其装配失败原因。
 	runtime, buildErr := compositionruntime.BuildRuntime(compositionruntime.RuntimeOptions{
 		NoBrowser: opts.noBrowser, SecureCookie: opts.secure, WebDir: opts.webDir, Addr: opts.addr,
+		PublicBaseURL: publicBaseURL,
 	}, compositionruntime.RuntimeInfrastructure{Store: infrastructure.store, Logger: infrastructure.logger})
 	if buildErr != nil {
 		return serverRuntime{}, buildErr

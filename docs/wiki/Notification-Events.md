@@ -21,7 +21,7 @@ A channel with no event selected under "Notification content" receives every eve
 | Manual delivery result | `manual_delivery_result` | Result of a manual full delivery or manual confirm-shipment on the order page; the title reads "[Manual delivery] success/failure". |
 | Manual handling required | `manual_intervention_required` | An automation stopped because the outcome is uncertain, state is missing, or it cannot safely continue, and you must check the order; critical level. |
 | Human agent requested (人工客服) | `chat_manual_requested` | A buyer message matched a keyword rule with "命中后通知人工" (notify a human on match) checked; the body includes the buyer nickname, conversation, product, and the buyer's words. At most one notification per conversation every 10 minutes; warning level. |
-| Renewal | `token_renewal` | One notification when API automatic renewal fails 3 times in a row. Skipped and pending runs are ignored when counting. |
+| New message (新消息) | `chat_message_received` | A buyer message is first stored successfully; messages from the same conversation within the one-second debounce window are merged. When `XIANYU_PUBLIC_URL` is configured, the notification includes a link to that account and conversation. |
 | System error | `system_error` | UI description: background task or system-level exception. |
 
 Notes:

@@ -1,6 +1,6 @@
 import { expect,test } from 'vitest';
 import type { NotificationChannel } from './api';
-import { buildNotificationPayload,emptyNotificationForm,isCurrentNotificationRequest,normalizeNotificationForm,notificationErrorMessage,notificationEventSummary,notificationEvents,validateNotificationForm } from './state';
+import { buildNotificationPayload,emptyNotificationForm,isCurrentNotificationRequest,manualNotificationChannelTypes,normalizeNotificationForm,notificationErrorMessage,notificationEventSummary,notificationEvents,notificationChannelTypes,validateNotificationForm } from './state';
 import type { NotificationForm } from './types';
 
 // createForm 创建通知渠道校验使用的最小表单对象。
@@ -22,6 +22,23 @@ test('通知事件摘要为空时表示订阅全部事件',
   () => {
     expect(notificationEventSummary([])).toBe('全部事件');
     expect(notificationEventSummary(['account_offline', 'system_error'])).toBe('掉线通知、系统错误');
+    expect(notificationEventSummary(['chat_message_received'])).toBe('新消息');
+    expect(notificationEvents.find(
+      // event 是当前待匹配的通知事件定义。
+      event => event.value === 'chat_message_received',
+    )?.description).toContain('同一会话短时间连续消息会合并');
+  });
+
+test('扫码飞书渠道不可手动新建但保留渠道元数据',
+  // 渠道元数据测试验证扫码渠道的标签、空配置字段和新建选择过滤。
+  () => {
+    // feishuAppMeta 是扫码飞书渠道的静态展示配置。
+    const feishuAppMeta = notificationChannelTypes.feishu_app;
+    expect(feishuAppMeta.label).toBe('飞书机器人（扫码）');
+    expect(feishuAppMeta.fields).toEqual([]);
+    expect(feishuAppMeta.manualCreatable).toBe(false);
+    expect(manualNotificationChannelTypes).not.toContain('feishu_app');
+    expect(manualNotificationChannelTypes).toContain('feishu');
   });
 
 test('旧版统一交易开关归一为自动化与人工处理开关',

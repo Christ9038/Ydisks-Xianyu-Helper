@@ -31,6 +31,8 @@ type RuntimeOptions struct {
 	WebDir string
 	// Addr 是 HTTP 监听地址。
 	Addr string
+	// PublicBaseURL 是用户访问管理后台的对外根地址，用于通知中的查看链接；空值表示不生成链接。
+	PublicBaseURL string
 }
 
 // RuntimeInfrastructure 是 cmd 打开后交给组合根的基础设施资源。
@@ -68,8 +70,9 @@ func BuildRuntime(options RuntimeOptions, infrastructure RuntimeInfrastructure) 
 	if !options.NoBrowser {
 		browserManager = browser.NewManager(infrastructure.Logger)
 	}
-	// runtimeBundle、bundleErr 分别是账号运行时依赖集合及其构造失败原因。
-	runtimeBundle, bundleErr := adapter.NewRuntimeBundle(infrastructure.Store, browserManager, infrastructure.Logger, initialOrderSync)
+	// runtimeBundle、bundleErr 分别是账号运行时依赖集合及其构造失败原因；对外地址只影响通知链接生成。
+	runtimeBundle, bundleErr := adapter.NewRuntimeBundle(infrastructure.Store, browserManager, infrastructure.Logger, initialOrderSync,
+		adapter.RuntimeBundleOptions{PublicBaseURL: options.PublicBaseURL})
 	if bundleErr != nil {
 		return Runtime{}, fmt.Errorf("构造账号运行时依赖失败: %w", bundleErr)
 	}

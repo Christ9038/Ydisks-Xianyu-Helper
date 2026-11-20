@@ -45,9 +45,17 @@ const (
 	EventSystemError                = "system_error"
 	// EventChatManualRequested 表示买家消息命中“通知人工”关键词规则，需要人工客服接手会话。
 	EventChatManualRequested = "chat_manual_requested"
+	// EventChatMessageReceived 表示买家发来新消息；它只用于消息提醒，不参与自动回复或交易门控。
+	EventChatMessageReceived = "chat_message_received"
 	// legacyNotifierOperationTimeout 是兼容无 Context 通知与等待入口的最长数据库或网络预算。
 	legacyNotifierOperationTimeout = 10 * time.Second
 )
+
+// Options 是通知器的构造期可选配置；所有字段在构造完成后只读，不支持运行时修改。
+type Options struct {
+	// PublicBaseURL 是用户访问管理后台的对外根地址，用于生成消息通知中的查看链接；空值表示不生成链接。
+	PublicBaseURL string
+}
 
 // NotificationEvent 是一条可被渠道订阅过滤的通知事件。
 type NotificationEvent struct {
@@ -73,6 +81,8 @@ type Notifier struct {
 	started    atomic.Bool
 	workers    sync.WaitGroup
 	done       chan struct{}
+	// publicBaseURL 是已去除首尾空白和尾部斜杠的管理后台对外根地址；为空表示消息通知不生成查看链接。
+	publicBaseURL string
 }
 
 // newOutboundHTTPClient 用于本次流程后续判断的newOutboundHTTPClient
@@ -81,22 +91,35 @@ var newOutboundHTTPClient = func() *http.Client { return netguard.ConfiguredHTTP
 // dialPublicSMTP 用于本次流程后续判断的dialPublicSMTP
 var dialPublicSMTP = netguard.DialPublicContext
 
-// New 构造。
+// New 构造不带可选配置的通知器，保持旧调用方签名不变。
 func New(cookieID string, store *db.Store, logger *slog.Logger) *Notifier {
-	return NewWithRepository(cookieID, newStoreRepository(cookieID, store), logger)
+	return NewWithOptions(cookieID, store, logger, Options{})
 }
 
-// NewWithRepository 使用通知器所需的窄 repository 构造通知器。
+// NewWithOptions 使用构造期配置创建通知器；store 与 options 只在构造阶段读取，后续不再变化。
+func NewWithOptions(cookieID string, store *db.Store, logger *slog.Logger, options Options) *Notifier {
+	return newNotifier(cookieID, newStoreRepository(cookieID, store), logger, options)
+}
+
+// NewWithRepository 使用通知器所需的窄 repository 构造不带可选配置的通知器。
 func NewWithRepository(cookieID string, repository Repository, logger *slog.Logger) *Notifier {
+	return newNotifier(cookieID, repository, logger, Options{})
+}
+
+// newNotifier 统一初始化通知器并归一化对外基础地址，避免各构造入口重复处理配置。
+func newNotifier(cookieID string, repository Repository, logger *slog.Logger, options Options) *Notifier {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	// publicBaseURL 去掉调用方可能携带的首尾空白和尾部斜杠，保证与固定路径拼接时不会产生双斜杠。
+	publicBaseURL := strings.TrimRight(strings.TrimSpace(options.PublicBaseURL), "/")
 	return &Notifier{
-		cookieID:   cookieID,
-		repository: repository,
-		logger:     logger.With("account", cookieID, "subsys", "notify"),
-		httpc:      newOutboundHTTPClient(),
-		done:       make(chan struct{}),
+		cookieID:      cookieID,
+		repository:    repository,
+		logger:        logger.With("account", cookieID, "subsys", "notify"),
+		httpc:         newOutboundHTTPClient(),
+		done:          make(chan struct{}),
+		publicBaseURL: publicBaseURL,
 	}
 }
 
@@ -170,6 +193,37 @@ func (n *Notifier) NotifyDelivery(accountID, buyerName, buyerID, itemID, message
 			"结果":   message,
 		},
 	})
+}
+
+// NotifyChatMessage 将一条首次成功落库的买家新消息交给通知渠道。
+// accountName 为空时回退 accountID；preview 是消息展示摘要，图片、商品卡片等非文本类型会被替换为类型说明。
+// messageKey 是平台消息键，非空时生成稳定幂等键，避免同一消息重复投递；ctx 是渠道查询和 outbox 入队的生命周期边界。
+func (n *Notifier) NotifyChatMessage(ctx context.Context, accountID, accountName, chatID, peerName, peerID, itemID, messageType, preview, messageKey string) {
+	// fields 汇总通知展示所需的非敏感字段；查看链接只在构造期配置了对外基础地址时加入。
+	fields := map[string]string{
+		"账号名称": fallback(strings.TrimSpace(accountName), accountID),
+		"会话用户": chatPeerLabel(peerName, peerID),
+		"商品ID": strings.TrimSpace(itemID),
+		"消息类型": chatMessageTypeLabel(messageType),
+		"消息摘要": chatMessagePreview(messageType, preview),
+	}
+	if n != nil && n.publicBaseURL != "" {
+		fields["查看链接"] = n.chatMessageURL(accountID, chatID)
+	}
+	// idempotencyKey 只绑定真实平台消息键；缺失时保持空值，由调用方接受普通去重语义。
+	idempotencyKey := ""
+	// key 是去除空白后的平台消息键，用于判断是否需要生成稳定投递键。
+	if key := strings.TrimSpace(messageKey); key != "" {
+		idempotencyKey = "chat-message:" + key
+	}
+	n.notifyEvent(ctx, NotificationEvent{
+		AccountID: accountID,
+		Type:      EventChatMessageReceived,
+		Level:     "info",
+		Title:     "收到买家消息",
+		Body:      "有新消息，请打开管理后台查看。",
+		Fields:    fields,
+	}, idempotencyKey)
 }
 
 // NotifyAutomationRun 将一个自动化运行的终态通知持久化到 outbox。
@@ -389,6 +443,11 @@ func (n *Notifier) eligibleChannels(ctx context.Context, ev NotificationEvent) (
 			continue
 		}
 		if !allowed {
+			continue
+		}
+		// 订阅匹配后再应用飞书应用渠道的分类开关；其他渠道类型的行为保持不变。
+		if !feishuAppAllowsNotification(ch, ev) {
+			n.logger.Debug("飞书应用渠道分类开关已关闭，跳过渠道", "channel", ch.ID, "event_type", ev.Type, "warning", isWarningNotificationEvent(ev))
 			continue
 		}
 		eligible = append(eligible, ch)

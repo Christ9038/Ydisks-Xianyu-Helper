@@ -1,4 +1,4 @@
-import type { MutationIDResponse,NotificationBinding,NotificationChannel,NotificationChannelEditorResponse,NotificationChannelResponse,NotificationEventType,OperationResponse,SystemSettings } from './models';
+import type { FeishuAppBindingStartResult,FeishuAppBindingStatusResult,FeishuChannelCategories,MutationIDResponse,NotificationBinding,NotificationChannel,NotificationChannelEditorResponse,NotificationChannelResponse,NotificationEventType,OperationResponse,SystemSettings } from './models';
 import { normalizeSystemSettingsUpdate } from '../../../shared/api-contract/settings';
 import { type RequestControlOptions } from '../../../shared/http/client';
 import { contractClient, runContractRequest } from '../../../shared/api-contract/client';
@@ -115,6 +115,55 @@ export const setAccountBindings = async (accountID: string, channelIDs: number[]
 
 /** 向单一通知渠道发送测试投递。 */
 export const testNotificationChannel = async (channelID: string, options?: RequestControlOptions): Promise<OperationResponse> => runContractRequest(/* signal 控制通知渠道测试投递的取消和超时。 */ signal => contractClient.POST('/api/v1/notifications/channels/{channel_id}/test', { params: { path: { channel_id: channelID } }, signal }), options);
+
+/** FeishuAppBindingStartOptions 是开始飞书扫码绑定时提交的具名分类与账号绑定选项。 */
+export interface FeishuAppBindingStartOptions {
+  /** bindAllAccounts 决定绑定成功后是否把新渠道关联到当前用户全部账号。 */
+  bindAllAccounts: boolean;
+  /** notifyWarning 决定新渠道是否推送警告类通知。 */
+  notifyWarning: boolean;
+  /** notifyInfo 决定新渠道是否推送普通提示类通知。 */
+  notifyInfo: boolean;
+}
+
+/** 开始飞书机器人扫码绑定；分类开关会写入随后自动创建的通知渠道。 */
+export const startFeishuAppBinding = async (data: FeishuAppBindingStartOptions, options?: RequestControlOptions): Promise<FeishuAppBindingStartResult> => runContractRequest(
+  /* signal 控制飞书扫码绑定会话创建请求的取消和超时。 */
+  signal => contractClient.POST('/api/v1/notifications/feishu-app/qr', {
+    body: { bind_all_accounts: data.bindAllAccounts, notify_warning: data.notifyWarning, notify_info: data.notifyInfo },
+    signal,
+  }),
+  options,
+);
+
+/** 查询飞书机器人扫码绑定会话的当前阶段；调用方负责按间隔轮询并在终态停止。 */
+export const getFeishuAppBindingStatus = async (sessionID: string, options?: RequestControlOptions): Promise<FeishuAppBindingStatusResult> => runContractRequest(
+  /* signal 控制单次飞书扫码状态查询的取消和超时。 */
+  signal => contractClient.GET('/api/v1/notifications/feishu-app/qr/{session_id}', { params: { path: { session_id: sessionID } }, signal }),
+  options,
+);
+
+/** 读取飞书应用渠道的警告类与普通提示类推送开关。 */
+export const getFeishuChannelCategories = async (channelID: string, options?: RequestControlOptions): Promise<FeishuChannelCategories> => {
+  // numericChannelID 是契约要求的数值渠道主键，UI 模型使用字符串以保持列表标识稳定。
+  const numericChannelID = Number(channelID);
+  return runContractRequest(
+    /* signal 控制飞书渠道分类设置读取的取消和超时。 */
+    signal => contractClient.GET('/api/v1/notifications/channels/{channel_id}/feishu-categories', { params: { path: { channel_id: numericChannelID } }, signal }),
+    options,
+  );
+};
+
+/** 保存飞书应用渠道的警告类与普通提示类推送开关。 */
+export const updateFeishuChannelCategories = async (channelID: string, categories: FeishuChannelCategories, options?: RequestControlOptions): Promise<OperationResponse> => {
+  // numericChannelID 是契约要求的数值渠道主键，分类开关保持布尔值提交。
+  const numericChannelID = Number(channelID);
+  return runContractRequest(
+    /* signal 控制飞书渠道分类设置保存的取消和超时。 */
+    signal => contractClient.PUT('/api/v1/notifications/channels/{channel_id}/feishu-categories', { params: { path: { channel_id: numericChannelID } }, body: { warning: categories.warning, info: categories.info }, signal }),
+    options,
+  );
+};
 
 /** 将系统配置响应转换为通知 SMTP 表单使用的状态模型。 */
 const normalizeSystemSettings = (settings: Record<string, unknown>): SystemSettings => {

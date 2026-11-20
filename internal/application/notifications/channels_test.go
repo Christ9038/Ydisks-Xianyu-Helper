@@ -25,6 +25,22 @@ type channelRepositoryStub struct {
 	channelErr error
 	// ownedAccount 表示账号归属校验结果。
 	ownedAccount bool
+	// ownedAccountIDs 保存按用户查询返回的自有账号标识。
+	ownedAccountIDs []string
+	// singleBindings 保存单条账号绑定调用序列，便于验证飞书渠道绑定全部账号。
+	singleBindings []singleBindingCall
+	// singleBindingErr 保存单条账号绑定专用错误，便于区分渠道创建失败。
+	singleBindingErr error
+	// listErr 保存渠道列表专用错误，便于单独验证列表查询失败。
+	listErr error
+	// recordErr 保存渠道详情读取专用错误，便于单独验证更新读取失败。
+	recordErr error
+	// createErr 保存渠道创建专用错误，便于单独验证创建失败。
+	createErr error
+	// updateErr 保存渠道更新专用错误，便于单独验证更新失败。
+	updateErr error
+	// ownedAccountsErr 保存自有账号列表专用错误，便于单独验证绑定账号查询失败。
+	ownedAccountsErr error
 	// err 保存端口操作失败原因。
 	err error
 	// createdInput 保存最近一次创建输入，便于验证敏感值只进入端口。
@@ -35,28 +51,50 @@ type channelRepositoryStub struct {
 	sentBindings []int64
 }
 
-// ListChannels 返回预置渠道摘要。
+// singleBindingCall 保存一次单条账号绑定调用参数。
+type singleBindingCall struct {
+	// CookieID 是绑定目标账号标识。
+	CookieID string
+	// ChannelID 是绑定目标渠道标识。
+	ChannelID int64
+	// Enabled 是绑定启用状态。
+	Enabled bool
+}
+
+// ListChannels 返回预置渠道摘要及列表专用错误或通用端口错误。
 func (r *channelRepositoryStub) ListChannels(context.Context, int64) ([]ChannelSummary, error) {
+	if r.listErr != nil {
+		return nil, r.listErr
+	}
 	return r.summaries, r.err
 }
 
-// GetChannelForUpdate 返回预置渠道完整记录。
+// GetChannelForUpdate 返回预置渠道完整记录及详情专用错误或通用端口错误。
 func (r *channelRepositoryStub) GetChannelForUpdate(context.Context, int64, int64) (*ChannelRecord, error) {
+	if r.recordErr != nil {
+		return nil, r.recordErr
+	}
 	return r.record, r.err
 }
 
-// CreateChannel 记录创建输入并返回固定渠道 ID。
+// CreateChannel 记录创建输入并返回固定渠道 ID 或创建专用错误。
 func (r *channelRepositoryStub) CreateChannel(_ context.Context, _ int64, input ChannelInput) (int64, error) {
 	r.createdInput = input
+	if r.createErr != nil {
+		return 0, r.createErr
+	}
 	if r.err != nil {
 		return 0, r.err
 	}
 	return 41, nil
 }
 
-// UpdateChannel 记录更新后的完整渠道记录。
+// UpdateChannel 记录更新后的完整渠道记录并返回更新专用错误或通用端口错误。
 func (r *channelRepositoryStub) UpdateChannel(_ context.Context, _ int64, record ChannelRecord) error {
 	r.updatedRecord = &record
+	if r.updateErr != nil {
+		return r.updateErr
+	}
 	return r.err
 }
 
@@ -76,6 +114,14 @@ func (r *channelRepositoryStub) OwnsAccount(context.Context, int64, string) (boo
 	return r.ownedAccount, r.err
 }
 
+// ListOwnedAccountIDs 返回预置的自有账号标识及账号列表专用错误或通用端口错误。
+func (r *channelRepositoryStub) ListOwnedAccountIDs(context.Context, int64) ([]string, error) {
+	if r.ownedAccountsErr != nil {
+		return nil, r.ownedAccountsErr
+	}
+	return r.ownedAccountIDs, r.err
+}
+
 // ListBindings 返回预置绑定摘要。
 func (r *channelRepositoryStub) ListBindings(context.Context, int64) ([]BindingSummary, error) {
 	return r.bindings, r.err
@@ -92,8 +138,12 @@ func (r *channelRepositoryStub) SetBindings(_ context.Context, _ string, channel
 	return r.err
 }
 
-// SetSingleBinding 返回预置端口错误。
-func (r *channelRepositoryStub) SetSingleBinding(context.Context, string, int64, bool) error {
+// SetSingleBinding 记录单条绑定调用并返回单条绑定专用错误或通用端口错误。
+func (r *channelRepositoryStub) SetSingleBinding(_ context.Context, cookieID string, channelID int64, enabled bool) error {
+	r.singleBindings = append(r.singleBindings, singleBindingCall{CookieID: cookieID, ChannelID: channelID, Enabled: enabled})
+	if r.singleBindingErr != nil {
+		return r.singleBindingErr
+	}
 	return r.err
 }
 

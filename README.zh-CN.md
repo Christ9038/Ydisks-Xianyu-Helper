@@ -348,6 +348,7 @@ DATABASE_URL > -db-url > -db
 | `DATABASE_URL` | 空 | 数据库连接 URL；生产环境推荐 PostgreSQL |
 | `XIANYU_DATA_KEY` | 空 | 敏感字段加密主密钥；生产环境必须固定并备份 |
 | `XIANYU_ADMIN_PASSWORD` | 空 | Docker Compose 非交互初始化或重置管理员时使用；源码和桌面端可通过首次打开页面设置密码 |
+| `XIANYU_PUBLIC_URL` | 空 | 新消息通知中“打开网页查看”链接使用的对外访问地址，例如 `https://xianyu.example.com`；为空时通知不附加会话链接 |
 | `XIANYU_UPLOAD_DIR` | `data/uploads` | 批量铺货上传文件与临时资源目录 |
 | `LOG_LEVEL` | 系统设置或 `info` | `debug`、`info`、`warn`、`error` |
 | `LOG_FORMAT` | 系统设置或 `text` | `text` 或 `json` |
