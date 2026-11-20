@@ -140,7 +140,7 @@ func TestFeishuRegistrarReturnsProtocolErrorsAndRejectsNilClient(t *testing.T) {
 		t.Fatal("生产飞书注册适配器不能为空")
 	}
 	// interfaceAssertion 验证生产适配器满足消费者接口。
-	var interfaceAssertion notificationsapp.FeishuRegistrar = productionRegistrar
+	var interfaceAssertion = productionRegistrar
 	if interfaceAssertion == nil {
 		t.Fatal("生产适配器未满足应用端口")
 	}
