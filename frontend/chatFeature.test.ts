@@ -59,8 +59,10 @@ describe('online chat UI contract', () => {
 
 	test('preserves line breaks and wraps long chat text', () => {
 		const chat = source('app/features/chat/pages/Chat.tsx'); /* chat 表示聊天页源码，用于验证消息文本的换行样式不会回退。 */
-		expect(chat).toContain('whitespace-pre-wrap break-words rounded-2xl px-4 py-2.5');
-	} /* 测试回调断言普通消息保留服务端换行并避免超长文本撑破气泡。 */);
+		expect(chat).toContain('max-w-[78%]');
+		expect(chat).toContain('max-w-full whitespace-pre-wrap break-words rounded-2xl px-3 py-2');
+		expect(chat).toContain('[overflow-wrap:anywhere]');
+	} /* 测试回调断言普通消息保留服务端换行、限制气泡宽度并避免长 URL 撑破布局。 */);
 
 	test('keeps the active chat at the bottom when new messages arrive', () => {
 		const chat = source('app/features/chat/pages/Chat.tsx'); /* chat 表示chat。 */
