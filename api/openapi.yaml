@@ -4099,6 +4099,141 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/items/{cookie_id}/{item_id}/stock":
+    get:
+      operationId: getApiV1ItemsBycookie_idByitem_idStock
+      summary: 读取当前用户闲鱼商品的库存（单规格数量或多规格各行库存，一次平台请求）
+      security: [{cookieAuth: []}]
+      parameters:
+        - name: cookie_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: item_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: 商品当前库存
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemStockResponse'
+        '400':
+          description: 请求参数无效
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 账号不存在或不属于当前用户
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: 账号凭证已变化
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: 商品类目暂不支持网页端编辑，请在闲鱼 App 中修改
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '501':
+          description: 当前平台客户端不支持该能力
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: 平台失败、要求安全验证或账号登录已失效（见 code）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      operationId: putApiV1ItemsBycookie_idByitem_idStock
+      summary: 修改当前用户闲鱼商品的库存（先读最新详情再提交，两次平台请求，失败不重试）
+      description: >
+        单规格提交 quantity（1 到 999999）与 expected_quantity；多规格提交全部规格行 skus
+        （每行 key、quantity 0 到 999999、expected_quantity，且至少一行大于 0）。
+        expected_quantity 与平台当前库存不一致时返回 409 item_stock_changed 且不提交。
+      security: [{cookieAuth: []}]
+      parameters:
+        - name: cookie_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: item_id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ItemStockUpdateRequest'
+      responses:
+        '200':
+          description: 平台已修改库存且账号会话写回成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemStockUpdateResponse'
+        '400':
+          description: 请求参数无效
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 账号不存在或不属于当前用户
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: 账号凭证已变化（account_credential_changed），或库存已在平台侧变化（item_stock_changed）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: 商品类目暂不支持网页端编辑（item_edit_unsupported），请在闲鱼 App 中修改库存
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '501':
+          description: 当前平台客户端不支持该能力
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: 平台失败、要求安全验证、账号登录已失效，或平台已修改但账号会话写回失败（platform_stock_updated_cookie_persist_failed）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   "/api/v1/items/{cookie_id}/{item_id}":
     delete:
       operationId: deleteApiV1ItemsBycookie_idByitem_id
@@ -11620,6 +11755,65 @@ components:
             cookie_persisted: {type: boolean}
           additionalProperties: true
       additionalProperties: true
+    ItemStockResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: {type: boolean}
+        data:
+          type: object
+          required: [item_id, multi_spec, quantity, skus]
+          properties:
+            item_id: {type: string}
+            multi_spec: {type: boolean}
+            quantity:
+              type: integer
+              description: 单规格商品库存；多规格商品为各规格库存之和
+            skus:
+              type: array
+              description: 多规格商品的规格行，单规格商品为空数组
+              items:
+                type: object
+                required: [key, label, price_cents, quantity]
+                properties:
+                  key: {type: string}
+                  label: {type: string}
+                  price_cents: {type: integer, format: int64}
+                  quantity: {type: integer}
+    ItemStockUpdateRequest:
+      type: object
+      properties:
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 999999
+          description: 单规格商品的新库存
+        expected_quantity:
+          type: integer
+          minimum: 0
+          description: 单规格商品用户看到的原库存
+        skus:
+          type: array
+          description: 多规格商品的全部规格行；非空表示按多规格处理
+          items:
+            type: object
+            required: [key, quantity, expected_quantity]
+            properties:
+              key: {type: string}
+              quantity: {type: integer, minimum: 0, maximum: 999999}
+              expected_quantity: {type: integer, minimum: 0}
+    ItemStockUpdateResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: {type: boolean}
+        data:
+          type: object
+          required: [item_id, message, cookie_persisted]
+          properties:
+            item_id: {type: string}
+            message: {type: string}
+            cookie_persisted: {type: boolean}
     ChatManualTakeoverUpdateRequest:
       type: object
       minProperties: 1

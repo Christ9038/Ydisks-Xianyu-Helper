@@ -38,6 +38,7 @@ func TestOpenAPISuccessContractCoverage(t *testing.T) {
 		{name: "api-access-tokens", run: TestAPIAccessTokenManagementAndBearerUse},
 		{name: "chat-manual-takeover", run: TestChatManualTakeoverBearerScopeUsesNarrowSettingsOnly},
 		{name: "item-platform-unpublish", run: TestItemPlatformUnpublishHandlerContract},
+		{name: "item-stock", run: TestItemStockHandlerContract},
 		{name: "versioned-account", run: TestVersionedAccountRoutesPreserveLegacyContracts},
 		{name: "versioned-account-credentials", run: TestVersionedAccountCredentialRoutesPreserveLegacyContracts},
 		{name: "versioned-account-settings", run: TestVersionedAccountSettingsRoutesPreserveLegacyContracts},

@@ -121,13 +121,19 @@ func recommendCategoryCandidates(ctx context.Context, recommender categoryRecomm
 
 // persistCategorySession 在远端调用后复核凭证并保存完整会话或平面 Cookie。
 func (p *ItemPublishPort) persistCategorySession(ctx context.Context, userID int64, cookieID, initialValue, initialMetadata string, session *mtop.CookieSession, updatedCookies string) (string, error) {
+	return p.persistPlatformSession(ctx, userID, cookieID, initialValue, initialMetadata, session, updatedCookies, itemapp.ErrCategoryCredentialChanged)
+}
+
+// persistPlatformSession 在平台调用后复核账号归属和凭证版本，再保存 Cookie Jar 或平面 Cookie。
+// credentialChanged 是凭证在调用期间变化时返回给调用方的领域错误；updatedCookies 为空表示没有平面 Cookie 需要写回。
+func (p *ItemPublishPort) persistPlatformSession(ctx context.Context, userID int64, cookieID, initialValue, initialMetadata string, session *mtop.CookieSession, updatedCookies string, credentialChanged error) (string, error) {
 	// unlock 保护远端调用完成后的凭证复核与会话写回。
 	unlock := p.store.LockAccountCredentials(cookieID)
 	defer unlock()
 	// latest 和 loadErr 保存远端调用后的凭证视图及读取错误。
 	latest, loadErr := p.store.Cookies.GetCookiePlatformRuntimeData(ctx, cookieID)
 	if loadErr != nil || latest.UserID != userID || latest.Value != initialValue || latest.MetadataJSON != initialMetadata {
-		return "", itemapp.ErrCategoryCredentialChanged
+		return "", credentialChanged
 	}
 	// value、valueChanged、handled 和 persistErr 保存会话转换结果及写回错误。
 	value, valueChanged, handled, persistErr := p.persistSession(ctx, latest, session)
@@ -202,30 +208,12 @@ func (p *ItemPublishPort) DownShelf(ctx context.Context, userID int64, cookieID,
 
 // persistDownShelfSession 在远端调用后复核账号归属和凭证版本，再保存 Cookie Jar 或平面 Cookie。
 func (p *ItemPublishPort) persistDownShelfSession(ctx context.Context, userID int64, cookieID, initialValue, initialMetadata string, session *mtop.CookieSession, result *mtop.AccountTaskResult, callErr error) (string, error) {
-	// unlock 保护远端调用后的凭证复核与会话写回。
-	unlock := p.store.LockAccountCredentials(cookieID)
-	defer unlock()
-	// latest、loadErr 保存远端调用后的凭证视图。
-	latest, loadErr := p.store.Cookies.GetCookiePlatformRuntimeData(ctx, cookieID)
-	if loadErr != nil || latest.UserID != userID || latest.Value != initialValue || latest.MetadataJSON != initialMetadata {
-		return "", itemapp.ErrDownShelfCredentialChanged
+	// updatedCookies 只在调用成功时采用平台响应中的平面 Cookie。
+	updatedCookies := ""
+	if callErr == nil && result != nil {
+		updatedCookies = result.UpdatedCookies
 	}
-	// value、valueChanged、handled、persistErr 保存 Cookie Jar 写回结果。
-	value, valueChanged, handled, persistErr := p.persistSession(ctx, latest, session)
-	if persistErr != nil {
-		return "", persistErr
-	}
-	if handled && valueChanged {
-		return value, nil
-	}
-	if !handled && callErr == nil && result != nil && result.UpdatedCookies != "" && result.UpdatedCookies != latest.Value {
-		// err 是按账号归属写回平台最新 Cookie 时产生的持久化错误。
-		if err := p.store.Cookies.UpdateValueOwned(ctx, cookieID, result.UpdatedCookies, userID); err != nil {
-			return "", err
-		}
-		return result.UpdatedCookies, nil
-	}
-	return "", nil
+	return p.persistPlatformSession(ctx, userID, cookieID, initialValue, initialMetadata, session, updatedCookies, itemapp.ErrDownShelfCredentialChanged)
 }
 
 // Publish 执行单商品平台发布及响应 Cookie 持久化，不向应用层泄露 MTOP 类型。

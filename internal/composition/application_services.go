@@ -65,6 +65,8 @@ type Services struct {
 	itemSinglePublish *itemapp.Service
 	// itemPlatformLifecycle 是商品平台下架等生命周期写操作应用服务。
 	itemPlatformLifecycle *itemapp.PlatformLifecycleService
+	// itemStock 是商品库存读取与修改应用服务。
+	itemStock *itemapp.ItemStockService
 	// itemBatchCoordinator 是商品批量发布 worker、恢复扫描和关闭等待的生命周期拥有者。
 	itemBatchCoordinator *itemapp.BatchWorkerCoordinator
 	// itemBatchPreview 是商品批量发布表格预检应用服务。
@@ -326,6 +328,7 @@ type TransportPorts struct {
 	OrderRefreshJobs            *orderapp.RefreshJobService
 	ItemSinglePublish           *itemapp.Service
 	ItemPlatformLifecycle       *itemapp.PlatformLifecycleService
+	ItemStock                   *itemapp.ItemStockService
 	ItemBatchPreview            *itemapp.BatchPreviewService
 	ItemBatchManagement         *itemapp.BatchManagementService
 	ItemCategoryRecommendation  *itemapp.CategoryRecommendationService
@@ -380,7 +383,7 @@ func (services *Services) TransportPorts() TransportPorts {
 		return TransportPorts{}
 	}
 	return TransportPorts{
-		Orders: services.orders, OrderRefreshJobs: services.orderRefreshJobs, ItemSinglePublish: services.itemSinglePublish, ItemPlatformLifecycle: services.itemPlatformLifecycle,
+		Orders: services.orders, OrderRefreshJobs: services.orderRefreshJobs, ItemSinglePublish: services.itemSinglePublish, ItemPlatformLifecycle: services.itemPlatformLifecycle, ItemStock: services.itemStock,
 		ItemBatchPreview: services.itemBatchPreview, ItemBatchManagement: services.itemBatchManagement,
 		ItemCategoryRecommendation: services.itemCategoryRecommendation, ItemBatchPreviewPersistence: services.itemBatchPreviewPersistence,
 		ItemBatchLocalPublish: services.itemBatchLocalPublish, ItemSync: services.itemSync, ItemCatalog: services.itemCatalog,
@@ -518,6 +521,7 @@ func New(dependencies Dependencies) (*Services, error) {
 		orderReconciliationRecovery: dependencies.OrderReconciliationRecovery,
 		itemSinglePublish:           catalogServices.singlePublish,
 		itemPlatformLifecycle:       catalogServices.platformLifecycle,
+		itemStock:                   catalogServices.stock,
 		itemBatchCoordinator:        batchServices.coordinator,
 		itemBatchPreview:            batchServices.preview,
 		itemBatchManagement:         batchServices.management,

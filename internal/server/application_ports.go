@@ -453,6 +453,8 @@ type ApplicationPorts struct {
 	itemCatalogMutation ItemCatalogMutationPort
 	// itemPlatformLifecycle 是商品平台下架用例。
 	itemPlatformLifecycle ItemPlatformLifecyclePort
+	// itemStock 是商品库存读取与修改用例。
+	itemStock ItemStockPort
 	// itemAISettings 是商品级 AI 配置用例。
 	itemAISettings ItemAISettingsPort
 	// accountLogin 是 Cookie 与二维码登录用例 Port。
@@ -542,6 +544,7 @@ type ApplicationPortsInput struct {
 	ItemCatalog                 ItemCatalogPort
 	ItemCatalogMutation         ItemCatalogMutationPort
 	ItemPlatformLifecycle       ItemPlatformLifecyclePort
+	ItemStock                   ItemStockPort
 	ItemAISettings              ItemAISettingsPort
 	AccountLogin                AccountLoginPort
 	QRLogin                     QRLoginPort
@@ -590,7 +593,7 @@ func NewApplicationPorts(input ApplicationPortsInput) *ApplicationPorts {
 		itemSinglePublish: input.ItemSinglePublish, itemBatchPreview: input.ItemBatchPreview,
 		itemBatchManagement: input.ItemBatchManagement, itemCategoryRecommendation: input.ItemCategoryRecommendation,
 		itemBatchPreviewPersistence: input.ItemBatchPreviewPersistence, itemBatchLocalPublish: input.ItemBatchLocalPublish,
-		itemSync: input.ItemSync, itemCatalog: input.ItemCatalog, itemCatalogMutation: input.ItemCatalogMutation, itemPlatformLifecycle: input.ItemPlatformLifecycle, itemAISettings: input.ItemAISettings,
+		itemSync: input.ItemSync, itemCatalog: input.ItemCatalog, itemCatalogMutation: input.ItemCatalogMutation, itemPlatformLifecycle: input.ItemPlatformLifecycle, itemStock: input.ItemStock, itemAISettings: input.ItemAISettings,
 		accountLogin: input.AccountLogin, qrLogin: input.QRLogin, sessionRecovery: input.SessionRecovery,
 		platformCredentials: input.PlatformCredentials, authentication: input.Authentication, loginAudit: input.LoginAudit,
 		passwordLogin: input.PasswordLogin, accountDelete: input.AccountDelete, accountProfile: input.AccountProfile,
@@ -619,7 +622,7 @@ func (ports *ApplicationPorts) validate() error {
 		{"orders", ports.orders}, {"order_refresh_jobs", ports.orderRefreshJobs}, {"item_single_publish", ports.itemSinglePublish},
 		{"item_batch_preview", ports.itemBatchPreview}, {"item_batch_management", ports.itemBatchManagement}, {"item_category_recommendation", ports.itemCategoryRecommendation},
 		{"item_batch_preview_persistence", ports.itemBatchPreviewPersistence}, {"item_batch_local_publish", ports.itemBatchLocalPublish}, {"item_sync", ports.itemSync},
-		{"item_catalog", ports.itemCatalog}, {"item_catalog_mutation", ports.itemCatalogMutation}, {"item_platform_lifecycle", ports.itemPlatformLifecycle}, {"item_ai_settings", ports.itemAISettings}, {"account_login", ports.accountLogin},
+		{"item_catalog", ports.itemCatalog}, {"item_catalog_mutation", ports.itemCatalogMutation}, {"item_platform_lifecycle", ports.itemPlatformLifecycle}, {"item_stock", ports.itemStock}, {"item_ai_settings", ports.itemAISettings}, {"account_login", ports.accountLogin},
 		{"qr_login", ports.qrLogin}, {"session_recovery", ports.sessionRecovery}, {"platform_credentials", ports.platformCredentials},
 		{"authentication", ports.authentication}, {"login_audit", ports.loginAudit}, {"password_login", ports.passwordLogin},
 		{"account_delete", ports.accountDelete}, {"account_profile", ports.accountProfile}, {"account_long_login", ports.accountLongLogin}, {"credential_verification", ports.credentialVerification},

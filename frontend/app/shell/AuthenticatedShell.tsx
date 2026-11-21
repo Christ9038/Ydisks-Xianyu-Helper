@@ -63,6 +63,8 @@ const PublishSpecsEditor = lazy(/* 规格编辑器随商品页面路由加载。
 const PublishImagesEditor = lazy(/* 图片编辑器随商品页面路由加载。 */ () => import('../features/items/components/PublishImagesEditor').then(/* module 提供图片编辑器的具名导出。 */ module => ({ default: module.PublishImagesEditor })));
 // ItemAISettingsModal 在商品页面中按需加载，保持商品主分片在预算内。
 const ItemAISettingsModal = lazy(/* 商品 AI 弹窗随商品页面路由加载。 */ () => import('../features/items/components/ItemAISettingsModal').then(/* module 提供商品 AI 弹窗的具名导出。 */ module => ({ default: module.ItemAISettingsModal })));
+// ItemStockModal 在商品页面中按需加载，保持商品主分片在预算内。
+const ItemStockModal = lazy(/* 商品库存弹窗随商品页面路由加载。 */ () => import('../features/items/components/ItemStockModal').then(/* module 提供商品库存弹窗的具名导出。 */ module => ({ default: module.ItemStockModal })));
 // LibraryImagePicker 供商品页单品发布按需使用，图片库代码仅在打开选择器时加载。
 const LibraryImagePicker = lazy(/* 图片库选择器随商品页面路由按需加载。 */ () => import('../features/library/components/LibraryImagePicker'));
 // ResourceLibrary 是按需加载的本地资源库页面（商品模板与图片库）。
@@ -150,7 +152,7 @@ export const AppContent: React.FC<AppContentProps> = ({
       case 'orders': return <OrderList />;
       case 'sales': return <SalesStats />;
       case 'cards': return <CardList libraryImageChooser={LibraryImageChooser} />;
-      case 'items': return <ItemList onConfigureDelivery={handleConfigureDelivery} publishSpecsEditor={PublishSpecsEditor} publishImagesEditor={PublishImagesEditor} itemAISettingsModal={ItemAISettingsModal} libraryImagePicker={LibraryImagePicker} />;
+      case 'items': return <ItemList onConfigureDelivery={handleConfigureDelivery} publishSpecsEditor={PublishSpecsEditor} publishImagesEditor={PublishImagesEditor} itemAISettingsModal={ItemAISettingsModal} itemStockModal={ItemStockModal} libraryImagePicker={LibraryImagePicker} />;
       case 'rules': return <Rules
         initialDeliveryTarget={deliveryRuleTarget}
         onDeliveryTargetHandled={onDeliveryTargetHandled}

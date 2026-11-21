@@ -65,6 +65,8 @@ const (
 	RetGrouponNotPending = "FAIL_BIZ_GROUPON_STATUS_ERROR::当前订单不支持免拼"
 	// RetBadRequest 是请求参数缺失或格式错误的标记。
 	RetBadRequest = "FAIL_BIZ_PARAM_ERROR::参数错误"
+	// RetEditUnsupported 是商品类目不支持网页端发布或编辑的标记，平台不会修改任何数据。
+	RetEditUnsupported = "FAIL_BIZ_PC_NOT_SUPPORT_PUBLISH_OR_EDIT::该类目暂不支持网页端编辑"
 )
 
 // 模拟器实现的 MTOP 接口名，与生产客户端请求路径中的接口名一一对应。
@@ -103,6 +105,10 @@ const (
 	APICategoryRecommend = "mtop.taobao.idle.kgraph.property.recommend"
 	// APIPublish 发布商品。
 	APIPublish = "mtop.idle.pc.idleitem.publish"
+	// APIItemEditDetail 读取商品编辑页详情。
+	APIItemEditDetail = "mtop.idle.pc.idleitem.editDetail"
+	// APIItemEdit 以全量覆盖方式提交商品编辑。
+	APIItemEdit = "mtop.idle.pc.idleitem.edit"
 	// APIUpload 是图片上传端点的记录名；它不是 MTOP 接口，没有签名校验。
 	APIUpload = "upload.api"
 )

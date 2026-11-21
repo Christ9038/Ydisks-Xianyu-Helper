@@ -102,6 +102,8 @@ type itemCatalogServices struct {
 	singlePublish *itemapp.Service
 	// platformLifecycle 提供商品平台下架等生命周期写操作。
 	platformLifecycle *itemapp.PlatformLifecycleService
+	// stock 提供商品库存读取与修改用例。
+	stock *itemapp.ItemStockService
 }
 
 // buildItemCatalogServices 构造商品目录和发布服务，并把平台会话恢复回调限制在组合根。
@@ -132,6 +134,11 @@ func buildItemCatalogServices(dependencies Dependencies, sessionRecovery adapter
 	if itemPlatformLifecycleErr != nil {
 		return itemCatalogServices{}, fmt.Errorf("构造商品平台生命周期服务失败: %w", itemPlatformLifecycleErr)
 	}
+	// itemStock 复用商品发布端口承载库存读取、修改与响应会话写回。
+	itemStock, itemStockErr := itemapp.NewItemStockService(itemPublishPort)
+	if itemStockErr != nil {
+		return itemCatalogServices{}, fmt.Errorf("构造商品库存服务失败: %w", itemStockErr)
+	}
 	// itemCategoryRecommendation 复用商品发布端口承载类目推荐和响应会话写回。
 	itemCategoryRecommendation, itemCategoryRecommendationErr := itemapp.NewCategoryRecommendationService(itemPublishPort)
 	if itemCategoryRecommendationErr != nil {
@@ -150,5 +157,5 @@ func buildItemCatalogServices(dependencies Dependencies, sessionRecovery adapter
 	if itemSinglePublishErr != nil {
 		return itemCatalogServices{}, fmt.Errorf("构造单商品发布服务失败: %w", itemSinglePublishErr)
 	}
-	return itemCatalogServices{catalog: itemCatalog, mutation: itemCatalogMutation, aiSettings: itemAISettings, categoryRecommendation: itemCategoryRecommendation, previewPersistence: itemBatchPreviewPersistence, singlePublish: itemSinglePublish, platformLifecycle: itemPlatformLifecycle}, nil
+	return itemCatalogServices{catalog: itemCatalog, mutation: itemCatalogMutation, aiSettings: itemAISettings, categoryRecommendation: itemCategoryRecommendation, previewPersistence: itemBatchPreviewPersistence, singlePublish: itemSinglePublish, platformLifecycle: itemPlatformLifecycle, stock: itemStock}, nil
 }

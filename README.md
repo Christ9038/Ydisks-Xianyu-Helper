@@ -74,7 +74,7 @@ links and view data.
 | Automation center | Unpaid-order price changes, paid delivery, staged bargain free shipping, review gifts, review reminders, failure recovery, manual-intervention notifications, and idempotency checkpoints. |
 | Account tasks | Event-driven automatic reviews based on locally recorded buyer-confirmed-receipt events, daily product refresh, manual execution, execution records, and idempotency protection. |
 | Card inventory | Text, batch cards, images, and API delivery, with batch import, quantity, and delay settings. |
-| Product management | Synchronization, manual association, list-card `isSKU`-based single- or multi-variant detection (missing or `false` means single-variant), publishing, image ordering, category lookup, and bulk listing. |
+| Product management | Per-item stock adjustment (single- and multi-variant, optimistic concurrency), synchronization, manual association, list-card `isSKU`-based single- or multi-variant detection (missing or `false` means single-variant), publishing, image ordering, category lookup, and bulk listing. |
 | Delivery templates | Ordered multi-message delivery and order, buyer, card, and custom variables. |
 | Resource library | Reusable image library and product templates published to several accounts at once; templates can be imported from Excel (up to 300 rows per import) and bulk-listing sheets can reference shared delivery templates with per-row variables. |
 | Orders | Synchronization, editing, unpaid-order price changes, platform delivery, card resending, and exception handling. |

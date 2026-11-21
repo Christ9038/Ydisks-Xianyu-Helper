@@ -33,6 +33,8 @@ func (g *Gateway) handlers() map[string]handlerFunc {
 		APIChatItemSearch:    g.handleChatItemSearch,
 		APICategoryRecommend: g.handleCategoryRecommend,
 		APIPublish:           g.handlePublish,
+		APIItemEditDetail:    g.handleItemEditDetail,
+		APIItemEdit:          g.handleItemEdit,
 	}
 }
 
@@ -458,5 +460,192 @@ func (g *Gateway) handlePublish(acct *account, data map[string]any) ([]string, a
 		SellerID: acct.UserID, Title: title, Price: fmt.Sprintf("%d.%02d", cents/100, cents%100),
 		MultiSpec: len(skus) > 0, OnSale: true, PublishData: data,
 	})
+	g.items[itemID].Quantity = dataInt(data, "quantity", 0)
+	if len(skus) > 0 {
+		g.items[itemID].SKUs, g.items[itemID].Quantity = g.publishedSKUs(skus)
+	}
 	return success(map[string]any{"itemId": itemID})
+}
+
+// publishedSKUs 把发布请求中的规格行转换为平台 SKU（分配 skuId），并返回各行库存之和。
+func (g *Gateway) publishedSKUs(rows []any) ([]ItemSKU, int) {
+	// skus 保存转换后的规格行；total 是各行库存之和。
+	skus, total := make([]ItemSKU, 0, len(rows)), 0
+	// raw 是请求中的一行规格。
+	for _, raw := range rows {
+		// row 是该行的对象形式。
+		row, _ := raw.(map[string]any)
+		// sku 是转换后的规格行。
+		sku := ItemSKU{ID: fmt.Sprintf("6%012d", g.nextSequence()), PriceCents: dataInt(row, "priceInCent", 0), Quantity: dataInt(row, "quantity", 0)}
+		// properties 是该行的规格组合。
+		properties, _ := row["propertyList"].([]any)
+		// property 是一个规格项。
+		for _, rawProperty := range properties {
+			// fields 是规格项的对象形式。
+			fields, _ := rawProperty.(map[string]any)
+			sku.Properties = append(sku.Properties, Spec{Name: dataString(fields, "propertyText"), Value: dataString(fields, "valueText")})
+		}
+		total += sku.Quantity
+		skus = append(skus, sku)
+	}
+	return skus, total
+}
+
+// ownedEditableItem 返回请求者拥有的商品；不存在或不属于该卖家时返回 nil。
+func (g *Gateway) ownedEditableItem(acct *account, itemID string) *Item {
+	// item、exists 是请求编辑的商品及其是否存在。
+	item, exists := g.items[itemID]
+	if !exists || item.SellerID != acct.UserID {
+		return nil
+	}
+	return item
+}
+
+// handleItemEditDetail 返回商品编辑页详情。字段值与真实平台一致：数值大多是字符串，
+// 多规格商品顶层 quantity 固定为 "1" 而库存在 itemSkuList，且不返回 itemProperties。
+func (g *Gateway) handleItemEditDetail(acct *account, data map[string]any) ([]string, any) {
+	// item 是请求读取的商品。
+	item := g.ownedEditableItem(acct, dataString(data, "itemId"))
+	if item == nil {
+		return failure(RetBadRequest)
+	}
+	if item.EditUnsupported {
+		return failure(RetEditUnsupported)
+	}
+	// detail 是返回给客户端的详情；有发布请求副本时以它为底，保证回填字段与发布时一致。
+	detail := map[string]any{}
+	if item.EditData != nil {
+		detail = cloneMap(item.EditData)
+	} else if item.PublishData != nil {
+		detail = cloneMap(item.PublishData)
+	} else {
+		detail["itemTextDTO"] = map[string]any{"title": item.Title, "desc": "模拟商品"}
+		detail["itemCatDTO"] = map[string]any{"catId": "50023914", "catName": "电子资料"}
+		detail["itemPriceDTO"] = map[string]any{"priceInCent": item.Price}
+		detail["imageInfoDOList"] = []any{map[string]any{"url": "https://img.alicdn.example/item/" + item.ID + ".png", "major": true}}
+	}
+	// 编辑页只会返回这些运行时字段，以下覆盖保证库存字段以平台当前状态为准。
+	delete(detail, "itemProperties")
+	delete(detail, "uniqueCode")
+	delete(detail, "sourceId")
+	detail["itemId"] = item.ID
+	detail["itemStatus"] = "0"
+	detail["bizcode"] = "pcMainPublish"
+	if item.MultiSpec {
+		detail["quantity"] = "1"
+		// rows 是返回的规格行，数值字段统一为字符串。
+		rows := make([]any, 0, len(item.SKUs))
+		// sku 是平台内部的规格行。
+		for _, sku := range item.SKUs {
+			// properties 是该行规格组合，字段名与发布请求一致。
+			properties := make([]any, 0, len(sku.Properties))
+			// spec 是一个规格项。
+			for _, spec := range sku.Properties {
+				properties = append(properties, map[string]any{"propertyText": spec.Name, "valueText": spec.Value})
+			}
+			rows = append(rows, map[string]any{
+				"skuId": sku.ID, "itemId": item.ID, "sellerId": item.SellerID,
+				"quantity": strconv.Itoa(sku.Quantity), "priceInCent": strconv.Itoa(sku.PriceCents), "propertyList": properties,
+			})
+		}
+		detail["itemSkuList"] = rows
+	} else {
+		detail["quantity"] = strconv.Itoa(item.Quantity)
+		delete(detail, "itemSkuList")
+	}
+	return success(detail)
+}
+
+// handleItemEdit 以全量覆盖方式提交商品编辑。模拟器校验平台会拒绝的情形：缺少来源标识或唯一码、
+// 缺少标题/类目/图片、多规格缺少 itemProperties 或规格行集合与平台当前不一致、库存超出范围。
+func (g *Gateway) handleItemEdit(acct *account, data map[string]any) ([]string, any) {
+	// item 是请求修改的商品。
+	item := g.ownedEditableItem(acct, dataString(data, "itemId"))
+	if item == nil {
+		return failure(RetBadRequest)
+	}
+	if item.EditUnsupported {
+		return failure(RetEditUnsupported)
+	}
+	// text、category、images 是必须随全量载荷回填的标题、类目和图片。
+	text, _ := data["itemTextDTO"].(map[string]any)
+	// category 是类目节点。
+	category, _ := data["itemCatDTO"].(map[string]any)
+	// images 是图片列表。
+	images, _ := data["imageInfoDOList"].([]any)
+	if dataString(data, "sourceId") != item.ID || dataString(data, "uniqueCode") == "" || dataString(data, "bizcode") != "pcMainPublish" ||
+		dataString(text, "title") == "" || dataString(category, "catId") == "" || len(images) == 0 {
+		return failure(RetBadRequest)
+	}
+	// rows 是请求中的规格行。
+	rows, _ := data["itemSkuList"].([]any)
+	if !item.MultiSpec {
+		// quantity 是单规格新库存。
+		quantity := dataInt(data, "quantity", 0)
+		if len(rows) != 0 || quantity < 1 || quantity > 999999 {
+			return failure(RetBadRequest)
+		}
+		item.Quantity = quantity
+	} else {
+		// properties 是该规格行的规格项列表。
+		if properties, _ := data["itemProperties"].([]any); len(properties) == 0 || len(rows) != len(item.SKUs) {
+			return failure(RetBadRequest)
+		}
+		// updated 保存按 skuId 匹配后的新库存；total、positive 用于重算与校验。
+		updated, total, positive := map[string]int{}, 0, 0
+		// raw 是请求中的一行规格。
+		for _, raw := range rows {
+			// row 是该行的对象形式。
+			row, _ := raw.(map[string]any)
+			// quantity 是该行新库存。
+			quantity := dataInt(row, "quantity", -1)
+			if quantity < 0 || quantity > 999999 {
+				return failure(RetBadRequest)
+			}
+			updated[dataString(row, "skuId")] = quantity
+			total += quantity
+			if quantity > 0 {
+				positive++
+			}
+		}
+		// matched 统计请求行与平台规格行的匹配数，必须逐行一一对应。
+		matched := 0
+		// sku 是平台内部的规格行。
+		for _, sku := range item.SKUs {
+			// exists 表示商品是否存在。
+			if _, exists := updated[sku.ID]; exists {
+				matched++
+			}
+		}
+		if matched != len(item.SKUs) || positive == 0 {
+			return failure(RetBadRequest)
+		}
+		// i 是规格行下标；校验通过后才整体写入，避免半途修改。
+		for i := range item.SKUs {
+			item.SKUs[i].Quantity = updated[item.SKUs[i].ID]
+		}
+		item.Quantity = total
+	}
+	item.EditData = cloneMap(data)
+	item.EditCount++
+	return success(map[string]any{"itemId": item.ID})
+}
+
+// cloneMap 通过 JSON 往返深拷贝请求数据，使平台状态与调用方持有的载荷互不影响；数据来自 JSON 解码，往返必然成功。
+func cloneMap(source map[string]any) map[string]any {
+	// encoded、err 是序列化结果。
+	encoded, err := json.Marshal(source)
+	if err != nil {
+		return map[string]any{}
+	}
+	// cloned 是深拷贝结果，数字保留为 json.Number 以与其他处理器的解码口径一致。
+	cloned := map[string]any{}
+	// decoder 按 json.Number 解码，保持与其他处理器一致的数字口径。
+	decoder := json.NewDecoder(strings.NewReader(string(encoded)))
+	decoder.UseNumber()
+	// err 保存本次调用返回的失败原因，供后续断言使用。
+	if err := decoder.Decode(&cloned); err != nil {
+		return map[string]any{}
+	}
+	return cloned
 }

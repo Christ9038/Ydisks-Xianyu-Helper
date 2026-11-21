@@ -76,6 +76,14 @@ type ItemLifecycleClient interface {
 	DownShelfItem(context.Context, string, string) (*AccountTaskResult, error)
 }
 
+// ItemStockClient 是商品库存读取与修改的可选扩展接口，避免扩大所有 MTOP 客户端替身的基础契约。
+type ItemStockClient interface {
+	// FetchItemEditDetail 读取商品的 PC 编辑详情（库存视图），一次调用一次业务请求。
+	FetchItemEditDetail(ctx context.Context, cookiesStr, itemID string) (*ItemEditDetail, error)
+	// EditItemStock 以最新详情为底只修改库存并全量提交，固定最多两次平台请求。
+	EditItemStock(ctx context.Context, cookiesStr string, req ItemStockEditRequest) (*ItemStockEditResult, error)
+}
+
 // ClientImpl 是 Client 接口的 HTTP 实现。零值可用；HTTP 超时默认 30s。
 // 仍导出 HTTPClient/TokenURL 等字段以便调用方覆盖（如测试注入 RoundTripper）。
 // ClientImpl 用于本次流程后续判断的ClientImpl
@@ -97,7 +105,11 @@ type ClientImpl struct {
 	RateListURL    string
 	PolishItemURL  string
 	// DownShelfItemURL 允许测试将商品下架请求指向本地 HTTP 服务；生产空值使用闲鱼 PC 下架端点。
-	DownShelfItemURL    string
+	DownShelfItemURL string
+	// ItemEditDetailURL 允许测试将商品编辑详情读取指向本地 HTTP 服务；生产空值使用闲鱼 PC editDetail 端点。
+	ItemEditDetailURL string
+	// ItemEditURL 允许测试将商品编辑提交指向本地 HTTP 服务；生产空值使用闲鱼 PC edit 端点。
+	ItemEditURL         string
 	PolishItemBackupURL string
 	ChatUserQueryURL    string
 	// ChatItemSearchURL 允许测试将聊天商品查询指向本地 HTTP 服务；生产空值使用官方端点。
