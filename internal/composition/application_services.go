@@ -65,6 +65,10 @@ type Services struct {
 	itemSinglePublish *itemapp.Service
 	// itemPlatformLifecycle 是商品平台下架等生命周期写操作应用服务。
 	itemPlatformLifecycle *itemapp.PlatformLifecycleService
+	// itemStock 是商品库存读取与修改应用服务。
+	itemStock *itemapp.ItemStockService
+	// itemAutoRelist 是售出后自动上架应用服务，仅供运行时付款事件回调使用。
+	itemAutoRelist *itemapp.AutoRelistService
 	// itemBatchCoordinator 是商品批量发布 worker、恢复扫描和关闭等待的生命周期拥有者。
 	itemBatchCoordinator *itemapp.BatchWorkerCoordinator
 	// itemBatchPreview 是商品批量发布表格预检应用服务。
@@ -305,6 +309,15 @@ func (services *Services) RefreshRuntimeAccount(ctx context.Context, accountID s
 	return refreshErr
 }
 
+// RelistSoldItem 在 WebSocket 付款事件后按账号开关把已售商品重新上架。
+// 该入口只供进程组合期注入的运行时回调使用，不是 HTTP 用户接口；所有跳过与失败都只记日志。
+func (services *Services) RelistSoldItem(ctx context.Context, accountID, itemID, orderID string) {
+	if services == nil || services.itemAutoRelist == nil {
+		return
+	}
+	services.itemAutoRelist.HandlePaid(ctx, accountID, itemID, orderID)
+}
+
 // RecoverExpiredCredential 将已确认的会话失效转交给账号运行时恢复。
 func (services *Services) RecoverExpiredCredential(ctx context.Context, accountID string) bool {
 	return services != nil && services.accountRuntime != nil && services.accountRuntime.RecoverExpiredCredential(ctx, accountID)
@@ -326,6 +339,7 @@ type TransportPorts struct {
 	OrderRefreshJobs            *orderapp.RefreshJobService
 	ItemSinglePublish           *itemapp.Service
 	ItemPlatformLifecycle       *itemapp.PlatformLifecycleService
+	ItemStock                   *itemapp.ItemStockService
 	ItemBatchPreview            *itemapp.BatchPreviewService
 	ItemBatchManagement         *itemapp.BatchManagementService
 	ItemCategoryRecommendation  *itemapp.CategoryRecommendationService
@@ -380,7 +394,7 @@ func (services *Services) TransportPorts() TransportPorts {
 		return TransportPorts{}
 	}
 	return TransportPorts{
-		Orders: services.orders, OrderRefreshJobs: services.orderRefreshJobs, ItemSinglePublish: services.itemSinglePublish, ItemPlatformLifecycle: services.itemPlatformLifecycle,
+		Orders: services.orders, OrderRefreshJobs: services.orderRefreshJobs, ItemSinglePublish: services.itemSinglePublish, ItemPlatformLifecycle: services.itemPlatformLifecycle, ItemStock: services.itemStock,
 		ItemBatchPreview: services.itemBatchPreview, ItemBatchManagement: services.itemBatchManagement,
 		ItemCategoryRecommendation: services.itemCategoryRecommendation, ItemBatchPreviewPersistence: services.itemBatchPreviewPersistence,
 		ItemBatchLocalPublish: services.itemBatchLocalPublish, ItemSync: services.itemSync, ItemCatalog: services.itemCatalog,
@@ -518,6 +532,8 @@ func New(dependencies Dependencies) (*Services, error) {
 		orderReconciliationRecovery: dependencies.OrderReconciliationRecovery,
 		itemSinglePublish:           catalogServices.singlePublish,
 		itemPlatformLifecycle:       catalogServices.platformLifecycle,
+		itemStock:                   catalogServices.stock,
+		itemAutoRelist:              catalogServices.autoRelist,
 		itemBatchCoordinator:        batchServices.coordinator,
 		itemBatchPreview:            batchServices.preview,
 		itemBatchManagement:         batchServices.management,

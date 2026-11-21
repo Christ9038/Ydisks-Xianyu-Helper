@@ -72,7 +72,9 @@ func BuildRuntime(options RuntimeOptions, infrastructure RuntimeInfrastructure) 
 	}
 	// runtimeBundle、bundleErr 分别是账号运行时依赖集合及其构造失败原因；对外地址只影响通知链接生成。
 	runtimeBundle, bundleErr := adapter.NewRuntimeBundle(infrastructure.Store, browserManager, infrastructure.Logger, initialOrderSync,
-		adapter.RuntimeBundleOptions{PublicBaseURL: options.PublicBaseURL})
+		adapter.RuntimeBundleOptions{PublicBaseURL: options.PublicBaseURL, SoldItemRelist: func(ctx context.Context, accountID, itemID, orderID string) {
+			services.RelistSoldItem(ctx, accountID, itemID, orderID) // services 为 nil（尚未装配）时方法直接返回
+		}})
 	if bundleErr != nil {
 		return Runtime{}, fmt.Errorf("构造账号运行时依赖失败: %w", bundleErr)
 	}

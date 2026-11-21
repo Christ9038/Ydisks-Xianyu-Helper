@@ -37,6 +37,7 @@ A single listing offers four modes: **free shipping**, **by distance**, **fixed 
 
 - Edit on a product card changes title, price, category, or description.
 - AI Customer Service on a product card sets whether AI replies for that product (Inherit Account, Force Enable, or Force Disable) and stores product-specific reference material for AI.
+- Stock on a product card adjusts the quantity on Xianyu (single-variant: one number from 1 to 999999; multi-variant: one number per variant from 0 to 999999, at least one above 0). Opening the dialog sends one read request to Xianyu; saving sends one read and one write request, never retried automatically. If the stock changed on Xianyu in the meantime the dialog asks you to reload instead of overwriting. Some categories cannot be edited from the web edition; the dialog then asks you to change the stock in the Xianyu app. To sell out a product, take it off the shelf instead of setting the stock to 0. If Xianyu asks for security verification or the account session has expired, complete verification in the Xianyu app or sign the account in again before retrying.
 - Delete (the trash icon shown on hover on a card, or in the actions column in list mode) removes only the local record; it does not delete the product on Xianyu. A confirmation prompt appears; confirm that orders and rules will not be affected.
 - Use Link Delivery Rule/View Delivery Rules/N delivery rules to inspect the product rules. For specification products, verify every specification match.
 

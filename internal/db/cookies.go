@@ -34,6 +34,8 @@ type AccountSettingsUpdate struct {
 	AutoConsign *bool
 	// AutoBargain 是砍价“待刀成”阶段是否自动免拼的独立开关，不从自动发货开关派生。
 	AutoBargain *bool
+	// AutoRelist 是商品售出后自动重新上架的独立开关，默认关闭；nil 保持原值。
+	AutoRelist *bool
 	// ConsignProofMode 是确认发货携带凭证的模式（delivery/fixed/none）；nil 保持原值。
 	ConsignProofMode *string
 	// ConsignProofText 是固定文字模式提交给平台的文本；nil 保持原值。
@@ -114,6 +116,10 @@ func (c *Cookies) UpdateSettings(ctx context.Context, cookieID string, input Acc
 	if input.AutoBargain != nil {
 		assignments = append(assignments, "auto_bargain=?")
 		args = append(args, boolToInt(*input.AutoBargain))
+	}
+	if input.AutoRelist != nil {
+		assignments = append(assignments, "auto_relist=?")
+		args = append(args, boolToInt(*input.AutoRelist))
 	}
 	// proofErr 保存确认发货凭证最终状态校验错误；固定文字模式下文字为空时整笔保存回滚。
 	var proofErr error
@@ -652,6 +658,21 @@ func (c *Cookies) GetAutoBargain(ctx context.Context, cookieID string) (bool, er
 	var enabled int
 	// err 保存读取账号设置时的数据库错误。
 	err := c.DB.QueryRowContext(ctx, `SELECT auto_bargain FROM cookies WHERE id=?`, cookieID).Scan(&enabled)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, ErrNotFound
+		}
+		return false, err
+	}
+	return enabled != 0, nil
+}
+
+// GetAutoRelist 读取账号是否开启“售出后自动上架”。
+func (c *Cookies) GetAutoRelist(ctx context.Context, cookieID string) (bool, error) {
+	// enabled 保存数据库中的独立自动上架开关值。
+	var enabled int
+	// err 保存读取账号设置时的数据库错误。
+	err := c.DB.QueryRowContext(ctx, `SELECT auto_relist FROM cookies WHERE id=?`, cookieID).Scan(&enabled)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return false, ErrNotFound

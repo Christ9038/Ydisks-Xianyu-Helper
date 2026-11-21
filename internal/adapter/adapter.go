@@ -80,6 +80,8 @@ type Adapter struct {
 	chat           *chat.Service
 	// initialOrderSync 在账号运行实例首次 WebSocket 注册成功后执行一次订单同步；仅在进程组合期注入，运行中不可替换。
 	initialOrderSync func(context.Context, string) error
+	// soldItemRelist 在付款事件处理完成后按账号开关把已售商品重新上架；仅在进程组合期注入，运行中不可替换，nil 表示未启用。
+	soldItemRelist func(ctx context.Context, accountID, itemID, orderID string)
 
 	// orderDetails 协调自动发货订单详情访问；它与订单刷新运行时共享，按账号限流并合并同订单并发请求。
 	orderDetails *OrderDetailCoordinator
@@ -167,6 +169,8 @@ type RuntimeBundle struct {
 type RuntimeBundleOptions struct {
 	// PublicBaseURL 是管理后台对外根地址，透传给通知器生成消息查看链接；空值表示不生成链接。
 	PublicBaseURL string
+	// SoldItemRelist 是付款事件后的自动上架回调，由组合根注入；nil 表示不启用。
+	SoldItemRelist func(ctx context.Context, accountID, itemID, orderID string)
 }
 
 // NewRuntimeBundle 在进程启动前一次性完成运行时闭环装配，禁止通过运行期 setter 补齐必需依赖。
@@ -189,6 +193,8 @@ func NewRuntimeBundle(store *db.Store, bm *browser.Manager, logger *slog.Logger,
 	runtimeAdapter := newAdapter(store, bm, logger, orderDetails)
 	// initialOrderSync 在账号管理器启动前固定到事件适配器，避免运行期补齐订单同步依赖。
 	runtimeAdapter.initialOrderSync = initialOrderSync
+	// soldItemRelist 同样在账号管理器启动前固定，避免运行期补齐。
+	runtimeAdapter.soldItemRelist = bundleOptions.SoldItemRelist
 	// chatService 是账号实时消息落库和广播服务，必须先于账号引擎启动完成注入。
 	chatService := chat.New(store)
 	// replyDelivery 保存消息页面完整发送端口；它在账号启动前由下方聊天应用服务完成赋值。

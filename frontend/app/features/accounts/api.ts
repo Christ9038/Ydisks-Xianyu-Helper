@@ -72,6 +72,7 @@ export const getAccountDetails = async (options?: RequestControlOptions): Promis
     auto_confirm: item.auto_confirm,
     auto_consign: item.auto_consign === true,
     auto_bargain: item.auto_bargain === true,
+    auto_relist: item.auto_relist === true,
     consign_proof_mode: normalizeConsignProofMode(item.consign_proof_mode),
     consign_proof_text: item.consign_proof_text || '',
     manual_takeover_minutes: normalizeManualTakeoverMinutes(item.manual_takeover_minutes),
@@ -235,6 +236,7 @@ export interface AccountSettingsUpdate {
   /** auto_confirm 表示自动发货状态。 */ auto_confirm?: boolean;
   /** auto_consign 表示自动发货后是否自动转已发货。 */ auto_consign?: boolean;
   /** auto_bargain 表示砍价“待刀成”阶段是否自动免拼。 */ auto_bargain?: boolean;
+  /** auto_relist 表示商品售出后是否自动重新上架。 */ auto_relist?: boolean;
   /** consign_proof_mode 表示确认发货凭证模式。 */ consign_proof_mode?: ConsignProofMode;
   /** consign_proof_text 表示固定文字模式的凭证文本。 */ consign_proof_text?: string;
   /** manual_takeover_minutes 表示人工介入暂停分钟数，0 关闭。 */ manual_takeover_minutes?: number;

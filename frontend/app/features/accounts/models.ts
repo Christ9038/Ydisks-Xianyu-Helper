@@ -19,6 +19,8 @@ export interface AccountDetail {
   auto_consign: boolean;
   /** 砍价“待刀成”阶段是否自动调用免拼接口。 */
   auto_bargain: boolean;
+  /** 商品售出后是否自动通过网页端编辑接口重新上架；旧后端可能缺失，按关闭处理。 */
+  auto_relist?: boolean;
   /** 确认发货携带凭证的模式；adapter 已归一，缺失时按 delivery 处理。 */
   consign_proof_mode?: ConsignProofMode;
   /** 固定文字模式下提交给平台的用户自填文字。 */
@@ -219,6 +221,8 @@ export interface AccountSummaryResponse {
   auto_consign: boolean;
   /** 砍价“待刀成”阶段是否自动调用免拼接口。 */
   auto_bargain: boolean;
+  /** 商品售出后是否自动通过网页端编辑接口重新上架；旧后端可能缺失，按关闭处理。 */
+  auto_relist?: boolean;
   /** 确认发货凭证模式；旧后端可能缺失。 */
   consign_proof_mode?: string;
   /** 固定文字模式的凭证文本；旧后端可能缺失。 */

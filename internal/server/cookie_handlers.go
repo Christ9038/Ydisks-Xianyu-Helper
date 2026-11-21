@@ -117,6 +117,7 @@ type updateCookieSettingsRequest struct {
 	AutoConfirm *bool   `json:"auto_confirm"`
 	AutoConsign *bool   `json:"auto_consign"`
 	AutoBargain *bool   `json:"auto_bargain"`
+	AutoRelist  *bool   `json:"auto_relist"`
 	// ConsignProofMode 是确认发货凭证模式（delivery/fixed/none），省略时保持原值。
 	ConsignProofMode *string `json:"consign_proof_mode"`
 	// ConsignProofText 是固定文字模式的凭证文本，省略时保持原值。
@@ -235,7 +236,7 @@ func (s *Server) updateCookieSettings(w http.ResponseWriter, r *http.Request) {
 	// settingsResult、err 保存应用服务返回的暂停截止时间、补偿错误和主写入错误。
 	settingsResult, err := s.accountSettingsApplication().UpdateSettings(r.Context(), accountapp.SettingsUpdateInput{
 		UserID: ownedDetail.UserID, AccountID: cid, Cookie: req.Cookie, Remark: req.Remark,
-		AutoConfirm: req.AutoConfirm, AutoConsign: req.AutoConsign, AutoBargain: req.AutoBargain, PauseDuration: req.PauseDuration, Username: req.Username,
+		AutoConfirm: req.AutoConfirm, AutoConsign: req.AutoConsign, AutoBargain: req.AutoBargain, AutoRelist: req.AutoRelist, PauseDuration: req.PauseDuration, Username: req.Username,
 		ConsignProofMode: req.ConsignProofMode, ConsignProofText: req.ConsignProofText,
 		ManualTakeoverMinutes: req.ManualTakeoverMinutes, ManualTakeoverScope: req.ManualTakeoverScope,
 		Password: password, ShowBrowser: req.ShowBrowser, ChannelIDs: req.ChannelIDs,
@@ -306,6 +307,7 @@ func (s *Server) listCookieDetails(w http.ResponseWriter, r *http.Request) {
 			AutoConfirm:           summary.AutoConfirm,
 			AutoConsign:           summary.AutoConsign,
 			AutoBargain:           summary.AutoBargain,
+			AutoRelist:            summary.AutoRelist,
 			ConsignProofMode:      summary.ConsignProofMode,
 			ConsignProofText:      summary.ConsignProofText,
 			ManualTakeoverMinutes: summary.ManualTakeoverMinutes,
@@ -359,6 +361,7 @@ func (s *Server) getCookieDetails(w http.ResponseWriter, r *http.Request) {
 		ID: summary.ID, Enabled: statusErr == nil && enabled, AutoConfirm: summary.AutoConfirm,
 		AutoConsign:      summary.AutoConsign,
 		AutoBargain:      summary.AutoBargain,
+		AutoRelist:       summary.AutoRelist,
 		ConsignProofMode: summary.ConsignProofMode, ConsignProofText: summary.ConsignProofText,
 		ManualTakeoverMinutes: summary.ManualTakeoverMinutes, ManualTakeoverScope: summary.ManualTakeoverScope,
 		Remark: summary.Remark, PauseDuration: summary.PauseDuration, PausedUntil: summary.PausedUntil,

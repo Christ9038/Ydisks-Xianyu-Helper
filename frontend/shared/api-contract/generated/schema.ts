@@ -1143,6 +1143,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/items/{cookie_id}/{item_id}/stock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 读取当前用户闲鱼商品的库存（单规格数量或多规格各行库存，一次平台请求） */
+        get: operations["getApiV1ItemsBycookie_idByitem_idStock"];
+        /**
+         * 修改当前用户闲鱼商品的库存（先读最新详情再提交，两次平台请求，失败不重试）
+         * @description 单规格提交 quantity（1 到 999999）与 expected_quantity；多规格提交全部规格行 skus （每行 key、quantity 0 到 999999、expected_quantity，且至少一行大于 0）。 expected_quantity 与平台当前库存不一致时返回 409 item_stock_changed 且不提交。
+         *
+         */
+        put: operations["putApiV1ItemsBycookie_idByitem_idStock"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/items/{cookie_id}/{item_id}": {
         parameters: {
             query?: never;
@@ -3489,6 +3511,8 @@ export interface components {
             auto_confirm: boolean;
             auto_consign: boolean;
             auto_bargain: boolean;
+            /** @description 商品售出后是否通过网页端编辑接口自动重新上架；默认关闭，不支持网页端编辑的类目不会上架。 */
+            auto_relist: boolean;
             /**
              * @description 确认发货携带凭证的模式：delivery 卡密/模板全文，fixed 固定文字，none 不携带。
              * @enum {string}
@@ -3532,6 +3556,8 @@ export interface components {
             auto_confirm?: boolean;
             auto_consign?: boolean;
             auto_bargain?: boolean;
+            /** @description 商品售出后是否通过网页端编辑接口自动重新上架；默认关闭，不支持网页端编辑的类目不会上架。 */
+            auto_relist?: boolean;
             /**
              * @description 确认发货携带凭证的模式；省略时保持原值。
              * @enum {string}
@@ -4353,6 +4379,43 @@ export interface components {
             };
         } & {
             [key: string]: unknown;
+        };
+        ItemStockResponse: {
+            success: boolean;
+            data: {
+                item_id: string;
+                multi_spec: boolean;
+                /** @description 单规格商品库存；多规格商品为各规格库存之和 */
+                quantity: number;
+                /** @description 多规格商品的规格行，单规格商品为空数组 */
+                skus: {
+                    key: string;
+                    label: string;
+                    /** Format: int64 */
+                    price_cents: number;
+                    quantity: number;
+                }[];
+            };
+        };
+        ItemStockUpdateRequest: {
+            /** @description 单规格商品的新库存 */
+            quantity?: number;
+            /** @description 单规格商品用户看到的原库存 */
+            expected_quantity?: number;
+            /** @description 多规格商品的全部规格行；非空表示按多规格处理 */
+            skus?: {
+                key: string;
+                quantity: number;
+                expected_quantity: number;
+            }[];
+        };
+        ItemStockUpdateResponse: {
+            success: boolean;
+            data: {
+                item_id: string;
+                message: string;
+                cookie_persisted: boolean;
+            };
         };
         ChatManualTakeoverUpdateRequest: {
             /** @description 人工回复后会话暂停自动回复的分钟数；0 表示关闭。 */
@@ -10380,6 +10443,182 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ItemPlatformLifecycleErrorResponse"];
+                };
+            };
+        };
+    };
+    getApiV1ItemsBycookie_idByitem_idStock: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cookie_id: string;
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 商品当前库存 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemStockResponse"];
+                };
+            };
+            /** @description 请求参数无效 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 未认证 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 账号不存在或不属于当前用户 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 账号凭证已变化 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 商品类目暂不支持网页端编辑，请在闲鱼 App 中修改 */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 当前平台客户端不支持该能力 */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 平台失败、要求安全验证或账号登录已失效（见 code） */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    putApiV1ItemsBycookie_idByitem_idStock: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cookie_id: string;
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ItemStockUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description 平台已修改库存且账号会话写回成功 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemStockUpdateResponse"];
+                };
+            };
+            /** @description 请求参数无效 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 未认证 */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 账号不存在或不属于当前用户 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 账号凭证已变化（account_credential_changed），或库存已在平台侧变化（item_stock_changed） */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 商品类目暂不支持网页端编辑（item_edit_unsupported），请在闲鱼 App 中修改库存 */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 当前平台客户端不支持该能力 */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 平台失败、要求安全验证、账号登录已失效，或平台已修改但账号会话写回失败（platform_stock_updated_cookie_persist_failed） */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

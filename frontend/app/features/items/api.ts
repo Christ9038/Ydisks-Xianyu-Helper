@@ -7,6 +7,8 @@ CategoryRecommendationResponse,
 Item,
 ItemAISettings,
 ItemDetailResponse,
+ItemStock,
+ItemStockUpdate,
 ItemPublishBatchPreviewResponse,
 ItemPublishBatchResponse,
 ItemPublishResponse,ItemSyncResponse,
@@ -94,6 +96,37 @@ export const updateItemAISettings = async (cookieId: string, itemId: string, set
     }), options);
     return { ai_override: response.ai_override, item_context: response.item_context };
 }
+
+// getItemStock 在用户打开库存弹窗时读取商品当前库存（一次平台请求，不在列表加载时自动调用）。
+export const getItemStock = async (cookieId: string, itemId: string, options?: RequestControlOptions): Promise<ItemStock> => {
+    // response 是生成契约约束的库存传输对象。
+    const response = await runContractRequest(/* signal 控制库存读取的取消和超时。 */ signal => contractClient.GET('/api/v1/items/{cookie_id}/{item_id}/stock', {
+      params: { path: { cookie_id: cookieId, item_id: itemId } },
+      signal,
+    }), options);
+    return {
+      itemId: response.data.item_id,
+      multiSpec: response.data.multi_spec,
+      quantity: response.data.quantity,
+      skus: response.data.skus.map(/* sku 是库存接口返回的一行规格。 */ sku => ({ key: sku.key, label: sku.label, priceCents: sku.price_cents, quantity: sku.quantity })),
+    };
+}
+
+// updateItemStock 提交库存修改（服务端先读后写，两次平台请求，失败不重试）。
+export const updateItemStock = async (cookieId: string, itemId: string, update: ItemStockUpdate, options?: RequestControlOptions): Promise<void> => {
+    await runContractRequest(/* signal 控制库存修改的取消和超时。 */ signal => contractClient.PUT('/api/v1/items/{cookie_id}/{item_id}/stock', {
+      params: { path: { cookie_id: cookieId, item_id: itemId } },
+      body: {
+        quantity: update.quantity,
+        expected_quantity: update.expectedQuantity,
+        skus: update.skus?.map(/* row 是需要提交的一行规格库存修改。 */ row => ({ key: row.key, quantity: row.quantity, expected_quantity: row.expectedQuantity })),
+      },
+      signal,
+    }), options);
+}
+
+// isItemStockChangedError 判断库存修改是否因平台库存已变化而被拒绝，此时界面应要求用户重新读取。
+export const isItemStockChangedError = (error: unknown): boolean => error instanceof ApiError && error.code === 'item_stock_changed';
 
 // syncItemsFromAccount 从账号同步商品。
 export const syncItemsFromAccount = async (cookieId: string): Promise<ItemSyncResponse> => {

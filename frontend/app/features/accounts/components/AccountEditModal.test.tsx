@@ -12,7 +12,7 @@ const baseForm: AccountEditForm = {
   cookie: '',
   auto_confirm: false,
   auto_consign: false,
-  auto_bargain: false,
+  auto_bargain: false, auto_relist: false,
   consign_proof_mode: 'delivery',
   consign_proof_text: '',
   manual_takeover_minutes: 0,
@@ -88,6 +88,22 @@ describe('AccountEditModal 业务开关', /* 验证三个开关互不串联且�
     fireEvent.click(switches()[0]);
     fireEvent.click(switches()[2]);
     expect(latest).toMatchObject({ auto_confirm: true, auto_consign: false, auto_bargain: true });
+  });
+
+  test('售出后自动上架位于自动免拼下方，默认关闭、独立切换并提示限制', /* 第四个开关只改变 auto_relist，警告说明鱼小铺用户不要开启。 */ () => {
+    // latest 保存最近一次渲染得到的表单。
+    let latest = baseForm;
+    render(<Harness onForm={/* 记录最新表单快照。 */ form => { latest = form; }} />);
+    // relist 是“售出后自动上架”开关，必须紧跟在三个既有开关之后。
+    const relist = screen.getByRole('switch', { name: '售出后自动上架' });
+    expect(screen.getAllByRole('switch')[3]).toBe(relist);
+    expect(relist.getAttribute('aria-checked')).toBe('false');
+    expect(screen.getByText(/鱼小铺用户请勿开启/)).toBeTruthy();
+    fireEvent.click(relist);
+    expect(relist.getAttribute('aria-checked')).toBe('true');
+    expect(latest).toMatchObject({ auto_confirm: false, auto_consign: false, auto_bargain: false, auto_relist: true });
+    fireEvent.click(switches()[2]);
+    expect(latest).toMatchObject({ auto_bargain: true, auto_relist: true });
   });
 
   test('激活状态的开关不被压缩且圆点处于右侧位置', /* shrink-0 与 min-w-14 防止长说明挤压轨道。 */ () => {

@@ -65,6 +65,8 @@ type CookieSummary struct {
 	AutoConsign bool
 	// AutoBargain 表示砍价“待刀成”阶段是否自动调用免拼接口。
 	AutoBargain bool
+	// AutoRelist 表示商品售出后是否自动通过网页端编辑接口重新上架；独立于自动发货和自动免拼开关。
+	AutoRelist bool
 	// ConsignProofMode 是确认发货携带凭证的模式（delivery/fixed/none），已归一化，不含敏感内容。
 	ConsignProofMode string
 	// ConsignProofText 是固定文字模式下提交给平台的用户自填文字，不含卡密或平台凭证。
@@ -108,7 +110,7 @@ func (c *Cookies) ListSummaries(ctx context.Context, userID int64) ([]CookieSumm
 		SELECT id, user_id, auto_confirm, COALESCE(remark,''), pause_duration,
 		       COALESCE(paused_until,0), COALESCE(username,''), show_browser,
 		       COALESCE(nickname,''), COALESCE(avatar_url,''), COALESCE(last_refresh_at,0),
-		       COALESCE(login_method,''), COALESCE(last_login_at,0), COALESCE(auto_consign,0), COALESCE(auto_bargain,0),
+		       COALESCE(login_method,''), COALESCE(last_login_at,0), COALESCE(auto_consign,0), COALESCE(auto_bargain,0), COALESCE(auto_relist,0),
 		       COALESCE(consign_proof_mode,''), COALESCE(consign_proof_text,''),
 		       COALESCE(manual_takeover_minutes,0), COALESCE(manual_takeover_scope,''), created_at
 		FROM cookies WHERE user_id=? ORDER BY created_at DESC, id DESC`, userID)
@@ -121,8 +123,8 @@ func (c *Cookies) ListSummaries(ctx context.Context, userID int64) ([]CookieSumm
 	for rows.Next() {
 		// summary 是当前数据库行对应的账号摘要。
 		var summary CookieSummary
-		// autoConfirm、autoConsign、autoBargain 和 showBrowser 将数据库整数布尔值转换为 Go bool。
-		var autoConfirm, autoConsign, autoBargain, showBrowser int
+		// autoConfirm、autoConsign、autoBargain、autoRelist 和 showBrowser 将数据库整数布尔值转换为 Go bool。
+		var autoConfirm, autoConsign, autoBargain, autoRelist, showBrowser int
 		// pauseDuration 允许兼容历史 NULL 值，同时保留默认暂停时长 10 分钟。
 		var pauseDuration sql.NullInt64
 		// scanErr 表示当前摘要行无法映射到非敏感模型的原因。
@@ -130,13 +132,14 @@ func (c *Cookies) ListSummaries(ctx context.Context, userID int64) ([]CookieSumm
 			&summary.ID, &summary.UserID, &autoConfirm, &summary.Remark, &pauseDuration,
 			&summary.PausedUntil, &summary.Username, &showBrowser, &summary.Nickname,
 			&summary.AvatarURL, &summary.LastRefreshAt, &summary.LoginMethod,
-			&summary.LastLoginAt, &autoConsign, &autoBargain, &summary.ConsignProofMode, &summary.ConsignProofText, &summary.ManualTakeoverMinutes, &summary.ManualTakeoverScope, &summary.CreatedAt,
+			&summary.LastLoginAt, &autoConsign, &autoBargain, &autoRelist, &summary.ConsignProofMode, &summary.ConsignProofText, &summary.ManualTakeoverMinutes, &summary.ManualTakeoverScope, &summary.CreatedAt,
 		); scanErr != nil {
 			return nil, scanErr
 		}
 		summary.AutoConfirm = autoConfirm != 0
 		summary.AutoConsign = autoConsign != 0
 		summary.AutoBargain = autoBargain != 0
+		summary.AutoRelist = autoRelist != 0
 		summary.ConsignProofMode = NormalizeConsignProofMode(summary.ConsignProofMode)
 		summary.ManualTakeoverMinutes = normalizeManualTakeoverMinutes(summary.ManualTakeoverMinutes)
 		summary.ManualTakeoverScope = NormalizeManualTakeoverScope(summary.ManualTakeoverScope)
@@ -158,8 +161,8 @@ func (c *Cookies) GetSummaryOwned(ctx context.Context, userID int64, cookieID st
 	}
 	// summary 保存按账号和用户联合过滤得到的非敏感摘要。
 	var summary CookieSummary
-	// autoConfirm、autoConsign、autoBargain 和 showBrowser 将数据库整数布尔值转换为 Go bool。
-	var autoConfirm, autoConsign, autoBargain, showBrowser int
+	// autoConfirm、autoConsign、autoBargain、autoRelist 和 showBrowser 将数据库整数布尔值转换为 Go bool。
+	var autoConfirm, autoConsign, autoBargain, autoRelist, showBrowser int
 	// pauseDuration 允许兼容历史 NULL 值，同时保留默认暂停时长 10 分钟。
 	var pauseDuration sql.NullInt64
 	// queryErr 表示按账号和用户联合条件读取摘要失败的原因。
@@ -167,14 +170,14 @@ func (c *Cookies) GetSummaryOwned(ctx context.Context, userID int64, cookieID st
 		SELECT id, user_id, auto_confirm, COALESCE(remark,''), pause_duration,
 		       COALESCE(paused_until,0), COALESCE(username,''), show_browser,
 		       COALESCE(nickname,''), COALESCE(avatar_url,''), COALESCE(last_refresh_at,0),
-		       COALESCE(login_method,''), COALESCE(last_login_at,0), COALESCE(auto_consign,0), COALESCE(auto_bargain,0),
+		       COALESCE(login_method,''), COALESCE(last_login_at,0), COALESCE(auto_consign,0), COALESCE(auto_bargain,0), COALESCE(auto_relist,0),
 		       COALESCE(consign_proof_mode,''), COALESCE(consign_proof_text,''),
 		       COALESCE(manual_takeover_minutes,0), COALESCE(manual_takeover_scope,''), created_at
 		FROM cookies WHERE id=? AND user_id=?`, cookieID, userID).Scan(
 		&summary.ID, &summary.UserID, &autoConfirm, &summary.Remark, &pauseDuration,
 		&summary.PausedUntil, &summary.Username, &showBrowser, &summary.Nickname,
 		&summary.AvatarURL, &summary.LastRefreshAt, &summary.LoginMethod,
-		&summary.LastLoginAt, &autoConsign, &autoBargain, &summary.ConsignProofMode, &summary.ConsignProofText, &summary.ManualTakeoverMinutes, &summary.ManualTakeoverScope, &summary.CreatedAt)
+		&summary.LastLoginAt, &autoConsign, &autoBargain, &autoRelist, &summary.ConsignProofMode, &summary.ConsignProofText, &summary.ManualTakeoverMinutes, &summary.ManualTakeoverScope, &summary.CreatedAt)
 	if queryErr != nil {
 		if errors.Is(queryErr, sql.ErrNoRows) {
 			return CookieSummary{}, ErrNotFound
@@ -184,6 +187,7 @@ func (c *Cookies) GetSummaryOwned(ctx context.Context, userID int64, cookieID st
 	summary.AutoConfirm = autoConfirm != 0
 	summary.AutoConsign = autoConsign != 0
 	summary.AutoBargain = autoBargain != 0
+	summary.AutoRelist = autoRelist != 0
 	summary.ConsignProofMode = NormalizeConsignProofMode(summary.ConsignProofMode)
 	summary.ManualTakeoverMinutes = normalizeManualTakeoverMinutes(summary.ManualTakeoverMinutes)
 	summary.ManualTakeoverScope = NormalizeManualTakeoverScope(summary.ManualTakeoverScope)

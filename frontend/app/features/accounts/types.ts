@@ -21,6 +21,8 @@ export interface AccountEditForm {
   auto_consign: boolean;
   // auto_bargain 表示砍价“待刀成”阶段是否自动免拼。
   auto_bargain: boolean;
+  // auto_relist 表示商品售出后是否自动重新上架，独立于自动发货与自动免拼。
+  auto_relist: boolean;
   // consign_proof_mode 是确认发货携带凭证的模式草稿。
   consign_proof_mode: ConsignProofMode;
   // consign_proof_text 是固定文字模式的凭证文本草稿；切换到其他模式时保留，便于切回。

@@ -360,7 +360,10 @@ func (a *Adapter) HandleSystemEvent(ctx context.Context, task automation.Task) e
 	}
 	// 入口日志只表示收到平台卡片，不代表已经匹配规则或执行动作；统一使用 DEBUG 避免半成品和重复推送污染业务 INFO 日志。
 	a.logger.Debug("收到系统自动化事件", "account", task.AccountID, "trigger", task.TriggerType, "order_id", task.OrderID)
-	return a.automation.HandleTask(ctx, task)
+	// err 保存自动化中心处理结果；自动上架在其后执行，不改变也不延迟自动发货的判定。
+	err := a.automation.HandleTask(ctx, task)
+	a.relistAfterPaid(ctx, task)
+	return err
 }
 
 // FetchOrderDetail 实现 automation.OrderDetailFetcher。只在本地订单缺少关键字段时

@@ -67,6 +67,8 @@ export const AccountEditModal: React.FC<AccountEditModalProps> = ({
   const consignProofError = consignProofFormError(editForm);
   // handleAutoBargainToggle 切换砍价“待刀成”阶段的独立自动免拼设置。
   const handleAutoBargainToggle = () => updateField('auto_bargain', !editForm.auto_bargain);
+  // handleAutoRelistToggle 切换“售出后自动上架”设置，它与自动发货、自动免拼互相独立。
+  const handleAutoRelistToggle = () => updateField('auto_relist', !editForm.auto_relist);
   // handlePauseDurationChange 更新账号暂停时长。
   const handlePauseDurationChange = (event: React.ChangeEvent<HTMLInputElement>) => updateField('pause_duration', parseInt(event.target.value, 10) || 0);
   // handleRestartPause 按当前时长立即重新暂停账号。
@@ -221,6 +223,28 @@ export const AccountEditModal: React.FC<AccountEditModalProps> = ({
             >
               <span className={`absolute left-1 top-1 w-6 h-6 bg-on-accent rounded-full shadow-md transition-transform duration-300 ${editForm.auto_bargain ? 'translate-x-6' : 'translate-x-0'}`} />
             </button>
+          </div>
+
+          <div className="p-4 bg-gray-50 rounded-xl">
+            <div className="flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <div className="font-bold text-gray-900 flex items-center gap-2"><Check className="w-4 h-4 text-green-500" />售出后自动上架</div>
+                <div className="text-xs text-gray-500">商品售出后，通过网页端编辑接口把商品改回在售；库存为 0 时补回最小库存（单规格为 1）</div>
+              </div>
+              <button
+                type="button"
+                onClick={handleAutoRelistToggle}
+                role="switch"
+                aria-label="售出后自动上架"
+                aria-checked={editForm.auto_relist}
+                className={`w-14 min-w-14 h-8 shrink-0 rounded-full transition-colors duration-300 relative ${editForm.auto_relist ? 'bg-brand' : 'bg-gray-300'}`}
+              >
+                <span className={`absolute left-1 top-1 w-6 h-6 bg-on-accent rounded-full shadow-md transition-transform duration-300 ${editForm.auto_relist ? 'translate-x-6' : 'translate-x-0'}`} />
+              </button>
+            </div>
+            <p className="mt-3 text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 leading-relaxed">
+              注意：仅个人闲鱼账号适用，且只支持网页端可编辑的类目；不支持的类目不会上架，只会在日志中说明原因。该功能会以全量覆盖方式提交商品，请先确认商品能在商品管理中正常调整库存。鱼小铺用户请勿开启，直接使用商品管理中的库存功能。
+            </p>
           </div>
 
           <div>

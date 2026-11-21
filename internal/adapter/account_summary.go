@@ -138,7 +138,7 @@ func (r *AccountSummaryRepository) validateCookies() error {
 // accountSummaryModel 将数据库摘要转换为不含敏感字段的应用模型。
 func accountSummaryModel(record db.CookieSummary) accountapp.AccountSummary {
 	return accountapp.AccountSummary{
-		ID: record.ID, UserID: record.UserID, AutoConfirm: record.AutoConfirm, AutoConsign: record.AutoConsign, AutoBargain: record.AutoBargain,
+		ID: record.ID, UserID: record.UserID, AutoConfirm: record.AutoConfirm, AutoConsign: record.AutoConsign, AutoBargain: record.AutoBargain, AutoRelist: record.AutoRelist,
 		ConsignProofMode: record.ConsignProofMode, ConsignProofText: record.ConsignProofText,
 		ManualTakeoverMinutes: record.ManualTakeoverMinutes, ManualTakeoverScope: record.ManualTakeoverScope,
 		Remark: record.Remark, PauseDuration: record.PauseDuration, PausedUntil: record.PausedUntil,

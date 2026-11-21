@@ -79,6 +79,28 @@ type Item struct {
 	PolishedOn string
 	// PublishData 是通过发布接口创建商品时的请求数据副本，手工添加的商品为空。
 	PublishData map[string]any
+	// Quantity 是单规格商品的库存；多规格商品为各 SKU 库存之和。
+	Quantity int
+	// SKUs 是多规格商品的规格行；单规格商品为空。
+	SKUs []ItemSKU
+	// EditUnsupported 表示该商品类目不支持网页端编辑：editDetail 与 edit 都返回不支持标记且不改数据。
+	EditUnsupported bool
+	// EditData 是最近一次被平台接受的 edit 请求数据副本，用于断言回填字段；从未编辑过为空。
+	EditData map[string]any
+	// EditCount 是 edit 接口成功修改该商品的次数。
+	EditCount int
+}
+
+// ItemSKU 是多规格商品的一行规格组合及其库存。
+type ItemSKU struct {
+	// ID 是平台规格行 ID（skuId），由模拟器分配。
+	ID string
+	// Properties 是该行的规格组合，例如“颜色=红色”。
+	Properties []Spec
+	// PriceCents 是该行售价（分）。
+	PriceCents int
+	// Quantity 是该行库存。
+	Quantity int
 }
 
 // Order 是平台上的一笔交易订单。测试通过 Gateway 的订单方法推进阶段，通过 Gateway.Order 读取副本。
@@ -250,6 +272,99 @@ func (g *Gateway) addItemLocked(item *Item) string {
 	return item.ID
 }
 
+// AddItemWithStock 创建带库存的单规格在售商品，返回商品 ID。
+func (g *Gateway) AddItemWithStock(sellerID, title, price string, quantity int) string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.addItemLocked(&Item{SellerID: sellerID, Title: title, Price: price, OnSale: true, Quantity: quantity})
+}
+
+// AddItemWithSKUs 创建多规格在售商品，返回商品 ID；SKU 的 ID 缺失时由模拟器分配，商品库存为各行之和。
+func (g *Gateway) AddItemWithSKUs(sellerID, title string, skus []ItemSKU) string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	// rows 是补全 ID 后的规格行副本，避免调用方后续修改影响平台状态。
+	rows := make([]ItemSKU, 0, len(skus))
+	// total 是各规格行库存之和。
+	total := 0
+	// sku 是调用方提供的规格行。
+	for _, sku := range skus {
+		if sku.ID == "" {
+			sku.ID = fmt.Sprintf("6%012d", g.nextSequence())
+		}
+		sku.Properties = append([]Spec(nil), sku.Properties...)
+		rows = append(rows, sku)
+		total += sku.Quantity
+	}
+	return g.addItemLocked(&Item{SellerID: sellerID, Title: title, Price: "9.90", MultiSpec: true, OnSale: true, Quantity: total, SKUs: rows})
+}
+
+// MarkEditUnsupported 把商品标记为类目不支持网页端编辑。
+func (g *Gateway) MarkEditUnsupported(itemID string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	// item、exists 是被改变库存的平台商品及其是否存在。
+	if item, exists := g.items[itemID]; exists {
+		item.EditUnsupported = true
+	}
+}
+
+// SetOnSale 直接设置商品在售状态，用于模拟卖家在 App 中下架或上架且不改变库存。
+func (g *Gateway) SetOnSale(itemID string, onSale bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	// item、exists 是被设置状态的平台商品及其是否存在。
+	if item, exists := g.items[itemID]; exists {
+		item.OnSale = onSale
+	}
+}
+
+// SellOut 模拟商品售出：库存清零（多规格为全部规格行）并变为下架状态，编辑详情中 itemStatus 为 "-2"。
+func (g *Gateway) SellOut(itemID string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	// item、exists 是被售罄的平台商品及其是否存在。
+	item, exists := g.items[itemID]
+	if !exists {
+		return
+	}
+	item.Quantity = 0
+	// i 是规格行下标。
+	for i := range item.SKUs {
+		item.SKUs[i].Quantity = 0
+	}
+	item.OnSale = false
+}
+
+// ChangeStock 模拟平台侧（例如买家下单或卖家在 App 中修改）改变库存：单规格改 Quantity。
+func (g *Gateway) ChangeStock(itemID string, quantity int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	// item、exists 是被改变库存的平台商品及其是否存在。
+	if item, exists := g.items[itemID]; exists {
+		item.Quantity = quantity
+	}
+}
+
+// ChangeSKUStock 模拟平台侧改变多规格商品某一行的库存，并重算商品库存。
+func (g *Gateway) ChangeSKUStock(itemID, skuID string, quantity int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	// item、exists 是被修改的商品及其是否存在。
+	item, exists := g.items[itemID]
+	if !exists {
+		return
+	}
+	item.Quantity = 0
+	// i 是规格行下标。
+	for i := range item.SKUs {
+		if item.SKUs[i].ID == skuID {
+			item.SKUs[i].Quantity = quantity
+		}
+		item.Quantity += item.SKUs[i].Quantity
+	}
+}
+
 // Item 返回商品的副本；exists 表示商品是否存在。
 func (g *Gateway) Item(itemID string) (item Item, exists bool) {
 	g.mu.Lock()
@@ -259,7 +374,10 @@ func (g *Gateway) Item(itemID string) (item Item, exists bool) {
 	if !found {
 		return Item{}, false
 	}
-	return *stored, true
+	// copied 是商品副本；规格行切片需要独立拷贝，避免读取方修改平台内部状态。
+	copied := *stored
+	copied.SKUs = append([]ItemSKU(nil), stored.SKUs...)
+	return copied, true
 }
 
 // Items 返回卖家全部商品的副本，按发布顺序排列。

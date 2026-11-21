@@ -57,9 +57,9 @@ const pauseMock = vi.mocked(updateAccountPauseDuration);
 const updateAccountMock = vi.mocked(updateAccountSettings);
 
 // accountFixture 是账号编辑和登录流程使用的账号对象。
-const accountFixture = { id: 'account-1', enabled: true, value: 'old-cookie', remark: '旧备注', auto_confirm: false, auto_consign: false, auto_bargain: false, pause_duration: 0, username: 'user@example.com', login_password: 'old-password', show_browser: false } as AccountDetail;
+const accountFixture = { id: 'account-1', enabled: true, value: 'old-cookie', remark: '旧备注', auto_confirm: false, auto_consign: false, auto_bargain: false, auto_relist: false, pause_duration: 0, username: 'user@example.com', login_password: 'old-password', show_browser: false } as AccountDetail;
 // editFormFixture 是账号编辑弹窗的初始表单。
-const editFormFixture: AccountEditForm = { remark: '新备注', cookie: 'new-cookie', auto_confirm: true, auto_consign: false, auto_bargain: true, consign_proof_mode: 'delivery', consign_proof_text: '', manual_takeover_minutes: 0, manual_takeover_scope: 'ai', pause_duration: 60, username: 'user@example.com', login_password: 'new-password', show_browser: true, showLoginPassword: false, clear_password: false };
+const editFormFixture: AccountEditForm = { remark: '新备注', cookie: 'new-cookie', auto_confirm: true, auto_consign: false, auto_bargain: true, auto_relist: false, consign_proof_mode: 'delivery', consign_proof_text: '', manual_takeover_minutes: 0, manual_takeover_scope: 'ai', pause_duration: 60, username: 'user@example.com', login_password: 'new-password', show_browser: true, showLoginPassword: false, clear_password: false };
 // aiFixture 是账号 AI 设置的服务端配置。
 const aiFixture: AIReplySettings = { ai_enabled: true, auto_adjust_price_enabled: true, max_discount_percent: 20, max_discount_amount: 50, max_bargain_rounds: 2, custom_prompts: '请礼貌回复', ai_mode: 'full_service', order_context_enabled: true };
 
@@ -473,6 +473,31 @@ describe('useAccountSubmodules', /* 当前回调处理账号编辑、AI、通知
     // emptyFixedForm 是固定文字为空的非法草稿，保存必须被拦截。
     expect(await renderWith({ ...unchangedForm, consign_proof_text: '  ' })).toBeUndefined();
     expect(updateAccountMock).not.toHaveBeenCalled();
+  });
+
+  test('售出后自动上架：未修改不提交，只改该开关时只提交 auto_relist', /* 当前回调验证自动上架独立于自动免拼的保存补丁。 */ async () => {
+    // renderWith 用指定表单渲染 Hook 并执行一次保存，返回保存时提交的补丁。
+    const renderWith = async (form: AccountEditForm): Promise<unknown> => {
+      updateAccountMock.mockClear();
+      // hook 是本次渲染的子模块 Hook。
+      const hook = renderHook(
+        // relistHookFactory 创建自动上架保存场景的子模块 Hook。
+        () => useAccountSubmodules({ editingAccount: accountFixture, setEditingAccount: vi.fn(), setActiveModal: vi.fn(), editForm: form, setEditForm: vi.fn(), loadAccounts: vi.fn().mockResolvedValue(undefined) }),
+      );
+      await act(
+        // relistSaveAction 触发一次编辑保存。
+        async () => hook.result.current.handleSaveEdit(),
+      );
+      hook.unmount();
+      return updateAccountMock.mock.calls[0]?.[1];
+    };
+    // baseForm 与服务端账号完全一致（自动免拼也保持关闭）。
+    const baseForm: AccountEditForm = { ...editFormFixture, cookie: '', auto_confirm: false, auto_bargain: false, auto_relist: false };
+    expect(await renderWith(baseForm)).not.toHaveProperty('auto_relist');
+    // enabledPayload 只开启自动上架，不应带出自动免拼字段。
+    const enabledPayload = await renderWith({ ...baseForm, auto_relist: true });
+    expect(enabledPayload).toEqual(expect.objectContaining({ auto_relist: true }));
+    expect(enabledPayload).not.toHaveProperty('auto_bargain');
   });
 
   test('人工介入暂停：未修改不提交、只提交变化字段、越界分钟数阻止保存', /* 当前回调验证人工介入设置的保存补丁与提交前拦截。 */ async () => {

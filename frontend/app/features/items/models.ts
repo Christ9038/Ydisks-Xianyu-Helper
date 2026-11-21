@@ -128,6 +128,47 @@ export interface ItemAISettings {
   item_context: string;
 }
 
+/** 多规格商品一行规格组合的库存视图（由库存接口归一后的 UI 模型）。 */
+export interface ItemStockSku {
+  /** 规格行在同一商品内的稳定标识，修改时原样回传。 */
+  key: string;
+  /** 展示给用户的规格组合文案，例如“红色 / XL”。 */
+  label: string;
+  /** 规格行售价（分），仅用于展示。 */
+  priceCents: number;
+  /** 规格行当前库存。 */
+  quantity: number;
+}
+
+/** 商品当前库存（由库存接口归一后的 UI 模型）。 */
+export interface ItemStock {
+  /** 闲鱼商品标识。 */
+  itemId: string;
+  /** 是否多规格商品；多规格时库存由 skus 提供。 */
+  multiSpec: boolean;
+  /** 单规格商品库存；多规格商品为各规格库存之和。 */
+  quantity: number;
+  /** 多规格商品的规格行；单规格商品为空数组。 */
+  skus: ItemStockSku[];
+}
+
+/** 提交库存修改的 UI 模型：单规格填 quantity，多规格填全部规格行。 */
+export interface ItemStockUpdate {
+  /** 单规格商品的新库存。 */
+  quantity?: number;
+  /** 单规格商品用户看到的原库存，用于并发校验。 */
+  expectedQuantity?: number;
+  /** 多规格商品的全部规格行修改。 */
+  skus?: Array<{
+    /** 规格行标识。 */
+    key: string;
+    /** 新库存。 */
+    quantity: number;
+    /** 用户看到的原库存。 */
+    expectedQuantity: number;
+  }>;
+}
+
 /** 由当前 feature adapter 归一后的 AutomationTriggerType UI 模型；不直接暴露 HTTP DTO。 */
 export type AutomationTriggerType = 'order_created' | 'order_paid' | 'buyer_reviewed' | 'review_missing_timeout';
 /** 由当前 feature adapter 归一后的 AutomationActionType UI 模型；不直接暴露 HTTP DTO。 */

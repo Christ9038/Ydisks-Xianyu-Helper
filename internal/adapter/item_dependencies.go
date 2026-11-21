@@ -3,6 +3,7 @@ package adapter
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 
 	"xianyu-go/internal/db"
@@ -61,6 +62,14 @@ func (d *ItemDependencies) NewItemBatchPublishPort(client func() MTOPClient, log
 		return nil
 	}
 	return NewItemBatchPublishPort(d.store, client, logger, update, recover, readFile, download)
+}
+
+// NewAutoRelistRepository 创建自动上架所需的本地事实仓储（账号开关、归属与商品归属）。
+func (d *ItemDependencies) NewAutoRelistRepository() (*AutoRelistRepository, error) {
+	if d == nil {
+		return nil, fmt.Errorf("商品基础设施依赖未初始化")
+	}
+	return NewAutoRelistRepository(d.store)
 }
 
 // NewItemPublishPort 创建单商品发布与类目推荐共用的平台端口。
