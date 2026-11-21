@@ -30,6 +30,8 @@ type SettingsUpdateInput struct {
 	AutoConsign *bool
 	// AutoBargain 是可选的砍价“待刀成”阶段自动免拼开关。
 	AutoBargain *bool
+	// AutoRelist 是可选的“售出后自动上架”开关。
+	AutoRelist *bool
 	// ConsignProofMode 是可选的确认发货凭证模式（delivery/fixed/none）。
 	ConsignProofMode *string
 	// ConsignProofText 是可选的固定文字模式凭证文本，不得填写卡密或平台凭证。

@@ -529,7 +529,11 @@ func (g *Gateway) handleItemEditDetail(acct *account, data map[string]any) ([]st
 	delete(detail, "uniqueCode")
 	delete(detail, "sourceId")
 	detail["itemId"] = item.ID
-	detail["itemStatus"] = "0"
+	// 在售为 "0"，下架或售罄后为 "-2"，与真实平台一致。
+	detail["itemStatus"] = "-2"
+	if item.OnSale {
+		detail["itemStatus"] = "0"
+	}
 	detail["bizcode"] = "pcMainPublish"
 	if item.MultiSpec {
 		detail["quantity"] = "1"
@@ -625,6 +629,10 @@ func (g *Gateway) handleItemEdit(acct *account, data map[string]any) ([]string, 
 			item.SKUs[i].Quantity = updated[item.SKUs[i].ID]
 		}
 		item.Quantity = total
+	}
+	// 提交 itemStatus="0" 表示重新上架；未带该值的编辑不改变在售状态（与真实平台“原样重提不会上架”一致）。
+	if dataString(data, "itemStatus") == "0" {
+		item.OnSale = true
 	}
 	item.EditData = cloneMap(data)
 	item.EditCount++

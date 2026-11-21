@@ -10526,7 +10526,7 @@ components:
           type: string
     AccountDetailResponse:
       type: object
-      required: [id, has_cookie, enabled, auto_confirm, auto_consign, auto_bargain, consign_proof_mode, consign_proof_text, manual_takeover_minutes, manual_takeover_scope, remark, pause_duration, paused_until, paused, show_browser, username, nickname, avatar_url, login_method, last_login_at, profile_error, auto_rate_enabled, rate_content, auto_polish_enabled, polish_time, last_rate_scan_at, last_polish_date, last_polish_at]
+      required: [id, has_cookie, enabled, auto_confirm, auto_consign, auto_bargain, auto_relist, consign_proof_mode, consign_proof_text, manual_takeover_minutes, manual_takeover_scope, remark, pause_duration, paused_until, paused, show_browser, username, nickname, avatar_url, login_method, last_login_at, profile_error, auto_rate_enabled, rate_content, auto_polish_enabled, polish_time, last_rate_scan_at, last_polish_date, last_polish_at]
       properties:
         id:
           type: string
@@ -10540,6 +10540,9 @@ components:
           type: boolean
         auto_bargain:
           type: boolean
+        auto_relist:
+          type: boolean
+          description: 商品售出后是否通过网页端编辑接口自动重新上架；默认关闭，不支持网页端编辑的类目不会上架。
         consign_proof_mode:
           type: string
           enum: [delivery, fixed, none]
@@ -10615,6 +10618,9 @@ components:
           type: boolean
         auto_bargain:
           type: boolean
+        auto_relist:
+          type: boolean
+          description: 商品售出后是否通过网页端编辑接口自动重新上架；默认关闭，不支持网页端编辑的类目不会上架。
         consign_proof_mode:
           type: string
           enum: [delivery, fixed, none]

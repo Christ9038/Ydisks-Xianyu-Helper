@@ -17,6 +17,8 @@ type AccountSummary struct {
 	AutoConsign bool
 	// AutoBargain 表示砍价“待刀成”阶段是否自动调用免拼接口。
 	AutoBargain bool
+	// AutoRelist 表示商品售出后是否自动重新上架。
+	AutoRelist bool
 	// ConsignProofMode 是确认发货携带凭证的模式（delivery/fixed/none）。
 	ConsignProofMode string
 	// ConsignProofText 是固定文字模式下提交给平台的用户自填文字，不含卡密或平台凭证。

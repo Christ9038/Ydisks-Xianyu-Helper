@@ -104,6 +104,8 @@ type itemCatalogServices struct {
 	platformLifecycle *itemapp.PlatformLifecycleService
 	// stock 提供商品库存读取与修改用例。
 	stock *itemapp.ItemStockService
+	// autoRelist 提供售出后自动上架用例，由运行时付款事件回调使用，不暴露给 HTTP。
+	autoRelist *itemapp.AutoRelistService
 }
 
 // buildItemCatalogServices 构造商品目录和发布服务，并把平台会话恢复回调限制在组合根。
@@ -139,6 +141,16 @@ func buildItemCatalogServices(dependencies Dependencies, sessionRecovery adapter
 	if itemStockErr != nil {
 		return itemCatalogServices{}, fmt.Errorf("构造商品库存服务失败: %w", itemStockErr)
 	}
+	// autoRelistRepository、autoRelistRepositoryErr 是自动上架的本地事实仓储及其构造错误。
+	autoRelistRepository, autoRelistRepositoryErr := dependencies.ItemDependencies.NewAutoRelistRepository()
+	if autoRelistRepositoryErr != nil {
+		return itemCatalogServices{}, fmt.Errorf("构造自动上架仓储失败: %w", autoRelistRepositoryErr)
+	}
+	// autoRelist 复用商品发布端口承载自动上架的凭证读取、平台调用与会话写回。
+	autoRelist, autoRelistErr := itemapp.NewAutoRelistService(autoRelistRepository, itemPublishPort, dependencies.Logger)
+	if autoRelistErr != nil {
+		return itemCatalogServices{}, fmt.Errorf("构造自动上架服务失败: %w", autoRelistErr)
+	}
 	// itemCategoryRecommendation 复用商品发布端口承载类目推荐和响应会话写回。
 	itemCategoryRecommendation, itemCategoryRecommendationErr := itemapp.NewCategoryRecommendationService(itemPublishPort)
 	if itemCategoryRecommendationErr != nil {
@@ -157,5 +169,5 @@ func buildItemCatalogServices(dependencies Dependencies, sessionRecovery adapter
 	if itemSinglePublishErr != nil {
 		return itemCatalogServices{}, fmt.Errorf("构造单商品发布服务失败: %w", itemSinglePublishErr)
 	}
-	return itemCatalogServices{catalog: itemCatalog, mutation: itemCatalogMutation, aiSettings: itemAISettings, categoryRecommendation: itemCategoryRecommendation, previewPersistence: itemBatchPreviewPersistence, singlePublish: itemSinglePublish, platformLifecycle: itemPlatformLifecycle, stock: itemStock}, nil
+	return itemCatalogServices{catalog: itemCatalog, mutation: itemCatalogMutation, aiSettings: itemAISettings, categoryRecommendation: itemCategoryRecommendation, previewPersistence: itemBatchPreviewPersistence, singlePublish: itemSinglePublish, platformLifecycle: itemPlatformLifecycle, stock: itemStock, autoRelist: autoRelist}, nil
 }

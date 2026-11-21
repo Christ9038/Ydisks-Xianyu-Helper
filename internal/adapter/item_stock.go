@@ -70,8 +70,7 @@ func (p *ItemPublishPort) UpdateStock(ctx context.Context, userID int64, cookieI
 	return outcome, nil
 }
 
-// runStockCall 按账号凭证锁和会话快照规则执行一次平台库存调用：加锁读取并校验凭证 → 释放锁 → 平台 I/O →
-// 复核凭证后写回会话。平台调用错误已映射为应用层哨兵错误；会话过期会触发账号恢复。
+// runStockCall 在库存可选客户端能力上执行一次平台库存调用；其余流程见 runItemEditCall。
 func (p *ItemPublishPort) runStockCall(ctx context.Context, userID int64, cookieID string, timeout time.Duration, call stockCall) (persistErr, callErr error) {
 	if p == nil || p.store == nil || p.store.Cookies == nil {
 		return nil, errors.New("商品库存存储未初始化")
@@ -81,13 +80,29 @@ func (p *ItemPublishPort) runStockCall(ctx context.Context, userID int64, cookie
 	if !ok {
 		return nil, itemapp.ErrStockUnsupported
 	}
+	return p.runItemEditCall(ctx, userID, cookieID, timeout, itemapp.ErrStockCredentialChanged, func(callCtx context.Context, _ mtop.Client, cookies string) (string, error) {
+		return call(callCtx, stockClient, cookies)
+	}, mapStockError)
+}
+
+// itemEditCall 是在凭证快照上执行的一次平台商品编辑类调用，返回响应更新的平面 Cookie（没有变化时为空）。
+type itemEditCall func(ctx context.Context, client mtop.Client, cookies string) (string, error)
+
+// runItemEditCall 按账号凭证锁和会话快照规则执行一次平台商品编辑类调用：加锁读取并校验凭证 → 释放锁 → 平台 I/O →
+// 复核凭证后写回会话。credentialChanged 是凭证或归属变化时返回的用例哨兵错误；平台调用错误经 mapErr 映射为应用层哨兵错误；会话过期会触发账号恢复。
+func (p *ItemPublishPort) runItemEditCall(ctx context.Context, userID int64, cookieID string, timeout time.Duration, credentialChanged error, call itemEditCall, mapErr func(error) error) (persistErr, callErr error) {
+	if p == nil || p.store == nil || p.store.Cookies == nil {
+		return nil, errors.New("商品编辑存储未初始化")
+	}
+	// client 保存当前 MTOP 客户端。
+	client := p.mtopClient()
 	// unlock 保护账号凭证快照读取。
 	unlock := p.store.LockAccountCredentials(cookieID)
 	// latest、loadErr 保存加锁后读取的平台凭证视图。
 	latest, loadErr := p.store.Cookies.GetCookiePlatformRuntimeData(ctx, cookieID)
 	if loadErr != nil || latest.UserID != userID || !hasStoredCredential(latest) {
 		unlock()
-		return nil, itemapp.ErrStockCredentialChanged
+		return nil, credentialChanged
 	}
 	// requestCtx、cancel 控制平台调用及其 Token 续期流程的最长执行时间。
 	requestCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -98,23 +113,23 @@ func (p *ItemPublishPort) runStockCall(ctx context.Context, userID int64, cookie
 	initialValue, initialMetadata := latest.Value, latest.MetadataJSON
 	unlock()
 	// updatedCookies、platformErr 保存平台响应更新的平面 Cookie 和平台调用错误。
-	updatedCookies, platformErr := call(mtopCtx, stockClient, latest.Value)
+	updatedCookies, platformErr := call(mtopCtx, client, latest.Value)
 	if platformErr != nil {
 		updatedCookies = ""
 	}
 	// runtimeCookie、persistErr 保存会话写回后的运行时同步值和持久化错误。
-	runtimeCookie, persistErr := p.persistPlatformSession(ctx, userID, cookieID, initialValue, initialMetadata, cookieSession, updatedCookies, itemapp.ErrStockCredentialChanged)
+	runtimeCookie, persistErr := p.persistPlatformSession(ctx, userID, cookieID, initialValue, initialMetadata, cookieSession, updatedCookies, credentialChanged)
 	if runtimeCookie != "" && p.updateRunningCookie != nil {
 		p.updateRunningCookie(ctx, cookieID, runtimeCookie)
 	}
 	if platformErr != nil {
 		if persistErr != nil {
-			platformErr = errors.Join(platformErr, fmt.Errorf("保存库存调用响应 Cookie: %w", persistErr))
+			platformErr = errors.Join(platformErr, fmt.Errorf("保存商品编辑响应 Cookie: %w", persistErr))
 		}
 		if mtop.IsSessionExpiredErr(platformErr) {
 			p.recoverExpired(ctx, cookieID, platformErr)
 		}
-		return nil, mapStockError(platformErr)
+		return nil, mapErr(platformErr)
 	}
 	return persistErr, nil
 }

@@ -3511,6 +3511,8 @@ export interface components {
             auto_confirm: boolean;
             auto_consign: boolean;
             auto_bargain: boolean;
+            /** @description 商品售出后是否通过网页端编辑接口自动重新上架；默认关闭，不支持网页端编辑的类目不会上架。 */
+            auto_relist: boolean;
             /**
              * @description 确认发货携带凭证的模式：delivery 卡密/模板全文，fixed 固定文字，none 不携带。
              * @enum {string}
@@ -3554,6 +3556,8 @@ export interface components {
             auto_confirm?: boolean;
             auto_consign?: boolean;
             auto_bargain?: boolean;
+            /** @description 商品售出后是否通过网页端编辑接口自动重新上架；默认关闭，不支持网页端编辑的类目不会上架。 */
+            auto_relist?: boolean;
             /**
              * @description 确认发货携带凭证的模式；省略时保持原值。
              * @enum {string}

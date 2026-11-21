@@ -477,6 +477,21 @@ func TestMultiDB_CookiesUpsertBool(t *testing.T) {
 			if bargainEnabled, bargainErr := s.Cookies.GetAutoBargain(ctx, cid); bargainErr != nil || !bargainEnabled {
 				t.Fatalf("enabled auto_bargain=%v err=%v want true", bargainEnabled, bargainErr)
 			}
+			// relistEnabled、relistErr 验证三方言“售出后自动上架”开关默认关闭，且开启自动免拼不会影响它。
+			relistEnabled, relistErr := s.Cookies.GetAutoRelist(ctx, cid)
+			if relistErr != nil || relistEnabled {
+				t.Fatalf("default auto_relist=%v err=%v want false", relistEnabled, relistErr)
+			}
+			// autoRelistUpdate 是显式开启自动上架的设置值。
+			autoRelistUpdate := true
+			// updateErr 保存当前方言写入独立自动上架开关的错误。
+			if _, updateErr := s.Cookies.UpdateSettings(ctx, cid, AccountSettingsUpdate{UserID: user.ID, AutoRelist: &autoRelistUpdate}); updateErr != nil {
+				t.Fatalf("enable auto_relist: %v", updateErr)
+			}
+			// relistEnabled、relistErr 保存显式开启后的独立开关读取结果。
+			if relistEnabled, relistErr := s.Cookies.GetAutoRelist(ctx, cid); relistErr != nil || !relistEnabled {
+				t.Fatalf("enabled auto_relist=%v err=%v want true", relistEnabled, relistErr)
+			}
 			// proofSetting、proofErr 验证三方言确认发货凭证默认携带卡密/模板全文。
 			if proofSetting, proofErr := s.Cookies.GetConsignProofSetting(ctx, cid); proofErr != nil || proofSetting.Mode != ConsignProofModeDelivery {
 				t.Fatalf("default consign proof=%#v err=%v want delivery", proofSetting, proofErr)

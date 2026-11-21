@@ -54,6 +54,7 @@ const AccountList: React.FC<AccountListProps> = ({ accountEditModal: AccountEdit
     auto_confirm: false,
     auto_consign: false,
     auto_bargain: false,
+    auto_relist: false,
     consign_proof_mode: 'delivery',
     consign_proof_text: '',
     manual_takeover_minutes: 0,

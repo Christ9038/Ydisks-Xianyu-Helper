@@ -153,6 +153,17 @@ func (c *ClientImpl) EditItemStock(ctx context.Context, cookiesStr string, req I
 	if err != nil {
 		return nil, err
 	}
+	// message、fields、cookies、err 是提交结果摘要、响应字段名和累计更新后的 Cookie。
+	message, fields, cookies, err := c.submitItemEdit(ctx, cookiesStr, detail, itemID, payload)
+	if err != nil {
+		return nil, err
+	}
+	return &ItemStockEditResult{ItemID: itemID, Message: message, DataFields: fields, UpdatedCookies: cookies}, nil
+}
+
+// submitItemEdit 提交一次 edit 全量覆盖请求；读请求拿到的 Cookie 更新在写失败时仍会随错误之外的结果返回给调用方处理。
+// 返回平台 ret 首条文本、响应 data 顶层字段名和两次请求累计的更新 Cookie。
+func (c *ClientImpl) submitItemEdit(ctx context.Context, cookiesStr string, detail *ItemEditDetail, itemID string, payload map[string]any) (string, []string, string, error) {
 	// current 是写请求使用的 Cookie，优先采用读请求返回的最新值。
 	current := cookiesStr
 	if detail.UpdatedCookies != "" {
@@ -168,21 +179,21 @@ func (c *ClientImpl) EditItemStock(ctx context.Context, cookiesStr string, req I
 		finalCookies = detail.UpdatedCookies
 	}
 	if err != nil {
-		return nil, err
+		return "", nil, finalCookies, err
 	}
 	// ret 是提交响应的业务返回标记。
 	ret := retFromDecoded(decoded)
 	if !hasMTopSuccess(ret) {
 		if itemEditRetUnsupported(ret) {
-			return nil, ErrItemEditUnsupported
+			return "", nil, finalCookies, ErrItemEditUnsupported
 		}
-		return nil, c.mtopResponseFailure("mtop.idle.pc.idleitem.edit", 200, ret, "平台 ret 未包含 SUCCESS")
+		return "", nil, finalCookies, c.mtopResponseFailure("mtop.idle.pc.idleitem.edit", 200, ret, "平台 ret 未包含 SUCCESS")
 	}
 	// reason 是平台业务失败的原因摘要，不含凭证。
 	if reason := itemEditBusinessFailure(mapFromAny(decoded["data"])); reason != "" {
-		return nil, fmt.Errorf("闲鱼商品编辑被拒绝: %s", reason)
+		return "", nil, finalCookies, fmt.Errorf("闲鱼商品编辑被拒绝: %s", reason)
 	}
-	return &ItemStockEditResult{ItemID: itemID, Message: firstRet(ret), DataFields: sortedFieldNames(mapFromAny(decoded["data"])), UpdatedCookies: finalCookies}, nil
+	return firstRet(ret), sortedFieldNames(mapFromAny(decoded["data"])), finalCookies, nil
 }
 
 // sortedFieldNames 返回 map 的顶层键名并排序，只暴露结构、不含任何取值。
@@ -408,6 +419,38 @@ func buildItemStockEditPayload(detail *ItemEditDetail, itemID string, req ItemSt
 	if err != nil {
 		return nil, err
 	}
+	// payload 是回填后的载荷，已完成深拷贝与布尔标准化。
+	payload, baseErr := cloneItemEditPayload(detail, itemID)
+	if baseErr != nil {
+		return nil, baseErr
+	}
+	if !detail.MultiSpec {
+		payload["quantity"] = typedLike(detail.raw["quantity"], req.Quantity)
+		return payload, nil
+	}
+	// rows 是载荷里的规格行，逐行只改 quantity。
+	rows, _ := payload["itemSkuList"].([]any)
+	// row 是载荷里的当前规格行。
+	for _, row := range rows {
+		// fields 是规格行的对象形式。
+		fields := mapFromAny(row)
+		// view 是该规格行按同一规则算出的 Key。
+		view := parseItemStockSKU(fields)
+		fields["quantity"] = typedLike(fields["quantity"], rowQuantity[view.Key])
+	}
+	// exists 表示映射中是否存在该键。
+	if _, exists := payload["quantity"]; !exists {
+		payload["quantity"] = "1"
+	}
+	// exists 表示映射中是否存在该键。
+	if _, exists := payload["itemProperties"]; !exists {
+		payload["itemProperties"] = rebuildItemProperties(rows)
+	}
+	return payload, nil
+}
+
+// cloneItemEditPayload 以 editDetail 快照为底生成全量覆盖载荷（深拷贝白名单字段并标准化布尔值），不修改库存与状态。
+func cloneItemEditPayload(detail *ItemEditDetail, itemID string) (map[string]any, error) {
 	// payload 是回填后的载荷；先深拷贝避免修改快照原文。
 	payload := map[string]any{}
 	// key 是当前回填的字段名。
@@ -434,28 +477,6 @@ func buildItemStockEditPayload(detail *ItemEditDetail, itemID string, req ItemSt
 		payload["itemTypeStr"] = "b"
 	}
 	normalizeItemEditBooleans(payload)
-	if !detail.MultiSpec {
-		payload["quantity"] = typedLike(detail.raw["quantity"], req.Quantity)
-		return payload, nil
-	}
-	// rows 是载荷里的规格行，逐行只改 quantity。
-	rows, _ := payload["itemSkuList"].([]any)
-	// row 是载荷里的当前规格行。
-	for _, row := range rows {
-		// fields 是规格行的对象形式。
-		fields := mapFromAny(row)
-		// view 是该规格行按同一规则算出的 Key。
-		view := parseItemStockSKU(fields)
-		fields["quantity"] = typedLike(fields["quantity"], rowQuantity[view.Key])
-	}
-	// exists 表示映射中是否存在该键。
-	if _, exists := payload["quantity"]; !exists {
-		payload["quantity"] = "1"
-	}
-	// exists 表示映射中是否存在该键。
-	if _, exists := payload["itemProperties"]; !exists {
-		payload["itemProperties"] = rebuildItemProperties(rows)
-	}
 	return payload, nil
 }
 

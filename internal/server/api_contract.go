@@ -38,6 +38,8 @@ type cookieSummaryResponse struct {
 	AutoConsign bool `json:"auto_consign"`
 	// AutoBargain 表示砍价“待刀成”阶段是否自动免拼。
 	AutoBargain bool `json:"auto_bargain"`
+	// AutoRelist 表示商品售出后是否自动重新上架。
+	AutoRelist bool `json:"auto_relist"`
 	// ConsignProofMode 是确认发货携带凭证的模式：delivery 卡密/模板全文，fixed 固定文字，none 不携带。
 	ConsignProofMode string `json:"consign_proof_mode"`
 	// ConsignProofText 是固定文字模式下提交给平台的用户自填文字。

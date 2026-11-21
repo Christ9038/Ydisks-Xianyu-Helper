@@ -309,6 +309,33 @@ func (g *Gateway) MarkEditUnsupported(itemID string) {
 	}
 }
 
+// SetOnSale 直接设置商品在售状态，用于模拟卖家在 App 中下架或上架且不改变库存。
+func (g *Gateway) SetOnSale(itemID string, onSale bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	// item、exists 是被设置状态的平台商品及其是否存在。
+	if item, exists := g.items[itemID]; exists {
+		item.OnSale = onSale
+	}
+}
+
+// SellOut 模拟商品售出：库存清零（多规格为全部规格行）并变为下架状态，编辑详情中 itemStatus 为 "-2"。
+func (g *Gateway) SellOut(itemID string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	// item、exists 是被售罄的平台商品及其是否存在。
+	item, exists := g.items[itemID]
+	if !exists {
+		return
+	}
+	item.Quantity = 0
+	// i 是规格行下标。
+	for i := range item.SKUs {
+		item.SKUs[i].Quantity = 0
+	}
+	item.OnSale = false
+}
+
 // ChangeStock 模拟平台侧（例如买家下单或卖家在 App 中修改）改变库存：单规格改 Quantity。
 func (g *Gateway) ChangeStock(itemID string, quantity int) {
 	g.mu.Lock()

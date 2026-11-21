@@ -17,11 +17,14 @@ func TestMultiDB_AccountSwitchGettersAndSavePage(t *testing.T) {
 			userID, cookieID := seedAccount(t, store)
 
 			// 开关读取：先全部置 1，再置 0，并校验不存在账号返回 ErrNotFound。
-			for _, column := range []string{"auto_consign", "auto_bargain"} { // column 是被测的独立开关列。
+			for _, column := range []string{"auto_consign", "auto_bargain", "auto_relist"} { // column 是被测的独立开关列。
 				// getter 按列名选择对应的读取方法。
 				getter := store.Cookies.GetAutoConsign
 				if column == "auto_bargain" {
 					getter = store.Cookies.GetAutoBargain
+				}
+				if column == "auto_relist" {
+					getter = store.Cookies.GetAutoRelist
 				}
 				// execErr 保存该步骤的返回值或错误，用于断言预期结果或在故障注入场景中忽略其结果。
 				if _, execErr := store.DB.ExecContext(ctx, `UPDATE cookies SET `+column+`=1 WHERE id=?`, cookieID); execErr != nil {
