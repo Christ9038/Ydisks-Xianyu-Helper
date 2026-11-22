@@ -255,3 +255,12 @@ export const withAllItemsConfirmation = (raw: string | undefined, confirmed: boo
 /** needsAllItemsConfirmation 判断 rule 是否为尚未确认的账号级付款发货规则，用于列表提示和避免误认已启用。 */
 export const needsAllItemsConfirmation = (rule: Partial<ShippingRule>): boolean =>
   (rule.trigger_type || 'order_paid') === 'order_paid' && !rule.item_id && parseJSONObject(rule.config_json).allow_all_items !== true;
+
+// variantPatchForCreatedCard 生成把新建卡密回填到发货规格的字段补丁；variableKey 非空时回填模板变量绑定，否则回填卡密库存。
+export const variantPatchForCreatedCard = (variant: ShippingVariant, cardId: number, variableKey?: string): Partial<ShippingVariant> => {
+  if (variableKey === undefined) return { card_id: cardId };
+  return { template_bindings: (variant.template_bindings || []).map(/* binding 是当前规格已有的变量绑定。 */ binding => binding.variable_key === variableKey ? { ...binding, card_id: cardId } : binding) };
+};
+
+// canUseCreatedCard 判断新建的卡密能否被发起位置使用：必须已启用且（API 卡密）配置就绪；模板变量绑定不支持图片卡密。
+export const canUseCreatedCard = (card: Card | undefined, variableKey?: string): boolean => !!card && isDeliveryCardReady(card) && (variableKey === undefined || card.type !== 'image');

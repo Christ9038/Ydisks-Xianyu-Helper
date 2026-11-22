@@ -228,3 +228,31 @@ export const reconcileDraftSpecs = (draft: TemplateDraft, specs: PublishSpec[], 
 
 /** newSpecId 为新规格值生成草稿标识，供图片选择等流程复用。 */
 export const newSpecId = createPublishSpecId;
+
+/** CardCreateTarget 指明新建卡密成功后要回填的位置：某个动作的发卡卡密组，或发货模板动作的某个变量绑定。 */
+export interface CardCreateTarget {
+  /** group 是动作所属的自动化组。 */
+  group: 'paidDelivery' | 'reviewGift';
+  /** index 是动作在该组 actions 中的下标。 */
+  index: number;
+  /** variableKey 非空时回填该发货模板变量的绑定，为空时回填发卡动作本身。 */
+  variableKey?: string;
+}
+
+/** applyCreatedCard 把新建卡密的主键写回目标位置；目标动作已被删除或类型不符时原样返回，避免误写。 */
+export const applyCreatedCard = (automation: LibraryAutomation, target: CardCreateTarget, cardId: number): LibraryAutomation => {
+  // group 是目标动作所在的动作组。
+  const group = automation[target.group];
+  // action 是目标动作，可能在新建期间已被删除。
+  const action = group.actions[target.index];
+  if (!action) return automation;
+  // next 是回填后的动作；类型与目标不符时为空。
+  let next: LibraryAction | null = null;
+  if (target.variableKey === undefined && action.actionType === 'send_card') {
+    next = { ...action, cardId };
+  } else if (target.variableKey !== undefined && action.actionType === 'send_template' && action.templateBindings.some(/* binding 是候选绑定。 */ binding => binding.variableKey === target.variableKey)) {
+    next = { ...action, templateBindings: action.templateBindings.map(/* binding 是被检查的变量绑定。 */ binding => binding.variableKey === target.variableKey ? { ...binding, cardId } : binding) };
+  }
+  if (!next) return automation;
+  return { ...automation, [target.group]: { ...group, actions: group.actions.map(/* item、i 定位被回填的动作。 */ (item, i) => i === target.index ? next : item) } };
+};

@@ -1,4 +1,5 @@
 import type { ComponentType,Dispatch,ElementType,SetStateAction } from 'react';
+import type { CardCreateDialogComponent } from '../../../shared/ui/cardCreate';
 import type { LibraryImageChooserComponent } from '../../../shared/ui/imageSource';
 import type {
 AccountDetail,
@@ -49,6 +50,8 @@ export interface RulesProps {
   auditPanel?: ComponentType<AutomationAuditPanelProps>;
   // libraryImageChooser 是应用壳按需注入的图片库选择器；缺省时图片回复只能填写外链。
   libraryImageChooser?: LibraryImageChooserComponent;
+  // cardCreateDialog 是应用壳按需注入的新建卡密弹窗；缺省时发货规格里不显示“新建卡密”入口。
+  cardCreateDialog?: CardCreateDialogComponent;
 }
 
 // AutomationAuditPanelProps 描述规则日志面板的外部输入；rules 页面只依赖该最小结构，不静态引用面板实现。
@@ -161,6 +164,8 @@ export interface RulesDataResult extends RulesDataSet {
   setAutomationRules: Dispatch<SetStateAction<ShippingRule[]>>;
   // setCards 用于外部跳转场景写入卡密参考数据。
   setCards: Dispatch<SetStateAction<Card[]>>;
+  // reloadCards 只重读卡密参考数据并返回最新列表；被更新的请求取代时返回 null，失败时抛出。
+  reloadCards: () => Promise<Card[] | null>;
   // setItems 用于外部跳转场景写入商品参考数据。
   setItems: Dispatch<SetStateAction<Item[]>>;
   // loadReferenceData 加载规则编辑器所需的共享参考数据。

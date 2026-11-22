@@ -1,11 +1,12 @@
-import { ClipboardList,Copy,CreditCard,Edit,FileText,Globe,Image as ImageIcon,Package,Plus,Save,Search,SlidersHorizontal,Trash2,Upload,X } from 'lucide-react';
+import { ClipboardList,Copy,Edit,Package,Plus,Save,Search,SlidersHorizontal,Trash2,Upload,X } from 'lucide-react';
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { Card, testCardAPI } from '../api';
 import { APIRequestBuilder } from '../components/APIRequestBuilder';
-import { apiConfigFromEditForm, apiConfigFromAddForm, updateAPIEditForm, updateAPIAddForm } from '../editConfig';
+import { apiConfigFromEditForm, updateAPIEditForm } from '../editConfig';
 import { useCardActions } from '../cardActions';
 import { BatchCardImportModal } from '../components/BatchCardImportModal';
+import { CardCreateDialog } from '../components/CardCreateDialog';
 import { CardIcon } from '../components/CardIcon';
 import { CardStockDialog } from '../components/CardStockDialog';
 import { useCardBatchActions,useCardsData } from '../hooks';
@@ -36,12 +37,9 @@ const CardList: React.FC<CardListProps> = ({ libraryImageChooser }) => {
     selectedCard,
     editForm,
     setEditForm,
-    addForm,
-    setAddForm,
     handleEdit,
     handleSaveEdit,
     handleDelete,
-    handleAddCard,
     toggleCardStatus,
     copyCardID,
     downloadCardTemplate,
@@ -432,154 +430,13 @@ const CardList: React.FC<CardListProps> = ({ libraryImageChooser }) => {
         document.body
       )}
 
-      {/* 添加新卡密弹窗 - 使用 Portal */}
-      {showAddModal && createPortal(
-        <div className="modal-overlay-centered">
-          <div className="modal-container" style={{maxWidth: '780px'}}>
-            <div className="modal-header flex items-center justify-between gap-4">
-              <div>
-                <h3 className="text-2xl font-extrabold text-gray-900">添加新卡密</h3>
-                <p className="text-sm text-gray-500 mt-1">选择交付方式并录入自动发货内容</p>
-              </div>
-              <button
-                onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setShowAddModal(false)}
-                className="p-2 rounded-xl hover:bg-gray-100 transition-colors flex-shrink-0"
-                title="关闭"
-              >
-                <X className="w-5 h-5 text-gray-500" />
-              </button>
-            </div>
-
-            <div className="modal-body">
-              <div className="space-y-6">
-                <div className="space-y-2">
-                  <label className="block text-sm font-bold text-gray-700 mb-2">卡密名称</label>
-                  <input
-                    type="text"
-                    value={addForm.name}
-                    onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setAddForm({ ...addForm, name: e.target.value })}
-                    placeholder="例如：VIP会员卡密"
-                    className="w-full ios-input px-4 py-3 rounded-xl"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <label className="block text-sm font-bold text-gray-700 mb-2">类型</label>
-                  <div className="grid grid-cols-4 gap-2">
-                    <button
-                      type="button"
-                      onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setAddForm({ ...addForm, type: 'data', content: '', library_image_id: 0 })}
-                      className={`p-3 rounded-xl font-bold transition-all ${addForm.type === 'data' ? 'bg-brand text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                    >
-                      <CreditCard className="w-5 h-5 mx-auto mb-1" />
-                      批量库存
-                    </button>
-                    <button
-                      type="button"
-                      onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setAddForm({ ...addForm, type: 'text', content: '', library_image_id: 0 })}
-                      className={`p-3 rounded-xl font-bold transition-all ${addForm.type === 'text' ? 'bg-brand text-white' : 'bg-gray-100 text-gray-600'}`}
-                    >
-                      <FileText className="w-5 h-5 mx-auto mb-1" />
-                      文本
-                    </button>
-                    <button
-                      type="button"
-                      onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setAddForm({ ...addForm, type: 'image', content: '', library_image_id: 0 })}
-                      className={`p-3 rounded-xl font-bold transition-all ${addForm.type === 'image' ? 'bg-brand text-white' : 'bg-gray-100 text-gray-600'}`}
-                    >
-                      <ImageIcon className="w-5 h-5 mx-auto mb-1" />
-                      图片
-                    </button>
-                    <button
-                      type="button"
-                      onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setAddForm({ ...addForm, type: 'api', content: '', library_image_id: 0 })}
-                      className={`p-3 rounded-xl font-bold transition-all ${addForm.type === 'api' ? 'bg-brand text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                    >
-                      <Globe className="w-5 h-5 mx-auto mb-1" />
-                      API 接口
-                    </button>
-                  </div>
-                </div>
-
-                {addForm.type !== 'api' && <div className="space-y-2">
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    {addForm.type === 'data' ? '库存内容（一行一个）' : addForm.type === 'text' ? '固定回复内容' : '卡密图片'}
-                  </label>
-                  {addForm.type === 'image' ? (
-                    <div className="space-y-2">
-                      <ImageSourceField
-                        value={{ url: addForm.content, libraryImageId: addForm.library_image_id }}
-                        onChange={/* source 是用户选择的新图片来源；外链与图片库图片互斥。 */ source => setAddForm({ ...addForm, content: source.url, library_image_id: source.libraryImageId })}
-                        chooser={libraryImageChooser}
-                        urlPlaceholder="https://example.com/card.png"
-                      />
-                      <p className="text-xs text-gray-500">图片库图片发货时由服务端读取；外链图片发货时会临时下载并上传到闲鱼</p>
-                    </div>
-                  ) : (
-                    <textarea
-                      value={addForm.content}
-                      onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setAddForm({ ...addForm, content: e.target.value })}
-                      className={`w-full ios-input px-4 py-3 rounded-xl resize-none text-sm ${addForm.type === 'data' ? 'h-48 font-mono' : 'h-32'}`}
-                      placeholder={addForm.type === 'data' ? 'CODE-123456\nCODE-789012\n...' : '请输入每次发货时发送的固定文字'}
-                    />
-                  )}
-                  {addForm.type === 'data' && (
-                    <p className="text-xs text-gray-500">当前库存：<span className="font-bold text-brand">{addForm.content.split('\n').filter(/* 当前回调处理集合中的单个元素。 */ line => line.trim()).length}</span> 条</p>
-                  )}
-                </div>}
-
-                {addForm.type === 'api' && (
-                  <>
-                    <APIRequestBuilder
-                      url={addForm.content}
-                      method={addForm.api_method}
-                      timeout={addForm.api_timeout}
-                      headers={addForm.api_headers}
-                      params={addForm.api_params}
-                      contentType={addForm.api_content_type}
-                      body={addForm.api_body}
-                      responsePath={addForm.api_response_path}
-                      retryEnabled={addForm.api_retry_enabled}
-	                      onTest={/* addAPITest 使用当前新增草稿发起临时 API 测试，不创建卡密。 */ signal => testCardAPI(apiConfigFromAddForm(addForm), undefined, { signal })}
-                      onChange={/* updateRequestField 将字段修改写回当前草稿。 */ (field, value) => setAddForm(/* updateDraft 合并最新表单与字段变更。 */ current => updateAPIAddForm(current, field, value))}
-                    />
-                  </>
-                )}
-
-                <div className="grid grid-cols-1 sm:grid-cols-[1fr_180px] gap-4">
-                  <div className="space-y-2">
-                    <label className="block text-sm font-bold text-gray-700">描述</label>
-                    <input value={addForm.description} onChange={/* 当前回调处理用户交互或异步状态变化。 */ e => setAddForm({...addForm, description: e.target.value})} placeholder="卡密用途描述（可选）" className="w-full ios-input px-4 py-3 rounded-xl" />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="block text-sm font-bold text-gray-700">延时发货（秒）</label>
-                    <input type="number" value={addForm.delay_seconds} onChange={/* 当前回调处理用户交互或异步状态变化。 */ e => setAddForm({...addForm, delay_seconds: parseInt(e.target.value) || 0})} className="w-full ios-input px-4 py-3 rounded-xl" min="0" max="3600" />
-                  </div>
-                </div>
-
-              </div>
-            </div>
-
-            <div className="modal-footer">
-              <div className="flex gap-3 w-full">
-                <button
-                  onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setShowAddModal(false)}
-                  className="flex-1 px-6 py-3 rounded-xl font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
-                >
-                  取消
-                </button>
-                <button
-                  onClick={handleAddCard}
-                  className="flex-1 ios-btn-primary px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2"
-                >
-                  <Plus className="w-4 h-4" />
-                  添加卡密
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body
+      {/* 新增卡密弹窗由 cards feature 组件负责草稿与请求；创建成功后刷新库存并关闭。 */}
+      {showAddModal && (
+        <CardCreateDialog
+          libraryImageChooser={libraryImageChooser}
+          onClose={/* 关闭新增弹窗。 */ () => setShowAddModal(false)}
+          onCreated={/* 创建成功后关闭弹窗并刷新库存列表。 */ () => { setShowAddModal(false); void loadCards(); }}
+        />
       )}
 
       {/* 批量导入弹窗由 cards feature 组件负责渲染和请求边界。 */}

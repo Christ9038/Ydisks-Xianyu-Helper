@@ -1,28 +1,9 @@
 import { useCallback,useEffect,useMemo,useRef,useState,type Dispatch,type SetStateAction } from 'react';
 import type { Card,CardMutation } from './api';
-import { createCard,deleteCard,getCardAPIEditor,updateCard } from './api';
-import { apiConfigFromEditForm, apiConfigFromAddForm } from './editConfig';
+import { deleteCard,getCardAPIEditor,updateCard } from './api';
+import { apiConfigFromEditForm } from './editConfig';
 import { filterCards } from './batchState';
-import type { AddCardForm,EditCardForm } from './types';
-
-// emptyAddForm 创建新增卡密组表单的初始值。
-export const emptyAddForm = (): AddCardForm => ({
-  name: '',
-  type: 'data',
-  content: '',
-  library_image_id: 0,
-  description: '',
-  enabled: true,
-  delay_seconds: 0,
-  api_method: 'GET',
-  api_timeout: 10,
-  api_headers: '',
-  api_params: '',
-  api_content_type: 'application/json',
-  api_body: '',
-  api_response_path: '',
-  api_retry_enabled: false,
-});
+import type { EditCardForm } from './types';
 
 // CardActionsOptions 描述卡密动作协调器依赖的库存状态和刷新操作。
 export interface CardActionsOptions {
@@ -64,18 +45,12 @@ export interface CardActionsState {
   editForm: EditCardForm;
   // setEditForm 更新当前卡密编辑草稿。
   setEditForm: Dispatch<SetStateAction<EditCardForm>>;
-  // addForm 保存当前新增卡密表单。
-  addForm: AddCardForm;
-  // setAddForm 更新当前新增卡密表单。
-  setAddForm: Dispatch<SetStateAction<AddCardForm>>;
   // handleEdit 打开指定卡密组的编辑弹窗。
   handleEdit: (card: Card) => Promise<void>;
   // handleSaveEdit 保存当前卡密编辑草稿。
   handleSaveEdit: () => Promise<void>;
   // handleDelete 删除指定卡密组并刷新库存。
   handleDelete: (id: string | number) => Promise<void>;
-  // handleAddCard 创建新的卡密组并刷新库存。
-  handleAddCard: () => Promise<void>;
   // toggleCardStatus 切换指定卡密组的启用状态。
   toggleCardStatus: (card: Card) => Promise<void>;
   // copyCardID 复制卡密组标识并提供失败回退。
@@ -97,8 +72,6 @@ export const useCardActions = ({ cards, loadCards }: CardActionsOptions): CardAc
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
   // editForm 保存当前卡密编辑草稿。
   const [editForm, setEditForm] = useState<EditCardForm>({});
-  // addForm 保存当前新增卡密表单。
-  const [addForm, setAddForm] = useState<AddCardForm>(emptyAddForm);
   // typeFilter 保存当前卡密类型筛选条件。
   const [typeFilter, setTypeFilter] = useState<Card['type'] | ''>('');
   // nameSearch 保存当前卡密名称搜索文本。
@@ -237,44 +210,6 @@ export const useCardActions = ({ cards, loadCards }: CardActionsOptions): CardAc
     }
   }, [loadCards]);
 
-  // handleAddCard 校验新增表单、创建卡密组并刷新库存。
-  const handleAddCard = useCallback(/* addAction 创建新的卡密组。 */ async () => {
-    if (!addForm.name.trim()) {
-      alert('请输入卡密名称');
-      return;
-    }
-    if (!addForm.content.trim() && !(addForm.type === 'image' && addForm.library_image_id > 0)) {
-      alert(addForm.type === 'api' ? '请输入 API 地址' : '请输入卡密内容');
-      return;
-    }
-    try {
-      // payload 保存新增卡密组的接口载荷。
-      const payload: CardMutation = {
-        name: addForm.name.trim(),
-        type: addForm.type,
-        description: addForm.description.trim(),
-        enabled: addForm.enabled,
-        delay_seconds: addForm.delay_seconds,
-      };
-      if (addForm.type === 'text') payload.text_content = addForm.content.trim();
-      if (addForm.type === 'data') payload.data_content = addForm.content.trim();
-      if (addForm.type === 'image') {
-        payload.image_url = addForm.library_image_id ? '' : addForm.content.trim();
-        payload.library_image_id = addForm.library_image_id;
-      }
-      if (addForm.type === 'api') {
-        payload.api_config = apiConfigFromAddForm(addForm);
-      }
-      await createCard(payload);
-      setShowAddModal(false);
-      setAddForm(emptyAddForm());
-      await loadCards();
-    } catch (/* error 表示卡密创建请求异常。 */ error: unknown) {
-      console.error('添加卡密失败:', error);
-      alert(cardErrorMessage(error, '添加失败，请重试'));
-    }
-  }, [addForm, loadCards]);
-
   // toggleCardStatus 切换指定卡密组的启用状态并刷新库存。
   const toggleCardStatus = useCallback(/* toggleAction 切换卡密启用状态。 */ async (card: Card) => {
     try {
@@ -340,12 +275,9 @@ export const useCardActions = ({ cards, loadCards }: CardActionsOptions): CardAc
     selectedCard,
     editForm,
     setEditForm,
-    addForm,
-    setAddForm,
     handleEdit,
     handleSaveEdit,
     handleDelete,
-    handleAddCard,
     toggleCardStatus,
     copyCardID,
     downloadCardTemplate,

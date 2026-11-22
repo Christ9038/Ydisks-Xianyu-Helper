@@ -31,7 +31,7 @@ Prerequisites: the account is online, Automatic Delivery is enabled for the acco
 
 1. Open Automation → Trade Automation, click New automation and choose Paid Delivery.
 2. Set a rule name and select the target account and product. For products with specifications (the multi-spec status comes from the Xianyu item and cannot be changed here), fill in the spec names and spec values (multiple SKUs joined with “；”, in the same order) for each specification that needs delivery. If you leave the product empty to create an account-level rule, you must tick “I confirm this delivery content applies to all products of this account”; without it the rule is not used as a fallback when a product has no rule.
-3. Click Add delivery content, choose the delivery method (card inventory or delivery template), choose the card inventory and set quantity per item (1–100). A specification can have several contents, all sent in order after payment.
+3. Click Add delivery content, choose the delivery method (card inventory or delivery template), choose the card inventory (or click “+ New card” to create one in place — it is selected automatically once it is ready for automatic delivery; an API card whose configuration is not ready is created but not selected) and set quantity per item (1–100). A specification can have several contents, all sent in order after payment.
 4. To override the card’s default delay, tick “Override default card delay” and enter seconds (0–3600); otherwise the card’s default delay is used.
 5. Tick Enable rule and save.
 6. Use a test order to verify card content is sent and inventory is deducted correctly; if Automatic Shipping Confirmation is enabled for the account, also verify that the platform status changes to shipped afterward.

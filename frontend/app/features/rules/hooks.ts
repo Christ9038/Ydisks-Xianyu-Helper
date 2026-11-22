@@ -92,6 +92,19 @@ export const useRulesData = (options: RulesDataOptions): RulesDataResult => {
     [options.setSelectedAccountId],
   );
 
+  // cardsRequest 保存卡密单独刷新的最新代次，防止较早的刷新结果覆盖较新的结果。
+  const cardsRequest = useRef(0);
+  // reloadCards 只重读卡密参考数据；每次调用恰好一次本地请求，被更新的刷新取代时返回 null。
+  const reloadCards = useCallback(/* 刷新卡密并丢弃过期响应。 */ async (): Promise<Card[] | null> => {
+    // requestID 标记本次刷新。
+    const requestID = ++cardsRequest.current;
+    // cardList 是最新的卡密列表。
+    const cardList = await getCards();
+    if (requestID !== cardsRequest.current) return null;
+    setCards(cardList);
+    return cardList;
+  }, []);
+
   // loadAutomationRules 加载自动化规则和异常，并丢弃过期列表响应。
   const loadAutomationRules = useCallback(
     // 自动化列表加载器隔离旧筛选请求的响应。
@@ -204,6 +217,7 @@ export const useRulesData = (options: RulesDataOptions): RulesDataResult => {
     setLoading,
     setAutomationRules,
     setCards,
+    reloadCards,
     setItems,
     loadReferenceData,
     loadAutomationRules,

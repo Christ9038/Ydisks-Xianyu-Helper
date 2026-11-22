@@ -294,10 +294,18 @@ export interface AutomationOptions {
   error: string;
 }
 
+/** AutomationOptionsState 在选项之外提供只重读卡密组的刷新函数，供就地新建卡密后更新下拉。 */
+export interface AutomationOptionsState extends AutomationOptions {
+  /** reloadCards 只重新读取卡密组选项；新请求会取消旧请求，过期响应被丢弃。 */
+  reloadCards: () => Promise<void>;
+}
+
 /** useAutomationOptions 并行读取卡密组、发货模板和账号选项；卸载或重复触发时取消旧请求。 */
-export const useAutomationOptions = (enabled: boolean): AutomationOptions => {
+export const useAutomationOptions = (enabled: boolean): AutomationOptionsState => {
   // options 是三类选项的合并状态。
   const [options, setOptions] = useState<AutomationOptions>({ cards: [], deliveryTemplates: [], accounts: [], error: '' });
+  // cardsRequest 是当前卡密刷新请求的取消控制器，同一时刻只保留最新一次。
+  const cardsRequest = useRef<AbortController | null>(null);
   useEffect(/* 启用时并行读取三类选项，并用取消标记丢弃过期响应。 */ () => {
     if (!enabled) return undefined;
     // controller 控制三条并行请求的取消。
@@ -305,7 +313,21 @@ export const useAutomationOptions = (enabled: boolean): AutomationOptions => {
     void Promise.all([listCardOptions({ signal: controller.signal }), listDeliveryTemplateOptions({ signal: controller.signal }), listAccountOptions({ signal: controller.signal })])
       .then(/* 三类选项全部成功后一次写入。 */ ([cards, deliveryTemplates, accounts]) => { if (!controller.signal.aborted) setOptions({ cards, deliveryTemplates, accounts, error: '' }); })
       .catch(/* 失败时展示原因，取消不提示。 */ (failure /* failure 是读取选项失败原因。 */) => { if (!controller.signal.aborted && !isAbort(failure)) setOptions(/* previous 是失败前的选项状态。 */ previous => ({ ...previous, error: libraryErrorMessage(failure, '读取发货选项失败') })); });
-    return /* 清理时取消未完成请求。 */ () => controller.abort();
+    return /* 清理时取消未完成请求。 */ () => { controller.abort(); cardsRequest.current?.abort(); };
   }, [enabled]);
-  return options;
+  // reloadCards 取消上一次刷新后只重读卡密组，每次调用恰好一次平台无关的本地请求。
+  const reloadCards = useCallback(/* 重读卡密组并丢弃过期响应。 */ async (): Promise<void> => {
+    cardsRequest.current?.abort();
+    // controller 绑定本次刷新，被后续刷新或卸载取消后其响应不再写入。
+    const controller = new AbortController();
+    cardsRequest.current = controller;
+    try {
+      // cards 是最新的启用卡密组选项。
+      const cards = await listCardOptions({ signal: controller.signal });
+      if (!controller.signal.aborted) setOptions(/* previous 是刷新前的选项状态。 */ previous => ({ ...previous, cards, error: '' }));
+    } catch (failure /* failure 是刷新卡密选项失败原因。 */) {
+      if (!controller.signal.aborted && !isAbort(failure)) setOptions(/* previous 是失败前的选项状态。 */ previous => ({ ...previous, error: libraryErrorMessage(failure, '读取发货选项失败') }));
+    }
+  }, []);
+  return { ...options, reloadCards };
 };

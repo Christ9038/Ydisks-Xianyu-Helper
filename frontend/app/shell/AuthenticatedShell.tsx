@@ -71,6 +71,9 @@ const LibraryImagePicker = lazy(/* 图片库选择器随商品页面路由按需
 // LibraryImageChooser 供规则、卡密、发货模板和聊天页单选图片库图片，仅在打开选择器时加载。
 const LibraryImageChooser = lazy(/* 图片库单选器随使用它的页面按需加载。 */ () => import('../features/library/components/LibraryImageChooser'));
 
+// CardCreateDialog 是“新建卡密”弹窗，经应用壳注入资源库与规则页，使其能在选择卡密处就地新建，且 feature 之间不互相导入。
+const CardCreateDialog = lazy(/* 新建卡密弹窗在首次打开时按需加载。 */ () => import('../features/cards/components/CardCreateDialog'));
+
 // PublishLocationField 与 PublishCategoryField 是商品管理发布使用的定位/手动选点与类目推荐字段，经应用壳注入资源库以避免特性之间互相导入。
 // PublishLocationField 是按需加载的发货地字段。
 const PublishLocationField = lazy(/* 发货地字段随资源库发布弹窗按需加载。 */ () => import('../features/items/components/PublishLocationField'));
@@ -158,9 +161,10 @@ export const AppContent: React.FC<AppContentProps> = ({
         onDeliveryTargetHandled={onDeliveryTargetHandled}
         auditPanel={AutomationAuditPanel}
         libraryImageChooser={LibraryImageChooser}
+        cardCreateDialog={CardCreateDialog}
       />;
       case 'delivery-templates': return <DeliveryTemplates libraryImageChooser={LibraryImageChooser} />;
-      case 'library': return <ResourceLibrary onBatchStarted={onNavigateToItems} locationField={PublishLocationField} categoryField={PublishCategoryField} />;
+      case 'library': return <ResourceLibrary onBatchStarted={onNavigateToItems} locationField={PublishLocationField} categoryField={PublishCategoryField} cardCreateDialog={CardCreateDialog} libraryImageChooser={LibraryImageChooser} />;
       case 'notifications': return <Notifications isAdmin={isAdmin} feishuBindingPanel={FeishuBindingPanel} />;
       case 'logs': return isAdmin ? <RuntimeLogs /> : <Dashboard />;
       case 'settings': return isAdmin ? <Settings /> : <Dashboard />;

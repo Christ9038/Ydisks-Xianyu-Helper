@@ -35,12 +35,13 @@ import { useRulesData } from '../hooks';
 import { filterAutomationIssues } from '../issueState';
 import { useRuleActions } from '../ruleActions';
 import type { AutomationTriggerType,ReplyRule,RulesProps,RulesTab } from '../types';
-import { accentClasses,accountLabel,actionSummary,adjustPriceTarget,buildReviewConfig,reviewLookbackHours,cardActionsForTrigger,isDeliveryCardReady,needsAllItemsConfirmation,statusPill,triggerMeta,triggerOrder,withAllItemsConfirmation } from '../utils';
+import type { CreatedCard } from '../../../../shared/ui/cardCreate';
+import { accentClasses,accountLabel,actionSummary,adjustPriceTarget,buildReviewConfig,canUseCreatedCard,reviewLookbackHours,cardActionsForTrigger,isDeliveryCardReady,needsAllItemsConfirmation,statusPill,triggerMeta,triggerOrder,variantPatchForCreatedCard,withAllItemsConfirmation } from '../utils';
 import { ImageSourceField } from '../../../../shared/ui/ImageSourceField';
 import { PageHeader } from '../../../../shared/ui/PageHeader';
 
 // Rules 是规则 feature 在旧页面目录下保留的兼容入口组件。
-const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHandled, auditPanel: AuditPanel, libraryImageChooser }) => {
+const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHandled, auditPanel: AuditPanel, libraryImageChooser, cardCreateDialog: CardCreateDialog }) => {
   // [activeTab, 解构得到当前 Hook 返回的状态和操作函数。
   const [activeTab, setActiveTab] = useState<RulesTab>('automation');
   // [selectedAccountId, 解构得到当前 Hook 返回的状态和操作函数。
@@ -87,6 +88,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
     automationTriggerCounts,
     setAutomationRules,
     setCards,
+    reloadCards,
     setItems,
     loadReferenceData,
     loadAutomationRules,
@@ -121,7 +123,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
     currentMeta, reviewConfig, displayVariants, openAutomationRule, openNewAutomationRule, handleTriggerChange,
     handleAutomationItemChange, updateVariant, updateAdjustPriceTarget, updateAdjustPriceNotifyText, appendDeliveryContent, handleSaveAutomationRule, handleDeleteAutomation,
     handleToggleAutomation, handleResolveRunIssue, handleResolveDeferredIssue, handleAddReplyRule, handleSaveReplyRule,
-    handleDeleteReply, toast, openDefaultReplyModal, handleSaveDefaultReply, handleDeleteDefaultReply,
+    handleDeleteReply, toast, showReplyToast, openDefaultReplyModal, handleSaveDefaultReply, handleDeleteDefaultReply,
     handleClearDefaultReplyRecords,
   } = ruleActions;
 
@@ -227,6 +229,36 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
       ? '新增关键词'
       : '编辑默认回复';
 
+
+  // cardTarget 是正在新建卡密的发货规格位置；variableKey 非空表示回填模板变量绑定。为空表示新建弹窗关闭。
+  const [cardTarget, setCardTarget] = useState<{ /** index 是发货规格行号。 */ index: number; /** variableKey 是要回填的模板变量键。 */ variableKey?: string } | null>(null);
+
+  // handleCardCreated 在卡密创建成功后刷新卡密列表，并仅在新卡密可用于自动发货时回填到发起位置。
+  const handleCardCreated = async (card: CreatedCard): Promise<void> => {
+    // target 是触发新建时记录的回填位置。
+    const target = cardTarget;
+    setCardTarget(null);
+    if (!target) return;
+    try {
+      // cardList 是刷新后的卡密列表；被更新的刷新取代时为空。
+      const cardList = await reloadCards();
+      if (!cardList) return;
+      // created 是刷新后列表中的新卡密。
+      const created = cardList.find(/* candidate 是待匹配的卡密。 */ candidate => candidate.id === card.id);
+      // variant 是发起新建的发货规格行。
+      const variant = displayVariants[target.index];
+      // usable 表示发起行仍存在且新卡密能被该位置使用。
+      const usable = !!variant && canUseCreatedCard(created, target.variableKey);
+      if (usable) {
+        updateVariant(target.index, variantPatchForCreatedCard(variant, card.id, target.variableKey));
+        showReplyToast('success', `已创建并选中「${card.name}」`);
+      } else {
+        showReplyToast('success', `已创建「${card.name}」，但暂不能用于自动发货（API 配置未就绪、已停用或类型不支持），请在下拉中确认`);
+      }
+    } catch {
+      showReplyToast('error', '卡密已创建，但刷新卡密列表失败，请稍后重试');
+    }
+  };
 
   return (
     <div className="min-w-0 space-y-8 animate-fade-in">
@@ -939,7 +971,8 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                               </select>
                             </div>
                             {variant.delivery_mode === 'template' ? (
-                              <TemplateVariantEditor index={index} variant={variant} cards={cards} deliveryTemplates={deliveryTemplates} updateVariant={updateVariant} />
+                              <TemplateVariantEditor index={index} variant={variant} cards={cards} deliveryTemplates={deliveryTemplates} updateVariant={updateVariant}
+                                onCreateCard={CardCreateDialog ? (/* variableKey 是要回填的模板变量键。 */ variableKey => setCardTarget({ index, variableKey })) : undefined} />
                             ) : (
                               <div>
                                 <label className="block text-xs font-bold text-gray-600 mb-2">卡密库存</label>
@@ -950,6 +983,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                                   placeholder="请选择卡密库存"
                                   ariaLabel="卡密库存"
                                 />
+                                {CardCreateDialog && <button type="button" aria-label="新建卡密库存" className="mt-2 text-xs font-bold text-brand hover:underline" onClick={/* 新建并回填到本行卡密库存。 */ () => setCardTarget({ index })}>+ 新建卡密</button>}
 
                               </div>
                             )}
@@ -1241,6 +1275,12 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
           </div>
         </div>,
         document.body
+      )}
+
+      {CardCreateDialog && cardTarget && (
+        <Suspense fallback={null}>
+          <CardCreateDialog libraryImageChooser={libraryImageChooser} onClose={/* 放弃新建，规则草稿保持不变。 */ () => setCardTarget(null)} onCreated={/* 创建成功后刷新并回填。 */ card => void handleCardCreated(card)} />
+        </Suspense>
       )}
 
       <Toast toast={toast} />

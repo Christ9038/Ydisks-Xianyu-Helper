@@ -2,9 +2,11 @@ import { ChevronDown, ChevronUp, ImagePlus, Trash2, X } from 'lucide-react';
 import { Suspense, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { PublishSpecsEditor } from '../../../../shared/ui/publish/PublishSpecsEditor';
+import type { CardCreateDialogComponent } from '../../../../shared/ui/cardCreate';
+import type { LibraryImageChooserComponent } from '../../../../shared/ui/imageSource';
 import { libraryImageUrl, type TemplateRequestTransport } from '../api';
 import type { AutomationOptions } from '../hooks';
-import { draftFromTemplate, emptyDraft, reconcileDraftSpecs, specScopes, toRequest, validateDraft, type TemplateDraft } from '../templateDraft';
+import { applyCreatedCard, draftFromTemplate, emptyDraft, reconcileDraftSpecs, specScopes, toRequest, validateDraft, type CardCreateTarget, type TemplateDraft } from '../templateDraft';
 import type { LibraryCategoryFieldComponent, LibraryCategoryValue, ProductTemplate } from '../types';
 import { ImagePickerDialog } from './ImagePickerDialog';
 import { TemplateAutomationEditor } from './TemplateAutomationEditor';
@@ -19,6 +21,12 @@ export interface TemplateEditorDialogProps {
   options: AutomationOptions;
   /** categoryField 是应用壳注入的类目选择组件（平台类目推荐）；缺省时只展示当前类目。 */
   categoryField?: LibraryCategoryFieldComponent;
+  /** cardCreateDialog 是应用壳注入的“新建卡密”弹窗；缺省时自动化编辑器不显示新建入口。 */
+  cardCreateDialog?: CardCreateDialogComponent;
+  /** libraryImageChooser 透传给新建卡密弹窗，用于图片类型卡密选择图片库图片。 */
+  libraryImageChooser?: LibraryImageChooserComponent;
+  /** onReloadCards 在新建卡密成功后刷新卡密组选项，让下拉出现新卡密。 */
+  onReloadCards?: () => Promise<void>;
   /** onSave 提交请求体，成功后由父级关闭弹窗。 */
   onSave: (body: TemplateRequestTransport) => Promise<void>;
   /** onClose 关闭弹窗并丢弃草稿。 */
@@ -38,7 +46,7 @@ const valueToCategory = (value: LibraryCategoryValue): TemplateDraft['category']
 const fieldClass = 'ios-input w-full rounded-xl px-4 py-3';
 
 /** TemplateEditorDialog 编辑商品模板；草稿只存在于弹窗内，关闭即丢弃。 */
-export const TemplateEditorDialog = ({ template, busy, options, categoryField: CategoryField, onSave, onClose }: TemplateEditorDialogProps) => {
+export const TemplateEditorDialog = ({ template, busy, options, categoryField: CategoryField, cardCreateDialog: CardCreateDialog, libraryImageChooser, onReloadCards, onSave, onClose }: TemplateEditorDialogProps) => {
   // draft 是表单草稿，初始值来自模板或空白。
   const [draft, setDraft] = useState<TemplateDraft>(() => template ? draftFromTemplate(template) : emptyDraft());
   // recommendAccount 是用户为类目推荐显式选择的账号；未选择时由第一个可用账号推导，不另存默认值。
@@ -47,6 +55,8 @@ export const TemplateEditorDialog = ({ template, busy, options, categoryField: C
   const [error, setError] = useState('');
   // picker 记录正在选图的目标：主图、某个规格值或关闭。
   const [picker, setPicker] = useState<{ /** kind 区分主图与规格值图片。 */ kind: 'main' | 'spec'; /** valueId 是规格值标识。 */ valueId?: string } | null>(null);
+  // cardTarget 是正在新建卡密的回填位置；为空表示新建弹窗关闭。
+  const [cardTarget, setCardTarget] = useState<CardCreateTarget | null>(null);
   // categoryAccount 是类目推荐实际使用的账号：用户选择优先，否则取第一个可用账号。
   const categoryAccount = recommendAccount || options.accounts[0]?.id || '';
   // scopes 由规格推导，无需存入状态。
@@ -146,7 +156,7 @@ export const TemplateEditorDialog = ({ template, busy, options, categoryField: C
           <section className="space-y-3">
             <h3 className="text-sm font-extrabold text-gray-900">发布后自动化</h3>
             {options.error && <div role="alert" className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">{options.error}</div>}
-            <TemplateAutomationEditor automation={draft.automation} scopes={scopes} cards={options.cards} deliveryTemplates={options.deliveryTemplates} onChange={/* 写回自动化配置。 */ automation => patch({ automation })} />
+            <TemplateAutomationEditor automation={draft.automation} scopes={scopes} cards={options.cards} deliveryTemplates={options.deliveryTemplates} onChange={/* 写回自动化配置。 */ automation => patch({ automation })} onCreateCard={CardCreateDialog ? setCardTarget : undefined} />
           </section>
         </div>
         <div className="modal-footer"><div className="flex gap-3 w-full">
@@ -154,6 +164,18 @@ export const TemplateEditorDialog = ({ template, busy, options, categoryField: C
           <button type="button" disabled={busy} onClick={/* 提交保存。 */ () => void submit()} className="flex-1 ios-btn-primary px-6 py-3 rounded-xl font-bold disabled:opacity-50">{busy ? '保存中...' : '保存模板'}</button>
         </div></div>
       </div>
+      {CardCreateDialog && cardTarget && (
+        <Suspense fallback={null}>
+          <CardCreateDialog libraryImageChooser={libraryImageChooser} onClose={/* 放弃新建，草稿保持不变。 */ () => setCardTarget(null)}
+            onCreated={/* 回填新卡密并刷新下拉选项；目标动作已不存在时只刷新。 */ card => {
+              // target 是触发新建时记录的回填位置。
+              const target = cardTarget;
+              setCardTarget(null);
+              setDraft(/* previous 是回填前的草稿。 */ previous => ({ ...previous, automation: applyCreatedCard(previous.automation, target, card.id) }));
+              void onReloadCards?.();
+            }} />
+        </Suspense>
+      )}
       <ImagePickerDialog open={picker !== null} title={picker?.kind === 'spec' ? '选择规格图片' : '选择商品主图'} maxSelect={picker?.kind === 'spec' ? 1 : maxMainImages}
         initialSelected={picker?.kind === 'spec' ? (picker.valueId && draft.specImageIds[picker.valueId] ? [draft.specImageIds[picker.valueId]] : []) : draft.imageIds}
         onClose={/* 关闭选图。 */ () => setPicker(null)}

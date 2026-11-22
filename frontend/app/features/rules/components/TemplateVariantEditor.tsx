@@ -15,10 +15,12 @@ export interface TemplateVariantEditorProps {
   deliveryTemplates: DeliveryTemplate[];
   /** 更新当前变体字段。 */
   updateVariant: (index: number, patch: Partial<ShippingVariant>) => void;
+  /** 请求为指定模板变量就地新建卡密；缺省时不显示“新建卡密”入口。 */
+  onCreateCard?: (variableKey: string) => void;
 }
 
 /** 渲染模板选择和模板变量卡密绑定，按需加载以控制规则页首屏分片大小。 */
-const TemplateVariantEditor: React.FC<TemplateVariantEditorProps> = ({ index, variant, cards, deliveryTemplates, updateVariant }) => {
+const TemplateVariantEditor: React.FC<TemplateVariantEditorProps> = ({ index, variant, cards, deliveryTemplates, updateVariant, onCreateCard }) => {
   // template 保存当前选择的发货模板。
   const template = deliveryTemplates.find(/* templateCandidate 是待匹配的发货模板。 */ templateCandidate => templateCandidate.id === variant.delivery_template_id);
   // availableCards 保存模板执行器支持的启用文本、批量或已就绪 API 卡密库存；图片卡券仍不支持嵌入文本模板。
@@ -78,6 +80,7 @@ const TemplateVariantEditor: React.FC<TemplateVariantEditorProps> = ({ index, va
                 className="ios-input min-w-0 w-full px-2 py-2 rounded-lg text-xs"
               />
               <input type="number" min="1" value={binding?.delivery_count || 1} onChange={/* callback 更新变量取货数量。 */ event => updateVariant(index, { template_bindings: (variant.template_bindings || []).map(/* bindingCandidate 是待处理的变量绑定。 */ bindingCandidate => bindingCandidate.variable_key === key ? { ...bindingCandidate, delivery_count: Math.max(1, Number(event.target.value) || 1) } : bindingCandidate) })} className="ios-input px-2 py-2 rounded-lg text-xs" aria-label={`${key} 每件份数`} />
+              {onCreateCard && <button type="button" aria-label={`为 ${key} 新建卡密库存`} className="col-span-full justify-self-start text-xs font-bold text-sky-700 hover:underline" onClick={/* 新建并回填到该变量绑定。 */ () => onCreateCard(key)}>+ 新建卡密</button>}
             </div>
           );
         })}

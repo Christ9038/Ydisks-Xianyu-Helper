@@ -14,6 +14,8 @@ import { countHidden, selectionState, toggleAllVisible } from '../selection';
 import { defaultTemplateFilters, isTemplateFilterActive, queryTemplates, type TemplateFilters } from '../templateQuery';
 import type { LibraryCategoryFieldComponent, LibraryImage, LibraryLocationFieldComponent, ProductTemplate } from '../types';
 import { PageHeader } from '../../../../shared/ui/PageHeader';
+import type { CardCreateDialogComponent } from '../../../../shared/ui/cardCreate';
+import type { LibraryImageChooserComponent } from '../../../../shared/ui/imageSource';
 
 /** imageSortOptions 是图片排序下拉的选项。 */
 const imageSortOptions = [
@@ -43,10 +45,14 @@ export interface ResourceLibraryProps {
   locationField?: LibraryLocationFieldComponent;
   /** categoryField 是应用壳注入的类目选择组件，用于模板编辑。 */
   categoryField?: LibraryCategoryFieldComponent;
+  /** cardCreateDialog 是应用壳注入的新建卡密弹窗，用于在模板自动化里就地新建卡密。 */
+  cardCreateDialog?: CardCreateDialogComponent;
+  /** libraryImageChooser 是应用壳注入的图片库单选器，供图片类型卡密使用。 */
+  libraryImageChooser?: LibraryImageChooserComponent;
 }
 
 /** ResourceLibrary 是本地资源库页面：商品模板（批量铺货入口）与图片库。 */
-const ResourceLibrary: React.FC<ResourceLibraryProps> = ({ onBatchStarted, locationField, categoryField }) => {
+const ResourceLibrary: React.FC<ResourceLibraryProps> = ({ onBatchStarted, locationField, categoryField, cardCreateDialog, libraryImageChooser }) => {
   // tab 是当前标签页。
   const [tab, setTab] = useState<'templates' | 'images'>('templates');
   // images 是图片库状态；templates 是模板状态。
@@ -215,7 +221,7 @@ const ResourceLibrary: React.FC<ResourceLibraryProps> = ({ onBatchStarted, locat
       )}
 
       {editing !== undefined && (
-        <TemplateEditorDialog key={editing?.id ?? 'new'} template={editing} busy={templates.busy} options={options} categoryField={categoryField}
+        <TemplateEditorDialog key={editing?.id ?? 'new'} template={editing} busy={templates.busy} options={options} categoryField={categoryField} cardCreateDialog={cardCreateDialog} libraryImageChooser={libraryImageChooser} onReloadCards={options.reloadCards}
           onClose={/* 关闭并丢弃草稿。 */ () => setEditing(undefined)}
           onSave={/* 保存成功后关闭编辑器。 */ async body => { if (await templates.save(editing?.id ?? null, body)) setEditing(undefined); }} />
       )}

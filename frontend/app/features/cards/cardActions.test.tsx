@@ -81,20 +81,6 @@ describe('useCardActions 卡密动作协调器', /* 当前回调验证卡密筛�
     expect(loadCards).toHaveBeenCalledTimes(1);
   });
 
-  test('新增卡密校验不同类型内容并刷新库存', /* 当前回调验证卡密新增表单校验和 API 载荷。 */ async () => {
-    // actionContext 保存卡密新增 Hook 和库存刷新替身。
-    const { hook, loadCards } = createCardHook();
-    act(/* openAddAction 打开新增卡密弹窗。 */ () => hook.result.current.setShowAddModal(true));
-    await act(/* emptyAddAction 提交空表单触发名称校验。 */ async () => hook.result.current.handleAddCard());
-    expect(window.alert).toHaveBeenCalledWith('请输入卡密名称');
-
-    act(/* formAction 写入新增文本卡密表单。 */ () => hook.result.current.setAddForm(current => ({ ...current, name: '新文案', type: 'text', content: '欢迎' })));
-    await act(/* addAction 提交新增文本卡密。 */ async () => hook.result.current.handleAddCard());
-    expect(cardActionMocks.createCard).toHaveBeenCalledWith(expect.objectContaining({ name: '新文案', type: 'text', text_content: '欢迎' }));
-    expect(loadCards).toHaveBeenCalledTimes(1);
-    expect(hook.result.current.showAddModal).toBe(false);
-  });
-
   test('编辑卡密名称时不提交过期库存和规格快照', /* 当前回调验证普通编辑交给服务端保留并发变化的卡密字段。 */ async () => {
     // skuCard 保存带规格限制的 data 卡密组。
     const skuCard: Card = {

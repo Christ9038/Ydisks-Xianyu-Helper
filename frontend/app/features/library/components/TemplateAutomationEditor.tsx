@@ -1,5 +1,5 @@
 import { Plus, Trash2 } from 'lucide-react';
-import { actionsInScope, newAction, syncTemplateBindings, type SpecScope } from '../templateDraft';
+import { actionsInScope, newAction, syncTemplateBindings, type CardCreateTarget, type SpecScope } from '../templateDraft';
 import type { LibraryAction, LibraryActionGroup, LibraryAutomation, LibraryCardOption, LibraryDeliveryTemplateOption } from '../types';
 
 /** TemplateAutomationEditorProps 描述自动化编辑器的输入与回调。 */
@@ -14,6 +14,8 @@ export interface TemplateAutomationEditorProps {
   deliveryTemplates: LibraryDeliveryTemplateOption[];
   /** onChange 接收修改后的自动化配置。 */
   onChange: (next: LibraryAutomation) => void;
+  /** onCreateCard 请求在指定位置就地新建卡密；缺省时不显示“新建卡密”入口。 */
+  onCreateCard?: (target: CardCreateTarget) => void;
 }
 
 /** ActionRowProps 描述单个动作的编辑行。 */
@@ -28,13 +30,20 @@ interface ActionRowProps {
   onChange: (next: LibraryAction) => void;
   /** onRemove 删除该动作。 */
   onRemove: () => void;
+  /** onCreateCard 请求新建卡密并回填到本动作；variableKey 非空表示回填模板变量绑定。缺省时不显示入口。 */
+  onCreateCard?: (variableKey?: string) => void;
 }
+
+/** NewCardButton 是紧邻卡密组下拉的“新建卡密”入口。 */
+const NewCardButton = ({ label, onClick }: { /** label 是无障碍名称，区分同一动作内的多个入口。 */ label: string; /** onClick 打开新建卡密弹窗。 */ onClick: () => void }) => (
+  <button type="button" aria-label={label} className="inline-flex items-center gap-1 rounded-lg bg-white px-2.5 py-1.5 text-xs font-bold text-emerald-700 shadow-sm hover:bg-emerald-50" onClick={onClick}><Plus className="h-3.5 w-3.5" />新建卡密</button>
+);
 
 /** inputClass 是本编辑器统一的输入框样式。 */
 const inputClass = 'ios-input rounded-xl px-3 py-2 text-sm';
 
 /** ActionRow 编辑一个发卡或发货模板动作。 */
-const ActionRow = ({ action, cards, deliveryTemplates, onChange, onRemove }: ActionRowProps) => {
+const ActionRow = ({ action, cards, deliveryTemplates, onChange, onRemove, onCreateCard }: ActionRowProps) => {
   // template 是当前动作选中的发货模板选项。
   const template = deliveryTemplates.find(/* option 按主键匹配。 */ option => option.id === action.deliveryTemplateId);
   return (
@@ -47,6 +56,7 @@ const ActionRow = ({ action, cards, deliveryTemplates, onChange, onRemove }: Act
               <option value={0}>选择卡密组</option>
               {cards.map(/* card 渲染一个卡密组选项。 */ card => <option key={card.id} value={card.id}>{card.name}</option>)}
             </select>
+            {onCreateCard && <NewCardButton label="新建卡密组" onClick={/* 新建并回填到本动作。 */ () => onCreateCard()} />}
             <input aria-label="发放数量" type="number" min={1} className={`${inputClass} w-24`} value={action.deliveryCount} onChange={/* 修改发放数量。 */ event => onChange({ ...action, deliveryCount: Number(event.target.value) })} />
           </>
         ) : (
@@ -69,6 +79,7 @@ const ActionRow = ({ action, cards, deliveryTemplates, onChange, onRemove }: Act
                 <option value={0}>选择卡密组</option>
                 {cards.map(/* card 渲染一个卡密组选项。 */ card => <option key={card.id} value={card.id}>{card.name}</option>)}
               </select>
+              {onCreateCard && <NewCardButton label={`为变量 ${binding.variableKey} 新建卡密组`} onClick={/* 新建并回填到该变量绑定。 */ () => onCreateCard(binding.variableKey)} />}
               <input aria-label={`变量 ${binding.variableKey} 的数量`} type="number" min={1} className={`${inputClass} w-20`} value={binding.deliveryCount} onChange={/* 修改该变量的发放数量。 */ event => onChange({ ...action, templateBindings: action.templateBindings.map(/* item 替换当前变量。 */ item => item.variableKey === binding.variableKey ? { ...item, deliveryCount: Number(event.target.value) } : item) })} />
             </div>
           ))}
@@ -85,7 +96,11 @@ const ActionRow = ({ action, cards, deliveryTemplates, onChange, onRemove }: Act
 };
 
 /** GroupEditorProps 描述一个动作组（付款发货或评价赠品）的编辑器。 */
-interface GroupEditorProps extends Omit<TemplateAutomationEditorProps, 'automation' | 'onChange'> {
+interface GroupEditorProps extends Omit<TemplateAutomationEditorProps, 'automation' | 'onChange' | 'onCreateCard'> {
+  /** groupKey 标识动作组，用于新建卡密后定位回填位置。 */
+  groupKey: CardCreateTarget['group'];
+  /** onCreateCard 请求新建卡密；缺省时不显示入口。 */
+  onCreateCard?: (target: CardCreateTarget) => void;
   /** title 是动作组标题。 */
   title: string;
   /** hint 是动作组说明。 */
@@ -97,7 +112,7 @@ interface GroupEditorProps extends Omit<TemplateAutomationEditorProps, 'automati
 }
 
 /** GroupEditor 按规格范围分组编辑一个动作组。 */
-const GroupEditor = ({ title, hint, group, scopes, cards, deliveryTemplates, onChange }: GroupEditorProps) => (
+const GroupEditor = ({ title, hint, group, groupKey, scopes, cards, deliveryTemplates, onChange, onCreateCard }: GroupEditorProps) => (
   <section className="space-y-3 rounded-2xl bg-gray-50 border border-gray-100 p-4">
     <label className="flex items-center gap-2 text-sm font-extrabold text-gray-900">
       <input type="checkbox" checked={group.enabled} onChange={/* 切换该自动化的启用状态。 */ event => onChange({ ...group, enabled: event.target.checked })} />{title}
@@ -108,6 +123,7 @@ const GroupEditor = ({ title, hint, group, scopes, cards, deliveryTemplates, onC
         {scopes.length > 1 || scope.specName ? <h5 className="text-xs font-black text-gray-700">规格：{scope.label}</h5> : null}
         {actionsInScope(group, scope).map(/* entry 渲染该范围内的一个动作。 */ ({ action, index }) => (
           <ActionRow key={index} action={action} cards={cards} deliveryTemplates={deliveryTemplates}
+            onCreateCard={onCreateCard && (/* variableKey 是要回填的模板变量，空表示发卡动作本身。 */ variableKey => onCreateCard({ group: groupKey, index, variableKey }))}
             onChange={/* 原位更新动作。 */ next => onChange({ ...group, actions: group.actions.map(/* item、i 定位被修改动作。 */ (item, i) => i === index ? next : item) })}
             onRemove={/* 删除动作。 */ () => onChange({ ...group, actions: group.actions.filter(/* _、i 过滤被删除动作。 */ (_, i) => i !== index) })} />
         ))}
@@ -121,10 +137,10 @@ const GroupEditor = ({ title, hint, group, scopes, cards, deliveryTemplates, onC
 );
 
 /** TemplateAutomationEditor 编辑模板的付款发货、评价赠品和求评价；多规格时每个 SKU 单独配置。 */
-export const TemplateAutomationEditor = ({ automation, scopes, cards, deliveryTemplates, onChange }: TemplateAutomationEditorProps) => (
+export const TemplateAutomationEditor = ({ automation, scopes, cards, deliveryTemplates, onChange, onCreateCard }: TemplateAutomationEditorProps) => (
   <div className="space-y-4">
-    <GroupEditor title="付款后自动发货" hint="买家付款后按顺序执行；全部成功后按账号设置确认发货。多规格商品必须为每个规格组合配置。" group={automation.paidDelivery} scopes={scopes} cards={cards} deliveryTemplates={deliveryTemplates} onChange={/* 写回付款发货。 */ next => onChange({ ...automation, paidDelivery: next })} />
-    <GroupEditor title="评价赠品" hint="买家评价后发送的赠品。" group={automation.reviewGift} scopes={scopes} cards={cards} deliveryTemplates={deliveryTemplates} onChange={/* 写回评价赠品。 */ next => onChange({ ...automation, reviewGift: next })} />
+    <GroupEditor title="付款后自动发货" hint="买家付款后按顺序执行；全部成功后按账号设置确认发货。多规格商品必须为每个规格组合配置。" group={automation.paidDelivery} groupKey="paidDelivery" onCreateCard={onCreateCard} scopes={scopes} cards={cards} deliveryTemplates={deliveryTemplates} onChange={/* 写回付款发货。 */ next => onChange({ ...automation, paidDelivery: next })} />
+    <GroupEditor title="评价赠品" hint="买家评价后发送的赠品。" group={automation.reviewGift} groupKey="reviewGift" onCreateCard={onCreateCard} scopes={scopes} cards={cards} deliveryTemplates={deliveryTemplates} onChange={/* 写回评价赠品。 */ next => onChange({ ...automation, reviewGift: next })} />
     <section className="space-y-3 rounded-2xl bg-gray-50 border border-gray-100 p-4">
       <label className="flex items-center gap-2 text-sm font-extrabold text-gray-900"><input type="checkbox" checked={automation.reviewRequest.enabled} onChange={/* 切换求评价。 */ event => onChange({ ...automation, reviewRequest: { ...automation.reviewRequest, enabled: event.target.checked } })} />求评价</label>
       {automation.reviewRequest.enabled && (
