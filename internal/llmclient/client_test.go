@@ -80,7 +80,7 @@ func TestOpenAIImagePart(t *testing.T) {
 	server, records := newTestServer(t, func(int) (int, string) { return 200, openAIOK })
 	// err 是调用错误，应为空。
 	_, err := Complete(context.Background(), Endpoint{BaseURL: server.URL, Model: "m", HTTPClient: server.Client()},
-		Request{UserText: ImagePrompt, ImageURL: "https://img.example/a.png"})
+		Request{UserText: ImagePrompt, ImageURLs: []string{"https://img.example/a.png"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestImageDowngradeRetriesOnce(t *testing.T) {
 			})
 			// result 是降级后的调用结果；err 是调用错误，应为空。
 			result, err := Complete(context.Background(), Endpoint{Protocol: protocol, BaseURL: server.URL, Model: "m", HTTPClient: server.Client()},
-				Request{UserText: ImagePrompt, ImageURL: "https://img.example/a.png"})
+				Request{UserText: ImagePrompt, ImageURLs: []string{"https://img.example/a.png"}})
 			if err != nil || !result.ImageDropped || result.Status != status || result.Text == "" {
 				t.Fatalf("%s/%d result=%+v err=%v", protocol, status, result, err)
 			}
@@ -139,7 +139,7 @@ func TestImageDowngradeRetryFailureReturnsError(t *testing.T) {
 	// server 是始终返回 400 的本地端点；records 返回已记录的请求。
 	server, records := newTestServer(t, func(int) (int, string) { return 400, `{"error":{"message":"bad"}}` })
 	// err 是重试后仍存在的调用错误。
-	_, err := Complete(context.Background(), Endpoint{BaseURL: server.URL, HTTPClient: server.Client()}, Request{UserText: "x", ImageURL: "https://i/a.png"})
+	_, err := Complete(context.Background(), Endpoint{BaseURL: server.URL, HTTPClient: server.Client()}, Request{UserText: "x", ImageURLs: []string{"https://i/a.png"}})
 	if err == nil || len(*records) != 2 {
 		t.Fatalf("err=%v calls=%d", err, len(*records))
 	}
@@ -155,7 +155,7 @@ func TestNoRetryForOtherFailures(t *testing.T) {
 			server, records := newTestServer(t, func(int) (int, string) { return status, `{"error":{"message":"x"}}` })
 			// err 是调用错误，应不为空。
 			_, err := Complete(context.Background(), Endpoint{Protocol: protocol, BaseURL: server.URL, HTTPClient: server.Client()},
-				Request{UserText: "x", ImageURL: "https://i/a.png"})
+				Request{UserText: "x", ImageURLs: []string{"https://i/a.png"}})
 			if err == nil || len(*records) != 1 {
 				t.Fatalf("%s/%d err=%v calls=%d", protocol, status, err, len(*records))
 			}
@@ -180,7 +180,7 @@ func TestAnthropicRequestShape(t *testing.T) {
 	// result 是调用结果；err 是调用错误，应为空。
 	result, err := Complete(context.Background(), Endpoint{Protocol: "Anthropic", BaseURL: server.URL + "/v1", APIKey: "secret", HTTPClient: server.Client()},
 		Request{System: "sys", History: []Turn{{Role: "assistant", Text: "开头的助手消息应被丢弃"}, {Role: "user", Text: "a"}, {Role: "assistant", Text: "b"}, {Role: "user", Text: " "}},
-			UserText: ImagePrompt, ImageURL: "https://img.example/a.png", User: "abc"})
+			UserText: ImagePrompt, ImageURLs: []string{"https://img.example/a.png"}, User: "abc"})
 	if err != nil || result.Text != "你好" || result.Refused {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
@@ -289,4 +289,49 @@ func mustJSON(t *testing.T, value any) string {
 		t.Fatal(err)
 	}
 	return string(raw)
+}
+
+// TestMultipleImagesKeepOrder 验证一次请求携带多张图片时两种协议都按时间顺序为每张图片生成独立片段，文字片段位置不变。
+func TestMultipleImagesKeepOrder(t *testing.T) {
+	// urls 是按时间顺序排列的买家图片地址。
+	urls := []string{"https://img.example/1.png", "https://img.example/2.png", "https://img.example/3.png"}
+	// protocol 是被测协议。
+	for _, protocol := range []string{ProtocolOpenAI, ProtocolAnthropic} {
+		// body 是该协议的成功响应。
+		body := openAIOK
+		if protocol == ProtocolAnthropic {
+			body = anthropicOK
+		}
+		// server、records 是本地端点及其记录的请求。
+		server, records := newTestServer(t, func(int) (int, string) { return 200, body })
+		// err 是调用错误，应为空。
+		_, err := Complete(context.Background(), Endpoint{Protocol: protocol, BaseURL: server.URL, Model: "m", HTTPClient: server.Client()},
+			Request{UserText: "看图", ImageURLs: urls})
+		if err != nil {
+			t.Fatalf("%s: %v", protocol, err)
+		}
+		// messages 是请求体中的消息列表；last 是最后一条 user 消息的内容片段。
+		messages := (*records)[0].Body["messages"].([]any)
+		// last 是请求体中最后一条用户消息的 content 数组。
+		last := messages[len(messages)-1].(map[string]any)["content"].([]any)
+		if len(last) != 4 {
+			t.Fatalf("%s: 应为 1 个文字片段 + 3 个图片片段: %v", protocol, last)
+		}
+		// got 是按出现顺序提取到的图片地址。
+		var got []string
+		// part 是 content 数组中的一个文字或图片块。
+		for _, part := range last {
+			// item 是当前片段；两种协议的图片字段结构不同。
+			item := part.(map[string]any)
+			if protocol == ProtocolOpenAI && item["type"] == "image_url" {
+				got = append(got, item["image_url"].(map[string]any)["url"].(string))
+			}
+			if protocol == ProtocolAnthropic && item["type"] == "image" {
+				got = append(got, item["source"].(map[string]any)["url"].(string))
+			}
+		}
+		if strings.Join(got, ",") != strings.Join(urls, ",") {
+			t.Fatalf("%s: 图片顺序错误: %v", protocol, got)
+		}
+	}
 }

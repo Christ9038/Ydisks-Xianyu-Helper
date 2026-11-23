@@ -3547,6 +3547,8 @@ export interface components {
              * @enum {string}
              */
             manual_takeover_scope: "ai" | "all";
+            /** @description 买家分段消息的合并等待秒数：买家最后一条消息之后安静这么久才开始生成 AI/Agent 回复，期间收到的消息会合并成一次请求。 */
+            reply_merge_seconds: number;
             remark: string;
             pause_duration: number;
             paused_until: number;
@@ -3592,6 +3594,8 @@ export interface components {
              * @enum {string}
              */
             manual_takeover_scope?: "ai" | "all";
+            /** @description 买家分段消息的合并等待秒数（1–10）；省略时保持原值。 */
+            reply_merge_seconds?: number;
             pause_duration?: number;
             username?: string;
             login_password?: string;
@@ -4455,12 +4459,15 @@ export interface components {
              * @enum {string}
              */
             manual_takeover_scope?: "ai" | "all";
+            /** @description 买家分段消息的合并等待秒数（1–10）。 */
+            reply_merge_seconds?: number;
         };
         ChatManualTakeoverSettingsResponse: {
             success: boolean;
             manual_takeover_minutes: number;
             /** @enum {string} */
             manual_takeover_scope: "ai" | "all";
+            reply_merge_seconds: number;
         };
         APIAccessTokenCreateRequest: {
             name: string;

@@ -196,8 +196,10 @@ func TestRefreshTokenPersistsResponseCookiesBeforeCaptchaRecovery(t *testing.T) 
 // TestStop_IdempotentAndClearsTimers Stop 重复调用幂等；调用后防抖定时器被清空。
 func TestStop_IdempotentAndClearsTimers(t *testing.T) {
 	// acc、cleanup 用于本次流程后续判断的acc、cleanup
-	acc, _, _, cleanup := newAccountForTest(t)
+	acc, _, store, cleanup := newAccountForTest(t)
 	defer cleanup()
+	// 只有装配了回复服务才有需要合并等待的消息，因此才会登记防抖定时器。
+	attachReplyService(acc, store)
 
 	// 调度一个防抖定时器，验证 Stop 会清空。
 	chat := ChatMessage{AccountID: "cid", ChatID: "c1", Text: "hi"}

@@ -120,6 +120,14 @@ func TestAIReplyVisionSendsImagePart(t *testing.T) {
 	if len(got) != 1 || !strings.Contains(got[0], `"image_url"`) || !strings.Contains(got[0], "https://img.example.com/buyer.png") || strings.Contains(got[0], `"text":"[图片]"`) {
 		t.Fatalf("请求正文: %v", got)
 	}
+	// 对话历史在回复确认可发送后才保存：这里模拟提交成功后的持久化。
+	if result.Persist == nil {
+		t.Fatal("带会话与商品的回复应携带提交后持久化回调")
+	}
+	// persistErr 是提交后保存对话历史的错误，期望为空。
+	if persistErr := result.Persist(context.Background()); persistErr != nil {
+		t.Fatal(persistErr)
+	}
 	// history 中保存的仍是占位符，图片地址不得写入本地库。
 	history, histErr := store.AIReply.ConversationHistory(context.Background(), "cid", "chat1", "item1", 10)
 	if histErr != nil || len(history) != 2 || history[0].Content != "[图片]" {

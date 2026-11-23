@@ -44,11 +44,13 @@ type AccountSettingsUpdate struct {
 	ManualTakeoverMinutes *int
 	// ManualTakeoverScope 是人工介入暂停范围（ai/all）；nil 保持原值。
 	ManualTakeoverScope *string
-	PauseDuration       *int
-	Username            *string
-	Password            *string
-	ShowBrowser         *bool
-	ChannelIDs          *[]int64
+	// ReplyMergeSeconds 是买家分段消息的合并等待秒数（1–10）；nil 保持原值。
+	ReplyMergeSeconds *int
+	PauseDuration     *int
+	Username          *string
+	Password          *string
+	ShowBrowser       *bool
+	ChannelIDs        *[]int64
 }
 
 // UpdateSettings 在一个事务中更新账号字段及通知绑定，避免前端并行请求只成功一部分。

@@ -10543,7 +10543,7 @@ components:
           type: string
     AccountDetailResponse:
       type: object
-      required: [id, has_cookie, enabled, auto_confirm, auto_consign, auto_bargain, auto_relist, consign_proof_mode, consign_proof_text, manual_takeover_minutes, manual_takeover_scope, remark, pause_duration, paused_until, paused, show_browser, username, nickname, avatar_url, login_method, last_login_at, profile_error, auto_rate_enabled, rate_content, auto_polish_enabled, polish_time, last_rate_scan_at, last_polish_date, last_polish_at]
+      required: [id, has_cookie, enabled, auto_confirm, auto_consign, auto_bargain, auto_relist, consign_proof_mode, consign_proof_text, manual_takeover_minutes, manual_takeover_scope, reply_merge_seconds, remark, pause_duration, paused_until, paused, show_browser, username, nickname, avatar_url, login_method, last_login_at, profile_error, auto_rate_enabled, rate_content, auto_polish_enabled, polish_time, last_rate_scan_at, last_polish_date, last_polish_at]
       properties:
         id:
           type: string
@@ -10576,6 +10576,11 @@ components:
           type: string
           enum: [ai, all]
           description: 人工介入暂停范围：ai 只暂停外部 Agent 与 AI 回复，all 暂停全部自动回复。
+        reply_merge_seconds:
+          type: integer
+          minimum: 1
+          maximum: 10
+          description: 买家分段消息的合并等待秒数：买家最后一条消息之后安静这么久才开始生成 AI/Agent 回复，期间收到的消息会合并成一次请求。
         remark:
           type: string
         pause_duration:
@@ -10655,6 +10660,11 @@ components:
           type: string
           enum: [ai, all]
           description: 人工介入暂停范围（ai 只暂停 Agent 与 AI，all 暂停全部自动回复）；省略时保持原值。
+        reply_merge_seconds:
+          type: integer
+          minimum: 1
+          maximum: 10
+          description: 买家分段消息的合并等待秒数（1–10）；省略时保持原值。
         pause_duration:
           type: integer
           minimum: 0
@@ -11858,13 +11868,19 @@ components:
           type: string
           enum: [ai, all]
           description: ai 只暂停 Agent 与 AI，all 暂停全部自动回复。
+        reply_merge_seconds:
+          type: integer
+          minimum: 1
+          maximum: 10
+          description: 买家分段消息的合并等待秒数（1–10）。
     ChatManualTakeoverSettingsResponse:
       type: object
-      required: [success, manual_takeover_minutes, manual_takeover_scope]
+      required: [success, manual_takeover_minutes, manual_takeover_scope, reply_merge_seconds]
       properties:
         success: {type: boolean}
         manual_takeover_minutes: {type: integer}
         manual_takeover_scope: {type: string, enum: [ai, all]}
+        reply_merge_seconds: {type: integer, minimum: 1, maximum: 10}
     APIAccessTokenCreateRequest:
       type: object
       required: [name, scopes]

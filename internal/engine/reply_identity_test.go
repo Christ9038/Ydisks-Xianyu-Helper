@@ -98,22 +98,26 @@ func TestBuyerMessagesRemainVisibleWithoutAutoReply(t *testing.T) {
 			}
 			// observer 记录发给业务旁路的聊天，并提供本地商品归属事实。
 			observer := &localOwnershipHandlerFixture{roleHandlerFixture: &roleHandlerFixture{recordingHandler: &recordingHandler{}}, owned: seller}
-			// done 在防抖任务完全结束后关闭，建立异步写入与断言的同步关系。
-			done := make(chan struct{})
+			// done 在每个生命周期任务结束时收到一个信号：一条消息对应两个任务（接收落库、合并等待到期后的回复），
+			// 测试等待两个都结束后再断言，建立异步写入与断言的同步关系。
+			done := make(chan struct{}, 4)
 			// dispatcher 注入本地商品归属和完成通知，不启动账号网络连接。
 			dispatcher := newMessageDispatcher(messageDispatcherConfig{
 				CookieID: "cid", Reply: reply,
 				CurrentCookie:  func() string { return "unb=123" },
 				CurrentHandler: func() Handler { return observer },
 				BeginTask: func() (context.Context, func(), bool) {
-					return context.Background(), func() { close(done) }, true
+					return context.Background(), func() { done <- struct{}{} }, true
 				},
 			})
 			dispatcher.scheduleDebouncedReply(chatMsg("你好", "conversation-item", "conversation"))
-			select {
-			case <-done:
-			case <-time.After(5 * time.Second):
-				t.Fatal("防抖消息未完成")
+			// finished 统计已结束的生命周期任务数。
+			for finished := 0; finished < 2; finished++ {
+				select {
+				case <-done:
+				case <-time.After(5 * time.Second):
+					t.Fatal("防抖消息未完成")
+				}
 			}
 			dispatcher.stop()
 			cleanup()

@@ -348,43 +348,64 @@ func TestScheduleDebouncedReply_DifferentChatIDsNotCoalesced(t *testing.T) {
 	}
 }
 
-// TestScheduleDebouncedReply_TimerReset 同一 chat_id 连续消息重置定时器，旧消息被跳过。
+// TestScheduleDebouncedReply_TimerReset 同一 chat_id 连续消息：每条都立即交给业务处理器落库（不再被防抖吞掉），
+// 但只保留一个合并等待计时器，并随新消息重置。
 func TestScheduleDebouncedReply_TimerReset(t *testing.T) {
-	// acc、h、cleanup 用于本次流程后续判断的acc、h、cleanup
-	acc, h, _, cleanup := newAccountForTest(t)
+	// acc、h、store、cleanup 是账号、记录型处理器、数据库及清理函数。
+	acc, h, store, cleanup := newAccountForTest(t)
 	defer cleanup()
 	defer acc.Stop()
+	attachReplyService(acc, store)
 
 	// 第一条立即调度。
 	first := ChatMessage{AccountID: "cid", ChatID: "chat-reset", Text: "first", SenderUserID: "b1"}
 	first.CookieStr = "cookie"
 	acc.scheduleDebouncedReply(first)
+	// 第一条应当已经落库。
+	h.mu.Lock()
+	if len(h.chats) != 1 || h.chats[0].Text != "first" {
+		h.mu.Unlock()
+		t.Fatalf("第一条应立即交给业务处理器: %+v", h.chats)
+	}
+	h.mu.Unlock()
 
-	// 在防抖延迟内再投递第二条，应取消第一条的定时器。
+	// 在合并等待内再投递第二条：重置同一个计时器，而不是新增。
 	time.Sleep(MessageDebounceDelay / 2)
-	// second 用于本次流程后续判断的second
+	// second 是第二条买家消息。
 	second := ChatMessage{AccountID: "cid", ChatID: "chat-reset", Text: "second", SenderUserID: "b1"}
 	second.CookieStr = "cookie"
 	acc.scheduleDebouncedReply(second)
+	acc.debounceMu.Lock()
+	// timers 是当前登记的合并等待计时器数；entry 是该会话计时条目，应指向最新消息并保留批次起点。
+	timers, entry := len(acc.debounceTimers), acc.debounceTimers["chat-reset"]
+	acc.debounceMu.Unlock()
+	if timers != 1 || entry == nil || entry.lastMsg.Text != "second" || entry.firstAt.IsZero() {
+		t.Fatalf("应只有一个计时器且指向最新消息: timers=%d entry=%+v", timers, entry)
+	}
 
 	time.Sleep(MessageDebounceDelay + 300*time.Millisecond)
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if len(h.chats) != 1 {
-		t.Fatalf("应只投递最后一条，got %d: %+v", len(h.chats), h.chats)
+	if len(h.chats) != 2 || h.chats[0].Text != "first" || h.chats[1].Text != "second" {
+		t.Fatalf("两条消息都应按到达顺序落库: %+v", h.chats)
 	}
-	if h.chats[0].Text != "second" {
-		t.Errorf("应投递 second，got %q", h.chats[0].Text)
+	acc.debounceMu.Lock()
+	defer acc.debounceMu.Unlock()
+	if len(acc.debounceTimers) != 0 {
+		t.Fatalf("到期后计时器应被清理: %d", len(acc.debounceTimers))
 	}
 }
 
-// TestScheduleDebouncedReply_StopClearsTimers Stop 后未触发的定时器被取消，不再投递。
+// TestScheduleDebouncedReply_StopClearsTimers Stop 后未触发的合并等待计时器被取消，不再开始回复；
+// 消息本身在到达时已经落库，不会重复交给业务处理器。
 func TestScheduleDebouncedReply_StopClearsTimers(t *testing.T) {
-	// acc、h、cleanup 用于本次流程后续判断的acc、h、cleanup
-	acc, h, _, cleanup := newAccountForTest(t)
+	// acc、h、store、cleanup 是账号、记录型处理器、数据库及清理函数。
+	acc, h, store, cleanup := newAccountForTest(t)
 	defer cleanup()
+	// delivery 记录回复服务发送的消息，用于确认 Stop 之后没有任何回复。
+	delivery := attachReplyService(acc, store)
 
-	// chat 用于本次流程后续判断的聊天
+	// chat 是买家消息。
 	chat := ChatMessage{AccountID: "cid", ChatID: "chat-stop", Text: "won't deliver", SenderUserID: "b1"}
 	chat.CookieStr = "cookie"
 	acc.scheduleDebouncedReply(chat)
@@ -394,8 +415,16 @@ func TestScheduleDebouncedReply_StopClearsTimers(t *testing.T) {
 	time.Sleep(MessageDebounceDelay + 200*time.Millisecond)
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if len(h.chats) != 0 {
-		t.Errorf("Stop 后定时器应被取消，不应投递，got %d", len(h.chats))
+	if len(h.chats) != 1 {
+		t.Errorf("消息应在到达时落库且只落库一次，got %d", len(h.chats))
+	}
+	if delivery.count() != 0 {
+		t.Errorf("Stop 后不应发送任何回复，got %d", delivery.count())
+	}
+	acc.debounceMu.Lock()
+	defer acc.debounceMu.Unlock()
+	if len(acc.debounceTimers) != 0 {
+		t.Errorf("Stop 后不应残留计时器: %d", len(acc.debounceTimers))
 	}
 }
 
@@ -433,7 +462,8 @@ func TestStopCancelsInFlightReplyHandler(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	acc.lifecycle.start(ctx, cancel)
-	acc.scheduleDebouncedReply(ChatMessage{ChatID: "cancel-chat", SenderUserID: "buyer", Text: "hi"})
+	// 业务处理器会阻塞到上下文取消；接收链路同步调用它，所以必须放在独立 goroutine（生产中每条消息本就在自己的任务里）。
+	go acc.scheduleDebouncedReply(ChatMessage{ChatID: "cancel-chat", SenderUserID: "buyer", Text: "hi"})
 	select {
 	case <-handler.started:
 	case <-time.After(MessageDebounceDelay + time.Second):

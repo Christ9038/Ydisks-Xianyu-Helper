@@ -37,8 +37,6 @@ type channelRepositoryStub struct {
 	createErr error
 	// updateErr 保存渠道更新专用错误，便于单独验证更新失败。
 	updateErr error
-	// ownedAccountsErr 保存自有账号列表专用错误，便于单独验证绑定账号查询失败。
-	ownedAccountsErr error
 	// err 保存端口操作失败原因。
 	err error
 	// createdInput 保存最近一次创建输入，便于验证敏感值只进入端口。

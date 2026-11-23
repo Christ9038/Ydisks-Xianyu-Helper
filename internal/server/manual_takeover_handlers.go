@@ -10,12 +10,14 @@ import (
 	accountapp "xianyu-go/internal/application/account"
 )
 
-// manualTakeoverSettingsRequest 只允许更新人工介入暂停配置，不包含 Cookie、登录密码或其他账号凭据。
+// manualTakeoverSettingsRequest 只允许更新人工介入暂停与合并等待配置，不包含 Cookie、登录密码或其他账号凭据。
 type manualTakeoverSettingsRequest struct {
 	// Minutes 是人工回复后暂停自动回复的分钟数；0 表示关闭。
 	Minutes *int `json:"manual_takeover_minutes"`
 	// Scope 是暂停范围：ai 仅暂停 Agent 与 AI，all 暂停全部自动回复。
 	Scope *string `json:"manual_takeover_scope"`
+	// ReplyMergeSeconds 是买家分段消息的合并等待秒数（1–10）。
+	ReplyMergeSeconds *int `json:"reply_merge_seconds"`
 }
 
 // manualTakeoverSettingsResponse 返回本次人工介入配置的非敏感状态。
@@ -26,6 +28,8 @@ type manualTakeoverSettingsResponse struct {
 	Minutes int `json:"manual_takeover_minutes"`
 	// Scope 是当前生效的暂停范围。
 	Scope string `json:"manual_takeover_scope"`
+	// ReplyMergeSeconds 是当前生效的合并等待秒数。
+	ReplyMergeSeconds int `json:"reply_merge_seconds"`
 }
 
 // updateChatManualTakeover 只更新人工介入暂停配置，避免把包含 Cookie 和密码字段的通用账号设置接口开放给外部令牌。
@@ -41,18 +45,18 @@ func (s *Server) updateChatManualTakeover(w http.ResponseWriter, r *http.Request
 	// request 保存严格限于人工介入配置的请求字段。
 	var request manualTakeoverSettingsRequest
 	// err 是解析窄范围人工介入配置请求时的 JSON 格式错误。
-	if err := decodeJSON(r, &request); err != nil || (request.Minutes == nil && request.Scope == nil) {
-		writeErr(w, http.StatusBadRequest, "至少提供一个人工介入配置字段")
+	if err := decodeJSON(r, &request); err != nil || (request.Minutes == nil && request.Scope == nil && request.ReplyMergeSeconds == nil) {
+		writeErr(w, http.StatusBadRequest, "至少提供一个人工介入或合并等待配置字段")
 		return
 	}
 	// result、updateErr 保存应用层设置写入结果和错误。
 	result, updateErr := s.accountSettingsApplication().UpdateSettings(r.Context(), accountapp.SettingsUpdateInput{
 		UserID: ownedDetail.UserID, AccountID: cookieID,
-		ManualTakeoverMinutes: request.Minutes, ManualTakeoverScope: request.Scope,
+		ManualTakeoverMinutes: request.Minutes, ManualTakeoverScope: request.Scope, ReplyMergeSeconds: request.ReplyMergeSeconds,
 	})
 	if updateErr != nil {
 		switch {
-		case errors.Is(updateErr, accountapp.ErrInvalidManualTakeover):
+		case errors.Is(updateErr, accountapp.ErrInvalidManualTakeover), errors.Is(updateErr, accountapp.ErrInvalidReplyMerge):
 			writeErr(w, http.StatusBadRequest, updateErr.Error())
 		case errors.Is(updateErr, accountapp.ErrForbidden):
 			writeErr(w, http.StatusForbidden, "无权修改该账号的人工介入配置")
@@ -63,18 +67,21 @@ func (s *Server) updateChatManualTakeover(w http.ResponseWriter, r *http.Request
 		}
 		return
 	}
-	// minutes、scope 以当前账号摘要为基线，只覆盖本次明确提交的字段。
-	minutes, scope := ownedDetail.ManualTakeoverMinutes, ownedDetail.ManualTakeoverScope
+	// minutes、scope、mergeSeconds 以当前账号摘要为基线，只覆盖本次明确提交的字段。
+	minutes, scope, mergeSeconds := ownedDetail.ManualTakeoverMinutes, ownedDetail.ManualTakeoverScope, ownedDetail.ReplyMergeSeconds
 	if request.Minutes != nil {
 		minutes = *request.Minutes
 	}
 	if request.Scope != nil {
 		scope = *request.Scope
 	}
+	if request.ReplyMergeSeconds != nil {
+		mergeSeconds = *request.ReplyMergeSeconds
+	}
 	if result.RuntimeError != nil {
 		writeErr(w, http.StatusServiceUnavailable, "人工介入配置已保存，但账号运行状态收口失败")
 		return
 	}
 	setNoStore(w)
-	writeJSON(w, http.StatusOK, manualTakeoverSettingsResponse{Success: true, Minutes: minutes, Scope: scope})
+	writeJSON(w, http.StatusOK, manualTakeoverSettingsResponse{Success: true, Minutes: minutes, Scope: scope, ReplyMergeSeconds: mergeSeconds})
 }

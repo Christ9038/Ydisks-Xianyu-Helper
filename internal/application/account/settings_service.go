@@ -40,6 +40,8 @@ type SettingsUpdateInput struct {
 	ManualTakeoverMinutes *int
 	// ManualTakeoverScope 是可选的人工介入暂停范围（ai/all）。
 	ManualTakeoverScope *string
+	// ReplyMergeSeconds 是可选的买家分段消息合并等待秒数（1–10）。
+	ReplyMergeSeconds *int
 	// PauseDuration 是可选的暂停时长，单位为分钟；零表示立即恢复。
 	PauseDuration *int
 	// Username 是可选的密码登录用户名更新值。
@@ -172,6 +174,10 @@ func (s *SettingsService) UpdateSettings(ctx context.Context, input SettingsUpda
 	// takeoverErr 在取锁前拒绝越界的人工介入暂停分钟数或未知范围。
 	if takeoverErr := validateManualTakeoverInput(input.ManualTakeoverMinutes, input.ManualTakeoverScope); takeoverErr != nil {
 		return SettingsResult{}, takeoverErr
+	}
+	// mergeErr 在取锁前拒绝越界的合并等待秒数。
+	if mergeErr := validateReplyMergeInput(input.ReplyMergeSeconds); mergeErr != nil {
+		return SettingsResult{}, mergeErr
 	}
 	// unlock 负责释放本次账号设置写入的凭证锁，锁覆盖 Cookie、metadata 和旧 Token 的完整替换。
 	unlock := s.repository.LockCredentials(input.AccountID)

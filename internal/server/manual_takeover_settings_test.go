@@ -126,3 +126,102 @@ func TestKeywordNotifyManualRoundTrip(t *testing.T) {
 		t.Fatalf("省略 notify_manual 的更新应关闭通知: %#v", rules)
 	}
 }
+
+// TestAccountSettingsReplyMergeSecondsRoundTrip 验证“合并等待秒数”经真实 handler 保存后：默认 3、通用设置接口与窄接口都能写入、
+// 详情与列表按 OpenAPI 返回、越界值返回 400、只改其他字段时保持原值。
+func TestAccountSettingsReplyMergeSecondsRoundTrip(t *testing.T) {
+	// srv 是带测试数据库的 HTTP 服务；handler 是完整路由树；sessionCookie 是管理员会话。
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	// handler 是完整路由树。
+	handler := srv.Router()
+	// sessionCookie 是管理员会话。
+	sessionCookie := loginHelper(t, handler)
+	// send 发送带会话的请求并返回请求与响应记录器。
+	send := func(method, path, body string) (*http.Request, *httptest.ResponseRecorder) {
+		// request 是本次请求；body 为空时不附带请求体。
+		var request *http.Request
+		if body == "" {
+			request = httptest.NewRequest(method, path, nil)
+		} else {
+			request = httptest.NewRequest(method, path, strings.NewReader(body))
+		}
+		request.AddCookie(sessionCookie)
+		// recorder 捕获响应。
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, request)
+		return request, recorder
+	}
+	// readDetail 读取单账号详情并校验 OpenAPI 契约，返回其合并等待秒数。
+	readDetail := func() int {
+		// req、rec 是详情请求及其响应。
+		req, rec := send(http.MethodGet, "/api/v1/accounts/acc1", "")
+		assertOpenAPISuccessResponse(t, req, rec)
+		// detail 是详情响应；decodeErr 是响应 JSON 解码错误。
+		var detail cookieDetailResponse
+		// decodeErr 是详情 JSON 解码错误。
+		if decodeErr := json.Unmarshal(rec.Body.Bytes(), &detail); decodeErr != nil {
+			t.Fatalf("详情解码失败: %s err=%v", rec.Body.String(), decodeErr)
+		}
+		return detail.ReplyMergeSeconds
+	}
+	// got 是读取到的合并等待秒数。
+	if got := readDetail(); got != 3 {
+		t.Fatalf("默认合并等待应为 3 秒: %d", got)
+	}
+	// 通用账号设置接口写入 6 秒。
+	saveReq, saveRec := send(http.MethodPut, "/api/v1/accounts/acc1/settings", `{"reply_merge_seconds":6}`)
+	assertOpenAPISuccessResponse(t, saveReq, saveRec)
+	// got 是读取到的合并等待秒数。
+	if got := readDetail(); got != 6 {
+		t.Fatalf("保存后应为 6 秒: %d", got)
+	}
+	// 只改备注时合并等待保持原值。
+	remarkReq, remarkRec := send(http.MethodPut, "/api/v1/accounts/acc1/settings", `{"remark":"x"}`)
+	assertOpenAPISuccessResponse(t, remarkReq, remarkRec)
+	// got 是读取到的合并等待秒数。
+	if got := readDetail(); got != 6 {
+		t.Fatalf("无关字段保存不应改动合并等待: %d", got)
+	}
+	// 列表摘要同步返回新值。
+	listReq, listRec := send(http.MethodGet, "/api/v1/accounts/details", "")
+	assertOpenAPISuccessResponse(t, listReq, listRec)
+	// list 是账号详情列表。
+	var list []cookieSummaryResponse
+	// decodeErr 是列表 JSON 解码错误。
+	if decodeErr := json.Unmarshal(listRec.Body.Bytes(), &list); decodeErr != nil || len(list) == 0 || list[0].ReplyMergeSeconds != 6 {
+		t.Fatalf("列表合并等待错误: %s err=%v", listRec.Body.String(), decodeErr)
+	}
+	// 窄接口写入 9 秒并返回当前生效值，同时保持人工介入配置不变。
+	narrowReq, narrowRec := send(http.MethodPut, "/api/v1/chat/manual-takeover/acc1", `{"reply_merge_seconds":9}`)
+	assertOpenAPISuccessResponse(t, narrowReq, narrowRec)
+	// narrow 是窄接口响应。
+	var narrow manualTakeoverSettingsResponse
+	// decodeErr 是窄接口响应解码错误。
+	if decodeErr := json.Unmarshal(narrowRec.Body.Bytes(), &narrow); decodeErr != nil || narrow.ReplyMergeSeconds != 9 || !narrow.Success {
+		t.Fatalf("窄接口响应错误: %s err=%v", narrowRec.Body.String(), decodeErr)
+	}
+	// got 是读取到的合并等待秒数。
+	if got := readDetail(); got != 9 {
+		t.Fatalf("窄接口保存后应为 9 秒: %d", got)
+	}
+	// 越界值被两个接口拒绝为 400，且不改变已保存的值。
+	for _, path := range []string{"/api/v1/accounts/acc1/settings", "/api/v1/chat/manual-takeover/acc1"} {
+		// body 是越界的请求体。
+		for _, body := range []string{`{"reply_merge_seconds":0}`, `{"reply_merge_seconds":11}`, `{"reply_merge_seconds":-1}`} {
+			// rec 是越界请求的响应。
+			_, rec := send(http.MethodPut, path, body)
+			if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "合并等待") {
+				t.Fatalf("%s %s 应返回 400: status=%d body=%s", path, body, rec.Code, rec.Body.String())
+			}
+		}
+	}
+	// got 是读取到的合并等待秒数。
+	if got := readDetail(); got != 9 {
+		t.Fatalf("越界请求不应改动已保存的值: %d", got)
+	}
+	// 窄接口完全没有可更新字段时返回 400。
+	if _, rec := send(http.MethodPut, "/api/v1/chat/manual-takeover/acc1", `{}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("空请求应返回 400: %d", rec.Code)
+	}
+}

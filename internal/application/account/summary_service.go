@@ -27,6 +27,8 @@ type AccountSummary struct {
 	ManualTakeoverMinutes int
 	// ManualTakeoverScope 是人工介入暂停范围（ai/all）。
 	ManualTakeoverScope string
+	// ReplyMergeSeconds 是买家分段消息的合并等待秒数（1–10）。
+	ReplyMergeSeconds int
 	// Remark 是用户为账号设置的备注。
 	Remark string
 	// PauseDuration 是账号暂停时长，单位为分钟。

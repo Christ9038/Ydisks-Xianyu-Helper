@@ -78,10 +78,10 @@ type Request struct {
 	System string
 	// History 是按时间顺序排列的历史对话，不含本轮买家输入。
 	History []Turn
-	// UserText 是本轮买家输入的文字；ImageURL 非空时调用方应传入 ImagePrompt。
+	// UserText 是本轮买家输入的文字；ImageURLs 非空时调用方应把 ImagePrompt 并入文字。
 	UserText string
-	// ImageURL 是本轮买家图片的公网地址，为空表示纯文字。它只随本次请求发送，不会被本包保存。
-	ImageURL string
+	// ImageURLs 是本轮买家图片的公网地址（按时间顺序，调用方负责数量上限），为空表示纯文字。它们只随本次请求发送，不会被本包保存。
+	ImageURLs []string
 	// MaxTokens 是输出上限；0 表示 OpenAI 协议不限制、Anthropic 协议使用默认值。
 	MaxTokens int
 	// User 是不含个人信息的不透明会话标识，用于上游关联同一会话；为空则不发送。
@@ -136,7 +136,7 @@ func Complete(ctx context.Context, endpoint Endpoint, request Request) (Result, 
 	}
 	// result、callErr 保存第一次调用的结果与错误。
 	result, callErr := dispatch(ctx, endpoint, request)
-	if callErr == nil || request.ImageURL == "" {
+	if callErr == nil || len(request.ImageURLs) == 0 {
 		return result, callErr
 	}
 	// status 是上游状态码；只有“请求格式或内容类型被拒绝”才说明端点不支持图片。
@@ -144,7 +144,7 @@ func Complete(ctx context.Context, endpoint Endpoint, request Request) (Result, 
 	if status != http.StatusBadRequest && status != http.StatusUnsupportedMediaType && status != http.StatusUnprocessableEntity {
 		return result, callErr
 	}
-	request.ImageURL = ""
+	request.ImageURLs = nil
 	// retried、retryErr 保存去掉图片后的重试结果与错误。
 	retried, retryErr := dispatch(ctx, endpoint, request)
 	if retryErr != nil {
@@ -205,11 +205,14 @@ func completeOpenAI(ctx context.Context, endpoint Endpoint, request Request) (Re
 	}
 	// current 是本轮买家输入；图片作为独立 image_url 片段，文字部分不含占位符。
 	current := openai.ChatCompletionMessage{Role: openai.ChatMessageRoleUser, Content: request.UserText}
-	if request.ImageURL != "" {
-		current = openai.ChatCompletionMessage{Role: openai.ChatMessageRoleUser, MultiContent: []openai.ChatMessagePart{
-			{Type: openai.ChatMessagePartTypeText, Text: request.UserText},
-			{Type: openai.ChatMessagePartTypeImageURL, ImageURL: &openai.ChatMessageImageURL{URL: request.ImageURL, Detail: openai.ImageURLDetailAuto}},
-		}}
+	if len(request.ImageURLs) > 0 {
+		// parts 先放文字，再按时间顺序放每张图片。
+		parts := []openai.ChatMessagePart{{Type: openai.ChatMessagePartTypeText, Text: request.UserText}}
+		// imageURL 表示当前遍历的买家图片地址。
+		for _, imageURL := range request.ImageURLs {
+			parts = append(parts, openai.ChatMessagePart{Type: openai.ChatMessagePartTypeImageURL, ImageURL: &openai.ChatMessageImageURL{URL: imageURL, Detail: openai.ImageURLDetailAuto}})
+		}
+		current = openai.ChatCompletionMessage{Role: openai.ChatMessageRoleUser, MultiContent: parts}
 	}
 	messages = append(messages, current)
 	// response、err 保存模型响应及调用错误。
@@ -342,8 +345,9 @@ func anthropicMessages(request Request) []anthropic.MessageParam {
 	}
 	// blocks 是本轮买家输入的内容块：先图片后文字。
 	var blocks []anthropic.ContentBlockParamUnion
-	if request.ImageURL != "" {
-		blocks = append(blocks, anthropic.NewImageBlock(anthropic.URLImageSourceParam{URL: request.ImageURL}))
+	// imageURL 表示当前遍历的买家图片地址。
+	for _, imageURL := range request.ImageURLs {
+		blocks = append(blocks, anthropic.NewImageBlock(anthropic.URLImageSourceParam{URL: imageURL}))
 	}
 	blocks = append(blocks, anthropic.NewTextBlock(request.UserText))
 	return append(messages, anthropic.NewUserMessage(blocks...))

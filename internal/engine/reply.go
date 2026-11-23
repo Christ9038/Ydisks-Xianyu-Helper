@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"xianyu-go/internal/db"
-	"xianyu-go/internal/keywordmatch"
 	"xianyu-go/internal/xianyu/ws"
 )
 
@@ -34,6 +33,9 @@ type ReplyResult struct {
 	AutoPriceQuote *AIPriceQuoteProposal
 	// NotifyManual 表示命中的关键词规则要求通知人工客服，并让会话进入人工介入暂停窗口。
 	NotifyManual bool
+	// Persist 是回复确认可以发送（本轮未被新消息顶替、已提交）之后、发送之前执行的本地持久化，例如保存 AI 对话历史。
+	// 被顶替而放弃发送的回复不会执行它，所以被中断的生成不会在历史里留下“已回答”的记录。返回错误则不发送回复。
+	Persist func(ctx context.Context) error
 }
 
 // hasImage 判断回复是否携带图片（URL 或图片库图片），用于一次性投递记录的分段领取。
@@ -123,6 +125,8 @@ type ReplyService struct {
 	manualTakeover *manualTakeoverTracker
 	// manualRequests 返回当前业务处理器，用于发送“买家请求人工客服”通知；为空或处理器未实现端口时只记录日志。
 	manualRequests func() Handler
+	// turns 合并买家的分段消息并保证同一会话同一时刻只有一个回复轮次；零值可用，生命周期与回复服务一致。
+	turns replyTurnCoordinator
 }
 
 // ChatManualRequest 是买家消息命中“通知人工”关键词规则后交给业务层的非敏感通知摘要。
@@ -233,8 +237,49 @@ func newReplyService(cookieID string, store *db.Store, delivery ReplyDelivery, a
 	return service
 }
 
-// Handle 收到一条聊天消息：先尝试商品首次回复，再按 关键词 → Agent → AI → 默认 的优先级回复。
-// 由 Account 在防抖后调用。返回是否产生了回复。
+// enqueueIncoming 登记一条刚到达的买家消息，供随后的回复轮次合并；同时顶替该会话尚未提交的回复生成。
+func (r *ReplyService) enqueueIncoming(m ChatMessage) {
+	r.turns.enqueue(m)
+}
+
+// discardPending 丢弃会话全部等待合并的买家消息并顶替未提交的回复生成；人工已经回复或消息不应自动回复时调用。
+func (r *ReplyService) discardPending(chatID string) {
+	r.turns.discard(chatID)
+}
+
+// mergeWindow 返回账号配置的合并等待时长：买家最后一条消息之后安静这么久才开始回复。
+// 没有存储或账号行缺失时回退到 MessageDebounceDelay；读取失败时按默认秒数并记录告警，不阻断消息处理。
+func (r *ReplyService) mergeWindow(ctx context.Context) time.Duration {
+	if r == nil || r.store == nil || r.store.Cookies == nil {
+		return MessageDebounceDelay
+	}
+	// seconds、err 是账号配置的合并等待秒数（已归一化到 1–10）及读取错误。
+	seconds, err := r.store.Cookies.GetReplyMergeSeconds(ctx, r.cookieID)
+	if errors.Is(err, db.ErrNotFound) {
+		return MessageDebounceDelay
+	}
+	if err != nil {
+		r.logger.WarnContext(ctx, "读取合并等待秒数失败，使用默认值", "err", err)
+		return time.Duration(db.DefaultReplyMergeSeconds) * time.Second
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+// HandleBatch 为会话开始一个回复轮次：把等待合并的全部买家消息合成一条交给回复链。
+// 轮次进行中又有新消息到达时，尚未提交的生成会被取消，消息留给下一轮合并重发；没有等待消息时直接返回。
+// 账号停止导致等待旧轮次被取消时返回 nil，不视为失败。
+func (r *ReplyService) HandleBatch(ctx context.Context, chatID string) error {
+	// turn、parts、err 是新开始的回复轮次、本轮拍下的买家消息及等待旧轮次退出时的错误。
+	turn, parts, err := r.turns.begin(ctx, chatID)
+	if err != nil || turn == nil {
+		return nil
+	}
+	defer turn.finish()
+	return r.Handle(ctx, mergeChatMessages(parts, turn))
+}
+
+// Handle 处理一条（可能是合并后的）聊天消息：先尝试商品首次回复，再按 关键词 → Agent → AI → 默认 的优先级回复。
+// 生产路径经 HandleBatch 进入；直接调用（Turn 为空）等价于没有协调器的单条消息。
 func (r *ReplyService) Handle(ctx context.Context, m ChatMessage) error {
 	// gate 是本条消息读取一次的人工介入暂停状态，后续各级回复复用它。
 	gate := r.loadManualTakeoverGate(ctx, m.ChatID)
@@ -251,6 +296,10 @@ func (r *ReplyService) Handle(ctx context.Context, m ChatMessage) error {
 	// res 用于本次流程后续判断的响应
 	res := r.resolveWithGate(ctx, m, gate)
 	if res == nil {
+		if m.Turn.Superseded() {
+			r.logger.DebugContext(ctx, "回复轮次已被买家新消息顶替，旧轮次结束", "turn_id", m.Turn.ID())
+			return nil
+		}
 		r.logger.DebugContext(ctx, "自动回复未命中任何规则，不回复")
 		return nil
 	}
@@ -264,13 +313,29 @@ func (r *ReplyService) Handle(ctx context.Context, m ChatMessage) error {
 		return nil
 	}
 	if res.Skip {
+		if m.Turn.Superseded() {
+			r.logger.DebugContext(ctx, "回复轮次已被买家新消息顶替，旧轮次结束", "reply_source", res.Source)
+			return nil
+		}
 		r.logger.DebugContext(ctx, "自动回复命中空回复规则，不发送", "reply_source", res.Source)
 		return nil
+	}
+	// sendCtx 是提交后发送回复使用的上下文：已脱离“新消息取消”，发送中途不会因买家又发话而变成结果不确定。
+	sendCtx, committed := m.Turn.Commit(ctx, false)
+	if !committed {
+		r.logger.InfoContext(ctx, "回复生成期间收到买家新消息，放弃本次回复，将合并后重新生成", "reply_source", res.Source, "turn_id", m.Turn.ID())
+		return nil
+	}
+	if res.Persist != nil {
+		// persistErr 是提交后的本地持久化错误（例如保存 AI 对话历史）；失败时不发送，避免历史与买家所见不一致。
+		if persistErr := res.Persist(sendCtx); persistErr != nil {
+			return persistErr
+		}
 	}
 	// started 是投递开始时刻，用于输出一条消息一行的回复决策摘要耗时。
 	started := time.Now()
 	// err 是本次回复投递失败的原因，非空时不输出成功摘要。
-	if err := r.deliver(ctx, m, res); err != nil {
+	if err := r.deliver(sendCtx, m, res); err != nil {
 		return err
 	}
 	r.logger.InfoContext(ctx, "自动回复已发送", "reply_source", res.Source, "duration", time.Since(started).Round(time.Millisecond))
@@ -455,8 +520,13 @@ func (r *ReplyService) resolveWithGate(ctx context.Context, m ChatMessage, gate 
 
 	// 优先级2：外部 Agent 回复。实现方可自行设置来源标签，未设置时沿用历史标签 "API"。
 	if r.api != nil {
-		if // res、err 用于本次流程后续判断的res、err
-		res, err := r.api.Reply(ctx, m); err != nil {
+		// res、err 保存 Agent 回复结果及调用错误。
+		res, err := r.api.Reply(ctx, m)
+		if m.Turn.Superseded() {
+			// 被新消息顶替：旧轮次到此为止，取消错误不是故障，也不降级到 AI 与默认回复，由下一轮合并重发。
+			return nil
+		}
+		if err != nil {
 			r.logger.ErrorContext(ctx, "API 回复失败", "err", err)
 		} else if res != nil {
 			if res.Source == "" {
@@ -468,8 +538,13 @@ func (r *ReplyService) resolveWithGate(ctx context.Context, m ChatMessage, gate 
 
 	// 优先级3：AI 回复。
 	if r.ai != nil {
-		if // res、err 用于本次流程后续判断的res、err
-		res, err := r.ai.Reply(ctx, m); err != nil {
+		// res、err 保存 AI 回复结果及调用错误。
+		res, err := r.ai.Reply(ctx, m)
+		if m.Turn.Superseded() {
+			// 被新消息顶替：丢弃已生成或被取消的结果，不写对话历史，也不降级到默认回复。
+			return nil
+		}
+		if err != nil {
 			r.logger.ErrorContext(ctx, "AI 回复失败", "err", err)
 		} else if res != nil {
 			res.Source = "AI"
@@ -485,17 +560,44 @@ func (r *ReplyService) resolveWithGate(ctx context.Context, m ChatMessage, gate 
 // 返回 Skip=true 表示匹配到空回复（不发送）。
 // 移植自 get_keyword_reply：商品ID关键词优先 → 通用关键词。
 // keywordReply 封装关键词回复业务协调。
+//
+// 合并批次（m.Parts 多于一条）时，最新一条消息按原规则匹配；它没有命中时，较早的消息只会命中“通知人工”规则，
+// 这样买家先说“转人工”再补充一句话时不会漏掉通知，而普通关键词不会让较早的一句话盖过买家最新的提问。
 func (r *ReplyService) keywordReply(ctx context.Context, m ChatMessage) *ReplyResult {
 	// kws、err 保存当前账号的关键词规则及数据库读取错误。
 	kws, err := r.store.Keywords.AllWithType(ctx, r.cookieID)
 	if err != nil || len(kws) == 0 {
 		return nil
 	}
+	if len(m.Parts) <= 1 {
+		return r.matchKeywordRules(kws, m, false)
+	}
+	// latest 是批次中最新的一条原始消息，与历史单条消息的匹配语义完全一致。
+	latest := m.Parts[len(m.Parts)-1]
+	// res 是最新一条消息的关键词匹配结果。
+	if res := r.matchKeywordRules(kws, latest, false); res != nil {
+		return res
+	}
+	// index 由新到旧遍历较早的消息，只接受“通知人工”规则。
+	for index := len(m.Parts) - 2; index >= 0; index-- {
+		// res 是较早一条消息的关键词匹配结果，只用于“通知人工”规则。
+		if res := r.matchKeywordRules(kws, m.Parts[index], true); res != nil {
+			return res
+		}
+	}
+	return nil
+}
 
+// matchKeywordRules 用已读取的规则匹配一条原始消息：商品ID关键词优先，其次通用关键词。
+// onlyNotifyManual 为 true 时只接受带“通知人工”标记的规则。没有命中返回 nil。
+func (r *ReplyService) matchKeywordRules(kws []db.Keyword, m ChatMessage, onlyNotifyManual bool) *ReplyResult {
 	// 1. 商品ID关键词优先；一条规则可关联多个商品，且关键词中的任一候选词命中即可。
 	if m.ItemID != "" {
 		// kw 表示当前遍历过程中的关键词规则。
 		for _, kw := range kws {
+			if onlyNotifyManual && !kw.NotifyManual {
+				continue
+			}
 			if containsItemID(kw.ItemID, m.ItemID) && r.keywordMatches(kw, m.Text) {
 				return r.keywordResult(kw, m)
 			}
@@ -504,124 +606,14 @@ func (r *ReplyService) keywordReply(ctx context.Context, m ChatMessage) *ReplyRe
 	// 2. 通用关键词（无 item_id）。
 	// kw 表示当前遍历过程中的账号级关键词规则。
 	for _, kw := range kws {
+		if onlyNotifyManual && !kw.NotifyManual {
+			continue
+		}
 		if kw.ItemID == "" && r.keywordMatches(kw, m.Text) {
 			return r.keywordResult(kw, m)
 		}
 	}
 	return nil
-}
-
-// keywordMatches 判断一条规则的多个表达式是否命中消息文本。
-// contains 模式保持历史大小写不敏感的字面包含语义；regexp 模式使用 Go/RE2，
-// 单个遗留非法表达式只记录并跳过，不影响同一规则的其他表达式或后续降级。
-func (r *ReplyService) keywordMatches(kw db.Keyword, text string) bool {
-	// expressions 保存兼容数据库行转换出的匹配表达式集合。
-	expressions := kw.Expressions
-	if len(expressions) == 0 && strings.TrimSpace(kw.Keyword) != "" {
-		expressions = []string{kw.Keyword}
-	}
-	// matched、invalidIndexes、unknownMode 保存纯匹配结果和需要对外记录的稳定诊断。
-	matched, invalidIndexes, unknownMode := matchKeywordExpressions(expressions, kw.MatchType, text)
-	// logger 保存带账号上下文的诊断日志端口；正常构造路径总会提供该端口。
-	logger := r.logger
-	if logger == nil {
-		logger = slog.Default().With("account", r.cookieID, "subsys", "reply")
-	}
-	// expressionIndex 表示发生编译失败的表达式零基位置。
-	for _, expressionIndex := range invalidIndexes {
-		// errorType 只记录稳定的诊断类别，避免把表达式正文和底层编译文本写入日志。
-		errorType := "regexp_compile"
-		logger.Warn("关键词正则编译失败，已跳过", "expression_index", expressionIndex, "error_type", errorType)
-	}
-	if unknownMode {
-		// errorType 只标识未知匹配模式，不记录调用方传入的原始模式文本。
-		errorType := "unknown_match_type"
-		logger.Warn("关键词匹配模式未知，已跳过", "error_type", errorType)
-	}
-	return matched
-}
-
-// matchKeywordExpressions 对表达式集合执行无副作用的 OR 匹配。
-// expressions 是规则表达式，matchType 是规范或历史匹配模式，text 是待匹配消息；返回命中结果、非法正则的零基位置和未知模式标记。
-func matchKeywordExpressions(expressions []string, matchType, text string) (bool, []int, bool) {
-	// normalizedMatchType 保存兼容历史模式后的匹配模式。
-	normalizedMatchType := strings.ToLower(strings.TrimSpace(matchType))
-	if normalizedMatchType == "" || normalizedMatchType == "fuzzy" || normalizedMatchType == "exact" {
-		normalizedMatchType = "contains"
-	}
-	if normalizedMatchType != "contains" && normalizedMatchType != "regexp" {
-		return false, nil, true
-	}
-	// invalidIndexes 保存编译失败但不阻断同规则其他表达式的零基位置。
-	invalidIndexes := make([]int, 0)
-	// expressionIndex、rawExpression 表示当前遍历的表达式位置和原始文本。
-	for expressionIndex, rawExpression := range expressions {
-		// expression 是去除边界空白后的匹配表达式。
-		expression := strings.TrimSpace(rawExpression)
-		if expression == "" {
-			continue
-		}
-		if normalizedMatchType == "regexp" {
-			// compiled、compileErr 保存与保存时校验共用的默认忽略大小写正则及编译错误，已编译结果带缓存。
-			compiled, compileErr := keywordmatch.CompileExpression(expression)
-			if compileErr != nil {
-				invalidIndexes = append(invalidIndexes, expressionIndex)
-				continue
-			}
-			if compiled.MatchString(text) {
-				return true, invalidIndexes, false
-			}
-			continue
-		}
-		if keywordMatches(strings.ToLower(text), expression) {
-			return true, invalidIndexes, false
-		}
-	}
-	return false, invalidIndexes, false
-}
-
-// keywordMatches 判断已小写化的买家消息 messageLower 是否包含 contains 模式表达式 rawKeyword 中的任一候选词。
-// 表达式可使用 |、中英文逗号、顿号或换行分隔候选词；空片段会被忽略，以保持历史单关键词规则不变。
-// regexp 模式不经过此函数：其中的 | 是正则分支，不做拆分。
-func keywordMatches(messageLower, rawKeyword string) bool {
-	// term 表示由规则分隔符拆出的单个候选关键词。
-	for _, term := range strings.FieldsFunc(rawKeyword, isKeywordTermSeparator) {
-		// normalizedTerm 去除候选词首尾空白后参与不区分大小写的包含匹配。
-		normalizedTerm := strings.TrimSpace(term)
-		if normalizedTerm != "" && strings.Contains(messageLower, strings.ToLower(normalizedTerm)) {
-			return true
-		}
-	}
-	return false
-}
-
-// isKeywordTermSeparator 判断字符 separator 是否是关键词规则中表达 OR 语义的分隔符。
-func isKeywordTermSeparator(separator rune) bool {
-	return separator == '|' || separator == ',' || separator == '，' || separator == '、' || separator == '\n' || separator == '\r'
-}
-
-// containsItemID 判断规则的商品范围字段是否覆盖目标商品标识。
-// 字段为逗号分隔的商品集合时命中任一元素即视为覆盖；空字段不会匹配任何商品。
-// 引擎直接读取持久化字段，故分隔符必须与关键词应用服务的存储约定保持一致。
-func containsItemID(rawItemIDs string, target string) bool {
-	// itemID 表示规则商品范围中的单个商品标识。
-	for _, itemID := range strings.Split(rawItemIDs, ",") {
-		if strings.TrimSpace(itemID) == target {
-			return true
-		}
-	}
-	return false
-}
-
-// keywordResult 封装关键词结果业务协调。
-func (r *ReplyService) keywordResult(kw db.Keyword, m ChatMessage) *ReplyResult {
-	if kw.Type == "image" && (kw.ImageURL != "" || kw.LibraryImageID > 0) {
-		return &ReplyResult{ImageURL: kw.ImageURL, LibraryImageID: kw.LibraryImageID, Source: "关键词", NotifyManual: kw.NotifyManual}
-	}
-	if strings.TrimSpace(kw.Reply) == "" {
-		return &ReplyResult{Skip: true, Source: "关键词", NotifyManual: kw.NotifyManual} // EMPTY_REPLY
-	}
-	return &ReplyResult{Text: formatReply(kw.Reply, m), Source: "关键词", NotifyManual: kw.NotifyManual}
 }
 
 // defaultReply 默认回复。移植自 get_default_reply：

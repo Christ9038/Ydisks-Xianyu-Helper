@@ -213,6 +213,8 @@ func (d *messageDispatcher) handleMessageContext(ctx context.Context, decrypted 
 		// 未被本系统出站登记消费的新鲜自身回显来自官方客户端的人工发送，会话进入人工介入暂停窗口；判定只读写内存。
 		if d.manualTakeover.observeOwnEcho(*ownEcho, echoCreatedAt(decrypted)) {
 			d.logger.InfoContext(ctx, "检测到人工回复，会话进入人工介入暂停窗口", "chat_id", ownEcho.ChatID)
+			// 人工已经回答：取消尚未开始的合并等待，并顶替正在生成但未提交的 AI/Agent 回复。
+			d.cancelPendingReply(ownEcho.ChatID)
 		}
 		// handler 保存当前可选业务处理器；旧集成未实现出站观察能力时保持原有仅过滤语义。
 		if handler := d.currentHandler(); handler != nil {
@@ -234,7 +236,7 @@ func (d *messageDispatcher) handleMessageContext(ctx context.Context, decrypted 
 		if !d.markAndCheckDedup(decrypted, chat) {
 			return
 		}
-		d.scheduleDebouncedReply(*chat)
+		d.receiveChat(ctx, *chat)
 	}
 }
 
@@ -304,54 +306,114 @@ func (d *messageDispatcher) cleanupDedupLocked(now time.Time) {
 	}
 }
 
-// scheduleDebouncedReply 为同一聊天会话保留最后一条消息，并在延迟后投递。
+// scheduleDebouncedReply 为一条已通过去重的买家消息登记生命周期任务并交给 receiveChat；
+// 生产路径的 handleMessageContext 已经处于任务内，直接调用 receiveChat，本方法供测试和独立入口使用。
 func (d *messageDispatcher) scheduleDebouncedReply(chat ChatMessage) {
+	// ctx、finish、ok 分别是本条消息接收任务的上下文、释放函数及生命周期接纳结果。
+	ctx, finish, ok := d.beginTask()
+	if !ok {
+		return
+	}
+	defer finish()
+	d.receiveChat(ctx, chat)
+}
+
+// receiveChat 接收一条已通过去重的买家消息：立即交给业务处理器落库和通知（每条消息都处理，不再被防抖吞掉），
+// 登记为等待合并的消息并顶替该会话尚未提交的回复生成，然后重置“合并等待”安静计时。
+// 买家在账号配置的合并等待时长内没有再发消息，计时器到期后才把这一批消息合并回复；
+// 从一批消息的第一条算起最迟 MessageDebounceMaxWait 必定到期，避免买家持续连发导致一直不回复。
+// ctx 必须来自账号生命周期任务；chat 是已完成去重的买家入站消息。
+func (d *messageDispatcher) receiveChat(ctx context.Context, chat ChatMessage) {
+	// 接收链路的日志统一带账号与会话，落库失败与回复决策无需再逐条补参。
+	ctx = logging.With(ctx, slog.String("account", d.cookieID), slog.String("chat_id", chat.ChatID), slog.String("item_id", chat.ItemID))
+	// handler 是当前业务处理器，负责消息落库与新消息通知。
+	if handler := d.currentHandler(); handler != nil {
+		// err 是落库或通知失败原因；失败时不进入自动回复，与历史行为一致。
+		if err := handler.HandleChatMessage(ctx, chat); err != nil {
+			d.logger.ErrorContext(ctx, "处理聊天消息失败", "err", err)
+			return
+		}
+	}
+	if d.reply == nil {
+		return
+	}
+	// 先登记等待消息再读取窗口配置：登记会立刻取消同会话尚未提交的生成，不必等数据库读取。
+	d.reply.enqueueIncoming(chat)
+	// window 是账号配置的合并等待时长。
+	window := d.reply.mergeWindow(ctx)
+
 	d.debounceMu.Lock()
 	defer d.debounceMu.Unlock()
-	// deadline 用于本次流程后续判断的deadline
-	deadline := time.Now()
-	if // old、ok 用于本次流程后续判断的old、ok
-	old, ok := d.debounceTimers[chat.ChatID]; ok && old.timer != nil {
-		old.timer.Stop()
+	// now、firstAt 是本条消息到达时刻与这一批消息第一条的到达时刻。
+	now := time.Now()
+	// firstAt 是这一批消息第一条的到达时刻，用于计算硬上限。
+	firstAt := now
+	// old、ok 是同会话已有的防抖条目；沿用它的批次起点并停止旧计时器。
+	if old, ok := d.debounceTimers[chat.ChatID]; ok {
+		if old.timer != nil {
+			old.timer.Stop()
+		}
+		firstAt = old.firstAt
 	}
-	// entry 用于本次流程后续判断的entry
-	entry := &debounceEntry{lastMsg: chat, deadline: deadline}
+	// delay 是距离计时器到期的时长：合并窗口，但不得超过从批次起点算起的硬上限。
+	delay := window
+	// remaining 是距离硬上限还剩的时长，小于合并窗口时缩短计时。
+	if remaining := MessageDebounceMaxWait - now.Sub(firstAt); remaining < delay {
+		delay = max(remaining, 0)
+	}
+	// entry 是本次计时的防抖条目；deadline 兼作代际标识，防止被停止的旧计时器误触发。
+	entry := &debounceEntry{lastMsg: chat, deadline: now, firstAt: firstAt}
 	d.debounceTimers[chat.ChatID] = entry
-	entry.timer = time.AfterFunc(MessageDebounceDelay, func() {
-		d.debounceMu.Lock()
-		// current、ok 用于本次流程后续判断的current、ok
-		current, ok := d.debounceTimers[chat.ChatID]
-		if !ok || current.deadline != deadline {
-			d.debounceMu.Unlock()
-			return
-		}
-		delete(d.debounceTimers, chat.ChatID)
-		// lastMessage 用于本次流程后续判断的last消息
-		lastMessage := current.lastMsg
+	entry.timer = time.AfterFunc(delay, func() { d.fireDebounced(chat.ChatID, entry.deadline) })
+}
+
+// fireDebounced 在合并等待到期后开始一个回复轮次；deadline 不匹配说明计时器已被更新的消息替换，直接忽略。
+func (d *messageDispatcher) fireDebounced(chatID string, deadline time.Time) {
+	d.debounceMu.Lock()
+	// current、ok 是该会话当前的防抖条目及其是否存在。
+	current, ok := d.debounceTimers[chatID]
+	if !ok || current.deadline != deadline {
 		d.debounceMu.Unlock()
-		// ctx、finish、ok 分别是防抖回复任务的上下文、释放函数及生命周期接纳结果。
-		ctx, finish, ok := d.beginTask()
-		if !ok {
-			return
+		return
+	}
+	delete(d.debounceTimers, chatID)
+	// lastMessage 是这一批消息中最新的一条，用于自动回复资格核验。
+	lastMessage := current.lastMsg
+	d.debounceMu.Unlock()
+	// ctx、finish、accepted 分别是回复任务的上下文、释放函数及生命周期接纳结果。
+	ctx, finish, accepted := d.beginTask()
+	if !accepted {
+		return
+	}
+	defer finish()
+	// 回复链路的日志统一带账号与会话，回复决策与发送失败无需再逐条补参。
+	ctx = logging.With(ctx, slog.String("account", d.cookieID), slog.String("chat_id", lastMessage.ChatID), slog.String("item_id", lastMessage.ItemID))
+	if !d.canAutoReply(ctx, lastMessage) {
+		// 不允许自动回复的会话（商品不属于本账号、缺少身份等）不会有回复轮次消费等待消息，必须主动丢弃以免滞留。
+		d.reply.discardPending(chatID)
+		return
+	}
+	// err 是回复链失败原因，只记录日志，不影响后续消息。
+	if err := d.reply.HandleBatch(ctx, chatID); err != nil {
+		d.logger.ErrorContext(ctx, "处理自动回复失败", "err", err)
+	}
+}
+
+// cancelPendingReply 在人工已经回复该会话时取消尚未开始的合并等待并丢弃已等待的消息、顶替未提交的回复生成，
+// 避免助手紧接着人工再发一条自动回复。不持有 debounceMu 调用回复服务。
+func (d *messageDispatcher) cancelPendingReply(chatID string) {
+	d.debounceMu.Lock()
+	// entry、ok 是该会话的防抖条目及其是否存在。
+	if entry, ok := d.debounceTimers[chatID]; ok {
+		if entry.timer != nil {
+			entry.timer.Stop()
 		}
-		defer finish()
-		// 防抖回复链路的日志统一带账号与会话，回复决策与发送失败无需再逐条补参。
-		ctx = logging.With(ctx, slog.String("account", d.cookieID), slog.String("chat_id", lastMessage.ChatID), slog.String("item_id", lastMessage.ItemID))
-		if // handler 用于本次流程后续判断的handler
-		handler := d.currentHandler(); handler != nil {
-			if // err 用于本次流程后续判断的err
-			err := handler.HandleChatMessage(ctx, lastMessage); err != nil {
-				d.logger.ErrorContext(ctx, "处理聊天消息失败", "err", err)
-				return
-			}
-		}
-		if d.reply != nil && d.canAutoReply(ctx, lastMessage) {
-			if // err 用于本次流程后续判断的err
-			err := d.reply.Handle(ctx, lastMessage); err != nil {
-				d.logger.ErrorContext(ctx, "处理自动回复失败", "err", err)
-			}
-		}
-	})
+		delete(d.debounceTimers, chatID)
+	}
+	d.debounceMu.Unlock()
+	if d.reply != nil {
+		d.reply.discardPending(chatID)
+	}
 }
 
 // stop 取消所有防抖定时器，不持锁等待回调任务；回调任务由 Account lifecycle 等待。

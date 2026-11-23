@@ -150,36 +150,59 @@ func TestMessageDispatcherDedupBackupKeyAndDebounceFailures(t *testing.T) {
 		t.Fatal("首次应通过，重复应被去重")
 	}
 
-	// 防抖回调：生命周期拒绝接纳。
-	// asked 在回调请求任务时关闭。
+	// 到期回复任务：生命周期拒绝接纳。第一个任务（接收落库）被接纳，合并等待到期后的回复任务被拒绝，不得开始回复。
+	// asked 在回复任务请求生命周期时关闭；calls 统计 BeginTask 调用次数。
 	asked := make(chan struct{})
-	// rejected 是生命周期拒绝接纳任务的分发器
-	rejected := newMessageDispatcher(messageDispatcherConfig{CookieID: "cid", BeginTask: func() (context.Context, func(), bool) {
-		close(asked)
-		return nil, nil, false
-	}})
+	// calls 统计生命周期接纳回调被调用的次数，区分接收任务与到期回复任务。
+	var calls atomic.Int32
+	// store、cleanup 提供独立数据库；回复服务只需存在即可让计时器登记。
+	store, cleanup := newReplyStore(t)
+	defer cleanup()
+	shortenMergeWindow(store)
+	// rejected 是回复任务被生命周期拒绝接纳的分发器
+	rejected := newMessageDispatcher(messageDispatcherConfig{CookieID: "cid", Reply: NewReplyService("cid", store, &recordingDelivery{}, nil, nil, nil),
+		BeginTask: func() (context.Context, func(), bool) {
+			if calls.Add(1) == 1 {
+				return context.Background(), func() {}, true
+			}
+			close(asked)
+			return nil, nil, false
+		}})
 	rejected.scheduleDebouncedReply(chatMsg("x", "i", "c1"))
 	select {
 	case <-asked:
 	case <-time.After(5 * time.Second):
-		t.Fatal("防抖回调未触发")
+		t.Fatal("合并等待到期后未请求回复任务")
 	}
 	rejected.stop()
 
-	// 防抖回调：聊天处理失败，且被后一条消息替换时旧定时器被停止。
-	// done 在处理任务释放时关闭。
-	done := make(chan struct{})
+	// 接收落库：业务处理器失败时不进入自动回复，不登记合并等待，也不留下计时器。
+	// done 在每个接收任务释放时收到一个信号。
+	done := make(chan struct{}, 2)
 	// failing 是预置失败行为的测试替身，用于驱动错误分支
 	failing := &chatErrHandler{recordingHandler: &recordingHandler{}}
 	// failed 是聊天处理总是失败的分发器
 	failed := newMessageDispatcher(messageDispatcherConfig{CookieID: "cid", CurrentHandler: func() Handler { return failing },
-		BeginTask: func() (context.Context, func(), bool) { return context.Background(), func() { close(done) }, true }})
+		Reply: NewReplyService("cid", store, &recordingDelivery{}, nil, nil, nil),
+		BeginTask: func() (context.Context, func(), bool) {
+			return context.Background(), func() { done <- struct{}{} }, true
+		}})
 	failed.scheduleDebouncedReply(chatMsg("first", "i", "c2"))
 	failed.scheduleDebouncedReply(chatMsg("second", "i", "c2"))
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("防抖处理未完成")
+	// finished 是已确认完成的接收任务数。
+	for finished := 0; finished < 2; finished++ {
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("接收任务未完成")
+		}
+	}
+	failed.debounceMu.Lock()
+	// timers 是落库失败后残留的合并等待计时器数，应为 0。
+	timers := len(failed.debounceTimers)
+	failed.debounceMu.Unlock()
+	if timers != 0 {
+		t.Fatalf("落库失败不应登记合并等待计时器: %d", timers)
 	}
 	failed.stop()
 }

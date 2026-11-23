@@ -40,6 +40,8 @@ type Summary struct {
 	ManualTakeoverMinutes int
 	// ManualTakeoverScope 是人工介入暂停范围（ai/all）。
 	ManualTakeoverScope string
+	// ReplyMergeSeconds 是买家分段消息的合并等待秒数（1–10）。
+	ReplyMergeSeconds int
 	// PauseDuration 是账号暂停时长，单位为分钟。
 	PauseDuration int
 	// PausedUntil 是暂停结束时间的 Unix 秒；零值表示当前未暂停。

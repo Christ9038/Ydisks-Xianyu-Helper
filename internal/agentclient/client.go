@@ -117,8 +117,15 @@ type Request struct {
 	ItemID string `json:"item_id"`
 	// Buyer 是买家信息；ping 事件为空。
 	Buyer *Buyer `json:"buyer,omitempty"`
-	// Message 是买家消息；仅 message 事件携带。
+	// Message 是买家消息；仅 message 事件携带。买家分段发送并被合并时，它是向后兼容的单条形态：
+	// 文字为合并后的全部买家文字，id 取最新一条；只认 message 字段的 Agent 也能看到完整内容。
 	Message *Message `json:"message,omitempty"`
+	// Messages 是本轮合并的全部买家消息，按到达顺序排列（含各自图片）；仅 message 事件携带，至少包含一项。
+	// 新对接的 Agent 应优先读取它；不发送聊天历史，Agent 通过 chat_id 自行维护会话记忆。
+	Messages []Message `json:"messages,omitempty"`
+	// ReplacesTurnID 是被本轮顶替的上一轮 turn_id：上一轮尚未回复完就又收到买家新消息时携带，
+	// Agent 应丢弃该轮任务并按本轮的 messages 重新处理；没有顶替时省略。
+	ReplacesTurnID string `json:"replaces_turn_id,omitempty"`
 	// OrderContext 是买家订单阶段；仅账号开启该选项且本地查询成功时由 message 事件携带，
 	// 缺省表示未开启或暂时无法确认，Agent 不得据此推断买家没有订单。
 	OrderContext *OrderContext `json:"order_context,omitempty"`

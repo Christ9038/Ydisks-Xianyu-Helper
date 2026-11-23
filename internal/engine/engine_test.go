@@ -202,42 +202,53 @@ func TestDedup_SkipsDuplicateWithinExpiry(t *testing.T) {
 	}
 }
 
-// TestDebounce_CoalescesRapidMessages 连续消息只投递最后一条。
+// TestDebounce_CoalescesRapidMessages 同一会话的连续消息：每条仍按到达顺序立即落库（不再被防抖吞掉），
+// 但只共用一个合并等待计时器，到期后只触发一次回复。
 func TestDebounce_CoalescesRapidMessages(t *testing.T) {
-	// acc、h、cleanup 用于本次流程后续判断的acc、h、cleanup
-	acc, h, _, cleanup := newAccountForTest(t)
+	// acc、h、store、cleanup 是账号、记录型处理器、数据库及清理函数。
+	acc, h, store, cleanup := newAccountForTest(t)
 	defer cleanup()
 	defer acc.Stop()
+	// 只有装配了回复服务才有需要合并等待的消息。
+	attachReplyService(acc, store)
 
-	// decrypted 用于本次流程后续判断的decrypted
+	// decrypted 是真实抓包样本；chat 是从中提取的聊天消息。
 	decrypted := mustDecryptGoldenSample(t)
-	// chat 用于本次流程后续判断的聊天
+	// chat 是从抓包样本提取的买家消息，作为三条连发消息的模板。
 	chat := extractChatMessage(decrypted, "cid", "cookie")
 	// 修改文本模拟连续多条。
 	chat1 := *chat
 	chat1.Text = "第一条"
-	// chat2 用于本次流程后续判断的chat2
+	// chat2、chat3 是同一会话的后续消息。
 	chat2 := *chat
 	chat2.Text = "第二条"
-	// chat3 用于本次流程后续判断的chat3
+	// chat3 是同一会话的第三条消息。
 	chat3 := *chat
 	chat3.Text = "第三条"
 
-	// 用不同 decrypted（不同 msgID）触发防抖，验证同一 chat_id 合并。
 	acc.scheduleDebouncedReply(chat1)
 	acc.scheduleDebouncedReply(chat2)
 	acc.scheduleDebouncedReply(chat3)
+	acc.debounceMu.Lock()
+	// timers 是同一会话共用的合并等待计时器数。
+	timers := len(acc.debounceTimers)
+	acc.debounceMu.Unlock()
+	if timers != 1 {
+		t.Fatalf("同一会话的连续消息应共用一个计时器，got %d", timers)
+	}
 
-	// 等待防抖延迟 + 余量。
+	// 等待合并等待 + 余量。
 	time.Sleep(MessageDebounceDelay + 200*time.Millisecond)
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if len(h.chats) != 1 {
-		t.Fatalf("防抖应只投递最后一条，got %d", len(h.chats))
+	if len(h.chats) != 3 || h.chats[0].Text != "第一条" || h.chats[1].Text != "第二条" || h.chats[2].Text != "第三条" {
+		t.Fatalf("三条消息都应按到达顺序落库，got %+v", h.chats)
 	}
-	if h.chats[0].Text != "第三条" {
-		t.Errorf("应投递最后一条，got %q", h.chats[0].Text)
+	acc.debounceMu.Lock()
+	defer acc.debounceMu.Unlock()
+	if len(acc.debounceTimers) != 0 {
+		t.Fatalf("到期后计时器应被清理: %d", len(acc.debounceTimers))
 	}
 }
 

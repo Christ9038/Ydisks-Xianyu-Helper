@@ -113,7 +113,7 @@ curl -fsS -X PUT "$YDISKS_BASE_URL/api/v1/agent-replies/$COOKIE_ID" -H "Authoriz
 - `GET /api/v1/chat/sessions?account_id={cookie_id}`：读取账号会话；需要刷新平台联系人时可传 `refresh=1`。
 - `GET /api/v1/chat/messages?account_id={cookie_id}&chat_id={chat_id}`：读取消息历史。
 - `POST /api/v1/chat/messages`：发送文本消息，请求至少包含 `account_id`、`chat_id`、`peer_user_id`、`text`。该接口走普通外发路径，会沿用现有人工消息识别；当账号设置了人工接管暂停时，可能暂停 AI/Agent 自动回复。
-- `PUT /api/v1/chat/manual-takeover/{cookie_id}`：只更新人工介入暂停设置，字段为 `manual_takeover_minutes`（0–1440）和 `manual_takeover_scope`（`ai` 或 `all`）。
+- `PUT /api/v1/chat/manual-takeover/{cookie_id}`：只更新人工介入暂停设置，字段为 `manual_takeover_minutes`（0–1440）、`manual_takeover_scope`（`ai` 或 `all`）和 `reply_merge_seconds`（买家消息合并等待秒数，1–10）。
 - `chat:read` 提供 HTTP 会话/消息查询，不开放 WebSocket 实时订阅。外部调用方应按需查询，不要高频刷新平台历史。
 - 外部机器人自动回复应配置现有 Agent 回复接口（`agent-replies`）并遵循既有 Agent 协议；不要把 `chat:send` 当作自动回复发送端，否则会被人工外发识别。
 

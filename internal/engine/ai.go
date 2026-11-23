@@ -46,6 +46,33 @@ func buyerImageURL(m ChatMessage) string {
 	return extractImageObservationContent(m.Raw)
 }
 
+// buyerImageURLs 返回本次回复应交给模型或 Agent 的买家图片公网地址（按时间顺序，最多 replyMergedMaxImages 张）。
+// 合并批次使用合并时提取的图片；单条消息退回 buyerImageURL。AI 回复与 Agent 回复共用。
+func buyerImageURLs(m ChatMessage) []string {
+	if len(m.Parts) > 0 {
+		return m.Images
+	}
+	// imageURL 是买家消息中的图片地址，非图片消息为空。
+	if imageURL := buyerImageURL(m); imageURL != "" {
+		return []string{imageURL}
+	}
+	return nil
+}
+
+// modelUserInput 返回本轮交给大模型的买家文字与图片：有图片时文字部分不再只是占位符，
+// 纯图片消息用统一提示语，图文混合时在文字后追加提示语。没有可用图片时原样返回合并文字。
+func modelUserInput(m ChatMessage) (string, []string) {
+	// images 是本轮可发送的买家图片地址。
+	images := buyerImageURLs(m)
+	if len(images) == 0 {
+		return m.Text, nil
+	}
+	if strings.TrimSpace(m.Text) == agentImagePlaceholder {
+		return llmclient.ImagePrompt, images
+	}
+	return m.Text + "\n" + llmclient.ImagePrompt, images
+}
+
 // newAIHTTPClient 用于本次流程后续判断的newAIHTTPClient
 var newAIHTTPClient = func(baseURL string) (*http.Client, error) {
 	return netguard.ConfiguredEndpointHTTPClient(baseURL, 30*time.Second)
@@ -163,21 +190,19 @@ func (a *AIReplierImpl) Reply(ctx context.Context, m ChatMessage) (*ReplyResult,
 	for _, message := range history {
 		turns = append(turns, llmclient.Turn{Role: message.Role, Text: truncateAIContent(message.Content)})
 	}
-	// userText、imageURL 是本轮买家输入：仅在开启图片识别且取到公网图片地址时附带图片，文字部分不再是占位符。
-	userText, imageURL := m.Text, ""
+	// userText、images 是本轮买家输入（合并批次时是合并后的文字）：仅在开启图片识别且取到公网图片地址时附带图片，文字部分不再只是占位符。
+	userText, images := m.Text, []string(nil)
 	if aiCfg.VisionEnabled {
-		if imageURL = buyerImageURL(m); imageURL != "" {
-			userText = llmclient.ImagePrompt
-		}
+		userText, images = modelUserInput(m)
 	}
 
-	// aiCtx、cancel 用于本次流程后续判断的人工智能Ctx、cancel
-	aiCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	// aiCtx、cancel 是模型调用的上下文及其取消函数：随买家新消息到达而取消，另受 30 秒总时长约束。
+	aiCtx, cancel := context.WithTimeout(m.Turn.Context(ctx), 30*time.Second)
 	defer cancel()
 	// completion、err 保存模型结果与调用错误；端点拒绝图片时 llmclient 已自动降级为纯文字重试一次。
 	completion, err := llmclient.Complete(aiCtx, llmclient.Endpoint{
 		Protocol: aiCfg.Protocol, BaseURL: aiCfg.BaseURL, APIKey: aiCfg.APIKey, Model: aiCfg.Model, HTTPClient: httpClient,
-	}, llmclient.Request{System: systemPrompt, History: turns, UserText: userText, ImageURL: imageURL})
+	}, llmclient.Request{System: systemPrompt, History: turns, UserText: userText, ImageURLs: images})
 	if err != nil {
 		return nil, fmt.Errorf("AI 调用失败: %w", err)
 	}
@@ -218,21 +243,26 @@ func (a *AIReplierImpl) Reply(ctx context.Context, m ChatMessage) (*ReplyResult,
 			quote = &AIPriceQuoteProposal{PriceCents: priceToCents(markerPrice)}
 		}
 	}
+	// result 是待发送的回复；对话历史推迟到回复确认可以发送（本轮未被买家新消息顶替）之后再保存。
+	result := &ReplyResult{Text: reply, AutoPriceQuote: quote}
 	if m.ChatID != "" && m.ItemID != "" {
-		// intent 用于本次流程后续判断的intent
+		// intent 是本轮买家消息的意图标签：砍价或普通咨询。
 		intent := "chat"
 		if isBargain {
 			intent = "bargain"
 		}
-		if // err 用于本次流程后续判断的err
-		err := a.store.AIReply.AddConversationExchange(ctx, a.cookieID, m.ChatID, m.SenderUserID, m.ItemID,
-			db.AIConversationMessage{Role: "user", Content: m.Text, Intent: intent, BargainCount: bargainCount},
-			db.AIConversationMessage{Role: "assistant", Content: reply, Intent: "reply", BargainCount: bargainCount},
-		); err != nil {
-			return nil, fmt.Errorf("保存 AI 对话失败: %w", err)
+		result.Persist = func(persistCtx context.Context) error {
+			// err 是保存本轮对话（买家合并后的文字与助手回复）的错误。
+			if err := a.store.AIReply.AddConversationExchange(persistCtx, a.cookieID, m.ChatID, m.SenderUserID, m.ItemID,
+				db.AIConversationMessage{Role: "user", Content: m.Text, Intent: intent, BargainCount: bargainCount},
+				db.AIConversationMessage{Role: "assistant", Content: reply, Intent: "reply", BargainCount: bargainCount},
+			); err != nil {
+				return fmt.Errorf("保存 AI 对话失败: %w", err)
+			}
+			return nil
 		}
 	}
-	return &ReplyResult{Text: reply, AutoPriceQuote: quote}, nil
+	return result, nil
 }
 
 // defaultAIReplySettings 返回商品强制启用但账号尚无配置时使用的向后兼容默认策略。

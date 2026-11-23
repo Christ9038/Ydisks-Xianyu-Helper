@@ -52,7 +52,7 @@ func (r *AccountSettingsRepository) UpdateSettings(ctx context.Context, input ac
 		UserID: input.UserID, Value: input.Cookie, Remark: input.Remark,
 		AutoConfirm: input.AutoConfirm, AutoConsign: input.AutoConsign, AutoBargain: input.AutoBargain, AutoRelist: input.AutoRelist, PauseDuration: input.PauseDuration,
 		ConsignProofMode: input.ConsignProofMode, ConsignProofText: input.ConsignProofText,
-		ManualTakeoverMinutes: input.ManualTakeoverMinutes, ManualTakeoverScope: input.ManualTakeoverScope,
+		ManualTakeoverMinutes: input.ManualTakeoverMinutes, ManualTakeoverScope: input.ManualTakeoverScope, ReplyMergeSeconds: input.ReplyMergeSeconds,
 		Username: input.Username, Password: input.Password,
 		ShowBrowser: input.ShowBrowser, ChannelIDs: input.ChannelIDs,
 	}

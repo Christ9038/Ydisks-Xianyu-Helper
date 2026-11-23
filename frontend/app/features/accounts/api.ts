@@ -22,6 +22,7 @@ import { ApiError,type RequestControlOptions } from '../../../shared/http/client
 import { collectionFrom,objectFrom } from '../../../shared/http/contract';
 import { normalizeConsignProofMode } from './consignProof';
 import { normalizeManualTakeoverMinutes,normalizeManualTakeoverScope } from './manualTakeover';
+import { normalizeReplyMergeSeconds } from './replyMerge';
 export type * from './models';
 
 // QRLoginStatusResult 描述账号 feature 消费的非敏感二维码状态字段。
@@ -77,6 +78,7 @@ export const getAccountDetails = async (options?: RequestControlOptions): Promis
     consign_proof_text: item.consign_proof_text || '',
     manual_takeover_minutes: normalizeManualTakeoverMinutes(item.manual_takeover_minutes),
     manual_takeover_scope: normalizeManualTakeoverScope(item.manual_takeover_scope),
+    reply_merge_seconds: normalizeReplyMergeSeconds(item.reply_merge_seconds),
     remark: item.remark,
     pause_duration: item.pause_duration,
     paused_until: Number(item.paused_until || 0),
@@ -241,6 +243,7 @@ export interface AccountSettingsUpdate {
   /** consign_proof_text 表示固定文字模式的凭证文本。 */ consign_proof_text?: string;
   /** manual_takeover_minutes 表示人工介入暂停分钟数，0 关闭。 */ manual_takeover_minutes?: number;
   /** manual_takeover_scope 表示人工介入暂停范围。 */ manual_takeover_scope?: ManualTakeoverScope;
+  /** reply_merge_seconds 表示买家分段消息的合并等待秒数。 */ reply_merge_seconds?: number;
   /** pause_duration 表示暂停时长。 */ pause_duration?: number;
   /** username 表示用户名。 */ username?: string;
   /** login_password 表示登录密码。 */ login_password?: string;

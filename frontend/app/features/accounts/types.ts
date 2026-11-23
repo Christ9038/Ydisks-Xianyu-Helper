@@ -31,6 +31,8 @@ export interface AccountEditForm {
   manual_takeover_minutes: number;
   // manual_takeover_scope 是人工介入暂停范围草稿。
   manual_takeover_scope: ManualTakeoverScope;
+  // reply_merge_seconds 是买家分段消息合并等待秒数草稿（1–10）。
+  reply_merge_seconds: number;
   // pause_duration 是账号订单处理暂停时长，单位为分钟。
   pause_duration: number;
   // username 是用于密码登录的闲鱼账号。

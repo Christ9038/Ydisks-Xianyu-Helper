@@ -29,6 +29,8 @@ export interface AccountDetail {
   manual_takeover_minutes?: number;
   /** 人工介入暂停范围；adapter 已归一，缺失时按 ai 处理。 */
   manual_takeover_scope?: ManualTakeoverScope;
+  /** 买家分段消息的合并等待秒数（1–10）；adapter 已归一，旧后端缺失时按 3 处理。 */
+  reply_merge_seconds?: number;
   /** 用户为账号设置的备注。 */
   remark?: string;
   /** 自动回复暂停时长，单位为分钟。 */
@@ -231,6 +233,8 @@ export interface AccountSummaryResponse {
   manual_takeover_minutes?: number;
   /** 人工介入暂停范围；旧后端可能缺失。 */
   manual_takeover_scope?: string;
+  /** 合并等待秒数；旧后端可能缺失。 */
+  reply_merge_seconds?: number;
   /** 账号备注。 */
   remark: string;
   /** 自动回复暂停时长，单位为分钟。 */

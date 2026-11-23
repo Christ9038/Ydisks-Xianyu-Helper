@@ -17,6 +17,7 @@ const baseForm: AccountEditForm = {
   consign_proof_text: '',
   manual_takeover_minutes: 0,
   manual_takeover_scope: 'ai',
+  reply_merge_seconds: 3,
   pause_duration: 0,
   username: '',
   login_password: '',
@@ -162,5 +163,25 @@ describe('AccountEditModal 业务开关', /* 验证三个开关互不串联且�
     fireEvent.change(screen.getByLabelText('人工介入暂停分钟数'), { target: { value: '' } });
     expect(latest.manual_takeover_minutes).toBe(0);
     expect(screen.getByRole('button', { name: '保存' }).hasAttribute('disabled')).toBe(false);
+  });
+
+  test('买家消息合并等待可设置秒数，越界或空输入提示并禁用保存', /* 区块只影响合并等待字段。 */ () => {
+    // latest 保存最近一次渲染得到的表单。
+    let latest = baseForm;
+    render(<Harness onForm={/* 记录最新表单快照。 */ form => { latest = form; }} />);
+    // input 是合并等待秒数输入框。
+    const input = screen.getByLabelText('买家消息合并等待秒数') as HTMLInputElement;
+    expect(input.value).toBe('3');
+    fireEvent.change(input, { target: { value: '6' } });
+    expect(latest.reply_merge_seconds).toBe(6);
+    expect(screen.getByRole('button', { name: '保存' }).hasAttribute('disabled')).toBe(false);
+
+    fireEvent.change(input, { target: { value: '11' } });
+    expect(screen.getByText(/合并等待秒数必须是 1 到 10/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: '保存' }).hasAttribute('disabled')).toBe(true);
+
+    fireEvent.change(input, { target: { value: '' } });
+    expect(screen.getByText(/合并等待秒数必须是 1 到 10/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: '保存' }).hasAttribute('disabled')).toBe(true);
   });
 });

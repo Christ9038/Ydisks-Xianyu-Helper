@@ -28,12 +28,13 @@ import (
 // 账号运行时参数。
 // PasswordLoginMinGap 用于本次流程后续判断的密码登录MinGap
 const (
-	MaxConnectionFailures       = 5               // 仅保留给显式人工恢复入口和兼容测试
-	TokenFetchDisableThreshold  = 100             // 兼容常量；官网运行时不会按次数自动禁用账号
-	MessageSemaphoreSize        = 100             // 并发消息处理上限
-	MessageDebounceDelay        = 1 * time.Second // 防抖延迟：用户停止发送 1s 后回复
-	MessageExpireTime           = time.Hour       // 去重有效期
-	ProcessedIDsMaxSize         = 10000           // 去重表上限，超限清理
+	MaxConnectionFailures       = 5                // 仅保留给显式人工恢复入口和兼容测试
+	TokenFetchDisableThreshold  = 100              // 兼容常量；官网运行时不会按次数自动禁用账号
+	MessageSemaphoreSize        = 100              // 并发消息处理上限
+	MessageDebounceDelay        = 1 * time.Second  // 未能读取账号“合并等待秒数”（无存储或账号行缺失）时的回退等待：买家停止发送 1s 后回复
+	MessageDebounceMaxWait      = 15 * time.Second // 合并等待硬上限：从一批消息的第一条算起，买家再怎么连发也最迟 15s 后开始回复
+	MessageExpireTime           = time.Hour        // 去重有效期
+	ProcessedIDsMaxSize         = 10000            // 去重表上限，超限清理
 	HeartbeatInterval           = 15 * time.Second
 	PasswordLoginMinGap         = 60 * time.Second
 	MaxNetworkFailures          = 20
@@ -161,6 +162,13 @@ type ChatMessage struct {
 	// ObservedAt 是 WebSocket 分发器首次接纳消息的 Unix 毫秒时间，防抖期间保持不变，用于和本地会话删除排序。
 	ObservedAt int64
 	Raw        map[string]any // 解密后的完整消息
+	// Parts 是同一次回复所合并的全部买家原始消息，按到达顺序排列；只在合并批次中设置，单条消息为空。
+	// 设置后 Text 是这些消息合并后的文字，其余身份字段取自最新一条。
+	Parts []ChatMessage
+	// Images 是合并批次中最近的买家图片公网地址（最多 3 张，按时间顺序）；只在合并批次中设置。
+	Images []string
+	// Turn 是本次回复所属的回复轮次，由 ReplyService 在合并批次中设置；nil 表示不经协调器的直接调用。
+	Turn *ReplyTurn
 }
 
 // OutgoingChatMessage 是账号 WebSocket 接受或回显的一条非敏感出站消息摘要。
@@ -254,9 +262,14 @@ type Account struct {
 
 // debounceEntry 用于本次流程后续判断的debounceEntry
 type debounceEntry struct {
-	timer    *time.Timer
-	lastMsg  ChatMessage
+	// timer 是“合并等待”安静计时器；新消息到达时停止并重建。
+	timer *time.Timer
+	// lastMsg 是这一批中最新的买家消息，计时器到期时用于核验是否允许自动回复。
+	lastMsg ChatMessage
+	// deadline 是本次计时的创建时刻，兼作代际标识：计时器回调只处理与当前条目一致的代际。
 	deadline time.Time
+	// firstAt 是这一批消息第一条的到达时刻，用于计算 MessageDebounceMaxWait 硬上限。
+	firstAt time.Time
 }
 
 // WSConn 是 Account 对 ws 连接的最小契约。*ws.Conn 实现该接口；

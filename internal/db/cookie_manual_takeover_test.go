@@ -110,3 +110,60 @@ func TestKeywordNotifyManualPersistence(t *testing.T) {
 		t.Fatalf("批量替换后通知标记错误: %#v", rows)
 	}
 }
+
+// TestReplyMergeSecondsDefaultUpdateAndNormalize 覆盖合并等待秒数的迁移默认值（3）、保存读回、摘要同步、无关字段保持原值、越界与脏数据归一、缺失账号。
+func TestReplyMergeSecondsDefaultUpdateAndNormalize(t *testing.T) {
+	// ctx、store、userID、accountID、cleanup 是账号夹具。
+	ctx, store, userID, accountID, cleanup := newConsignProofTestAccount(t)
+	defer cleanup()
+	// seconds、err 是迁移默认值读取结果。
+	seconds, err := store.Cookies.GetReplyMergeSeconds(ctx, accountID)
+	if err != nil || seconds != DefaultReplyMergeSeconds {
+		t.Fatalf("默认合并等待应为 %d: %d err=%v", DefaultReplyMergeSeconds, seconds, err)
+	}
+	// updateErr 保存写入 7 秒的结果。
+	if _, updateErr := store.Cookies.UpdateSettings(ctx, accountID, AccountSettingsUpdate{UserID: userID, ReplyMergeSeconds: intPtr(7)}); updateErr != nil {
+		t.Fatalf("保存合并等待失败: %v", updateErr)
+	}
+	if seconds, _ = store.Cookies.GetReplyMergeSeconds(ctx, accountID); seconds != 7 {
+		t.Fatalf("合并等待读回错误: %d", seconds)
+	}
+	// summary、summaryErr 与 summaries、listErr 验证单账号摘要和列表摘要同步返回新值。
+	summary, summaryErr := store.Cookies.GetSummaryOwned(ctx, userID, accountID)
+	if summaryErr != nil || summary.ReplyMergeSeconds != 7 {
+		t.Fatalf("摘要合并等待错误: %#v err=%v", summary, summaryErr)
+	}
+	// summaries、listErr 是账号摘要列表及其查询错误，用于核对摘要里的合并等待秒数。
+	summaries, listErr := store.Cookies.ListSummaries(ctx, userID)
+	if listErr != nil || len(summaries) != 1 || summaries[0].ReplyMergeSeconds != 7 {
+		t.Fatalf("列表摘要合并等待错误: %#v err=%v", summaries, listErr)
+	}
+	// remarkErr 只修改备注，合并等待必须保持原值。
+	if _, remarkErr := store.Cookies.UpdateSettings(ctx, accountID, AccountSettingsUpdate{UserID: userID, Remark: strPtr("备注")}); remarkErr != nil {
+		t.Fatalf("保存备注失败: %v", remarkErr)
+	}
+	if seconds, _ = store.Cookies.GetReplyMergeSeconds(ctx, accountID); seconds != 7 {
+		t.Fatalf("无关字段保存不应改动合并等待: %d", seconds)
+	}
+	// overErr 直接写入越界值，仓储应夹取到上限。
+	if _, overErr := store.Cookies.UpdateSettings(ctx, accountID, AccountSettingsUpdate{UserID: userID, ReplyMergeSeconds: intPtr(999)}); overErr != nil {
+		t.Fatalf("保存越界合并等待失败: %v", overErr)
+	}
+	if seconds, _ = store.Cookies.GetReplyMergeSeconds(ctx, accountID); seconds != MaxReplyMergeSeconds {
+		t.Fatalf("越界值应夹取到上限: %d", seconds)
+	}
+	// rawErr 模拟手工改库写入 0 与负数，读取应回到默认值。
+	for _, raw := range []int{0, -4} {
+		// rawErr 是直接写入非法原始秒数的 SQL 错误，用于模拟手工改库。
+		if _, rawErr := store.DB.ExecContext(ctx, `UPDATE cookies SET reply_merge_seconds=? WHERE id=?`, raw, accountID); rawErr != nil {
+			t.Fatalf("写入脏数据失败: %v", rawErr)
+		}
+		if seconds, _ = store.Cookies.GetReplyMergeSeconds(ctx, accountID); seconds != DefaultReplyMergeSeconds {
+			t.Fatalf("脏数据 %d 应回到默认值: %d", raw, seconds)
+		}
+	}
+	// missingErr 验证不存在的账号映射为 ErrNotFound。
+	if _, missingErr := store.Cookies.GetReplyMergeSeconds(ctx, "missing"); !errors.Is(missingErr, ErrNotFound) {
+		t.Fatalf("缺失账号应返回 ErrNotFound: %v", missingErr)
+	}
+}

@@ -49,11 +49,13 @@ func TestAIReplyStoreFailures(t *testing.T) {
 		itemID, chatID string
 		// want 是期望错误中包含的片段。
 		want string
+		// persistFails 为 true 时，故障发生在提交可发送之后的对话历史保存阶段，而此前 Reply 本身已经成功。
+		persistFails bool
 	}{
 		{name: "账号配置", breakSQL: `DROP TABLE ai_reply_settings`, want: "读取账号 AI 配置失败"},
 		{name: "全局配置", breakSQL: `DROP TABLE system_settings`, want: "读取全局 AI 配置失败"},
 		{name: "对话历史", breakSQL: `DROP TABLE ai_conversations`, itemID: "item", chatID: "chat", want: "读取 AI 对话历史失败"},
-		{name: "保存对话", breakSQL: `CREATE TRIGGER block_ai_insert BEFORE INSERT ON ai_conversations BEGIN SELECT RAISE(ABORT, 'blocked'); END`, itemID: "item", chatID: "chat", want: "保存 AI 对话失败"},
+		{name: "保存对话", breakSQL: `CREATE TRIGGER block_ai_insert BEFORE INSERT ON ai_conversations BEGIN SELECT RAISE(ABORT, 'blocked'); END`, itemID: "item", chatID: "chat", want: "保存 AI 对话失败", persistFails: true},
 	}
 	// tc 是当前故障注入用例。
 	for _, tc := range cases {
@@ -66,6 +68,17 @@ func TestAIReplyStoreFailures(t *testing.T) {
 			}
 			// result、err 是故障下的回复结果。
 			result, err := replier.Reply(ctx, chatMsg("能便宜点吗", tc.itemID, tc.chatID))
+			if tc.persistFails {
+				// 对话历史推迟到提交后保存：生成本身成功，保存失败由 Persist 返回，调用方据此不发送回复。
+				if err != nil || result == nil || result.Persist == nil {
+					t.Fatalf("生成应成功并携带 Persist: result=%+v err=%v", result, err)
+				}
+				// persistErr 是提交后保存对话历史的错误，用于断言失败文案。
+				if persistErr := result.Persist(ctx); persistErr == nil || !strings.Contains(persistErr.Error(), tc.want) {
+					t.Fatalf("Persist 应返回 %q 错误: %v", tc.want, persistErr)
+				}
+				return
+			}
 			if err == nil || result != nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("应返回 %q 错误: result=%+v err=%v", tc.want, result, err)
 			}

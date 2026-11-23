@@ -55,7 +55,7 @@ Authorization is enforced by HTTP method and path. An endpoint not explicitly in
 
 ### Manual intervention and scheduled tasks
 
-- `PUT /api/v1/chat/manual-takeover/{cookie_id}` uses `chat:takeover` to update the post-human-reply pause window (0–1440 minutes) and scope (`ai` or `all`). This narrow endpoint does not accept Cookie, login-password, or other account fields. Actual human messages continue to be recognized by the existing chat-send/message-echo path; no second takeover state system is introduced.
+- `PUT /api/v1/chat/manual-takeover/{cookie_id}` uses `chat:takeover` to update the post-human-reply pause window (0–1440 minutes) scope (`ai` or `all`) and the buyer-message merge wait `reply_merge_seconds` (1–10). This narrow endpoint does not accept Cookie, login-password, or other account fields. Actual human messages continue to be recognized by the existing chat-send/message-echo path; no second takeover state system is introduced.
 - `POST /api/v1/chat/messages` uses the normal outbound-message path and preserves existing human-message detection. If a manual-takeover pause is configured, it may pause AI/Agent auto-replies. Configure the existing `agent-replies` integration for automated bot replies; do not use `chat:send` as the bot delivery path.
 - `GET /api/v1/accounts/{cid}` is available under `accounts:read` and returns safe account details, including manual-intervention settings. Account writes, credentials, Cookie, and login-information endpoints remain browser-session only.
 - `GET/PUT /api/v1/account-tasks/{cid}`, `GET /api/v1/account-tasks/{cid}/runs`, and `POST /api/v1/account-tasks/{cid}/run` expose existing account-task settings, run history, and manual trigger for existing auto-rating/auto-polish tasks. This is not scheduled product publishing.
@@ -77,7 +77,7 @@ The external token scopes expose the following existing application routes; thes
 - `GET /api/v1/chat/sessions?account_id={cookie_id}` reads chat sessions; `refresh=1` requests a refresh through the existing platform-contact path.
 - `GET /api/v1/chat/messages?account_id={cookie_id}&chat_id={chat_id}` reads message history.
 - `POST /api/v1/chat/messages` sends text using the existing chat application. Its request includes `account_id`, `chat_id`, `peer_user_id`, and `text`.
-- `PUT /api/v1/chat/manual-takeover/{cookie_id}` updates the narrow manual-takeover settings: `manual_takeover_minutes` and `manual_takeover_scope`.
+- `PUT /api/v1/chat/manual-takeover/{cookie_id}` updates the narrow manual-takeover settings: `manual_takeover_minutes`, `manual_takeover_scope` and `reply_merge_seconds`.
 
 ### Agent integration
 

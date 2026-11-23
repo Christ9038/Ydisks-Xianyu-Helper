@@ -50,6 +50,15 @@ Automatic Shipping Confirmation only marks the Xianyu order as shipped; it does 
 - **Scope:** "只暂停 AI" (AI only, default) skips only Agent and AI replies, while keyword replies, default replies and product first replies still go out; "暂停全部" (everything) sends no automatic reply at all in that conversation (a buyer matching a "notify a human" keyword is still notified).
 - **What counts as a manual reply:** a message you send to the buyer from the Xianyu app, Xianyu web, or this system's chat page. Replies, cards and delivery messages this system sends automatically do not count, so AI never pauses itself.
 - If you reply while AI is still generating an answer, that AI answer is dropped and not sent.
+
+### Buyer message merge wait
+
+"Buyer message merge wait", below the manual takeover pause, handles buyers who split one thought into several messages: AI / Agent generation starts only after the buyer has been quiet for the configured number of seconds.
+
+- **Seconds:** 1 to 10; default 3. A larger value waits longer for the buyer to finish but also delays the reply.
+- Messages received during the wait are merged into one request. If the buyer sends another message while a reply is being generated and has not been sent yet, that generation is interrupted and regenerated from the earlier unanswered messages plus the new one, so you never get two half-answers.
+- If the buyer keeps sending, a reply starts at most 15 seconds after the first message of the batch.
+- Every buyer message is still saved and notified immediately; keyword, item first and default replies also act on the whole batch once the wait ends.
 - When a keyword rule has "命中后通知人工" (notify a human on match) ticked, a match also starts the pause for that conversation; see [Automated Delivery and Replies](Automated-Delivery-and-Replies).
 - The pause state is kept in memory only: it is cleared when the service restarts, the account is disabled and re-enabled, or its Cookie is updated; automatic reconnects keep it. It is independent of the processing pause duration (which pauses order automation).
 

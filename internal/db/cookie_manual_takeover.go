@@ -17,6 +17,29 @@ const (
 // MaxManualTakeoverMinutes 是人工介入暂停窗口允许配置的最大分钟数（24 小时），与引擎内存记录的保留时长一致。
 const MaxManualTakeoverMinutes = 1440
 
+// 以下常量定义买家分段消息的“合并等待”窗口：买家最后一条消息之后安静这么久，才开始生成 AI/Agent 回复。
+const (
+	// DefaultReplyMergeSeconds 是新账号与历史账号的默认合并等待秒数。
+	DefaultReplyMergeSeconds = 3
+	// MinReplyMergeSeconds 与 MaxReplyMergeSeconds 是合并等待秒数允许配置的闭区间。
+	MinReplyMergeSeconds = 1
+	// MaxReplyMergeSeconds 是合并等待秒数上限；更长的等待会让买家明显感到没人理。
+	MaxReplyMergeSeconds = 10
+)
+
+// NormalizeReplyMergeSeconds 把历史零值或越界值夹取为合法的合并等待秒数：0 与负数回到默认值，超上限取上限。
+func NormalizeReplyMergeSeconds(seconds int) int {
+	switch {
+	case seconds <= 0:
+		return DefaultReplyMergeSeconds
+	case seconds < MinReplyMergeSeconds:
+		return MinReplyMergeSeconds
+	case seconds > MaxReplyMergeSeconds:
+		return MaxReplyMergeSeconds
+	}
+	return seconds
+}
+
 // ManualTakeoverSetting 是账号级人工介入暂停配置；只含非敏感列，不触碰 Cookie、Token 或密码。
 type ManualTakeoverSetting struct {
 	// Minutes 是人工回复后该会话暂停自动回复的分钟数；0 表示关闭该功能。
@@ -61,7 +84,22 @@ func (c *Cookies) GetManualTakeoverSetting(ctx context.Context, cookieID string)
 	return setting, nil
 }
 
-// appendManualTakeoverAssignments 把可选的暂停分钟数与范围加入账号设置 UPDATE 赋值；nil 字段保持原值。
+// GetReplyMergeSeconds 读取账号的合并等待秒数，只读取这一个非敏感列；已归一化到 1–10。账号不存在时返回 ErrNotFound。
+func (c *Cookies) GetReplyMergeSeconds(ctx context.Context, cookieID string) (int, error) {
+	// seconds 保存数据库中的原始合并等待秒数；err 保存查询错误。
+	var seconds int
+	// err 是读取合并等待秒数的查询错误；账号不存在时由调用方按默认值处理。
+	err := c.DB.QueryRowContext(ctx, `SELECT COALESCE(reply_merge_seconds,0) FROM cookies WHERE id=?`, cookieID).Scan(&seconds)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, ErrNotFound
+		}
+		return 0, err
+	}
+	return NormalizeReplyMergeSeconds(seconds), nil
+}
+
+// appendManualTakeoverAssignments 把可选的暂停分钟数、范围与合并等待秒数加入账号设置 UPDATE 赋值；nil 字段保持原值。
 // 输入合法性由应用层校验，这里仍做归一化，保证直接调用仓储也不会写入越界值。
 func appendManualTakeoverAssignments(assignments []string, args []any, input AccountSettingsUpdate) ([]string, []any) {
 	if input.ManualTakeoverMinutes != nil {
@@ -71,6 +109,10 @@ func appendManualTakeoverAssignments(assignments []string, args []any, input Acc
 	if input.ManualTakeoverScope != nil {
 		assignments = append(assignments, "manual_takeover_scope=?")
 		args = append(args, NormalizeManualTakeoverScope(*input.ManualTakeoverScope))
+	}
+	if input.ReplyMergeSeconds != nil {
+		assignments = append(assignments, "reply_merge_seconds=?")
+		args = append(args, NormalizeReplyMergeSeconds(*input.ReplyMergeSeconds))
 	}
 	return assignments, args
 }

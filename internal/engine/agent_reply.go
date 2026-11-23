@@ -41,7 +41,8 @@ const (
 // 一旦接手，回复由本类型自己发送并返回 Skip，避免下游重复回复。它永远不产生 AutoPriceQuote，
 // 外部系统因此无法绕过折扣边界改价。
 //
-// 并发：turns 保证同一会话单飞；配置每次从数据库读取，修改后无需重启账号。
+// 并发：同一会话的单飞与新消息顶替由 ReplyService 的 replyTurnCoordinator 负责（经 ChatMessage.Turn 传入）；
+// 配置每次从数据库读取，修改后无需重启账号。
 type AgentReplier struct {
 	// cookieID 是所属账号标识。
 	cookieID string
@@ -53,8 +54,6 @@ type AgentReplier struct {
 	delivery ReplyDelivery
 	// logger 带账号字段；不得记录 Agent 地址、令牌和消息正文。
 	logger *slog.Logger
-	// turns 保证同一会话同一时刻只有一个对话轮次。
-	turns agentTurnRegistry
 	// pollSleep 是轮询等待函数，遵守 ctx 取消；测试可替换以免真实等待。
 	pollSleep func(ctx context.Context, d time.Duration) error
 }
@@ -87,13 +86,9 @@ func (a *AgentReplier) Reply(ctx context.Context, m ChatMessage) (*ReplyResult, 
 	if !cfg.Enabled || strings.TrimSpace(cfg.EndpointURL) == "" {
 		return nil, nil
 	}
-	// turnCtx、finish、beginErr 是本轮次的上下文（含总时长上限）、结束函数及登记错误。
-	turnCtx, finish, beginErr := a.turns.begin(ctx, m.ChatID, cfg.MaxSession)
-	if beginErr != nil {
-		// 等待旧轮次退出时账号被停止：抑制后续回复。
-		return &ReplyResult{Skip: true, Source: agentReplySource}, nil
-	}
-	defer finish()
+	// turnCtx、cancel 是本轮次的上下文（随买家新消息取消，另受单轮总时长上限约束）及其取消函数。
+	turnCtx, cancel := context.WithTimeout(m.Turn.Context(ctx), cfg.MaxSession)
+	defer cancel()
 	if cfg.Protocol == db.AgentProtocolOpenAI || cfg.Protocol == db.AgentProtocolAnthropic {
 		return a.replyViaModel(turnCtx, m, cfg)
 	}
@@ -133,15 +128,12 @@ func (a *AgentReplier) replyViaModel(ctx context.Context, m ChatMessage, cfg db.
 		}
 		prompt = appendOrderContext(prompt, stages, available)
 	}
-	// userText、imageURL 是本轮买家输入：图片消息附带图片地址，文字部分不再是占位符。
-	userText, imageURL := m.Text, buyerImageURL(m)
-	if imageURL != "" {
-		userText = llmclient.ImagePrompt
-	}
+	// userText、images 是本轮买家输入（合并批次时是合并后的文字与最近的图片）：图片随请求发送，文字部分不再只是占位符。
+	userText, images := modelUserInput(m)
 	// completion、err 保存模型结果及调用错误。
 	completion, err := llmclient.Complete(ctx, llmclient.Endpoint{
 		Protocol: cfg.Protocol, BaseURL: cfg.EndpointURL, APIKey: cfg.Token, Model: cfg.Model, HTTPClient: client,
-	}, llmclient.Request{System: prompt, UserText: userText, ImageURL: imageURL, User: opaqueChatID(m.ChatID)})
+	}, llmclient.Request{System: prompt, UserText: userText, ImageURLs: images, User: opaqueChatID(m.ChatID)})
 	if err != nil {
 		return a.failTurn(ctx, &agentTurnState{}, err)
 	}
@@ -151,9 +143,14 @@ func (a *AgentReplier) replyViaModel(ctx context.Context, m ChatMessage, cfg db.
 	if completion.Refused || completion.Text == "" {
 		return nil, nil
 	}
+	// sendCtx、committed 是提交后的发送上下文及提交是否成功；本轮已被买家新消息顶替时放弃发送，消息留给下一轮合并重发。
+	sendCtx, committed := m.Turn.Commit(ctx, false)
+	if !committed {
+		return a.finishedResult(), nil
+	}
 	// state 记录本轮副作用计数；发送失败或结果不确定时 deliverReplies 已记录日志，本轮直接结束。
 	state := &agentTurnState{engaged: true}
-	a.deliverReplies(ctx, m, []agentclient.Reply{{Text: completion.Text}}, state)
+	a.deliverReplies(sendCtx, m, []agentclient.Reply{{Text: completion.Text}}, state)
 	a.logger.InfoContext(ctx, "Agent 模型回复轮次结束", "protocol", cfg.Protocol, "replies_sent", state.sent)
 	return a.finishedResult(), nil
 }
@@ -202,6 +199,8 @@ func (a *AgentReplier) runTurn(ctx context.Context, m ChatMessage, cfg db.AgentR
 			a.logger.InfoContext(ctx, "Agent 回复轮次结束", "requests", state.requests, "replies_sent", state.sent, "duration", time.Since(started).Round(time.Millisecond))
 		}
 	}()
+	// committed 表示本轮已确认开始向买家发送回复：此前被买家新消息顶替会放弃本轮并合并重发，此后只在两次发送之间停止。
+	committed := false
 	for state.requests < agentMaxRequestsPerTurn {
 		state.requests++
 		request.Sequence = state.requests
@@ -217,6 +216,13 @@ func (a *AgentReplier) runTurn(ctx context.Context, m ChatMessage, cfg db.AgentR
 			state.engaged = true
 		} else if !response.Handled {
 			return a.finishedResult(), nil
+		}
+		if !committed && len(response.Replies) > 0 {
+			// 第一次真正要发送回复：提交后 Agent 已经对买家说话，之后再来新消息只顶替后续轮询，不再合并重发已回复的内容。
+			if _, ok := m.Turn.Commit(ctx, true); !ok {
+				return a.finishedResult(), nil
+			}
+			committed = true
 		}
 		// stop 为 true 表示发送失败、结果不确定或上下文被取消，本轮必须立即结束。
 		if stop := a.deliverReplies(ctx, m, response.Replies, state); stop {
@@ -266,25 +272,58 @@ func (a *AgentReplier) finishedResult() *ReplyResult {
 	return &ReplyResult{Skip: true, Source: agentReplySource}
 }
 
-// messageRequest 构造首个 message 事件；买家图片消息携带公网图片地址。
+// messageRequest 构造首个 message 事件。
+//
+// 合并批次时：message 是向后兼容的单条形态，文字为合并后的全部买家文字（只认 message 的旧 Agent 也能看到整段话），
+// messages 按到达顺序列出批次里的每条原始消息（含各自图片），turn_id 沿用协调器分配的轮次标识，
+// replaces_turn_id 在本轮顶替了一个尚未回复完的旧轮次时携带，Agent 据此丢弃旧任务。
 func (a *AgentReplier) messageRequest(m ChatMessage) agentclient.Request {
-	// message 是转发给 Agent 的买家消息，默认按文字处理。
+	// message 是转发给 Agent 的兼容单条消息，默认按文字处理。
 	message := agentclient.Message{ID: m.MessageID, Type: agentclient.MessageTypeText, Text: m.Text}
-	// imageURL 是从买家图片消息中提取的公网图片地址；提取不到时按文字转发。
-	if imageURL := buyerImageURL(m); imageURL != "" {
-		message.Type, message.ImageURL = agentclient.MessageTypeImage, imageURL
+	// images 是本批最近的买家图片地址；纯图片批次的兼容单条消息携带最新一张。
+	images := buyerImageURLs(m)
+	if len(images) > 0 && strings.TrimSpace(m.Text) == agentImagePlaceholder {
+		message.Type, message.ImageURL = agentclient.MessageTypeImage, images[len(images)-1]
+	}
+	// turnID 是本轮标识：经协调器时沿用其标识，直接调用时随机生成。
+	turnID := m.Turn.ID()
+	if turnID == "" {
+		turnID = agentclient.NewTurnID()
 	}
 	return agentclient.Request{
-		Event: agentclient.EventMessage, TurnID: agentclient.NewTurnID(),
+		Event: agentclient.EventMessage, TurnID: turnID, ReplacesTurnID: m.Turn.ReplacesID(),
 		AccountID: m.AccountID, ChatID: m.ChatID, ItemID: m.ItemID,
 		Buyer:   &agentclient.Buyer{UserID: m.SenderUserID, Name: m.SenderName},
-		Message: &message,
+		Message: &message, Messages: agentMessages(m),
 	}
+}
+
+// agentMessages 把本批买家消息逐条转换为协议消息；单条消息返回只含它自己的列表，保证 messages 始终至少有一项。
+func agentMessages(m ChatMessage) []agentclient.Message {
+	// parts 是本批原始买家消息；没有合并批次时就是 m 本身。
+	parts := m.Parts
+	if len(parts) == 0 {
+		parts = []ChatMessage{m}
+	}
+	// messages 保存转换后的协议消息。
+	messages := make([]agentclient.Message, 0, len(parts))
+	// part 表示当前遍历的原始买家消息。
+	for _, part := range parts {
+		// item 默认按文字处理；图片消息携带公网图片地址。
+		item := agentclient.Message{ID: part.MessageID, Type: agentclient.MessageTypeText, Text: part.Text}
+		// imageURL 是该条买家消息中的图片地址，非图片消息为空。
+		if imageURL := buyerImageURL(part); imageURL != "" {
+			item.Type, item.ImageURL = agentclient.MessageTypeImage, imageURL
+		}
+		messages = append(messages, item)
+	}
+	return messages
 }
 
 // pollRequest 由上一个请求派生 poll 事件：保留标识，不再携带买家、消息与订单阶段。
 func (a *AgentReplier) pollRequest(previous agentclient.Request) agentclient.Request {
 	previous.Event, previous.Buyer, previous.Message, previous.OrderContext = agentclient.EventPoll, nil, nil, nil
+	previous.Messages, previous.ReplacesTurnID = nil, ""
 	return previous
 }
 

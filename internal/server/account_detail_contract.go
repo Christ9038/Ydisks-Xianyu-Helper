@@ -22,6 +22,8 @@ type cookieDetailResponse struct {
 	ManualTakeoverMinutes int `json:"manual_takeover_minutes"`
 	// ManualTakeoverScope 是人工介入暂停范围：ai 只暂停 Agent 与 AI，all 暂停全部自动回复。
 	ManualTakeoverScope string `json:"manual_takeover_scope"`
+	// ReplyMergeSeconds 是买家分段消息的合并等待秒数（1–10）：买家最后一条消息之后安静这么久才开始生成 AI/Agent 回复。
+	ReplyMergeSeconds int `json:"reply_merge_seconds"`
 	// Remark 是账号备注。
 	Remark string `json:"remark"`
 	// PauseDuration 是暂停时长，单位为分钟。

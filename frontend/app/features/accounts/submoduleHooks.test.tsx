@@ -59,7 +59,7 @@ const updateAccountMock = vi.mocked(updateAccountSettings);
 // accountFixture 是账号编辑和登录流程使用的账号对象。
 const accountFixture = { id: 'account-1', enabled: true, value: 'old-cookie', remark: '旧备注', auto_confirm: false, auto_consign: false, auto_bargain: false, auto_relist: false, pause_duration: 0, username: 'user@example.com', login_password: 'old-password', show_browser: false } as AccountDetail;
 // editFormFixture 是账号编辑弹窗的初始表单。
-const editFormFixture: AccountEditForm = { remark: '新备注', cookie: 'new-cookie', auto_confirm: true, auto_consign: false, auto_bargain: true, auto_relist: false, consign_proof_mode: 'delivery', consign_proof_text: '', manual_takeover_minutes: 0, manual_takeover_scope: 'ai', pause_duration: 60, username: 'user@example.com', login_password: 'new-password', show_browser: true, showLoginPassword: false, clear_password: false };
+const editFormFixture: AccountEditForm = { remark: '新备注', cookie: 'new-cookie', auto_confirm: true, auto_consign: false, auto_bargain: true, auto_relist: false, consign_proof_mode: 'delivery', consign_proof_text: '', manual_takeover_minutes: 0, manual_takeover_scope: 'ai', reply_merge_seconds: 3, pause_duration: 60, username: 'user@example.com', login_password: 'new-password', show_browser: true, showLoginPassword: false, clear_password: false };
 // aiFixture 是账号 AI 设置的服务端配置。
 const aiFixture: AIReplySettings = { ai_enabled: true, auto_adjust_price_enabled: true, max_discount_percent: 20, max_discount_amount: 50, max_bargain_rounds: 2, custom_prompts: '请礼貌回复', ai_mode: 'full_service', order_context_enabled: true };
 
@@ -498,6 +498,26 @@ describe('useAccountSubmodules', /* 当前回调处理账号编辑、AI、通知
     const enabledPayload = await renderWith({ ...baseForm, auto_relist: true });
     expect(enabledPayload).toEqual(expect.objectContaining({ auto_relist: true }));
     expect(enabledPayload).not.toHaveProperty('auto_bargain');
+  });
+
+  test('合并等待：未修改不提交、变化时提交、越界秒数阻止保存', /* 当前回调验证合并等待的保存补丁与提交前拦截。 */ async () => {
+    // savedAccount 是服务端已保存 5 秒合并等待的账号。
+    const savedAccount = { ...accountFixture, reply_merge_seconds: 5 } as AccountDetail;
+    // saveWith 用指定表单渲染 Hook 并执行一次保存，返回提交的补丁（未提交时为 undefined）。
+    const saveWith = async (form: AccountEditForm): Promise<unknown> => {
+      updateAccountMock.mockClear();
+      // hook 是本次渲染的子模块 Hook。
+      const hook = renderHook(/* 创建合并等待保存场景的子模块 Hook。 */ () => useAccountSubmodules({ editingAccount: savedAccount, setEditingAccount: vi.fn(), setActiveModal: vi.fn(), editForm: form, setEditForm: vi.fn(), loadAccounts: vi.fn().mockResolvedValue(undefined) }));
+      await act(/* 触发一次编辑保存。 */ async () => hook.result.current.handleSaveEdit());
+      hook.unmount();
+      return updateAccountMock.mock.calls[0]?.[1];
+    };
+    // base 的合并等待与服务端一致。
+    const base: AccountEditForm = { ...editFormFixture, cookie: '', reply_merge_seconds: 5 };
+    expect(await saveWith(base)).not.toHaveProperty('reply_merge_seconds');
+    expect(await saveWith({ ...base, reply_merge_seconds: 8 })).toEqual(expect.objectContaining({ reply_merge_seconds: 8 }));
+    expect(await saveWith({ ...base, reply_merge_seconds: 11 })).toBeUndefined();
+    expect(await saveWith({ ...base, reply_merge_seconds: Number.NaN })).toBeUndefined();
   });
 
   test('人工介入暂停：未修改不提交、只提交变化字段、越界分钟数阻止保存', /* 当前回调验证人工介入设置的保存补丁与提交前拦截。 */ async () => {

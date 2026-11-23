@@ -439,7 +439,8 @@ func TestAgentReplyContextCancelBeforeEngaged(t *testing.T) {
 	}
 }
 
-// TestAgentReplyNewMessageSupersedesRunningTurn 验证同一会话的新消息会取消并等待旧轮次退出，旧轮次不再发送，新轮次正常完成。
+// TestAgentReplyNewMessageSupersedesRunningTurn 验证同一会话的新消息会取消并等待已开始回复的旧轮次退出：旧轮次不再轮询，
+// 新轮次只带提交之后到达的新消息，并通过 replaces_turn_id 告知 Agent 它顶替了哪一轮。
 func TestAgentReplyNewMessageSupersedesRunningTurn(t *testing.T) {
 	// f 是先返回 working=true、再返回新轮次回复的 Agent 夹具。
 	f := newAgentFixture(t,
@@ -455,16 +456,35 @@ func TestAgentReplyNewMessageSupersedesRunningTurn(t *testing.T) {
 		<-ctx.Done()
 		return ctx.Err()
 	}
+	// coordinator 是被测的轮次协调器；ctx 是账号生命周期上下文。
+	var coordinator replyTurnCoordinator
+	// ctx 是本用例共用的上下文。
+	ctx := context.Background()
+	coordinator.enqueue(chatMsg("旧消息", "", "chat"))
+	// oldTurn、oldParts、beginErr 是旧轮次及其拍下的消息。
+	oldTurn, oldParts, beginErr := coordinator.begin(ctx, "chat")
+	if beginErr != nil || oldTurn == nil || len(oldParts) != 1 {
+		t.Fatalf("旧轮次应拍下 1 条消息: %v %v", oldParts, beginErr)
+	}
 	// oldDone 接收旧轮次的结果。
 	oldDone := make(chan *ReplyResult, 1)
 	go func() {
+		defer oldTurn.finish()
 		// res 保存旧轮次的结果，通过通道交给主测试 goroutine。
-		res, _ := f.replier.Reply(context.Background(), chatMsg("旧消息", "", "chat"))
+		res, _ := f.replier.Reply(ctx, mergeChatMessages(oldParts, oldTurn))
 		oldDone <- res
 	}()
 	<-inSleep
+	// 旧轮次已经发出第一段并处于轮询等待：新消息到达会顶替它。
+	coordinator.enqueue(chatMsg("新消息", "", "chat"))
+	// newTurn、newParts、newErr 是新轮次（begin 会等待旧轮次退出）及其拍下的消息。
+	newTurn, newParts, newErr := coordinator.begin(ctx, "chat")
+	if newErr != nil || newTurn == nil || len(newParts) != 1 || newParts[0].Text != "新消息" {
+		t.Fatalf("旧轮次已提交，新轮次只应带新消息: %+v %v", newParts, newErr)
+	}
+	defer newTurn.finish()
 	// res、err 保存新消息轮次的结果及错误。
-	res, err := f.replier.Reply(context.Background(), chatMsg("新消息", "", "chat"))
+	res, err := f.replier.Reply(ctx, mergeChatMessages(newParts, newTurn))
 	if err != nil || res == nil || !res.Skip {
 		t.Fatalf("新轮次应完成: %+v %v", res, err)
 	}
@@ -491,6 +511,9 @@ func TestAgentReplyNewMessageSupersedesRunningTurn(t *testing.T) {
 	if len(requests) != 2 || requests[0].Event != "message" || requests[1].Event != "message" || requests[0].TurnID == requests[1].TurnID {
 		t.Fatalf("新消息应开启新轮次: %+v", requests)
 	}
+	if requests[0].ReplacesTurnID != "" || requests[1].ReplacesTurnID != requests[0].TurnID {
+		t.Fatalf("新轮次应通过 replaces_turn_id 告知它顶替了旧轮次: %+v", requests)
+	}
 }
 
 // TestAgentReplyConfigReadError 验证配置读取失败（密钥错误）按错误降级，不泄漏令牌。
@@ -513,40 +536,6 @@ func TestAgentReplyConfigReadError(t *testing.T) {
 	res, err := NewAgentReplier("cid", wrong, &recordingDelivery{}, nil).Reply(ctx, chatMsg("x", "", "chat"))
 	if res != nil || err == nil || strings.Contains(err.Error(), "engine-secret") {
 		t.Fatalf("读取失败应返回不含令牌的错误: %+v %v", res, err)
-	}
-}
-
-// TestAgentTurnRegistry 验证轮次登记：总时长上限、结束函数幂等、等待旧轮次期间 parent 取消。
-func TestAgentTurnRegistry(t *testing.T) {
-	// registry 是被测的轮次登记表，零值即可使用。
-	var registry agentTurnRegistry
-	// 总时长上限。
-	ctx, finish, err := registry.begin(context.Background(), "chat", 50*time.Millisecond)
-	if err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case <-ctx.Done():
-		if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			t.Fatalf("应因总时长到期: %v", ctx.Err())
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("总时长上限未生效")
-	}
-	finish()
-	finish() // 幂等
-	// 旧轮次迟迟不退出时，新轮次的等待受 parent 取消约束。
-	oldCtx, oldFinish, _ := registry.begin(context.Background(), "chat", time.Minute)
-	defer oldFinish()
-	// parent、cancel 是会很快超时的父上下文及其取消函数，用来验证等待旧轮次期间受其约束。
-	parent, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-	// err 保存新轮次等待旧轮次时因父上下文超时而返回的错误。
-	if _, _, err := registry.begin(parent, "chat", time.Minute); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("等待旧轮次时 parent 超时应返回其错误: %v", err)
-	}
-	if oldCtx.Err() == nil {
-		t.Fatal("新轮次应取消旧轮次")
 	}
 }
 

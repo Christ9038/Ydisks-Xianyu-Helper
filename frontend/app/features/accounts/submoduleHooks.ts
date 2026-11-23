@@ -3,6 +3,7 @@ import type { AccountDetail,AIReplySettings,NotificationChannel } from './api';
 import { shouldSaveNotificationBindings } from './accountBindings';
 import { buildConsignProofUpdate,consignProofFormError,normalizeConsignProofMode } from './consignProof';
 import { buildManualTakeoverUpdate,manualTakeoverFormError,normalizeManualTakeoverMinutes,normalizeManualTakeoverScope } from './manualTakeover';
+import { buildReplyMergeUpdate,normalizeReplyMergeSeconds,replyMergeFormError } from './replyMerge';
 import { cancelPasswordLogin,checkPasswordLoginStatus,getAccountAISettings,getAccountBindings,getLongLoginSettings,getNotificationChannels,passwordLogin,setLongLoginSettings,updateAccountAISettings,updateAccountPauseDuration,updateAccountSettings } from './api';
 import { buildAccountLoginInfoUpdate,isCurrentAccountRequest,passwordLoginViewFromStatus,shouldUpdateAccountPause } from './state';
 import type { AccountEditForm,LongLoginState,PasswordLoginView } from './types';
@@ -127,7 +128,7 @@ export const useAccountSubmodules = ({ editingAccount, setEditingAccount, setAct
     setPasswordLoginView({ sessionId: '', status: 'idle', message: '', qrCodeUrl: '' });
     setEditingAccount(account);
     // 摘要接口不会返回 Cookie 或密码明文；编辑表单只接收本次用户主动输入的秘密。
-    setEditForm({ remark: account.remark || '', cookie: '', auto_confirm: account.auto_confirm || false, auto_consign: account.auto_consign || false, auto_bargain: account.auto_bargain || false, auto_relist: account.auto_relist || false, consign_proof_mode: normalizeConsignProofMode(account.consign_proof_mode), consign_proof_text: account.consign_proof_text || '', manual_takeover_minutes: normalizeManualTakeoverMinutes(account.manual_takeover_minutes), manual_takeover_scope: normalizeManualTakeoverScope(account.manual_takeover_scope), pause_duration: account.pause_duration || 0, username: account.username || '', login_password: '', show_browser: account.show_browser || false, showLoginPassword: false, clear_password: false });
+    setEditForm({ remark: account.remark || '', cookie: '', auto_confirm: account.auto_confirm || false, auto_consign: account.auto_consign || false, auto_bargain: account.auto_bargain || false, auto_relist: account.auto_relist || false, consign_proof_mode: normalizeConsignProofMode(account.consign_proof_mode), consign_proof_text: account.consign_proof_text || '', manual_takeover_minutes: normalizeManualTakeoverMinutes(account.manual_takeover_minutes), manual_takeover_scope: normalizeManualTakeoverScope(account.manual_takeover_scope), reply_merge_seconds: normalizeReplyMergeSeconds(account.reply_merge_seconds), pause_duration: account.pause_duration || 0, username: account.username || '', login_password: '', show_browser: account.show_browser || false, showLoginPassword: false, clear_password: false });
     setActiveModal('edit');
     setLongLogin({ loading: true, saving: false, canOpen: false, enabled: false, error: '' });
     // longLoginResult 保存长登录设置读取结果。
@@ -202,6 +203,8 @@ export const useAccountSubmodules = ({ editingAccount, setEditingAccount, setAct
     if (consignProofFormError(editForm)) return;
     // 人工介入暂停分钟数越界时不提交，弹窗内已就地提示原因。
     if (manualTakeoverFormError(editForm)) return;
+    // 合并等待秒数越界时不提交，弹窗内已就地提示原因。
+    if (replyMergeFormError(editForm)) return;
     setSaving(true);
     try {
       // payload 保存需要提交的账号编辑补丁。
@@ -219,6 +222,9 @@ export const useAccountSubmodules = ({ editingAccount, setEditingAccount, setAct
       // manualTakeover 保存人工介入暂停补丁；只包含发生变化的字段。
       const manualTakeover = buildManualTakeoverUpdate(editingAccount, editForm);
       if (manualTakeover) Object.assign(payload, manualTakeover);
+      // replyMerge 保存合并等待补丁；秒数变化时才提交。
+      const replyMerge = buildReplyMergeUpdate(editingAccount, editForm);
+      if (replyMerge) Object.assign(payload, replyMerge);
       if (shouldUpdateAccountPause(editForm.pause_duration, editingAccount)) payload.pause_duration = editForm.pause_duration;
       // loginInfo 保存登录字段变更补丁。
       const loginInfo = buildAccountLoginInfoUpdate(editingAccount, editForm);

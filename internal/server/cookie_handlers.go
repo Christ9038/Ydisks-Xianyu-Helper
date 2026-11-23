@@ -126,6 +126,7 @@ type updateCookieSettingsRequest struct {
 	ManualTakeoverMinutes *int `json:"manual_takeover_minutes"`
 	// ManualTakeoverScope 是人工介入暂停范围（ai/all），省略时保持原值。
 	ManualTakeoverScope *string  `json:"manual_takeover_scope"`
+	ReplyMergeSeconds   *int     `json:"reply_merge_seconds"` // 买家分段消息的合并等待秒数（1–10），省略时保持原值
 	PauseDuration       *int     `json:"pause_duration"`
 	Username            *string  `json:"username"`
 	LoginPassword       *string  `json:"login_password"`
@@ -238,7 +239,7 @@ func (s *Server) updateCookieSettings(w http.ResponseWriter, r *http.Request) {
 		UserID: ownedDetail.UserID, AccountID: cid, Cookie: req.Cookie, Remark: req.Remark,
 		AutoConfirm: req.AutoConfirm, AutoConsign: req.AutoConsign, AutoBargain: req.AutoBargain, AutoRelist: req.AutoRelist, PauseDuration: req.PauseDuration, Username: req.Username,
 		ConsignProofMode: req.ConsignProofMode, ConsignProofText: req.ConsignProofText,
-		ManualTakeoverMinutes: req.ManualTakeoverMinutes, ManualTakeoverScope: req.ManualTakeoverScope,
+		ManualTakeoverMinutes: req.ManualTakeoverMinutes, ManualTakeoverScope: req.ManualTakeoverScope, ReplyMergeSeconds: req.ReplyMergeSeconds,
 		Password: password, ShowBrowser: req.ShowBrowser, ChannelIDs: req.ChannelIDs,
 	})
 	if err != nil {
@@ -312,6 +313,7 @@ func (s *Server) listCookieDetails(w http.ResponseWriter, r *http.Request) {
 			ConsignProofText:      summary.ConsignProofText,
 			ManualTakeoverMinutes: summary.ManualTakeoverMinutes,
 			ManualTakeoverScope:   summary.ManualTakeoverScope,
+			ReplyMergeSeconds:     summary.ReplyMergeSeconds,
 			Remark:                summary.Remark,
 			PauseDuration:         summary.PauseDuration,
 			PausedUntil:           summary.PausedUntil,
@@ -363,7 +365,7 @@ func (s *Server) getCookieDetails(w http.ResponseWriter, r *http.Request) {
 		AutoBargain:      summary.AutoBargain,
 		AutoRelist:       summary.AutoRelist,
 		ConsignProofMode: summary.ConsignProofMode, ConsignProofText: summary.ConsignProofText,
-		ManualTakeoverMinutes: summary.ManualTakeoverMinutes, ManualTakeoverScope: summary.ManualTakeoverScope,
+		ManualTakeoverMinutes: summary.ManualTakeoverMinutes, ManualTakeoverScope: summary.ManualTakeoverScope, ReplyMergeSeconds: summary.ReplyMergeSeconds,
 		Remark: summary.Remark, PauseDuration: summary.PauseDuration, PausedUntil: summary.PausedUntil,
 		Paused: summary.PausedUntil > time.Now().UTC().Unix(), ShowBrowser: summary.ShowBrowser,
 		Username: summary.Username, Nickname: cachedCookieSummaryNickname(summary), AvatarURL: summary.AvatarURL,

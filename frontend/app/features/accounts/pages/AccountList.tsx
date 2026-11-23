@@ -59,6 +59,7 @@ const AccountList: React.FC<AccountListProps> = ({ accountEditModal: AccountEdit
     consign_proof_text: '',
     manual_takeover_minutes: 0,
     manual_takeover_scope: 'ai',
+    reply_merge_seconds: 3,
     pause_duration: 0,
     username: '',
     login_password: '',

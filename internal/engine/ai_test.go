@@ -581,6 +581,10 @@ func TestAIReplyTracksBargainRoundsAndBlocksUnsafePrice(t *testing.T) {
 	if first == nil || !strings.Contains(first.Text, "90.00 元") {
 		t.Fatalf("越界报价应替换成安全价格: %+v", first)
 	}
+	// 砍价轮次与历史依赖已保存的对话：模拟回复提交后执行持久化。
+	if err := first.Persist(ctx); err != nil {
+		t.Fatal(err)
+	}
 	// second、err 用于本次流程后续判断的second、err
 	second, err := a.Reply(ctx, chatMsg("再便宜一点", "item1", "chat1"))
 	if err != nil {
@@ -588,6 +592,10 @@ func TestAIReplyTracksBargainRoundsAndBlocksUnsafePrice(t *testing.T) {
 	}
 	if second == nil || !strings.Contains(second.Text, "已经是最低价") {
 		t.Fatalf("超过最大轮次应拒绝继续降价: %+v", second)
+	}
+	// err 是第二轮提交后保存对话历史的错误，期望为空。
+	if err := second.Persist(ctx); err != nil {
+		t.Fatal(err)
 	}
 	// count、err 用于本次流程后续判断的count、err
 	count, err := s.AIReply.CurrentBargainCount(ctx, "cid", "chat1", "item1")
