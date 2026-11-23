@@ -71,14 +71,26 @@ type DailyRecord struct {
 	CreatedAt string
 }
 
+// RevenueRecord 是数据库返回的收益汇总原始记录，金额以整数分表示。
+type RevenueRecord struct {
+	// TotalOrders 是统计范围内的去重订单数。
+	TotalOrders int
+	// TotalCents 是统计范围内的订单金额合计（单位：分）。
+	TotalCents int64
+	// UniqueBuyers 是统计范围内的去重买家数。
+	UniqueBuyers int
+	// UniqueItems 是统计范围内的去重商品数。
+	UniqueItems int
+}
+
 // StatusRecord 是数据库按原始状态聚合的结果。
 type StatusRecord struct {
 	// Status 是持久化的订单状态文本或数字码。
 	Status string
 	// Count 是该原始状态对应的去重订单数。
 	Count int
-	// Amount 是该原始状态对应的金额合计。
-	Amount float64
+	// AmountCents 是该原始状态对应的金额合计（单位：分）。
+	AmountCents int64
 }
 
 // CityRecord 是数据库按收货城市聚合的结果。
@@ -87,8 +99,8 @@ type CityRecord struct {
 	City string
 	// Count 是该城市的去重订单数。
 	Count int
-	// Amount 是该城市的金额合计。
-	Amount float64
+	// AmountCents 是该城市的金额合计（单位：分）。
+	AmountCents int64
 }
 
 // ItemRecord 是数据库按商品标识聚合的结果。
@@ -97,10 +109,8 @@ type ItemRecord struct {
 	ItemID string
 	// Count 是该商品的去重订单数。
 	Count int
-	// TotalAmount 是该商品的金额合计。
-	TotalAmount float64
-	// AvgAmount 是该商品的平均金额。
-	AvgAmount float64
+	// TotalCents 是该商品的金额合计（单位：分）；平均金额由应用层按整数分计算。
+	TotalCents int64
 }
 
 // ValidOrderRecord 是有效订单明细所需的非敏感字段。
@@ -263,8 +273,8 @@ type Repository interface {
 	DashboardStats(ctx context.Context, userID int64) (DashboardStats, error)
 	// AvailableCardStock 返回用户启用数据卡密组中的可用卡密行数。
 	AvailableCardStock(ctx context.Context, userID int64) (int64, error)
-	// QueryRevenue 返回收益汇总。
-	QueryRevenue(ctx context.Context, filter Filter) (RevenueStats, error)
+	// QueryRevenue 返回收益汇总原始记录（金额为整数分）。
+	QueryRevenue(ctx context.Context, filter Filter) (RevenueRecord, error)
 	// QueryDaily 返回订单日期聚合所需的原始记录。
 	QueryDaily(ctx context.Context, filter Filter) ([]DailyRecord, error)
 	// QueryStatus 返回订单状态聚合结果。
@@ -277,9 +287,7 @@ type Repository interface {
 	CountValidOrders(ctx context.Context, filter Filter) (int, error)
 	// ListValidOrders 返回有效订单分页明细。
 	ListValidOrders(ctx context.Context, filter Filter, limit, offset int) ([]ValidOrderRecord, error)
-	// QuerySalesStatus 返回销售统计所需的按原始状态聚合结果；filter.Statuses 由调用方传入销售相关状态集合。
-	QuerySalesStatus(ctx context.Context, filter Filter) ([]StatusRecord, error)
-	// QuerySalesDaily 返回销售统计按日聚合所需的原始订单记录（订单号、金额、状态、创建时间）。
+	// QuerySalesDaily 返回销售统计所需的逐单原始记录（订单号、金额、状态、创建时间）；filter.Statuses 由调用方传入销售相关状态集合。
 	QuerySalesDaily(ctx context.Context, filter Filter) ([]SalesDailyRecord, error)
 }
 

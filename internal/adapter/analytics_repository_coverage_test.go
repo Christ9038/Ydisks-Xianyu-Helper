@@ -2,6 +2,7 @@ package adapter
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	analyticsapp "xianyu-go/internal/application/analytics"
@@ -125,22 +126,7 @@ func TestAnalyticsRepositorySalesQueries(t *testing.T) {
 		t.Fatal(excludedErr)
 	}
 
-	// statusRows、statusErr 保存按原始状态聚合的销售统计结果和数据库错误。
-	statusRows, statusErr := repository.QuerySalesStatus(ctx, filter)
-	if statusErr != nil || len(statusRows) != 3 {
-		t.Fatalf("sales statuses=%+v err=%v", statusRows, statusErr)
-	}
-	// statusAmounts 按状态归集金额，验证 SUM 数值清洗结果。
-	statusAmounts := make(map[string]float64)
-	// row 是当前原始状态聚合记录。
-	for _, row := range statusRows {
-		statusAmounts[row.Status] = row.Amount
-	}
-	if statusAmounts["shipped"] != 10.5 || statusAmounts["completed"] != 8 || statusAmounts["cancelled"] != 5.25 {
-		t.Fatalf("sales status amounts=%+v", statusAmounts)
-	}
-
-	// dailyRows、dailyErr 保存销售按日聚合原始订单记录和数据库错误。
+	// dailyRows、dailyErr 保存销售逐单原始记录和数据库错误。
 	dailyRows, dailyErr := repository.QuerySalesDaily(ctx, filter)
 	if dailyErr != nil || len(dailyRows) != 3 {
 		t.Fatalf("sales daily=%+v err=%v", dailyRows, dailyErr)
@@ -153,5 +139,117 @@ func TestAnalyticsRepositorySalesQueries(t *testing.T) {
 	}
 	if !dailyIDs["sales-shipped"] || !dailyIDs["sales-completed"] || !dailyIDs["sales-cancelled"] || dailyIDs["sales-pending"] {
 		t.Fatalf("sales daily ids=%+v", dailyIDs)
+	}
+}
+
+// TestAnalyticsRepositoryIntegerCentsAndRangeExclusion 验证各聚合查询在数据库内按整数分求和，并整单排除格式非法或超过 1000 万元的历史脏订单（#129）。
+func TestAnalyticsRepositoryIntegerCentsAndRangeExclusion(t *testing.T) {
+	// store、cleanup 保存临时数据库及关闭责任。
+	store, cleanup := newAdapterTestStore(t)
+	defer cleanup()
+	// owner、ownerErr 保存订单所属用户及查询错误。
+	owner, ownerErr := store.Users.GetByUsername(context.Background(), "admin")
+	if ownerErr != nil {
+		t.Fatal(ownerErr)
+	}
+	assertAnalyticsCentsScenario(t, store, owner.ID)
+}
+
+// assertAnalyticsCentsScenario 在给定数据库方言的存储上写入历史脏订单并验证各聚合查询的整数分汇总与范围排除；
+// userID 为 0 时不按账号归属过滤（外部方言库没有预置账号数据）。
+func assertAnalyticsCentsScenario(t *testing.T, store *db.Store, userID int64) {
+	t.Helper()
+	// ctx 限制本场景所有数据库操作的生命周期。
+	ctx := context.Background()
+	// seeds 是直接 SQL 写入的订单（绕过写入校验以模拟历史脏数据）：正常小数金额、1 亿元、上限边界、超长数字与非法文本。
+	seeds := []struct{ id, amount, status, city string }{
+		{"c-a", "0.10", "cancelled", "上海"}, {"c-b", "0.20", "cancelled", "上海"}, {"c-c", "92.50", "6", "上海"},
+		{"c-limit", "10000000", "cancelled", "上海"}, {"c-dirty", "100000000", "cancelled", "上海"},
+		{"c-over", "10000000.01", "cancelled", "上海"}, {"c-long", strings.Repeat("9", 400), "cancelled", "上海"},
+		{"c-text", "abc", "cancelled", "上海"}, {"c-yuan", "¥1,000.05", "cancelled", "北京"},
+	}
+	// seed 是当前待写入订单。
+	for _, seed := range seeds {
+		// err 是直接写入订单的错误。
+		if _, err := store.DB.ExecContext(ctx, `INSERT INTO orders (order_id,item_id,buyer_id,amount,order_status,cookie_id,receiver_city,created_at) VALUES (?,?,?,?,?,?,?,?)`,
+			seed.id, "item-"+seed.id, "buyer", seed.amount, seed.status, "cid", seed.city, "2024-01-02 10:00:00"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// filter 是只含已取消状态的分析条件。
+	filter := analyticsapp.Filter{UserID: userID, Statuses: []string{"cancelled", "6"}}
+	// revenue、err 是收益汇总：有效订单为 c-a、c-b、c-c、c-limit、c-yuan 共 5 单。
+	revenue, err := NewAnalyticsRepository(store).QueryRevenue(ctx, filter)
+	if err != nil || revenue.TotalOrders != 5 {
+		t.Fatalf("收益订单数应排除脏订单: %+v err=%v", revenue, err)
+	}
+	// wantCents 是 0.10+0.20+92.50+10000000+1000.05 元对应的分。
+	const wantCents = int64(10 + 20 + 9250 + 1_000_000_000 + 100005)
+	if revenue.TotalCents != wantCents {
+		t.Fatalf("收益合计应为 %d 分: %+v", wantCents, revenue)
+	}
+	// statuses 是按原始状态聚合结果，两个原始状态的分之和应等于收益合计。
+	statuses, err := NewAnalyticsRepository(store).QueryStatus(ctx, filter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// statusTotal 是各状态金额分之和。
+	var statusTotal int64
+	// row 是当前状态聚合记录。
+	for _, row := range statuses {
+		statusTotal += row.AmountCents
+	}
+	if statusTotal != wantCents {
+		t.Fatalf("状态合计应等于收益合计: %+v", statuses)
+	}
+	// cities 是按城市聚合结果。
+	cities, err := NewAnalyticsRepository(store).QueryCity(ctx, filter)
+	if err != nil || len(cities) != 2 {
+		t.Fatalf("城市聚合异常: %+v err=%v", cities, err)
+	}
+	// cityTotal 是各城市金额分之和。
+	var cityTotal int64
+	// row 是当前城市聚合记录。
+	for _, row := range cities {
+		cityTotal += row.AmountCents
+	}
+	if cityTotal != wantCents {
+		t.Fatalf("城市合计异常: %+v", cities)
+	}
+	// items 是按商品聚合结果；脏订单的商品不应出现。
+	items, err := NewAnalyticsRepository(store).QueryItem(ctx, filter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// item 是当前商品聚合记录。
+	for _, item := range items {
+		if item.ItemID == "item-c-dirty" || item.ItemID == "item-c-over" || item.ItemID == "item-c-long" || item.ItemID == "item-c-text" {
+			t.Fatalf("脏订单商品不应进入商品排行: %+v", items)
+		}
+	}
+	// daily、err 是按订单日期原始记录，同样只含有效订单。
+	daily, err := NewAnalyticsRepository(store).QueryDaily(ctx, filter)
+	if err != nil || len(daily) != 5 {
+		t.Fatalf("按日记录应排除脏订单: %+v err=%v", daily, err)
+	}
+	// count、err 是有效订单总数。
+	count, err := NewAnalyticsRepository(store).CountValidOrders(ctx, filter)
+	if err != nil || count != 5 {
+		t.Fatalf("有效订单数应排除脏订单: %d err=%v", count, err)
+	}
+}
+
+// TestAmountCentsExpressionPerDialect 验证三种数据库方言生成的整数分表达式含有各自的整数类型与范围上限。
+func TestAmountCentsExpressionPerDialect(t *testing.T) {
+	// dialectCase 保存方言及其整数类型标记。
+	for _, dialectCase := range []struct {
+		dialect db.Dialect
+		marker  string
+	}{{db.DialectSQLite, "AS INTEGER"}, {db.DialectMySQL, "AS SIGNED"}, {db.DialectPostgres, "AS BIGINT"}} {
+		// expression 是当前方言的整数分金额表达式。
+		expression := amountCentsExpression(dialectCase.dialect, "orders.amount")
+		if !strings.Contains(expression, dialectCase.marker) || !strings.Contains(expression, "10000000") || !strings.Contains(expression, "* 100") {
+			t.Fatalf("方言 %v 表达式异常: %s", dialectCase.dialect, expression)
+		}
 	}
 }

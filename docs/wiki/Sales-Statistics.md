@@ -20,4 +20,9 @@ Three figures are shown side by side and are **not netted against each other**:
 
 Below the cards you get a **daily trend chart** and a **daily detail table** (order count, sales, received, refunded). The empty state means no shipped, completed or cancelled orders exist in the range.
 
+## How amounts are calculated
+
+- Amounts are summed in integer **cents** (no floating-point accumulation) and only converted to yuan for display, so totals and the daily table always agree to the cent. A third decimal place, if the platform ever sends one, is rounded half-up to the cent.
+- A single order amount must be between 0 and **¥10,000,000**. Orders whose stored amount is malformed or above that limit (for example a bad value written by an older version) are **left out of every figure** and are not counted as orders, so one corrupt record can no longer inflate "Refunded payment". New amounts above the limit are rejected when an order is edited, imported or synced.
+
 For revenue, status and product distribution use the [Dashboard](Dashboard).

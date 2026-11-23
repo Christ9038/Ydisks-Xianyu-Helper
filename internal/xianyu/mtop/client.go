@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -652,7 +653,7 @@ func mtopString(v any) string {
 	case string:
 		return x
 	case float64:
-		return strconv.FormatInt(int64(x), 10)
+		return mtopFloatString(x)
 	case int:
 		return strconv.Itoa(x)
 	case json.Number:
@@ -660,6 +661,18 @@ func mtopString(v any) string {
 	default:
 		return ""
 	}
+}
+
+// mtopFloatString 把 JSON 数字（float64）转成十进制文本：整数保持原有的整数文本，带小数的值（如金额 92.5）保留小数，
+// 不再截断为整数；NaN 与无穷大不是合法平台数值，返回空串。
+func mtopFloatString(value float64) string {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return ""
+	}
+	if value == math.Trunc(value) && math.Abs(value) < 9e18 {
+		return strconv.FormatInt(int64(value), 10)
+	}
+	return strconv.FormatFloat(value, 'f', -1, 64)
 }
 
 // mtopInt 封装mtopInt业务协调。

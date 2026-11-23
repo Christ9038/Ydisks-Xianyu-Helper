@@ -2,6 +2,7 @@ package mtop
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -397,5 +398,26 @@ func TestBuildOrderDetailQuery(t *testing.T) {
 		!strings.Contains(q, "api=mtop.idle.web.trade.order.detail") ||
 		!strings.Contains(q, "valueType=string") {
 		t.Fatalf("query=%q 缺字段", q)
+	}
+}
+
+// TestParseOrderDetailKeepsDecimalForNumericAmount 验证平台把成交金额作为 JSON 数字（而非字符串）返回时，小数不再被截断（#129 相关）。
+func TestParseOrderDetailKeepsDecimalForNumericAmount(t *testing.T) {
+	// data 是金额为 JSON 数字 92.5 的订单详情节点，以及整数金额 8 的对照。
+	for payload, want := range map[string]string{
+		`{"components":[{"render":"orderInfoVO","data":{"priceInfo":{"amount":{"value":92.5}}}}]}`: "92.5",
+		`{"components":[{"render":"orderInfoVO","data":{"priceInfo":{"amount":{"value":8}}}}]}`:    "8",
+		`{"components":[{"render":"orderInfoVO","data":{"priceInfo":{"amount":{"value":0.1}}}}]}`:  "0.1",
+	} {
+		// data 是解码后的详情节点。
+		var data map[string]any
+		// err 是测试载荷的 JSON 解码错误。
+		if err := json.Unmarshal([]byte(payload), &data); err != nil {
+			t.Fatal(err)
+		}
+		// got 是解析得到的成交金额文本。
+		if got := parseOrderDetailData(data).Amount; got != want {
+			t.Fatalf("金额 %s 解析为 %q，期望 %q", payload, got, want)
+		}
 	}
 }

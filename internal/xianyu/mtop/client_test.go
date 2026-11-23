@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -414,7 +415,14 @@ func TestMtopString(t *testing.T) {
 	}{
 		{"hello", "hello"},
 		{float64(123), "123"},
-		{float64(12.99), "12"},
+		{float64(12.99), "12.99"},
+		{float64(92.5), "92.5"},
+		{float64(0.1), "0.1"},
+		{float64(-3), "-3"},
+		{float64(1e19), "10000000000000000000"},
+		{math.NaN(), ""},
+		{math.Inf(1), ""},
+		{math.Inf(-1), ""},
 		{int(456), "456"},
 		{json.Number("789"), "789"},
 		{nil, ""},

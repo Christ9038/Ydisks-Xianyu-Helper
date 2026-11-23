@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"xianyu-go/internal/money"
 )
 
 // ValidOrderStatuses 是参与订单分析的有效状态候选集合。
@@ -129,10 +131,15 @@ func (svc *Service) OrderAnalytics(ctx context.Context, query Query) (OrderAnaly
 	if err != nil {
 		return OrderAnalytics{}, &StageError{Stage: StageDaily, Err: err}
 	}
-	// dailyMap 按用户本地日期累计订单数量和金额。
+	// dailyMap 按用户本地日期累计订单数量和金额（分）。
 	dailyMap := make(map[string]dailyValue)
 	// record 是当前订单日期聚合原始记录。
 	for _, record := range dailyRecords {
+		// cents 是当前订单金额（分）；非法或超范围金额的订单整单排除。
+		cents, amountErr := money.ParseOrderAmountCents(record.Amount)
+		if amountErr != nil {
+			continue
+		}
 		// created 是解析后的订单创建时间。
 		created := parseDBTime(record.CreatedAt)
 		if created.IsZero() {
@@ -146,7 +153,7 @@ func (svc *Service) OrderAnalytics(ctx context.Context, query Query) (OrderAnaly
 		// value 是当前日期的累计统计值。
 		value := dailyMap[date]
 		value.count++
-		value.amount += parseAmount(record.Amount)
+		value.cents += cents
 		dailyMap[date] = value
 	}
 	// daily 是排序后的按日统计结果。
@@ -162,7 +169,7 @@ func (svc *Service) OrderAnalytics(ctx context.Context, query Query) (OrderAnaly
 	for _, date := range dates {
 		// value 是当前日期的累计统计值。
 		value := dailyMap[date]
-		daily = append(daily, DailyStats{Date: date, OrderCount: value.count, Amount: round2(value.amount)})
+		daily = append(daily, DailyStats{Date: date, OrderCount: value.count, Amount: centsToYuan(value.cents)})
 	}
 
 	// statusRecords 是数据库按原始状态返回的聚合结果。
@@ -179,7 +186,7 @@ func (svc *Service) OrderAnalytics(ctx context.Context, query Query) (OrderAnaly
 		// value 是当前状态的累计统计值。
 		value := statusMap[status]
 		value.count += record.Count
-		value.amount += record.Amount
+		value.cents += record.AmountCents
 		statusMap[status] = value
 	}
 	// statusStats 是按订单数量降序排列的状态统计结果。
@@ -195,7 +202,7 @@ func (svc *Service) OrderAnalytics(ctx context.Context, query Query) (OrderAnaly
 	for _, status := range statusNames {
 		// value 是当前状态的累计统计值。
 		value := statusMap[status]
-		statusStats = append(statusStats, StatusStats{Status: status, Count: value.count, Amount: round2(value.amount)})
+		statusStats = append(statusStats, StatusStats{Status: status, Count: value.count, Amount: centsToYuan(value.cents)})
 	}
 
 	// cityRecords 是数据库按收货城市返回的聚合结果。
@@ -207,7 +214,7 @@ func (svc *Service) OrderAnalytics(ctx context.Context, query Query) (OrderAnaly
 	cityStats := make([]CityStats, 0, len(cityRecords))
 	// record 是当前收货城市聚合记录。
 	for _, record := range cityRecords {
-		cityStats = append(cityStats, CityStats{City: record.City, OrderCount: record.Count, TotalAmount: round2(record.Amount)})
+		cityStats = append(cityStats, CityStats{City: record.City, OrderCount: record.Count, TotalAmount: centsToYuan(record.AmountCents)})
 	}
 
 	// itemRecords 是数据库按商品返回的聚合结果。
@@ -219,10 +226,10 @@ func (svc *Service) OrderAnalytics(ctx context.Context, query Query) (OrderAnaly
 	itemStats := make([]ItemStats, 0, len(itemRecords))
 	// record 是当前商品聚合记录。
 	for _, record := range itemRecords {
-		itemStats = append(itemStats, ItemStats{ItemID: record.ItemID, OrderCount: record.Count, TotalAmount: round2(record.TotalAmount), AvgAmount: round2(record.AvgAmount)})
+		itemStats = append(itemStats, ItemStats{ItemID: record.ItemID, OrderCount: record.Count, TotalAmount: centsToYuan(record.TotalCents), AvgAmount: centsToYuan(averageCents(record.TotalCents, record.Count))})
 	}
 	return OrderAnalytics{RevenueStats: RevenueStats{
-		TotalOrders: revenue.TotalOrders, TotalAmount: round2(revenue.TotalAmount), AvgAmount: round2(revenue.AvgAmount),
+		TotalOrders: revenue.TotalOrders, TotalAmount: centsToYuan(revenue.TotalCents), AvgAmount: centsToYuan(averageCents(revenue.TotalCents, revenue.TotalOrders)),
 		UniqueBuyers: revenue.UniqueBuyers, UniqueItems: revenue.UniqueItems,
 	}, DailyStats: daily, StatusStats: statusStats, CityStats: cityStats, ItemStats: itemStats}, nil
 }
@@ -260,45 +267,38 @@ func (svc *Service) ValidOrders(ctx context.Context, query Query, page, pageSize
 
 // SalesStats 查询指定时间范围内的销售额、已收货款与退货货款，三项分列展示、互不抵扣，订单按创建时间归属。
 // 口径：销售额=已发货+已完成；已收货款=已完成；退货货款=已取消（用户确认已取消即已退款）。
+// 金额全程以整数分累加（money.ParseOrderAmountCents），仅在输出时换算为元；总计与按日明细来自同一批逐单记录，二者必然一致。
+// 金额非法或超过 money.MaxOrderAmountCents 的历史异常订单整单排除，不参与任何合计与订单数，避免脏数据污染统计。
 func (svc *Service) SalesStats(ctx context.Context, query Query) (SalesStats, error) {
 	// filter 是按用户本地日期转换后的持久化查询条件，状态集合限定为销售相关状态。
 	filter := query.salesFilter()
-	// statusRecords 是数据库按原始状态返回的聚合结果。
-	statusRecords, err := svc.repository.QuerySalesStatus(ctx, filter)
+	// records 是销售范围内的逐单原始记录（订单号、金额、状态、创建时间）。
+	records, err := svc.repository.QuerySalesDaily(ctx, filter)
 	if err != nil {
 		return SalesStats{}, &StageError{Stage: StageSales, Err: err}
 	}
-	// result 是累计中的销售统计结果。
-	result := SalesStats{}
-	// record 是当前原始状态聚合记录。
-	for _, record := range statusRecords {
+	// total 是累计中的总计（单位：分）。
+	total := salesCents{}
+	// dailyMap 按用户本地日期累计三项指标与订单数。
+	dailyMap := make(map[string]*salesCents)
+	// seen 记录已计入的订单号，防止同一订单被重复累计。
+	seen := make(map[string]struct{}, len(records))
+	// record 是当前销售订单原始记录。
+	for _, record := range records {
+		// cents 是当前订单金额（分）；非法或超范围金额的订单整单排除。
+		cents, amountErr := money.ParseOrderAmountCents(record.Amount)
+		if amountErr != nil {
+			continue
+		}
+		// duplicated 表示该订单号此前已经计入统计。
+		if _, duplicated := seen[record.OrderID]; duplicated {
+			continue
+		}
+		seen[record.OrderID] = struct{}{}
 		// status 是兼容数字码转换后的归一化状态名称。
 		status := normalizeStatus(record.Status)
-		// amount 是该原始状态对应的金额合计（元）。
-		amount := record.Amount
-		switch status {
-		case "shipped", "completed":
-			result.SalesAmount += amount
-			result.SalesOrders += record.Count
-			if status == "completed" {
-				result.ReceivedAmount += amount
-				result.ReceivedOrders += record.Count
-			}
-		case "cancelled":
-			result.RefundedAmount += amount
-			result.RefundedOrders += record.Count
-		}
-	}
-	// dailyRecords 是按订单返回的销售按日聚合原始记录。
-	dailyRecords, err := svc.repository.QuerySalesDaily(ctx, filter)
-	if err != nil {
-		return SalesStats{}, &StageError{Stage: StageSales, Err: err}
-	}
-	// dailyMap 按用户本地日期累计三项指标与订单数。
-	dailyMap := make(map[string]*SalesDailyStats)
-	// record 是当前销售订单原始记录。
-	for _, record := range dailyRecords {
-		// created 是解析后的订单创建时间。
+		total.add(status, cents)
+		// created 是解析后的订单创建时间；无法解析时只计入总计，不进入按日明细。
 		created := parseDBTime(record.CreatedAt)
 		if created.IsZero() {
 			continue
@@ -311,23 +311,10 @@ func (svc *Service) SalesStats(ctx context.Context, query Query) (SalesStats, er
 		// day 是当前日期的累计统计值。
 		day, ok := dailyMap[date]
 		if !ok {
-			day = &SalesDailyStats{Date: date}
+			day = &salesCents{}
 			dailyMap[date] = day
 		}
-		// amount 是当前订单的数值金额（元）。
-		amount := parseAmount(record.Amount)
-		// status 是兼容数字码转换后的归一化状态名称。
-		status := normalizeStatus(record.Status)
-		day.OrderCount++
-		switch status {
-		case "shipped", "completed":
-			day.SalesAmount += amount
-			if status == "completed" {
-				day.ReceivedAmount += amount
-			}
-		case "cancelled":
-			day.RefundedAmount += amount
-		}
+		day.add(status, cents)
 	}
 	// dates 是待输出的日期列表。
 	dates := make([]string, 0, len(dailyMap))
@@ -340,21 +327,59 @@ func (svc *Service) SalesStats(ctx context.Context, query Query) (SalesStats, er
 	daily := make([]SalesDailyStats, 0, len(dates))
 	// date 是当前输出的日期键。
 	for _, date := range dates {
-		// day 是当前日期的累计统计值。
+		// day 是当前日期的累计统计值（分）。
 		day := dailyMap[date]
 		daily = append(daily, SalesDailyStats{
 			Date:           date,
-			SalesAmount:    round2(day.SalesAmount),
-			ReceivedAmount: round2(day.ReceivedAmount),
-			RefundedAmount: round2(day.RefundedAmount),
-			OrderCount:     day.OrderCount,
+			SalesAmount:    centsToYuan(day.sales),
+			ReceivedAmount: centsToYuan(day.received),
+			RefundedAmount: centsToYuan(day.refunded),
+			OrderCount:     day.orders,
 		})
 	}
-	result.SalesAmount = round2(result.SalesAmount)
-	result.ReceivedAmount = round2(result.ReceivedAmount)
-	result.RefundedAmount = round2(result.RefundedAmount)
-	result.Daily = daily
-	return result, nil
+	return SalesStats{
+		SalesAmount: centsToYuan(total.sales), SalesOrders: total.salesOrders,
+		ReceivedAmount: centsToYuan(total.received), ReceivedOrders: total.receivedOrders,
+		RefundedAmount: centsToYuan(total.refunded), RefundedOrders: total.refundedOrders,
+		Daily: daily,
+	}, nil
+}
+
+// salesCents 是销售统计的整数分累加器，金额单位均为分。
+type salesCents struct {
+	// sales 是已发货与已完成订单的金额合计，salesOrders 是对应订单数。
+	sales       int64
+	salesOrders int
+	// received 是已完成订单的金额合计，receivedOrders 是对应订单数。
+	received       int64
+	receivedOrders int
+	// refunded 是已取消订单的金额合计，refundedOrders 是对应订单数。
+	refunded       int64
+	refundedOrders int
+	// orders 是参与统计的订单总数（含三类状态）。
+	orders int
+}
+
+// add 把一笔金额为 cents 分、归一化状态为 status 的订单累加进对应指标。
+func (acc *salesCents) add(status string, cents int64) {
+	acc.orders++
+	switch status {
+	case "shipped", "completed":
+		acc.sales += cents
+		acc.salesOrders++
+		if status == "completed" {
+			acc.received += cents
+			acc.receivedOrders++
+		}
+	case "cancelled":
+		acc.refunded += cents
+		acc.refundedOrders++
+	}
+}
+
+// centsToYuan 把整数分换算为元；两位小数的分值经 float64 往返后不丢精度，仅用于对外 DTO 输出。
+func centsToYuan(cents int64) float64 {
+	return float64(cents) / 100
 }
 
 // ErrorMessage 将分析失败阶段映射为原有 HTTP 错误消息。
@@ -400,16 +425,16 @@ func (query Query) salesFilter() Filter {
 type dailyValue struct {
 	// count 是当前日期的订单数量。
 	count int
-	// amount 是当前日期的金额累计值。
-	amount float64
+	// cents 是当前日期的金额累计值（单位：分）。
+	cents int64
 }
 
 // statusValue 保存单个归一化状态的订单数和金额累计值。
 type statusValue struct {
 	// count 是当前状态的订单数量。
 	count int
-	// amount 是当前状态的金额累计值。
-	amount float64
+	// cents 是当前状态的金额累计值（单位：分）。
+	cents int64
 }
 
 // dateBoundary 是内部日期边界转换实现。
@@ -432,18 +457,14 @@ func parseDBTime(raw string) time.Time {
 	return time.Time{}
 }
 
-// parseAmount 将订单金额文本转换为数值。
-func parseAmount(raw string) float64 {
-	// cleaned 是移除货币符号和千分位后的金额文本。
-	cleaned := strings.TrimSpace(strings.NewReplacer("¥", "", ",", "").Replace(raw))
-	// value 是解析后的金额；非法金额按零处理以保持历史统计口径。
-	value, _ := strconv.ParseFloat(cleaned, 64)
-	return value
-}
-
-// round2 将金额按两位小数进行四舍五入。
-func round2(value float64) float64 {
-	return float64(int(value*100+0.5)) / 100
+// averageCents 返回 totalCents 在 count 笔订单上的平均分值（整数除法四舍五入）；count 非正时返回 0。
+func averageCents(totalCents int64, count int) int64 {
+	if count <= 0 {
+		return 0
+	}
+	// divisor 是订单数的整数分母。
+	divisor := int64(count)
+	return (totalCents + divisor/2) / divisor
 }
 
 // normalizeStatus 将历史数字状态码归一为业务状态名称。

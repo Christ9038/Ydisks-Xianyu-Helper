@@ -5,11 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"math"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
+
+	"xianyu-go/internal/money"
 )
 
 // orderAmountPattern 用于本次流程后续判断的订单AmountPattern
@@ -403,9 +403,8 @@ func NormalizeOrderAmount(raw string) (string, bool) {
 	} else if !orderAmountPattern.MatchString(raw) {
 		return "", false
 	}
-	// value、err 用于本次流程后续判断的value、err
-	value, err := strconv.ParseFloat(raw, 64)
-	if err != nil || math.IsInf(value, 0) || math.IsNaN(value) {
+	// 金额以整数分校验：格式非法、非有限值或超过 money.MaxOrderAmountCents（1000 万元）一律拒绝，防止异常金额进入统计。
+	if _, err := money.ParseOrderAmountCents(raw); err != nil {
 		return "", false
 	}
 	return raw, true

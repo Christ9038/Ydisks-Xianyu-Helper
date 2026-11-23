@@ -2,10 +2,12 @@ package adapter
 
 import (
 	"context"
+	"strconv"
 	"strings"
 
 	analyticsapp "xianyu-go/internal/application/analytics"
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/money"
 )
 
 // AnalyticsRepository 将 Store 的只读查询能力适配为订单分析应用 Port。
@@ -80,24 +82,24 @@ func (r *AnalyticsRepository) AvailableCardStock(ctx context.Context, userID int
 	return stock, nil
 }
 
-// QueryRevenue 返回订单收益汇总。
-func (r *AnalyticsRepository) QueryRevenue(ctx context.Context, filter analyticsapp.Filter) (analyticsapp.RevenueStats, error) {
-	// where、args、clean 和 amountFilter 是当前方言的订单范围条件。
-	where, args, clean, amountFilter := r.orderScope(filter, "amount")
+// QueryRevenue 返回订单收益汇总；金额在数据库内按整数分求和，避免浮点累加误差。
+func (r *AnalyticsRepository) QueryRevenue(ctx context.Context, filter analyticsapp.Filter) (analyticsapp.RevenueRecord, error) {
+	// where、args、cents 和 amountFilter 是当前方言的订单范围条件与整数分金额表达式。
+	where, args, cents, amountFilter := r.orderScope(filter, "amount")
 	// stats 是数据库返回的收益聚合值。
-	var stats analyticsapp.RevenueStats
+	var stats analyticsapp.RevenueRecord
 	// err 是收益汇总查询错误。
 	err := r.store.Analytics.QueryRowContext(ctx, `
-		SELECT COUNT(DISTINCT order_id), COALESCE(SUM(`+clean+`),0),
-		       COALESCE(AVG(`+clean+`),0), COUNT(DISTINCT buyer_id), COUNT(DISTINCT item_id)
+		SELECT COUNT(DISTINCT order_id), COALESCE(SUM(`+cents+`),0),
+		       COUNT(DISTINCT buyer_id), COUNT(DISTINCT item_id)
 		FROM orders `+where+amountFilter, args...).Scan(
-		&stats.TotalOrders, &stats.TotalAmount, &stats.AvgAmount, &stats.UniqueBuyers, &stats.UniqueItems)
+		&stats.TotalOrders, &stats.TotalCents, &stats.UniqueBuyers, &stats.UniqueItems)
 	return stats, err
 }
 
 // QueryDaily 返回按订单读取的日期聚合原始记录。
 func (r *AnalyticsRepository) QueryDaily(ctx context.Context, filter analyticsapp.Filter) ([]analyticsapp.DailyRecord, error) {
-	// where、args、clean 和 amountFilter 是当前方言的订单范围条件。
+	// where、args、cents 和 amountFilter 是当前方言的订单范围条件。
 	where, args, _, amountFilter := r.orderScope(filter, "amount")
 	// rows、err 是日期聚合查询结果及错误。
 	rows, err := r.store.Analytics.QueryContext(ctx, `SELECT order_id,amount,created_at FROM orders `+where+amountFilter, args...)
@@ -121,11 +123,11 @@ func (r *AnalyticsRepository) QueryDaily(ctx context.Context, filter analyticsap
 
 // QueryStatus 返回按原始订单状态聚合的结果。
 func (r *AnalyticsRepository) QueryStatus(ctx context.Context, filter analyticsapp.Filter) ([]analyticsapp.StatusRecord, error) {
-	// where、args、clean 和 amountFilter 是当前方言的订单范围条件。
-	where, args, clean, amountFilter := r.orderScope(filter, "amount")
+	// where、args、cents 和 amountFilter 是当前方言的订单范围条件与整数分金额表达式。
+	where, args, cents, amountFilter := r.orderScope(filter, "amount")
 	// rows、err 是状态聚合查询结果及错误。
 	rows, err := r.store.Analytics.QueryContext(ctx, `
-		SELECT COALESCE(order_status,'unknown'), COUNT(DISTINCT order_id), COALESCE(SUM(`+clean+`),0)
+		SELECT COALESCE(order_status,'unknown'), COUNT(DISTINCT order_id), COALESCE(SUM(`+cents+`),0)
 		FROM orders `+where+amountFilter+`
 		GROUP BY order_status ORDER BY COUNT(DISTINCT order_id) DESC`, args...)
 	if err != nil {
@@ -138,7 +140,7 @@ func (r *AnalyticsRepository) QueryStatus(ctx context.Context, filter analyticsa
 		// record 是当前状态的聚合字段。
 		var record analyticsapp.StatusRecord
 		if // err 是当前状态记录读取错误。
-		err := rows.Scan(&record.Status, &record.Count, &record.Amount); err != nil {
+		err := rows.Scan(&record.Status, &record.Count, &record.AmountCents); err != nil {
 			return nil, err
 		}
 		records = append(records, record)
@@ -148,11 +150,11 @@ func (r *AnalyticsRepository) QueryStatus(ctx context.Context, filter analyticsa
 
 // QueryCity 返回按收货城市聚合的结果。
 func (r *AnalyticsRepository) QueryCity(ctx context.Context, filter analyticsapp.Filter) ([]analyticsapp.CityRecord, error) {
-	// where、args、clean 和 amountFilter 是当前方言的订单范围条件。
-	where, args, clean, amountFilter := r.orderScope(filter, "amount")
+	// where、args、cents 和 amountFilter 是当前方言的订单范围条件与整数分金额表达式。
+	where, args, cents, amountFilter := r.orderScope(filter, "amount")
 	// rows、err 是城市聚合查询结果及错误。
 	rows, err := r.store.Analytics.QueryContext(ctx, `
-		SELECT receiver_city, COUNT(DISTINCT order_id), COALESCE(SUM(`+clean+`),0)
+		SELECT receiver_city, COUNT(DISTINCT order_id), COALESCE(SUM(`+cents+`),0)
 		FROM orders `+where+amountFilter+`
 		  AND receiver_city IS NOT NULL AND receiver_city != ''
 		GROUP BY receiver_city ORDER BY COUNT(DISTINCT order_id) DESC LIMIT 50`, args...)
@@ -166,7 +168,7 @@ func (r *AnalyticsRepository) QueryCity(ctx context.Context, filter analyticsapp
 		// record 是当前城市的聚合字段。
 		var record analyticsapp.CityRecord
 		if // err 是当前城市记录读取错误。
-		err := rows.Scan(&record.City, &record.Count, &record.Amount); err != nil {
+		err := rows.Scan(&record.City, &record.Count, &record.AmountCents); err != nil {
 			return nil, err
 		}
 		records = append(records, record)
@@ -176,11 +178,11 @@ func (r *AnalyticsRepository) QueryCity(ctx context.Context, filter analyticsapp
 
 // QueryItem 返回按商品标识聚合的结果。
 func (r *AnalyticsRepository) QueryItem(ctx context.Context, filter analyticsapp.Filter) ([]analyticsapp.ItemRecord, error) {
-	// where、args、clean 和 amountFilter 是当前方言的订单范围条件。
-	where, args, clean, amountFilter := r.orderScope(filter, "amount")
+	// where、args、cents 和 amountFilter 是当前方言的订单范围条件与整数分金额表达式。
+	where, args, cents, amountFilter := r.orderScope(filter, "amount")
 	// rows、err 是商品聚合查询结果及错误。
 	rows, err := r.store.Analytics.QueryContext(ctx, `
-		SELECT item_id, COUNT(DISTINCT order_id), COALESCE(SUM(`+clean+`),0), COALESCE(AVG(`+clean+`),0)
+		SELECT item_id, COUNT(DISTINCT order_id), COALESCE(SUM(`+cents+`),0)
 		FROM orders `+where+amountFilter+`
 		  AND item_id IS NOT NULL AND item_id != ''
 		GROUP BY item_id ORDER BY COUNT(DISTINCT order_id) DESC LIMIT 20`, args...)
@@ -194,7 +196,7 @@ func (r *AnalyticsRepository) QueryItem(ctx context.Context, filter analyticsapp
 		// record 是当前商品的聚合字段。
 		var record analyticsapp.ItemRecord
 		if // err 是当前商品记录读取错误。
-		err := rows.Scan(&record.ItemID, &record.Count, &record.TotalAmount, &record.AvgAmount); err != nil {
+		err := rows.Scan(&record.ItemID, &record.Count, &record.TotalCents); err != nil {
 			return nil, err
 		}
 		records = append(records, record)
@@ -204,7 +206,7 @@ func (r *AnalyticsRepository) QueryItem(ctx context.Context, filter analyticsapp
 
 // CountValidOrders 返回有效订单总数。
 func (r *AnalyticsRepository) CountValidOrders(ctx context.Context, filter analyticsapp.Filter) (int, error) {
-	// where、args、clean 和 amountFilter 是当前方言的订单范围条件。
+	// where、args、cents 和 amountFilter 是当前方言的订单范围条件。
 	where, args, _, amountFilter := r.orderScope(filter, "orders.amount")
 	// total 是数据库返回的有效订单数量。
 	var total int
@@ -215,7 +217,7 @@ func (r *AnalyticsRepository) CountValidOrders(ctx context.Context, filter analy
 
 // ListValidOrders 返回有效订单分页明细。
 func (r *AnalyticsRepository) ListValidOrders(ctx context.Context, filter analyticsapp.Filter, limit, offset int) ([]analyticsapp.ValidOrderRecord, error) {
-	// where、args、clean 和 amountFilter 是当前方言的订单范围条件。
+	// where、args、cents 和 amountFilter 是当前方言的订单范围条件。
 	where, args, _, amountFilter := r.orderScope(filter, "orders.amount")
 	args = append(args, limit, offset)
 	// rows、err 是有效订单分页查询结果及错误。
@@ -243,34 +245,7 @@ func (r *AnalyticsRepository) ListValidOrders(ctx context.Context, filter analyt
 	return records, rows.Err()
 }
 
-// QuerySalesStatus 返回销售统计所需的按原始状态聚合结果；状态集合由应用层通过 filter.Statuses 传入（含已发货/已完成/已取消及其数字码别名）。
-func (r *AnalyticsRepository) QuerySalesStatus(ctx context.Context, filter analyticsapp.Filter) ([]analyticsapp.StatusRecord, error) {
-	// where、args、clean 和 amountFilter 是当前方言的订单范围条件。
-	where, args, clean, amountFilter := r.orderScope(filter, "amount")
-	// rows、err 是按原始状态聚合的查询结果及错误。
-	rows, err := r.store.Analytics.QueryContext(ctx, `
-		SELECT COALESCE(order_status,'unknown'), COUNT(DISTINCT order_id), COALESCE(SUM(`+clean+`),0)
-		FROM orders `+where+amountFilter+`
-		GROUP BY order_status`, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	// records 是数据库按原始状态返回的聚合记录。
-	records := make([]analyticsapp.StatusRecord, 0)
-	for rows.Next() {
-		// record 是当前状态的聚合字段。
-		var record analyticsapp.StatusRecord
-		if // err 是当前状态记录读取错误。
-		err := rows.Scan(&record.Status, &record.Count, &record.Amount); err != nil {
-			return nil, err
-		}
-		records = append(records, record)
-	}
-	return records, rows.Err()
-}
-
-// QuerySalesDaily 返回销售统计按日聚合所需的原始订单记录（订单号、金额、状态、创建时间），不含商品连接，仅按用户本地日期归属。
+// QuerySalesDaily 返回销售统计所需的逐单原始记录（订单号、金额、状态、创建时间），不含商品连接；总计与按日聚合都在应用层以整数分完成。
 func (r *AnalyticsRepository) QuerySalesDaily(ctx context.Context, filter analyticsapp.Filter) ([]analyticsapp.SalesDailyRecord, error) {
 	// where、args 和 amountFilter 是当前方言的订单范围条件；按日聚合在应用层解析金额，此处不复用 SQL 金额清洗。
 	where, args, _, amountFilter := r.orderScope(filter, "amount")
@@ -326,22 +301,42 @@ func (r *AnalyticsRepository) orderScope(filter analyticsapp.Filter, amountColum
 	}
 	// where 是带 WHERE 前缀和尾随空格的条件文本。
 	where := "WHERE " + strings.Join(conditions, " AND ") + " "
-	// clean 是当前数据库方言清洗金额文本的表达式。
-	clean := amountExpression(r.store.Orders.Dialect, amountColumn)
-	return where, args, clean, " AND " + clean + " IS NOT NULL"
+	// cents 是当前方言的整数分金额表达式；格式非法或超过 money.MaxOrderAmountCents 的金额为 NULL，被 amountFilter 整单排除。
+	cents := amountCentsExpression(r.store.Orders.Dialect, amountColumn)
+	return where, args, cents, " AND " + cents + " IS NOT NULL"
 }
 
-// amountExpression 返回当前数据库方言的安全金额表达式。
+// amountCentsExpression 返回当前数据库方言的整数分金额表达式：先用安全金额表达式得到元，再乘 100 四舍五入为整数，
+// 使 SUM 在数据库内按整数累加。两位小数的金额乘 100 后距整数不超过 1e-6，四舍五入结果精确。
+func amountCentsExpression(dialect db.Dialect, column string) string {
+	// yuan 是通过格式与范围校验的元金额表达式，不合格时为 NULL。
+	yuan := amountExpression(dialect, column)
+	switch dialect {
+	case db.DialectPostgres:
+		return `CAST(ROUND(` + yuan + ` * 100) AS BIGINT)`
+	case db.DialectMySQL:
+		return `CAST(ROUND(` + yuan + ` * 100) AS SIGNED)`
+	default:
+		return `CAST(ROUND(` + yuan + ` * 100) AS INTEGER)`
+	}
+}
+
+// maxOrderYuanText 是订单金额上限（元）的十进制文本，来自 money.MaxOrderAmountCents，用于拼入 SQL 范围条件。
+var maxOrderYuanText = strconv.FormatInt(money.MaxOrderAmountCents/100, 10)
+
+// amountExpression 返回当前数据库方言的安全金额表达式（单位：元）：
+// 仅接受 `整数[.小数]` 格式且不超过 money.MaxOrderAmountCents 的金额，其余返回 NULL。
+// PostgreSQL 与 MySQL 的正则限制整数部分最多 12 位，避免超长数字文本在 CAST 时报错；SQLite 的 CAST 对超长文本不会报错，由上限比较排除。
 func amountExpression(dialect db.Dialect, column string) string {
 	// clean 是移除货币符号和千分位后的金额文本表达式。
 	clean := `TRIM(REPLACE(REPLACE(` + column + `, '¥', ''), ',', ''))`
 	switch dialect {
 	case db.DialectPostgres:
-		return `CASE WHEN ` + clean + ` ~ '^[0-9]+([.][0-9]+)?$' THEN CAST(` + clean + ` AS DOUBLE PRECISION) END`
+		return `CASE WHEN ` + clean + ` ~ '^[0-9]{1,12}([.][0-9]+)?$' THEN CASE WHEN CAST(` + clean + ` AS DOUBLE PRECISION) <= ` + maxOrderYuanText + ` THEN CAST(` + clean + ` AS DOUBLE PRECISION) END END`
 	case db.DialectMySQL:
-		return `CASE WHEN ` + clean + ` REGEXP '^[0-9]+([.][0-9]+)?$' THEN CAST(` + clean + ` AS DOUBLE) END`
+		return `CASE WHEN ` + clean + ` REGEXP '^[0-9]{1,12}([.][0-9]+)?$' THEN CASE WHEN CAST(` + clean + ` AS DOUBLE) <= ` + maxOrderYuanText + ` THEN CAST(` + clean + ` AS DOUBLE) END END`
 	default:
-		return `CASE WHEN ` + clean + ` GLOB '[0-9]*' AND ` + clean + ` NOT GLOB '*[^0-9.]*' AND ` + clean + ` NOT GLOB '*.*.*' AND ` + clean + ` NOT LIKE '%.' THEN CAST(` + clean + ` AS REAL) END`
+		return `CASE WHEN ` + clean + ` GLOB '[0-9]*' AND ` + clean + ` NOT GLOB '*[^0-9.]*' AND ` + clean + ` NOT GLOB '*.*.*' AND ` + clean + ` NOT LIKE '%.' AND CAST(` + clean + ` AS REAL) <= ` + maxOrderYuanText + ` THEN CAST(` + clean + ` AS REAL) END`
 	}
 }
 

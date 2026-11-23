@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"regexp"
-	"strconv"
 	"strings"
+
+	"xianyu-go/internal/money"
 )
 
 // UpdateRequest 描述订单更新用例允许修改的字段。
@@ -198,9 +198,8 @@ func NormalizeOrderAmount(raw string) (string, bool) {
 	} else if !orderAmountPattern.MatchString(raw) {
 		return "", false
 	}
-	// value 保存解析后的金额数值，用于拒绝 NaN 和无穷大。
-	value, err := strconv.ParseFloat(raw, 64)
-	if err != nil || math.IsInf(value, 0) || math.IsNaN(value) {
+	// 金额以整数分校验：格式非法、非有限值或超过 money.MaxOrderAmountCents（1000 万元）一律拒绝，防止异常金额进入统计。
+	if _, err := money.ParseOrderAmountCents(raw); err != nil {
 		return "", false
 	}
 	return raw, true

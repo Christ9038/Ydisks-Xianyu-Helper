@@ -39,7 +39,7 @@ The endpoint is `POST /api/v1/orders/{order_id}/adjust-price` with body `{"price
 
 ## Edit and delete
 
-Edit Order can correct status (Processing, Pending Shipment, Shipped, Completed, Cancelled, Refunding), buyer ID, paid amount, receiver name, phone number, shipping address, and product title. Order IDs cannot be changed in the page. Deleting asks for confirmation and is a logical delete (order history is kept for automation audit); before deleting, confirm the record is not needed by automation, statistics, or after-sales handling.
+Edit Order can correct status (Processing, Pending Shipment, Shipped, Completed, Cancelled, Refunding), buyer ID, paid amount (a non-negative number up to ¥10,000,000; larger values are rejected, and the same limit applies to order imports and sync), receiver name, phone number, shipping address, and product title. Order IDs cannot be changed in the page. Deleting asks for confirmation and is a logical delete (order history is kept for automation audit); before deleting, confirm the record is not needed by automation, statistics, or after-sales handling.
 
 ## Delivered cards
 

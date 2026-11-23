@@ -114,11 +114,6 @@ func TestAnalyticsRepositoryCoversClosedDatabaseOperations(t *testing.T) {
 			return err
 		}(),
 		func() error {
-			// err 表示销售按状态统计在关闭数据库后的底层错误。
-			_, err := repository.QuerySalesStatus(ctx, filter)
-			return err
-		}(),
-		func() error {
 			// err 表示销售按日统计在关闭数据库后的底层错误。
 			_, err := repository.QuerySalesDaily(ctx, filter)
 			return err

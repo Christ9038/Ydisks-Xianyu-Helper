@@ -190,6 +190,11 @@ func TestOrderNormalizationHelpersCoversStatusAndAmountBoundaries(t *testing.T) 
 		{raw: "1.234", want: "1.234", valid: true},
 		{raw: "abc", valid: false},
 		{raw: strings.Repeat("9", 400), valid: false},
+		{raw: "10000000", want: "10000000", valid: true},
+		{raw: "10000000.00", want: "10000000.00", valid: true},
+		{raw: "10000000.01", valid: false},
+		{raw: "100000000", valid: false},
+		{raw: "¥100,000,092.50", valid: false},
 	}
 	// testCase 表示当前金额归一化样例。
 	for _, testCase := range amountCases {

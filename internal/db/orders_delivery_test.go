@@ -418,6 +418,59 @@ func TestOrdersUpsertNormalizesAndRejectsAmountsAtRepositoryBoundary(t *testing.
 	}
 }
 
+// TestOrdersRejectAbsurdAmountEverywhere 验证超过 1000 万元的订单金额在规范化、Upsert、Patch 与批量写入四条路径上都被拒绝且不留半条订单（#129）。
+func TestOrdersRejectAbsurdAmountEverywhere(t *testing.T) {
+	// s、cleanup 是测试数据库及其清理函数。
+	s, cleanup := newTestDB(t)
+	defer cleanup()
+	// ctx 是测试上下文。
+	ctx := context.Background()
+	// cid 是测试订单所属账号。
+	cid := "acc-range"
+	// err 是准备测试账号时的写入错误。
+	if _, err := s.DB.ExecContext(ctx, `INSERT INTO cookies (id, user_id, value) VALUES (?, 1, 'v')`, cid); err != nil {
+		t.Skipf("无法准备账号: %v", err)
+	}
+	// absurd 是应被拒绝的异常金额文本。
+	for _, absurd := range []string{"100000000", "100,000,092.50", "￥10000000.01", "99999999999999999999"} {
+		// ok 表示规范化是否错误地接受了异常金额。
+		if _, ok := NormalizeOrderAmount(absurd); ok {
+			t.Fatalf("NormalizeOrderAmount(%q) 应拒绝", absurd)
+		}
+		// err 是 Upsert 对异常金额应返回的拒绝错误。
+		if err := s.Orders.Upsert(ctx, "absurd-upsert", OrderUpsertOpts{CookieID: cid, Amount: absurd}); err == nil {
+			t.Fatalf("Upsert 应拒绝 %q", absurd)
+		}
+		// err 是批量 Upsert 对异常金额应返回的拒绝错误。
+		if err := s.Orders.UpsertMany(ctx, []BatchOrderUpsert{{OrderID: "absurd-batch", Options: OrderUpsertOpts{CookieID: cid, Amount: absurd}}}); err == nil {
+			t.Fatalf("BatchUpsert 应拒绝 %q", absurd)
+		}
+	}
+	// orderID 是被拒绝写入、本应不存在的订单号。
+	for _, orderID := range []string{"absurd-upsert", "absurd-batch"} {
+		// err 是读取不存在订单时应得到的 ErrNotFound。
+		if _, err := s.Orders.Get(ctx, orderID); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("拒绝后不应留下订单 %s: %v", orderID, err)
+		}
+	}
+	// 上限本身（1000 万元整）合法，且保留原文本。
+	// err 是上限金额 Upsert 的错误，应为 nil。
+	if err := s.Orders.Upsert(ctx, "limit-ok", OrderUpsertOpts{CookieID: cid, Amount: "10000000.00"}); err != nil {
+		t.Fatalf("上限金额应允许: %v", err)
+	}
+	// huge 是越界的 Patch 金额。
+	huge := "100000000"
+	// err 是 Patch 越界金额应返回的拒绝错误。
+	if err := s.Orders.Patch(ctx, "limit-ok", OrderPatch{Amount: &huge}); err == nil {
+		t.Fatal("Patch 应拒绝 1 亿元")
+	}
+	// order 是 Patch 失败后的订单，金额应保持不变。
+	order, err := s.Orders.Get(ctx, "limit-ok")
+	if err != nil || order.Amount != "10000000.00" {
+		t.Fatalf("Patch 失败后金额被改写: %+v err=%v", order, err)
+	}
+}
+
 // TestOrders_PatchCanExplicitlyClearFields 封装Test订单列表PatchCanExplicitlyClear字段列表业务协调。
 func TestOrders_PatchCanExplicitlyClearFields(t *testing.T) {
 	// s、cleanup 用于本次流程后续判断的s、cleanup

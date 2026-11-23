@@ -3,6 +3,7 @@ package analytics
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -13,8 +14,8 @@ type analyticsRepositoryFake struct {
 	dashboard DashboardStats
 	// stock 保存可用卡密库存数量。
 	stock int64
-	// revenue 保存收益聚合结果。
-	revenue RevenueStats
+	// revenue 保存收益聚合结果（金额为整数分）。
+	revenue RevenueRecord
 	// daily 保存日期聚合原始记录。
 	daily []DailyRecord
 	// statuses 保存状态聚合原始记录。
@@ -74,10 +75,10 @@ func (f *analyticsRepositoryFake) AvailableCardStock(context.Context, int64) (in
 }
 
 // QueryRevenue 返回预置的收益统计并记录筛选条件。
-func (f *analyticsRepositoryFake) QueryRevenue(_ context.Context, filter Filter) (RevenueStats, error) {
+func (f *analyticsRepositoryFake) QueryRevenue(_ context.Context, filter Filter) (RevenueRecord, error) {
 	f.receivedFilter = filter
 	if f.revenueErr != nil {
-		return RevenueStats{}, f.revenueErr
+		return RevenueRecord{}, f.revenueErr
 	}
 	return f.revenue, f.err
 }
@@ -132,15 +133,7 @@ func (f *analyticsRepositoryFake) ListValidOrders(_ context.Context, _ Filter, l
 	return f.validOrders, f.err
 }
 
-// QuerySalesStatus 返回预置的销售按状态聚合记录。
-func (f *analyticsRepositoryFake) QuerySalesStatus(context.Context, Filter) ([]StatusRecord, error) {
-	if f.statusErr != nil {
-		return nil, f.statusErr
-	}
-	return f.statuses, f.err
-}
-
-// QuerySalesDaily 返回预置的销售按日聚合原始订单记录。
+// QuerySalesDaily 返回预置的销售逐单原始记录。
 func (f *analyticsRepositoryFake) QuerySalesDaily(context.Context, Filter) ([]SalesDailyRecord, error) {
 	if f.dailyErr != nil {
 		return nil, f.dailyErr
@@ -168,14 +161,14 @@ func TestDashboardStatsUsesNarrowStockPort(t *testing.T) {
 func TestOrderAnalyticsAggregatesAndConvertsLocalDate(t *testing.T) {
 	// repository 是带有各维度订单记录的测试 Port。
 	repository := &analyticsRepositoryFake{
-		revenue: RevenueStats{TotalOrders: 2, TotalAmount: 12.345, AvgAmount: 6.789, UniqueBuyers: 2, UniqueItems: 1},
+		revenue: RevenueRecord{TotalOrders: 2, TotalCents: 1235, UniqueBuyers: 2, UniqueItems: 1},
 		daily: []DailyRecord{
 			{OrderID: "one", Amount: "¥10.50", CreatedAt: "2026-06-27 16:30:00"},
 			{OrderID: "two", Amount: "abc", CreatedAt: "2026-06-27 17:00:00"},
 		},
-		statuses: []StatusRecord{{Status: "3", Count: 1, Amount: 8.5}, {Status: "shipped", Count: 1, Amount: 2}},
-		cities:   []CityRecord{{City: "杭州", Count: 2, Amount: 10.5}},
-		items:    []ItemRecord{{ItemID: "item-1", Count: 2, TotalAmount: 10.5, AvgAmount: 5.25}},
+		statuses: []StatusRecord{{Status: "3", Count: 1, AmountCents: 850}, {Status: "shipped", Count: 1, AmountCents: 200}},
+		cities:   []CityRecord{{City: "杭州", Count: 2, AmountCents: 1050}},
+		items:    []ItemRecord{{ItemID: "item-1", Count: 2, TotalCents: 1050}},
 	}
 	// service 是待验证的订单分析应用服务。
 	service := NewService(repository)
@@ -192,30 +185,29 @@ func TestOrderAnalyticsAggregatesAndConvertsLocalDate(t *testing.T) {
 	if len(result.StatusStats) != 1 || result.StatusStats[0].Status != "shipped" || result.StatusStats[0].Count != 2 {
 		t.Fatalf("状态统计异常: %+v", result.StatusStats)
 	}
-	if result.RevenueStats.TotalAmount != 12.35 || result.RevenueStats.AvgAmount != 6.79 {
-		t.Fatalf("收益四舍五入异常: %+v", result.RevenueStats)
+	// 1235 分 / 2 单 = 617.5 分，四舍五入为 618 分（6.18 元）。
+	if result.RevenueStats.TotalAmount != 12.35 || result.RevenueStats.AvgAmount != 6.18 {
+		t.Fatalf("收益整数分汇总或平均值异常: %+v", result.RevenueStats)
+	}
+	if len(result.CityStats) != 1 || result.CityStats[0].TotalAmount != 10.5 || len(result.ItemStats) != 1 || result.ItemStats[0].TotalAmount != 10.5 || result.ItemStats[0].AvgAmount != 5.25 {
+		t.Fatalf("城市或商品整数分换算异常: %+v %+v", result.CityStats, result.ItemStats)
 	}
 	if repository.receivedFilter.UserID != 7 || repository.receivedFilter.StartAt != "2026-06-27 16:00:00" || repository.receivedFilter.EndBefore != "2026-06-28 16:00:00" {
 		t.Fatalf("筛选条件异常: %+v", repository.receivedFilter)
 	}
 }
 
-// TestSalesStatsSeparatesSalesReceivedAndRefunded 验证销售统计三项指标分列口径、数字码归一和按日时区聚合。
+// TestSalesStatsSeparatesSalesReceivedAndRefunded 验证销售统计三项指标分列口径、数字码归一、按日时区聚合，以及总计与按日明细一致。
 func TestSalesStatsSeparatesSalesReceivedAndRefunded(t *testing.T) {
-	// repository 是带有已发货/已完成/已取消与无关状态聚合及按日原始记录的测试 Port。
+	// repository 是带有已发货/已完成/已取消订单、非法金额订单和非法时间订单的测试 Port。
 	repository := &analyticsRepositoryFake{
-		statuses: []StatusRecord{
-			{Status: "3", Count: 1, Amount: 10.5},
-			{Status: "shipped", Count: 1, Amount: 2},
-			{Status: "4", Count: 2, Amount: 16},
-			{Status: "cancelled", Count: 1, Amount: 5.25},
-			{Status: "paid", Count: 9, Amount: 99},
-		},
 		salesDaily: []SalesDailyRecord{
 			{OrderID: "one", Amount: "¥10.50", Status: "3", CreatedAt: "2026-06-27 16:30:00"},
 			{OrderID: "two", Amount: "8.00", Status: "completed", CreatedAt: "2026-06-27 17:00:00"},
 			{OrderID: "three", Amount: "5.25", Status: "cancelled", CreatedAt: "2026-06-27 18:00:00"},
-			{OrderID: "four", Amount: "bad", Status: "shipped", CreatedAt: "invalid-time"},
+			{OrderID: "four", Amount: "bad", Status: "shipped", CreatedAt: "2026-06-27 18:30:00"},
+			{OrderID: "five", Amount: "2", Status: "shipped", CreatedAt: "invalid-time"},
+			{OrderID: "six", Amount: "8", Status: "4", CreatedAt: "2026-06-28 20:00:00"},
 		},
 	}
 	// service 是待验证的订单分析应用服务。
@@ -223,11 +215,11 @@ func TestSalesStatsSeparatesSalesReceivedAndRefunded(t *testing.T) {
 	// location 是 UTC+8 的用户本地时区。
 	location := time.FixedZone("UTC+8", 8*60*60)
 	// result、err 是应用服务返回的销售统计结果和错误。
-	result, err := service.SalesStats(context.Background(), Query{UserID: 7, StartDate: "2026-06-28", EndDate: "2026-06-28", Location: location})
+	result, err := service.SalesStats(context.Background(), Query{UserID: 7, StartDate: "2026-06-28", EndDate: "2026-06-29", Location: location})
 	if err != nil {
 		t.Fatalf("销售统计失败: %v", err)
 	}
-	// 销售额=已发货(3→10.5 + shipped→2) + 已完成(4→16)；已收货款只含已完成；退货货款只含已取消。
+	// 销售额=已发货(one 10.5、five 2) + 已完成(two 8、six 8)；非法金额订单 four 整单排除。
 	if result.SalesAmount != 28.5 || result.SalesOrders != 4 {
 		t.Fatalf("销售额口径异常: %+v", result)
 	}
@@ -237,14 +229,93 @@ func TestSalesStatsSeparatesSalesReceivedAndRefunded(t *testing.T) {
 	if result.RefundedAmount != 5.25 || result.RefundedOrders != 1 {
 		t.Fatalf("退货货款口径异常: %+v", result)
 	}
-	// 按日聚合在用户时区内归到 2026-06-28，非法时间的订单被跳过。
-	if len(result.Daily) != 1 || result.Daily[0].Date != "2026-06-28" {
+	// 按日聚合：one/two/three 在用户时区归 06-28，six 归 06-29；时间非法的 five 只计入总计。
+	if len(result.Daily) != 2 || result.Daily[0].Date != "2026-06-28" || result.Daily[1].Date != "2026-06-29" {
 		t.Fatalf("按日聚合异常: %+v", result.Daily)
 	}
-	// day 是唯一日期的销售聚合结果。
-	day := result.Daily[0]
-	if day.SalesAmount != 18.5 || day.ReceivedAmount != 8 || day.RefundedAmount != 5.25 || day.OrderCount != 3 {
-		t.Fatalf("按日指标异常: %+v", day)
+	// first、second 是两个日期的销售聚合结果。
+	first, second := result.Daily[0], result.Daily[1]
+	if first.SalesAmount != 18.5 || first.ReceivedAmount != 8 || first.RefundedAmount != 5.25 || first.OrderCount != 3 {
+		t.Fatalf("06-28 指标异常: %+v", first)
+	}
+	if second.SalesAmount != 8 || second.ReceivedAmount != 8 || second.RefundedAmount != 0 || second.OrderCount != 1 {
+		t.Fatalf("06-29 指标异常: %+v", second)
+	}
+}
+
+// TestSalesStatsIgnoresAbsurdAmountsFromIssue129 回归 #129：金额为 1 亿元的异常已取消订单不得进入退货货款，边界内金额仍正常计入。
+func TestSalesStatsIgnoresAbsurdAmountsFromIssue129(t *testing.T) {
+	// repository 是含 1 亿元、超长整数、上限边界和正常退款订单的测试 Port。
+	repository := &analyticsRepositoryFake{salesDaily: []SalesDailyRecord{
+		{OrderID: "absurd", Amount: "100000000", Status: "cancelled", CreatedAt: "2026-06-28 01:00:00"},
+		{OrderID: "huge", Amount: "99999999999999999999999999", Status: "completed", CreatedAt: "2026-06-28 01:00:00"},
+		{OrderID: "just-over", Amount: "10000000.01", Status: "shipped", CreatedAt: "2026-06-28 01:00:00"},
+		{OrderID: "limit", Amount: "10000000.00", Status: "completed", CreatedAt: "2026-06-28 01:00:00"},
+		{OrderID: "normal", Amount: "92.50", Status: "cancelled", CreatedAt: "2026-06-28 01:00:00"},
+	}}
+	// result、err 是销售统计结果和错误。
+	result, err := NewService(repository).SalesStats(context.Background(), Query{UserID: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RefundedAmount != 92.5 || result.RefundedOrders != 1 {
+		t.Fatalf("异常金额污染了退货货款: %+v", result)
+	}
+	if result.SalesAmount != 10000000 || result.SalesOrders != 1 || result.ReceivedAmount != 10000000 || result.ReceivedOrders != 1 {
+		t.Fatalf("上限边界金额应计入而超限金额应排除: %+v", result)
+	}
+	if len(result.Daily) != 1 || result.Daily[0].OrderCount != 2 {
+		t.Fatalf("被排除订单不应计入按日订单数: %+v", result.Daily)
+	}
+}
+
+// TestSalesStatsAccumulatesExactCents 验证大量二进制浮点不可精确表示的金额累加后无误差，且第三位小数按分四舍五入。
+func TestSalesStatsAccumulatesExactCents(t *testing.T) {
+	// records 是 3000 笔 0.10/0.20/0.30 元的已完成订单，浮点累加会出现 0.1+0.2≠0.3 类误差。
+	records := make([]SalesDailyRecord, 0, 3001)
+	// index 是当前生成订单的序号。
+	for index := 0; index < 1000; index++ {
+		// offset 是三笔金额在本组内的序号，amount 是该笔订单金额文本。
+		for offset, amount := range []string{"0.10", "0.20", "0.30"} {
+			records = append(records, SalesDailyRecord{OrderID: fmt.Sprintf("o-%d-%d", index, offset), Amount: amount, Status: "completed", CreatedAt: "2026-06-28 01:00:00"})
+		}
+	}
+	records = append(records, SalesDailyRecord{OrderID: "round", Amount: "1.005", Status: "completed", CreatedAt: "2026-06-28 01:00:00"})
+	// result、err 是销售统计结果和错误。
+	result, err := NewService(&analyticsRepositoryFake{salesDaily: records}).SalesStats(context.Background(), Query{UserID: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 1000×(0.10+0.20+0.30)=600.00，再加 1.005 四舍五入为 1.01，共 601.01。
+	if result.SalesAmount != 601.01 || result.ReceivedAmount != 601.01 || result.SalesOrders != 3001 {
+		t.Fatalf("整数分累加结果异常: %+v", result)
+	}
+	if result.Daily[0].SalesAmount != result.SalesAmount || result.Daily[0].OrderCount != 3001 {
+		t.Fatalf("总计与按日明细不一致: %+v", result.Daily[0])
+	}
+}
+
+// TestSalesStatsCountsDuplicateOrderOnce 验证重复订单号只累计一次，避免异常数据放大金额。
+func TestSalesStatsCountsDuplicateOrderOnce(t *testing.T) {
+	// result、err 是含重复订单号记录的销售统计结果。
+	result, err := NewService(&analyticsRepositoryFake{salesDaily: []SalesDailyRecord{
+		{OrderID: "dup", Amount: "5.00", Status: "shipped", CreatedAt: "2026-06-28 01:00:00"},
+		{OrderID: "dup", Amount: "5.00", Status: "shipped", CreatedAt: "2026-06-28 01:00:00"},
+	}}).SalesStats(context.Background(), Query{UserID: 1})
+	if err != nil || result.SalesAmount != 5 || result.SalesOrders != 1 {
+		t.Fatalf("重复订单号应只计一次: %+v err=%v", result, err)
+	}
+}
+
+// TestSalesStatsEmptyAndCentsHelpers 验证无订单时返回零值结果，以及分到元的换算。
+func TestSalesStatsEmptyAndCentsHelpers(t *testing.T) {
+	// result、err 是无订单时的销售统计结果。
+	result, err := NewService(&analyticsRepositoryFake{}).SalesStats(context.Background(), Query{UserID: 1})
+	if err != nil || result.SalesAmount != 0 || result.RefundedAmount != 0 || len(result.Daily) != 0 {
+		t.Fatalf("空结果异常: %+v err=%v", result, err)
+	}
+	if centsToYuan(1_000_000_009) != 10000000.09 || centsToYuan(1) != 0.01 || centsToYuan(0) != 0 {
+		t.Fatal("分到元换算异常")
 	}
 }
 
@@ -252,8 +323,8 @@ func TestSalesStatsSeparatesSalesReceivedAndRefunded(t *testing.T) {
 func TestSalesStatsKeepsQueryStageOnError(t *testing.T) {
 	// expected 是底层测试查询错误。
 	expected := errors.New("sales query failed")
-	// service 是返回按状态查询错误的订单分析应用服务。
-	service := NewService(&analyticsRepositoryFake{statusErr: expected})
+	// service 是返回销售逐单查询错误的订单分析应用服务。
+	service := NewService(&analyticsRepositoryFake{dailyErr: expected})
 	// result、err 是应用服务返回的销售统计结果和错误。
 	result, err := service.SalesStats(context.Background(), Query{UserID: 1})
 	if err == nil || !errors.Is(err, expected) {
@@ -476,11 +547,37 @@ func TestAnalyticsNilAndFallbackBranches(t *testing.T) {
 	// repository 是包含非法时间和多个状态的聚合测试 Port。
 	repository := &analyticsRepositoryFake{
 		daily:    []DailyRecord{{CreatedAt: "invalid"}},
-		statuses: []StatusRecord{{Status: "paid", Count: 1, Amount: 1}, {Status: "cancelled", Count: 3, Amount: 3}},
+		statuses: []StatusRecord{{Status: "paid", Count: 1, AmountCents: 100}, {Status: "cancelled", Count: 3, AmountCents: 300}},
 	}
 	// result、err 是覆盖非法时间跳过和状态排序的分析结果。
 	result, err := NewService(repository).OrderAnalytics(context.Background(), Query{})
 	if err != nil || len(result.DailyStats) != 0 || len(result.StatusStats) != 2 || result.StatusStats[0].Status != "cancelled" {
 		t.Fatalf("分析回退分支异常: result=%+v err=%v", result, err)
+	}
+}
+
+// TestOrderAnalyticsDailyExcludesAbsurdAmountsAndKeepsExactCents 验证订单分析按日汇总同样按整数分累加，并整单排除超范围或非法金额（#129）。
+func TestOrderAnalyticsDailyExcludesAbsurdAmountsAndKeepsExactCents(t *testing.T) {
+	// records 是 1000 笔 0.10 元订单，加上 1 亿元异常订单与非法金额订单。
+	records := make([]DailyRecord, 0, 1002)
+	// index 是当前生成订单的序号。
+	for index := 0; index < 1000; index++ {
+		records = append(records, DailyRecord{OrderID: fmt.Sprintf("o-%d", index), Amount: "0.10", CreatedAt: "2026-06-28 01:00:00"})
+	}
+	records = append(records, DailyRecord{OrderID: "absurd", Amount: "100000000", CreatedAt: "2026-06-28 01:00:00"}, DailyRecord{OrderID: "bad", Amount: "abc", CreatedAt: "2026-06-28 01:00:00"}, DailyRecord{OrderID: "no-time", Amount: "5.00", CreatedAt: "invalid-time"})
+	// result、err 是订单分析结果。
+	result, err := NewService(&analyticsRepositoryFake{daily: records}).OrderAnalytics(context.Background(), Query{Location: time.UTC})
+	if err != nil || len(result.DailyStats) != 1 {
+		t.Fatalf("按日结果异常: %+v err=%v", result, err)
+	}
+	if result.DailyStats[0].Amount != 100 || result.DailyStats[0].OrderCount != 1000 {
+		t.Fatalf("按日金额应为 100.00 且排除异常订单: %+v", result.DailyStats[0])
+	}
+}
+
+// TestAverageCentsRoundsHalfUpAndGuardsZero 验证平均分值整数除法四舍五入，订单数为 0 时返回 0。
+func TestAverageCentsRoundsHalfUpAndGuardsZero(t *testing.T) {
+	if averageCents(1235, 2) != 618 || averageCents(1234, 2) != 617 || averageCents(1, 3) != 0 || averageCents(2, 3) != 1 || averageCents(100, 0) != 0 || averageCents(100, -1) != 0 {
+		t.Fatal("平均分值计算异常")
 	}
 }

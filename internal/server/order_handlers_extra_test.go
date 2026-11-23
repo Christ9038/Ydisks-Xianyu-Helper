@@ -574,6 +574,103 @@ func TestUpdateOrderRejectsInvalidAmount(t *testing.T) {
 	}
 }
 
+// TestUpdateOrderRejectsAbsurdAmount 验证经真实路由把订单金额改成 1 亿元会得到 400，且库内金额不变（#129 写入端防线）。
+func TestUpdateOrderRejectsAbsurdAmount(t *testing.T) {
+	// srv、store、cleanup 是测试服务器、存储和清理函数。
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	// ctx 是测试上下文。
+	ctx := context.Background()
+	_, _ = store.DB.ExecContext(ctx, `INSERT INTO orders (order_id,item_id,amount,order_status,cookie_id) VALUES ('ord-absurd','item1','9.9','2','acc1')`)
+	// h 是真实路由；cookie 是管理员会话。
+	h := srv.Router()
+	// cookie 是管理员登录会话。
+	cookie := loginHelper(t, h)
+	// body 是各种越界金额请求体。
+	for _, body := range []string{`{"amount":"100000000"}`, `{"amount":"10000000.01"}`, `{"amount":"¥100,000,092.50"}`} {
+		// req 是携带越界金额的订单更新请求。
+		req := httptest.NewRequest(http.MethodPut, "/api/v1/orders/ord-absurd", strings.NewReader(body))
+		req.AddCookie(cookie)
+		// rec 是捕获响应的记录器。
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("%s status=%d body=%s", body, rec.Code, rec.Body.String())
+		}
+	}
+	// order 是被拒绝后的订单，金额应保持原值。
+	order, _ := store.Orders.Get(ctx, "ord-absurd")
+	if order.Amount != "9.9" {
+		t.Fatalf("越界金额被写入: %q", order.Amount)
+	}
+	// 上限内的金额仍可正常保存。
+	// req 是金额恰为上限的合法更新请求。
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/orders/ord-absurd", strings.NewReader(`{"amount":"10000000"}`))
+	req.AddCookie(cookie)
+	// rec 是捕获响应的记录器。
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("上限金额应允许 status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestSalesStatsEndpointExcludesLegacyAbsurdAmounts 功能测试：库里遗留的 1 亿元异常订单（绕过写入校验直接入库）经真实 HTTP 销售统计接口不得进入任何合计，正常订单按整数分精确汇总（#129）。
+func TestSalesStatsEndpointExcludesLegacyAbsurdAmounts(t *testing.T) {
+	// srv、store、cleanup 是测试服务器、存储和清理函数。
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	// ctx 是测试上下文。
+	ctx := context.Background()
+	// rows 是直接 SQL 写入的订单：含 1 亿元已取消、1 亿元已完成的历史脏数据，以及正常已发货/已完成/已取消订单。
+	rows := []struct{ id, amount, status string }{
+		{"s-dirty-cancel", "100000000", "cancelled"},
+		{"s-dirty-done", "100000000", "completed"},
+		{"s-refund-a", "0.10", "cancelled"},
+		{"s-refund-b", "0.20", "cancelled"},
+		{"s-refund-c", "92.50", "6"},
+		{"s-ship", "10.50", "shipped"},
+		{"s-done", "8.00", "completed"},
+		{"s-pending", "99.00", "pending_ship"},
+	}
+	// row 是当前待写入订单。
+	for _, row := range rows {
+		// err 是直接 SQL 写入历史脏数据时的错误。
+		if _, err := store.DB.ExecContext(ctx, `INSERT INTO orders (order_id,item_id,amount,order_status,cookie_id,created_at) VALUES (?,?,?,?,?,?)`,
+			row.id, "item1", row.amount, row.status, "acc1", "2026-08-14 04:00:00"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// h 是真实路由；cookie 是管理员会话。
+	h := srv.Router()
+	// cookie 是管理员登录会话。
+	cookie := loginHelper(t, h)
+	// req 是显式使用 UTC 偏移的销售统计请求，避免依赖机器时区。
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/analytics/sales?start_date=2026-08-14&end_date=2026-08-14&timezone_offset_minutes=0", nil)
+	req.AddCookie(cookie)
+	// rec 是捕获响应的记录器。
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	// got 是销售统计响应 DTO。
+	var got salesStatsResponse
+	// err 是响应 JSON 反序列化错误。
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.RefundedAmount != 92.8 || got.RefundedOrders != 3 {
+		t.Fatalf("退货货款应为 0.10+0.20+92.50=92.80（3 单）: %+v", got)
+	}
+	if got.SalesAmount != 18.5 || got.SalesOrders != 2 || got.ReceivedAmount != 8 || got.ReceivedOrders != 1 {
+		t.Fatalf("销售额/已收货款应排除 1 亿元脏数据与待发货订单: %+v", got)
+	}
+	if len(got.Daily) != 1 || got.Daily[0].RefundedAmount != 92.8 || got.Daily[0].SalesAmount != 18.5 || got.Daily[0].OrderCount != 5 {
+		t.Fatalf("按日明细应与总计一致: %+v", got.Daily)
+	}
+}
+
 // TestValidOrderAmountMatchesAnalyticsDecimalFormat 封装Test有效订单AmountMatchesAnalyticsDecimalFormat业务协调。
 func TestValidOrderAmountMatchesAnalyticsDecimalFormat(t *testing.T) {
 	// invalid 表示当前遍历过程中的invalid
