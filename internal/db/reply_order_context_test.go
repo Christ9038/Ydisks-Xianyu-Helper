@@ -214,6 +214,7 @@ func TestMultiDB_AgentReplyProtocolFields(t *testing.T) {
 			prompt := "你是闲鱼卖家客服，只回答发货与规格问题。"
 			// protocol 遍历两种直接调用大模型的协议。
 			for _, protocol := range []string{AgentProtocolOpenAI, AgentProtocolAnthropic} {
+				// writeErr 保存当前协议的写入错误。
 				if writeErr := target.store.AgentReply.Upsert(ctx, account, AgentReplyWrite{Enabled: true, EndpointURL: "https://api.example.com", RequestTimeoutSeconds: 10, MaxSessionSeconds: 60, Protocol: protocol, Model: "model-x", SystemPrompt: prompt}); writeErr != nil {
 					t.Fatal(writeErr)
 				}
