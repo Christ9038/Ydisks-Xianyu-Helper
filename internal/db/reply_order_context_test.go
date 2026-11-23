@@ -187,3 +187,47 @@ func TestMultiDB_ReplyOrderContextSettings(t *testing.T) {
 		})
 	}
 }
+
+// TestMultiDB_AgentReplyProtocolFields 在所有可用方言上验证 Agent 回复的协议、模型和系统提示词读写：
+// 未指定协议按历史默认 v1 保存，写入 openai/anthropic 后单条读取与运行时配置一致，中文提示词不被截断。
+func TestMultiDB_AgentReplyProtocolFields(t *testing.T) {
+	// target 表示当前执行协议字段回归的数据库方言目标。
+	for _, target := range allTestTargets(t) {
+		// target 是当前子测试独占的数据库目标副本，避免循环变量复用。
+		target := target
+		t.Run(target.name, func(t *testing.T) {
+			defer target.cleanup()
+			// ctx 是当前方言内全部操作共用的测试上下文。
+			ctx := context.Background()
+			// account 是保存配置的测试账号。
+			account, _ := newOrderContextAccount(t, target, "p")
+			// writeErr 保存未指定协议时的写入错误。
+			if writeErr := target.store.AgentReply.Upsert(ctx, account, AgentReplyWrite{Enabled: false, EndpointURL: "https://agent.example.com", RequestTimeoutSeconds: 10, MaxSessionSeconds: 60}); writeErr != nil {
+				t.Fatal(writeErr)
+			}
+			// summary、getErr 保存读回的配置及读取错误。
+			summary, getErr := target.store.AgentReply.Get(ctx, account)
+			if getErr != nil || summary.Protocol != AgentProtocolV1 || summary.Model != "" || summary.SystemPrompt != "" {
+				t.Fatalf("默认协议应为 v1: %+v err=%v", summary, getErr)
+			}
+			// prompt 是含中文的系统提示词，用于确认各方言列宽与字符集足够。
+			prompt := "你是闲鱼卖家客服，只回答发货与规格问题。"
+			// protocol 遍历两种直接调用大模型的协议。
+			for _, protocol := range []string{AgentProtocolOpenAI, AgentProtocolAnthropic} {
+				if writeErr := target.store.AgentReply.Upsert(ctx, account, AgentReplyWrite{Enabled: true, EndpointURL: "https://api.example.com", RequestTimeoutSeconds: 10, MaxSessionSeconds: 60, Protocol: protocol, Model: "model-x", SystemPrompt: prompt}); writeErr != nil {
+					t.Fatal(writeErr)
+				}
+				// read、readErr 保存读回的配置及读取错误。
+				read, readErr := target.store.AgentReply.Get(ctx, account)
+				if readErr != nil || read.Protocol != protocol || read.Model != "model-x" || read.SystemPrompt != prompt {
+					t.Fatalf("%s 读回异常: %+v err=%v", protocol, read, readErr)
+				}
+				// runtime、runtimeErr 保存读回的运行时配置及读取错误。
+				runtime, runtimeErr := target.store.AgentReply.RuntimeConfig(ctx, account)
+				if runtimeErr != nil || runtime.Protocol != protocol || runtime.Model != "model-x" || runtime.SystemPrompt != prompt {
+					t.Fatalf("%s 运行时配置异常: %+v err=%v", protocol, runtime, runtimeErr)
+				}
+			}
+		})
+	}
+}
