@@ -41,7 +41,7 @@ func (s *Server) listAutomationIssues(w http.ResponseWriter, r *http.Request) {
 	// runs、tasks、err 用于本次流程后续判断的runs、tasks、err
 	runs, tasks, err := s.automationIssuesApplication().ListIssues(r.Context(), sess.UserID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询自动化异常任务失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "查询自动化异常任务失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, automationIssuesResponse{

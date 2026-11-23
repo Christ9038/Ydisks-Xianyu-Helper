@@ -38,7 +38,7 @@ func TestWriteLongLoginErrorMapsApplicationFailures(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			// server 是不依赖其他字段的错误映射服务实例。
 			server := &Server{}
-			server.writeLongLoginError(recorder, testCase.err)
+			server.writeLongLoginError(recorder, httptest.NewRequest(http.MethodGet, "/x", nil), testCase.err)
 			if recorder.Code != testCase.status {
 				t.Fatalf("错误=%v status=%d want %d", testCase.err, recorder.Code, testCase.status)
 			}

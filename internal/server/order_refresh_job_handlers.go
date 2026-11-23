@@ -163,7 +163,7 @@ func (s *Server) getOrderRefreshJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "读取订单刷新任务失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "读取订单刷新任务失败", err)
 		return
 	}
 	// response 保存任务状态响应 DTO。
@@ -199,7 +199,7 @@ func (s *Server) cancelOrderRefreshJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "取消订单刷新任务失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "取消订单刷新任务失败", err)
 		return
 	}
 	if result.Cancelled || (result.Job != nil && result.Job.Status == "cancelled") {

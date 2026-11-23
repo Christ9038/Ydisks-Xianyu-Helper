@@ -48,7 +48,7 @@ func (s *Server) listOrders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "查询失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, orderListResponse{
@@ -132,7 +132,7 @@ func (s *Server) refreshSingleOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if errors.Is(err, errOrderDetailUnsupported) {
-		writeErr(w, http.StatusServiceUnavailable, err.Error())
+		writeInternalErr(w, r, http.StatusServiceUnavailable, err.Error(), err)
 		return
 	}
 	if errors.Is(err, errOrderCredentialChanged) {
@@ -140,7 +140,7 @@ func (s *Server) refreshSingleOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusBadGateway, err.Error())
+		writeInternalErr(w, r, http.StatusBadGateway, err.Error(), err)
 		return
 	}
 	if !result.Success {
@@ -212,7 +212,7 @@ func (s *Server) updateOrder(w http.ResponseWriter, r *http.Request) {
 		} else if errors.Is(err, orderapp.ErrNotFound) {
 			writeErr(w, http.StatusNotFound, "订单不存在")
 		} else {
-			writeErr(w, http.StatusInternalServerError, "更新失败")
+			writeInternalErr(w, r, http.StatusInternalServerError, "更新失败", err)
 		}
 		return
 	}
@@ -258,7 +258,7 @@ func (s *Server) manualShipOrders(w http.ResponseWriter, r *http.Request) {
 		UserID: sess.UserID, OrderIDs: req.OrderIDs, ShipMode: req.ShipMode,
 	})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询账号失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "查询账号失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, manualShipResponse{
@@ -294,11 +294,11 @@ func (s *Server) adjustOrderPrice(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, orderapp.ErrOrderNotAwaitingPayment):
 		writeErr(w, http.StatusConflict, err.Error())
 	case errors.Is(err, orderapp.ErrPriceAdjustUnavailable):
-		writeErr(w, http.StatusServiceUnavailable, err.Error())
+		writeInternalErr(w, r, http.StatusServiceUnavailable, err.Error(), err)
 	case errors.Is(err, orderapp.ErrPriceAdjustRejected):
-		writeErr(w, http.StatusBadGateway, err.Error())
+		writeInternalErr(w, r, http.StatusBadGateway, err.Error(), err)
 	default:
-		writeErr(w, http.StatusInternalServerError, "订单改价失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "订单改价失败", err)
 	}
 }
 

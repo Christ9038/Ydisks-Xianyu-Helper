@@ -67,7 +67,7 @@ func (s *Server) listAutomationRules(w http.ResponseWriter, r *http.Request) {
 		// rules、err 用于本次流程后续判断的rules、err
 		rules, err := s.automationRulesApplication().ListForUser(r.Context(), sess.UserID)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, "查询自动化规则失败")
+			writeInternalErr(w, r, http.StatusInternalServerError, "查询自动化规则失败", err)
 			return
 		}
 		writeJSON(w, http.StatusOK, automationRulesJSON(rules))
@@ -124,7 +124,7 @@ func (s *Server) listAutomationRules(w http.ResponseWriter, r *http.Request) {
 		Search: query.Get("search"), Limit: pageSize, Offset: (page - 1) * pageSize,
 	})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询自动化规则失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "查询自动化规则失败", err)
 		return
 	}
 	// filter 用于本次流程后续判断的filter
@@ -135,7 +135,7 @@ func (s *Server) listAutomationRules(w http.ResponseWriter, r *http.Request) {
 	// triggerCounts、err 用于本次流程后续判断的triggerCounts、err
 	triggerCounts, err := s.automationRulesApplication().CountByTriggerForUser(r.Context(), filter)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "统计自动化规则失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "统计自动化规则失败", err)
 		return
 	}
 	// totalPages 用于本次流程后续判断的总数Pages
@@ -147,7 +147,7 @@ func (s *Server) listAutomationRules(w http.ResponseWriter, r *http.Request) {
 			Search: query.Get("search"), Limit: pageSize, Offset: (page - 1) * pageSize,
 		})
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, "查询自动化规则失败")
+			writeInternalErr(w, r, http.StatusInternalServerError, "查询自动化规则失败", err)
 			return
 		}
 	}
@@ -227,7 +227,7 @@ func (s *Server) createAutomationRule(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusConflict, err.Error())
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "创建自动化规则失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "创建自动化规则失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, mutationIDResponse{Success: true, ID: id})
@@ -278,7 +278,7 @@ func (s *Server) updateAutomationRule(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusNotFound, "自动化规则不存在")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "更新自动化规则失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "更新自动化规则失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
@@ -304,7 +304,7 @@ func (s *Server) deleteAutomationRule(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusConflict, "规则仍有运行中或待人工处理的任务，处理完成后才能删除")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "删除自动化规则失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "删除自动化规则失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})

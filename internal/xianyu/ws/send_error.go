@@ -20,19 +20,26 @@ type SendError struct {
 	Kind SendErrorKind
 	// Code 保存平台返回的 HTTP/业务状态码；无法解析时为零。
 	Code int
+	// Reason 保存平台应答中已脱敏、截断的原因文本；平台未提供或无法获取时为空。
+	Reason string
 	// Err 保存底层传输或协议错误。
 	Err error
 }
 
-// Error 返回不包含消息正文、Cookie 或 Token 的安全错误文本。
+// Error 返回不包含消息正文、Cookie 或 Token 的安全错误文本；Reason 已在写入前脱敏。
 func (e *SendError) Error() string {
 	if e == nil {
 		return ""
 	}
+	// text 保存逐步拼接的安全错误文本。
+	text := "闲鱼聊天发送结果: kind=" + string(e.Kind)
 	if e.Code != 0 {
-		return "闲鱼聊天发送结果: kind=" + string(e.Kind) + " code=" + itoa(e.Code)
+		text += " code=" + itoa(e.Code)
 	}
-	return "闲鱼聊天发送结果: kind=" + string(e.Kind)
+	if e.Reason != "" {
+		text += " reason=" + e.Reason
+	}
+	return text
 }
 
 // Unwrap 保留底层错误的 errors.Is/errors.As 能力。

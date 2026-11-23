@@ -151,7 +151,7 @@ func TestWriteItemAISettingsErrorMapsApplicationErrors(t *testing.T) {
 	for _, tc := range cases {
 		// recorder 保存 NewRecorder 调用的返回结果，供随后的断言使用。
 		recorder := httptest.NewRecorder()
-		srv.writeItemAISettingsError(recorder, tc.err)
+		srv.writeItemAISettingsError(recorder, httptest.NewRequest(http.MethodGet, "/x", nil), tc.err)
 		if recorder.Code != tc.want {
 			t.Errorf("%s: 状态码=%d want %d", tc.name, recorder.Code, tc.want)
 		}

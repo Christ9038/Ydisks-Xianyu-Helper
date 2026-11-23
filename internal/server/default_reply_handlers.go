@@ -63,7 +63,7 @@ func (s *Server) getDefaultReply(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, "无权限操作该账号")
 		return
 	case err != nil:
-		writeErr(w, http.StatusInternalServerError, "查询失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "查询失败", err)
 		return
 	}
 	// 已保存默认回复通过具名 DTO 返回，单账号查询不填充 cookie_id。
@@ -92,7 +92,7 @@ func (s *Server) setDefaultReply(w http.ResponseWriter, r *http.Request) {
 		ReplyImageURL: req.ReplyImageURL, ReplyLibraryImageID: req.ReplyLibraryImageID, ReplyOnce: req.ReplyOnce,
 	})
 	if err != nil {
-		writeDefaultReplyMutationError(w, err, "保存失败")
+		writeDefaultReplyMutationError(w, r, err, "保存失败")
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
@@ -123,7 +123,7 @@ func (s *Server) listDefaultReplies(w http.ResponseWriter, r *http.Request) {
 	// rows 和 err 是当前用户的应用层默认回复列表及查询错误。
 	rows, err := s.defaultReplyApplication().List(r.Context(), sess.UserID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "查询失败", err)
 		return
 	}
 	// out 是默认回复列表响应。
@@ -150,7 +150,7 @@ func (s *Server) listDefaultRepliesMap(w http.ResponseWriter, r *http.Request) {
 	// rows 和 err 是当前用户的应用层默认回复列表及查询错误。
 	rows, err := s.defaultReplyApplication().List(r.Context(), sess.UserID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "查询失败", err)
 		return
 	}
 	// out 是按账号标识索引的默认回复映射。
@@ -182,7 +182,7 @@ func (s *Server) deleteDefaultReply(w http.ResponseWriter, r *http.Request) {
 	// err 表示默认回复应用服务删除失败的原因。
 	err := s.defaultReplyApplication().Delete(r.Context(), userID, cid)
 	if err != nil {
-		writeDefaultReplyMutationError(w, err, "删除失败")
+		writeDefaultReplyMutationError(w, r, err, "删除失败")
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
@@ -199,7 +199,7 @@ func (s *Server) clearDefaultReplyRecords(w http.ResponseWriter, r *http.Request
 	}
 	// err 表示默认回复应用服务清理投递记录失败的原因。
 	if err := s.defaultReplyApplication().ClearRecords(r.Context(), userID, cid); err != nil {
-		writeDefaultReplyMutationError(w, err, "清空失败")
+		writeDefaultReplyMutationError(w, r, err, "清空失败")
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
@@ -217,7 +217,7 @@ func defaultReplyUserID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 }
 
 // writeDefaultReplyMutationError 将默认回复应用错误映射为既有 HTTP 错误语义。
-func writeDefaultReplyMutationError(w http.ResponseWriter, err error, fallback string) {
+func writeDefaultReplyMutationError(w http.ResponseWriter, r *http.Request, err error, fallback string) {
 	switch {
 	case errors.Is(err, defaultreplyapp.ErrAccountNotFound):
 		writeErr(w, http.StatusNotFound, "账号不存在")
@@ -226,6 +226,6 @@ func writeDefaultReplyMutationError(w http.ResponseWriter, err error, fallback s
 	case errors.Is(err, defaultreplyapp.ErrForbidden):
 		writeErr(w, http.StatusForbidden, "无权限操作该账号")
 	default:
-		writeErr(w, http.StatusInternalServerError, fallback)
+		writeInternalErr(w, r, http.StatusInternalServerError, fallback, err)
 	}
 }

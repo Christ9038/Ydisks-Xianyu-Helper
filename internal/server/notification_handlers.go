@@ -109,7 +109,7 @@ func (s *Server) setChannelAccounts(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusForbidden, "无权操作该通知渠道或账号")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "保存失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "保存失败", setErr)
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
@@ -130,7 +130,7 @@ func (s *Server) getChannelEditor(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusForbidden, "无权操作该通知渠道")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "查询失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "查询失败", lookupErr)
 		return
 	}
 	writeJSON(w, http.StatusOK, newNotificationChannelEditorResponse(editor))
@@ -145,7 +145,7 @@ func (s *Server) listUncertainNotifications(w http.ResponseWriter, r *http.Reque
 	// items 保存当前用户可见的不确定通知摘要。
 	items, total, err := s.uncertainNotificationsApplication().ListForUser(r.Context(), sess.UserID, limit)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询通知状态失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "查询通知状态失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, newNotificationUncertainOutboxResponse(items, total, false))
@@ -158,7 +158,7 @@ func (s *Server) listAdminUncertainNotifications(w http.ResponseWriter, r *http.
 	// items 保存所有用户渠道的不确定通知摘要，但不包含正文和错误原文。
 	items, total, err := s.uncertainNotificationsApplication().ListForAdmin(r.Context(), limit)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询通知状态失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "查询通知状态失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, newNotificationUncertainOutboxResponse(items, total, true))
@@ -171,7 +171,7 @@ func (s *Server) listChannels(w http.ResponseWriter, r *http.Request) {
 	// chs、err 保存通知渠道非敏感摘要及查询错误。
 	chs, err := s.notificationChannelsApplication().ListChannels(r.Context(), sess.UserID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "查询失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, newNotificationChannelResponses(chs))
@@ -193,7 +193,7 @@ func (s *Server) createChannel(w http.ResponseWriter, r *http.Request) {
 		Name: req.Name, Type: req.Type, Config: req.Config, EventTypes: req.EventTypes, Enabled: req.Enabled,
 	})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "创建失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "创建失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, mutationIDResponse{Success: true, ID: id})
@@ -228,7 +228,7 @@ func (s *Server) updateChannel(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusForbidden, "无权操作该通知渠道")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "更新失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "更新失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
@@ -250,7 +250,7 @@ func (s *Server) deleteChannel(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusForbidden, "无权操作该通知渠道")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "删除失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "删除失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
@@ -267,7 +267,7 @@ func (s *Server) testChannel(w http.ResponseWriter, r *http.Request) {
 	// err 保存应用层测试发送结果。
 	if err := s.notificationChannelsApplication().TestChannel(r.Context(), authSess(r).UserID, id, time.Now()); err != nil {
 		if errors.Is(err, notificationsapp.ErrNotifierUnavailable) {
-			writeErr(w, http.StatusServiceUnavailable, "通知器未启用")
+			writeInternalErr(w, r, http.StatusServiceUnavailable, "通知器未启用", err)
 			return
 		}
 		if errors.Is(err, notificationsapp.ErrChannelForbidden) || errors.Is(err, notificationsapp.ErrChannelNotFound) {
@@ -296,7 +296,7 @@ func (s *Server) getAccountBindings(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusNotFound, "账号不存在")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "查询失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "查询失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, accountBindingsResponse{CookieID: cid, ChannelIDs: ids})
@@ -309,7 +309,7 @@ func (s *Server) listMessageNotifications(w http.ResponseWriter, r *http.Request
 	// rows、err 保存通知绑定摘要及查询错误。
 	rows, err := s.notificationChannelsApplication().ListBindings(r.Context(), sess.UserID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "查询失败", err)
 		return
 	}
 	// out 用于本次流程后续判断的out
@@ -350,7 +350,7 @@ func (s *Server) setAccountBindings(w http.ResponseWriter, r *http.Request) {
 				writeErr(w, http.StatusForbidden, "无权操作该通知渠道")
 				return
 			}
-			writeErr(w, http.StatusInternalServerError, "保存失败")
+			writeInternalErr(w, r, http.StatusInternalServerError, "保存失败", err)
 			return
 		}
 		writeJSON(w, http.StatusOK, operationResponse{Success: true})
@@ -366,7 +366,7 @@ func (s *Server) setAccountBindings(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusForbidden, "无权操作该通知渠道")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "保存失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "保存失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
@@ -385,7 +385,7 @@ func (s *Server) deleteMessageNotification(w http.ResponseWriter, r *http.Reques
 	// err 保存应用层绑定删除结果。
 	err = s.notificationChannelsApplication().DeleteBinding(r.Context(), sess.UserID, id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "删除失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "删除失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
@@ -404,7 +404,7 @@ func (s *Server) deleteAccountNotifications(w http.ResponseWriter, r *http.Reque
 			writeErr(w, http.StatusNotFound, "账号不存在")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "删除失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "删除失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})

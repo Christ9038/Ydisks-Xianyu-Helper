@@ -126,7 +126,7 @@ func (s *Server) getItemStock(w http.ResponseWriter, r *http.Request) {
 	// snapshot、err 保存读取到的库存与错误。
 	snapshot, err := s.itemStockApplication().GetStock(r.Context(), userID, cookieID, itemID)
 	if err != nil {
-		writeItemStockError(w, err)
+		writeItemStockError(w, r, err)
 		return
 	}
 	// skus 是转换后的规格行，保证单规格时序列化为空数组而不是 null。
@@ -163,12 +163,13 @@ func (s *Server) updateItemStock(w http.ResponseWriter, r *http.Request) {
 	outcome, err := s.itemStockApplication().UpdateStock(r.Context(), userID, cookieID, itemID, update)
 	if err != nil {
 		if errors.Is(err, itemapp.ErrStockSessionPersistence) {
+			logInternalFailure(r.Context(), http.StatusBadGateway, err)
 			setNoStore(w)
 			writeErrCode(w, http.StatusBadGateway, "platform_stock_updated_cookie_persist_failed",
 				"闲鱼平台已修改库存，但本地账号会话写回失败。请先刷新账号和商品库存，不要直接重复提交。", "")
 			return
 		}
-		writeItemStockError(w, err)
+		writeItemStockError(w, r, err)
 		return
 	}
 	setNoStore(w)
@@ -176,7 +177,7 @@ func (s *Server) updateItemStock(w http.ResponseWriter, r *http.Request) {
 }
 
 // writeItemStockError 把库存用例错误映射为统一错误响应；平台失败不回显响应正文或凭证。
-func writeItemStockError(w http.ResponseWriter, err error) {
+func writeItemStockError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, itemapp.ErrStockInvalidInput):
 		writeErr(w, http.StatusBadRequest, "库存参数无效：单规格库存需在 1 到 999999 之间，多规格需提交全部规格且至少一个库存大于 0")
@@ -189,10 +190,12 @@ func writeItemStockError(w http.ResponseWriter, err error) {
 	case errors.Is(err, itemapp.ErrStockUnsupported):
 		writeErr(w, http.StatusNotImplemented, "当前平台客户端不支持商品库存修改")
 	case errors.Is(err, itemapp.ErrStockRiskVerification):
+		logInternalFailure(r.Context(), http.StatusBadGateway, err)
 		writeErrCode(w, http.StatusBadGateway, "platform_risk_verification", "闲鱼要求安全验证，请先在闲鱼 App 完成验证后再重试", "")
 	case errors.Is(err, itemapp.ErrStockSessionExpired):
+		logInternalFailure(r.Context(), http.StatusBadGateway, err)
 		writeErrCode(w, http.StatusBadGateway, "platform_session_expired", "账号登录已失效，请重新登录该账号后再试", "")
 	default:
-		writeErr(w, http.StatusBadGateway, "闲鱼平台请求失败，请稍后重试；如刚提交过修改，请先刷新确认库存")
+		writeInternalErr(w, r, http.StatusBadGateway, "闲鱼平台请求失败，请稍后重试；如刚提交过修改，请先刷新确认库存", err)
 	}
 }

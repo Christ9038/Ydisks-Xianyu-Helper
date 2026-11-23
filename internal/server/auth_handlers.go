@@ -77,7 +77,7 @@ func (s *Server) initialize(w http.ResponseWriter, r *http.Request) {
 	// initialized、err 用于本次流程后续判断的initialized、err
 	initialized, err := s.authenticationApplication().IsSystemInitialized(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "检查系统初始化状态失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "检查系统初始化状态失败", err)
 		return
 	}
 	if initialized {
@@ -87,14 +87,14 @@ func (s *Server) initialize(w http.ResponseWriter, r *http.Request) {
 
 	if // err 用于本次流程后续判断的err
 	_, err := s.authenticationApplication().InitializeAdmin(r.Context(), "admin@example.com", req.Password); err != nil {
-		writeErr(w, http.StatusInternalServerError, "初始化管理员失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "初始化管理员失败", err)
 		return
 	}
 
 	// 初始化完成后立即建立会话，用户无需再手动输入一次 admin 账号和密码。
 	sid, user, err := s.authenticationApplication().Login(r.Context(), "admin", req.Password)
 	if err != nil || user == nil || sid == "" {
-		writeErr(w, http.StatusInternalServerError, "初始化完成，但自动登录失败，请使用 admin 账号登录")
+		writeInternalErr(w, r, http.StatusInternalServerError, "初始化完成，但自动登录失败，请使用 admin 账号登录", err)
 		return
 	}
 	s.Auth.SetSessionCookie(w, sid)
@@ -241,7 +241,7 @@ func (s *Server) changeAdminPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	if // err 用于本次流程后续判断的err
 	_, err := s.authenticationApplication().UpdatePassword(ctx, sess.Username, req.NewPassword); err != nil {
-		writeErr(w, http.StatusInternalServerError, "更新失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "更新失败", err)
 		return
 	}
 	s.Auth.ClearSessionCookie(w)
@@ -277,7 +277,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	if // err 用于本次流程后续判断的err
 	_, err := s.authenticationApplication().UpdatePassword(ctx, sess.Username, req.NewPassword); err != nil {
-		writeErr(w, http.StatusInternalServerError, "更新失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "更新失败", err)
 		return
 	}
 	s.Auth.ClearSessionCookie(w)
@@ -322,7 +322,7 @@ func (s *Server) updateCredentials(w http.ResponseWriter, r *http.Request) {
 	// user、ok、err 用于本次流程后续判断的user、ok、err
 	user, ok, err := s.authenticationApplication().VerifyPassword(r.Context(), sess.Username, req.CurrentPassword)
 	if err != nil {
-		writeCredentialVerificationError(w, err)
+		writeCredentialVerificationError(w, r, err)
 		return
 	}
 	if !ok || user.ID != sess.UserID {
@@ -335,7 +335,7 @@ func (s *Server) updateCredentials(w http.ResponseWriter, r *http.Request) {
 			writeErrCode(w, http.StatusConflict, "username_taken", "用户名已被占用", "")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "更新登录凭据失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "更新登录凭据失败", err)
 		return
 	}
 	s.Auth.ClearSessionCookie(w)

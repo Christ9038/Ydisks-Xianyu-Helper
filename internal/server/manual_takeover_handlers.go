@@ -59,7 +59,7 @@ func (s *Server) updateChatManualTakeover(w http.ResponseWriter, r *http.Request
 		case errors.Is(updateErr, accountapp.ErrNotFound):
 			writeErr(w, http.StatusNotFound, "账号不存在")
 		default:
-			writeErr(w, http.StatusInternalServerError, "保存人工介入配置失败")
+			writeInternalErr(w, r, http.StatusInternalServerError, "保存人工介入配置失败", updateErr)
 		}
 		return
 	}

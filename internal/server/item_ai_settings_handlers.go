@@ -42,7 +42,7 @@ func (s *Server) getItemAISettings(w http.ResponseWriter, r *http.Request) {
 	// settings 和 err 是应用服务完成归属校验后的商品配置结果。
 	settings, err := s.itemAISettingsApplication().Get(r.Context(), session.UserID, cookieID, itemID)
 	if err != nil {
-		s.writeItemAISettingsError(w, err)
+		s.writeItemAISettingsError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, itemAISettingsHTTPResponse(settings))
@@ -68,21 +68,21 @@ func (s *Server) updateItemAISettings(w http.ResponseWriter, r *http.Request) {
 	settings := itemapp.ItemAISettings{CookieID: cookieID, ItemID: itemID, Override: request.AIOverride, Context: request.ItemContext}
 	if // err 是商品 AI 配置保存失败原因。
 	err := s.itemAISettingsApplication().Save(r.Context(), session.UserID, settings); err != nil {
-		s.writeItemAISettingsError(w, err)
+		s.writeItemAISettingsError(w, r, err)
 		return
 	}
 	// saved 是删除默认记录或规范化保存后的最终配置。
 	// saved 和 err 是保存后重新读取的规范化配置及读取错误。
 	saved, err := s.itemAISettingsApplication().Get(r.Context(), session.UserID, cookieID, itemID)
 	if err != nil {
-		s.writeItemAISettingsError(w, err)
+		s.writeItemAISettingsError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, itemAISettingsHTTPResponse(saved))
 }
 
 // writeItemAISettingsError 将应用层稳定错误映射为 HTTP 状态。
-func (s *Server) writeItemAISettingsError(w http.ResponseWriter, err error) {
+func (s *Server) writeItemAISettingsError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, itemapp.ErrItemAISettingsForbidden):
 		writeErr(w, http.StatusForbidden, err.Error())
@@ -91,7 +91,7 @@ func (s *Server) writeItemAISettingsError(w http.ResponseWriter, err error) {
 	case errors.Is(err, itemapp.ErrItemAISettingsInvalidOverride), errors.Is(err, itemapp.ErrItemAISettingsContextTooLong), errors.Is(err, itemapp.ErrItemAISettingsInvalidContext):
 		writeErr(w, http.StatusBadRequest, err.Error())
 	default:
-		writeErr(w, http.StatusInternalServerError, "商品 AI 配置操作失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "商品 AI 配置操作失败", err)
 	}
 }
 

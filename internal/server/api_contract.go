@@ -111,10 +111,10 @@ func writeErrDetails(w http.ResponseWriter, status int, code, msg, requestID str
 }
 
 // writeCredentialVerificationError 将当前密码校验失败区分为认证失败或内部故障。
-func writeCredentialVerificationError(w http.ResponseWriter, err error) {
+func writeCredentialVerificationError(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.Is(err, accountapp.ErrPasswordMismatch) {
 		writeErrCode(w, http.StatusUnauthorized, "authentication_failed", "当前密码错误", "")
 		return
 	}
-	writeErr(w, http.StatusInternalServerError, "验证当前密码失败")
+	writeInternalErr(w, r, http.StatusInternalServerError, "验证当前密码失败", err)
 }

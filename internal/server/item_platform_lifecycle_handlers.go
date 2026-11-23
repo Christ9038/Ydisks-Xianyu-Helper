@@ -56,6 +56,7 @@ func (s *Server) unpublishItem(w http.ResponseWriter, r *http.Request) {
 	outcome, err := s.itemPlatformLifecycleApplication().DownShelf(r.Context(), userID, cookieID, itemID)
 	if err != nil {
 		if outcome.PlatformSuccess {
+			logInternalFailure(r.Context(), http.StatusBadGateway, err)
 			setNoStore(w)
 			writeErrDetails(w, http.StatusBadGateway, "platform_unpublished_cookie_persist_failed",
 				"闲鱼平台已确认下架，但本地账号会话写回失败。请先刷新账号和商品状态，不要直接重复下架。", "",
@@ -70,7 +71,7 @@ func (s *Server) unpublishItem(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, itemapp.ErrDownShelfUnsupported):
 			writeErr(w, http.StatusNotImplemented, "当前平台客户端不支持商品下架")
 		default:
-			writeErr(w, http.StatusBadGateway, "闲鱼平台未明确确认下架；请先刷新商品状态，确认仍在售后再重试")
+			writeInternalErr(w, r, http.StatusBadGateway, "闲鱼平台未明确确认下架；请先刷新商品状态，确认仍在售后再重试", err)
 		}
 		return
 	}

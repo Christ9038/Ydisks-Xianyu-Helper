@@ -61,7 +61,7 @@ func TestWriteChatMetadataErrorMapsAllCases(t *testing.T) {
 	for _, testCase := range cases {
 		// recorder 捕获错误映射生成的 HTTP 响应。
 		recorder := httptest.NewRecorder()
-		writeChatMetadataError(recorder, testCase.operationErr)
+		writeChatMetadataError(recorder, httptest.NewRequest(http.MethodGet, "/x", nil), testCase.operationErr)
 		if recorder.Code != testCase.wantStatus {
 			t.Errorf("error=%v status=%d want=%d", testCase.operationErr, recorder.Code, testCase.wantStatus)
 		}
@@ -85,7 +85,7 @@ func TestWriteDefaultReplyMutationErrorMapsAllCases(t *testing.T) {
 	for _, testCase := range cases {
 		// recorder 捕获错误映射生成的 HTTP 响应。
 		recorder := httptest.NewRecorder()
-		writeDefaultReplyMutationError(recorder, testCase.operationErr, "fallback")
+		writeDefaultReplyMutationError(recorder, httptest.NewRequest(http.MethodGet, "/x", nil), testCase.operationErr, "fallback")
 		if recorder.Code != testCase.wantStatus {
 			t.Errorf("error=%v status=%d want=%d", testCase.operationErr, recorder.Code, testCase.wantStatus)
 		}

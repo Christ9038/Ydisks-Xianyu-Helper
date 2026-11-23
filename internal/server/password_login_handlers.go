@@ -56,6 +56,7 @@ func (s *Server) passwordLoginDisabled(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if operationErr != nil {
+		logInternalFailure(r.Context(), http.StatusInternalServerError, operationErr)
 		writeErrCode(w, http.StatusInternalServerError, "internal_error", "密码登录操作失败", "")
 	}
 }

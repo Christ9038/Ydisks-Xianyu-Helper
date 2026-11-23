@@ -174,7 +174,7 @@ func (s *Server) setSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	// err 是普通设置与敏感命令原子保存错误。
 	if err := s.settingsApplication().ApplySystemChanges(r.Context(), sess.UserID, values, secrets); err != nil {
-		writeErr(w, http.StatusInternalServerError, "保存失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "保存失败", err)
 		return
 	}
 	// level 是待应用的日志级别；ok 表示请求是否更新日志级别。
@@ -241,7 +241,7 @@ func (s *Server) publicSettings(w http.ResponseWriter, r *http.Request) {
 	// m、err 用于本次流程后续判断的m、err
 	m, err := s.settingsApplication().PublicSystem(r.Context())
 	if err != nil {
-		writeErrRequest(w, r, http.StatusInternalServerError, "查询失败")
+		writeInternalErrRequest(w, r, http.StatusInternalServerError, "查询失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, newSettingsResponse(m))
@@ -258,7 +258,7 @@ func (s *Server) allSettings(w http.ResponseWriter, r *http.Request) {
 	// m、err 保存脱敏设置及应用服务查询错误。
 	m, err := s.settingsApplication().GetSystem(r.Context(), sess.UserID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "查询失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, newSettingsResponse(m))
@@ -290,7 +290,7 @@ func (s *Server) setSetting(w http.ResponseWriter, r *http.Request) {
 		}
 		// err 是单项敏感设置原子保存或审计错误。
 		if err := s.settingsApplication().SetSystem(r.Context(), sess.UserID, key, req.Value, action); err != nil {
-			writeErr(w, http.StatusInternalServerError, "保存失败")
+			writeInternalErr(w, r, http.StatusInternalServerError, "保存失败", err)
 			return
 		}
 		writeJSON(w, http.StatusOK, operationResponse{Success: true})
@@ -315,7 +315,7 @@ func (s *Server) setSetting(w http.ResponseWriter, r *http.Request) {
 	}
 	// err 表示普通设置保存或应用服务校验失败。
 	if err := s.settingsApplication().SetSystem(r.Context(), sess.UserID, key, req.Value, ""); err != nil {
-		writeErr(w, http.StatusInternalServerError, "保存失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "保存失败", err)
 		return
 	}
 	if key == "log_level" {
@@ -340,7 +340,7 @@ func (s *Server) listAIReply(w http.ResponseWriter, r *http.Request) {
 	// rows、err 保存应用层 AI 设置摘要及查询错误。
 	rows, err := s.settingsApplication().ListAIReply(r.Context(), sess.UserID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "查询失败", err)
 		return
 	}
 	// result 用于本次流程后续判断的结果
@@ -381,7 +381,7 @@ func (s *Server) getAIReply(w http.ResponseWriter, r *http.Request) {
 		if writeSettingsAccountError(w, err) {
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "查询失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "查询失败", err)
 		return
 	}
 	// 已保存配置返回账号标识，客户端可据此区分账号级设置。
@@ -417,7 +417,7 @@ func (s *Server) setAIReply(w http.ResponseWriter, r *http.Request) {
 		if writeSettingsAccountError(w, ownershipErr) {
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "查询失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "查询失败", ownershipErr)
 		return
 	}
 	if req.MaxDiscountPercent < 0 || req.MaxDiscountPercent > 100 {
@@ -460,7 +460,7 @@ func (s *Server) setAIReply(w http.ResponseWriter, r *http.Request) {
 		if writeSettingsAccountError(w, err) {
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "保存失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "保存失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
@@ -497,7 +497,7 @@ func (s *Server) listAIModels(w http.ResponseWriter, r *http.Request) {
 	// models、err 保存应用服务读取的模型名称及错误。
 	models, err := s.settingsApplication().ListAIModels(r.Context(), sess.UserID, req.BaseURL, req.APIKey)
 	if err != nil {
-		writeErr(w, http.StatusBadGateway, err.Error())
+		writeInternalErr(w, r, http.StatusBadGateway, err.Error(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, aiModelsResponse{Models: models})
@@ -521,7 +521,7 @@ func (s *Server) testAIConnection(w http.ResponseWriter, r *http.Request) {
 	// result、testErr 分别保存非敏感诊断结果和应用服务或上游请求错误。
 	result, testErr := s.settingsApplication().TestAIConnection(r.Context(), sess.UserID, req.BaseURL, req.APIKey, req.Model)
 	if testErr != nil {
-		writeErr(w, http.StatusBadGateway, testErr.Error())
+		writeInternalErr(w, r, http.StatusBadGateway, testErr.Error(), testErr)
 		return
 	}
 	writeJSON(w, http.StatusOK, aiConnectionTestResponse{
@@ -548,7 +548,7 @@ func (s *Server) listUserSettings(w http.ResponseWriter, r *http.Request) {
 	// settings、err 保存用户设置及查询错误。
 	settings, err := s.settingsApplication().ListUser(r.Context(), sess.UserID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "查询失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, newSettingsResponse(settings))
@@ -585,7 +585,7 @@ func (s *Server) setUserSetting(w http.ResponseWriter, r *http.Request) {
 	// err 是用户设置写入错误。
 	err := s.settingsApplication().SetUser(r.Context(), sess.UserID, key, req.Value)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "保存失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "保存失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})

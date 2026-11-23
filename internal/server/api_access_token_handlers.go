@@ -56,7 +56,7 @@ func (s *Server) listAPIAccessTokens(w http.ResponseWriter, r *http.Request) {
 	// summaries、err 保存当前用户的令牌摘要列表及查询错误。
 	summaries, err := s.apiAccessTokensApplication().List(r.Context(), session.UserID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "读取 API 访问令牌失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "读取 API 访问令牌失败", err)
 		return
 	}
 	setNoStore(w)
@@ -83,7 +83,7 @@ func (s *Server) createAPIAccessToken(w http.ResponseWriter, r *http.Request) {
 		Name: request.Name, Scopes: request.Scopes, ExpiresInDays: request.ExpiresInDays,
 	})
 	if err != nil {
-		writeAPIAccessTokenError(w, err)
+		writeAPIAccessTokenError(w, r, err)
 		return
 	}
 	setNoStore(w)
@@ -102,7 +102,7 @@ func (s *Server) revokeAPIAccessToken(w http.ResponseWriter, r *http.Request) {
 	keyID := strings.TrimSpace(chi.URLParam(r, "token_id"))
 	// err 是按当前用户归属撤销指定令牌时返回的应用错误。
 	if err := s.apiAccessTokensApplication().Revoke(r.Context(), session.UserID, keyID); err != nil {
-		writeAPIAccessTokenError(w, err)
+		writeAPIAccessTokenError(w, r, err)
 		return
 	}
 	setNoStore(w)
@@ -110,7 +110,7 @@ func (s *Server) revokeAPIAccessToken(w http.ResponseWriter, r *http.Request) {
 }
 
 // writeAPIAccessTokenError 将令牌应用错误映射为统一 HTTP 状态，不回显令牌明文或摘要。
-func writeAPIAccessTokenError(w http.ResponseWriter, err error) {
+func writeAPIAccessTokenError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, apikey.ErrInvalidInput):
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -119,6 +119,6 @@ func writeAPIAccessTokenError(w http.ResponseWriter, err error) {
 	case errors.Is(err, apikey.ErrInvalidUser):
 		writeErr(w, http.StatusUnauthorized, "需要浏览器登录会话")
 	default:
-		writeErr(w, http.StatusInternalServerError, "API 访问令牌操作失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "API 访问令牌操作失败", err)
 	}
 }

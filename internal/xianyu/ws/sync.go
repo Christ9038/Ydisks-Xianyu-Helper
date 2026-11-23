@@ -414,10 +414,12 @@ func (c *Conn) sendChatContent(ctx context.Context, myID, cid, toID string, cont
 		c.observeOutgoingResponse(response, mid, myID, cid, toID, raw)
 		return nil
 	}
+	// reason 保存平台拒绝或异常应答里已脱敏的原因，仅用于诊断，不参与结果分类。
+	reason := extractSendReason(response)
 	if code >= http.StatusBadRequest && code < http.StatusInternalServerError && code != http.StatusRequestTimeout {
-		return &SendError{Kind: SendRejected, Code: code}
+		return &SendError{Kind: SendRejected, Code: code, Reason: reason}
 	}
-	return &SendError{Kind: SendUncertain, Code: code}
+	return &SendError{Kind: SendUncertain, Code: code, Reason: reason}
 }
 
 // observeOutgoingResponse 将带有可核验正文的成功发送响应转换为账号运行时可消费的出站观察事件。

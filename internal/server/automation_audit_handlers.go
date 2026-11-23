@@ -71,7 +71,7 @@ func (s *Server) listAutomationAuditEvents(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询规则日志失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "查询规则日志失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, automationAuditEventListResponse{

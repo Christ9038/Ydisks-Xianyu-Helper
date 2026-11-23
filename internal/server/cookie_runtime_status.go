@@ -17,13 +17,13 @@ func (s *Server) listCookieRuntimeStatus(w http.ResponseWriter, r *http.Request)
 	// cookieIDs、listErr 保存当前用户账号标识列表及读取错误。
 	cookieIDs, listErr := accountSummary.ListOwnedIDs(r.Context(), sess.UserID)
 	if listErr != nil {
-		writeErr(w, http.StatusInternalServerError, "获取账号失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "获取账号失败", listErr)
 		return
 	}
 	// runtime、runtimeErr 保存应用层返回的账号运行状态快照及读取错误。
 	runtime, runtimeErr := s.accountRuntimeApplication().RuntimeStatuses(r.Context())
 	if runtimeErr != nil {
-		writeErr(w, http.StatusInternalServerError, "获取账号运行状态失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "获取账号运行状态失败", runtimeErr)
 		return
 	}
 	// result 是按当前用户账号 ID 返回的非敏感运行状态映射。

@@ -71,7 +71,7 @@ func (s *Server) listChatQuickReplies(w http.ResponseWriter, r *http.Request) {
 	// replies 和 listErr 保存应用服务返回的快捷回复及查询错误。
 	replies, listErr := s.chatApplication().ListQuickReplies(r.Context(), session.UserID, accountID)
 	if listErr != nil {
-		writeChatMetadataError(w, listErr)
+		writeChatMetadataError(w, r, listErr)
 		return
 	}
 	writeJSON(w, http.StatusOK, newChatQuickReplyListResponse(replies))
@@ -91,7 +91,7 @@ func (s *Server) createChatQuickReply(w http.ResponseWriter, r *http.Request) {
 	// reply 和 createErr 保存创建后的快捷回复及应用层校验错误。
 	reply, createErr := s.chatApplication().CreateQuickReplyWithImage(r.Context(), session.UserID, request.AccountID, request.Content, request.LibraryImageID)
 	if createErr != nil {
-		writeChatMetadataError(w, createErr)
+		writeChatMetadataError(w, r, createErr)
 		return
 	}
 	writeJSON(w, http.StatusCreated, newChatQuickReplyResponse(reply))
@@ -111,7 +111,7 @@ func (s *Server) deleteChatQuickReply(w http.ResponseWriter, r *http.Request) {
 	}
 	// deleteErr 保存删除快捷回复时应用服务返回的业务或持久化错误。
 	if deleteErr := s.chatApplication().DeleteQuickReply(r.Context(), session.UserID, accountID, quickReplyID); deleteErr != nil {
-		writeChatMetadataError(w, deleteErr)
+		writeChatMetadataError(w, r, deleteErr)
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
@@ -126,7 +126,7 @@ func (s *Server) getChatBuyerNote(w http.ResponseWriter, r *http.Request) {
 	// note 和 readErr 保存应用层读取的备注及错误。
 	note, readErr := s.chatApplication().GetBuyerNote(r.Context(), session.UserID, accountID, buyerID)
 	if readErr != nil {
-		writeChatMetadataError(w, readErr)
+		writeChatMetadataError(w, r, readErr)
 		return
 	}
 	writeJSON(w, http.StatusOK, newChatBuyerNoteResponse(note))
@@ -148,7 +148,7 @@ func (s *Server) saveChatBuyerNote(w http.ResponseWriter, r *http.Request) {
 	// note 和 saveErr 保存更新后的备注及应用层校验错误。
 	note, saveErr := s.chatApplication().SaveBuyerNote(r.Context(), session.UserID, request.AccountID, buyerID, request.Content)
 	if saveErr != nil {
-		writeChatMetadataError(w, saveErr)
+		writeChatMetadataError(w, r, saveErr)
 		return
 	}
 	writeJSON(w, http.StatusOK, newChatBuyerNoteResponse(note))
@@ -176,7 +176,7 @@ func newChatBuyerNoteResponse(note chatapp.BuyerNote) chatBuyerNoteResponse {
 }
 
 // writeChatMetadataError 将聊天元数据用例错误映射到统一 HTTP 状态和错误 envelope。
-func writeChatMetadataError(w http.ResponseWriter, operationErr error) {
+func writeChatMetadataError(w http.ResponseWriter, r *http.Request, operationErr error) {
 	switch {
 	case errors.Is(operationErr, chatapp.ErrInvalidInput):
 		writeErr(w, http.StatusBadRequest, "账号、买家或内容无效")
@@ -189,6 +189,6 @@ func writeChatMetadataError(w http.ResponseWriter, operationErr error) {
 	case errors.Is(operationErr, chatapp.ErrQuickReplyNotFound):
 		writeErr(w, http.StatusNotFound, "快捷回复不存在")
 	default:
-		writeErr(w, http.StatusInternalServerError, "聊天数据操作失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "聊天数据操作失败", operationErr)
 	}
 }

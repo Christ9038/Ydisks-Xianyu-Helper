@@ -132,7 +132,7 @@ func keywordUserID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 }
 
 // writeKeywordError 将应用层错误映射为现有关键词接口的 HTTP 语义。
-func writeKeywordError(w http.ResponseWriter, err error, fallback string) {
+func writeKeywordError(w http.ResponseWriter, r *http.Request, err error, fallback string) {
 	if err == nil {
 		return
 	}
@@ -150,7 +150,7 @@ func writeKeywordError(w http.ResponseWriter, err error, fallback string) {
 	case errors.Is(err, keywords.ErrInvalidInput):
 		writeErr(w, http.StatusBadRequest, "请求参数无效")
 	default:
-		writeErr(w, http.StatusInternalServerError, fallback)
+		writeInternalErr(w, r, http.StatusInternalServerError, fallback, err)
 	}
 }
 
@@ -166,7 +166,7 @@ func (s *Server) listKeywords(w http.ResponseWriter, r *http.Request) {
 	// rows 保存应用层查询结果。
 	rows, err := s.keywordApplication().List(r.Context(), userID, cookieID)
 	if err != nil {
-		writeKeywordError(w, err, "查询失败")
+		writeKeywordError(w, r, err, "查询失败")
 		return
 	}
 	// result 保存 HTTP 基础响应，隐藏数据库模型和内部字段。
@@ -190,7 +190,7 @@ func (s *Server) listKeywordsWithItemID(w http.ResponseWriter, r *http.Request) 
 	// rows 保存应用层查询结果。
 	rows, err := s.keywordApplication().List(r.Context(), userID, cookieID)
 	if err != nil {
-		writeKeywordError(w, err, "查询失败")
+		writeKeywordError(w, r, err, "查询失败")
 		return
 	}
 	// result 保存带商品字段的 HTTP 响应。
@@ -214,7 +214,7 @@ func (s *Server) listKeywordsWithType(w http.ResponseWriter, r *http.Request) {
 	// rows 保存应用层查询结果。
 	rows, err := s.keywordApplication().List(r.Context(), userID, cookieID)
 	if err != nil {
-		writeKeywordError(w, err, "查询失败")
+		writeKeywordError(w, r, err, "查询失败")
 		return
 	}
 	// result 保存带类型字段的 HTTP 响应。
@@ -244,7 +244,7 @@ func (s *Server) addKeyword(w http.ResponseWriter, r *http.Request) {
 	}
 	// _, err 表示创建操作的结果；ID 对兼容响应不向客户端暴露。
 	if _, err := s.keywordApplication().Add(r.Context(), userID, cookieID, keywords.Draft{Keyword: request.Keyword, Expressions: request.Expressions, MatchType: request.MatchType, Reply: request.Reply, Type: "text"}); err != nil {
-		writeKeywordError(w, err, "添加失败")
+		writeKeywordError(w, r, err, "添加失败")
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
@@ -275,7 +275,7 @@ func (s *Server) addKeywordWithItemID(w http.ResponseWriter, r *http.Request) {
 		}
 		// err 表示批量替换规则的应用服务错误。
 		if err := s.keywordApplication().Replace(r.Context(), userID, cookieID, drafts); err != nil {
-			writeKeywordError(w, err, "保存失败")
+			writeKeywordError(w, r, err, "保存失败")
 			return
 		}
 		writeJSON(w, http.StatusOK, operationResponse{Success: true})
@@ -284,7 +284,7 @@ func (s *Server) addKeywordWithItemID(w http.ResponseWriter, r *http.Request) {
 	// id 是新建规则的持久化标识；兼容响应保留该字段。
 	id, err := s.keywordApplication().Add(r.Context(), userID, cookieID, keywords.Draft{Keyword: request.Keyword, Expressions: request.Expressions, MatchType: request.MatchType, Reply: request.Reply, ItemID: request.ItemID, ItemIDs: request.ItemIDs, Type: request.Type, ImageURL: request.ImageURL, LibraryImageID: request.LibraryImageID, NotifyManual: request.NotifyManual})
 	if err != nil {
-		writeKeywordError(w, err, "添加失败")
+		writeKeywordError(w, r, err, "添加失败")
 		return
 	}
 	writeJSON(w, http.StatusOK, mutationIDResponse{Success: true, ID: id})
@@ -315,7 +315,7 @@ func (s *Server) updateKeywordByID(w http.ResponseWriter, r *http.Request) {
 	// updateErr 表示应用层按商品范围字段更新规则的结果。
 	updateErr := s.keywordApplication().Update(r.Context(), userID, cookieID, id, keywords.Draft{Keyword: request.Keyword, Expressions: request.Expressions, MatchType: request.MatchType, Reply: request.Reply, ItemID: request.ItemID, ItemIDs: request.ItemIDs, Type: request.Type, ImageURL: request.ImageURL, LibraryImageID: request.LibraryImageID, NotifyManual: request.NotifyManual})
 	if updateErr != nil {
-		writeKeywordError(w, updateErr, "保存失败")
+		writeKeywordError(w, r, updateErr, "保存失败")
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
@@ -339,7 +339,7 @@ func (s *Server) deleteKeywordByID(w http.ResponseWriter, r *http.Request) {
 	// deleteErr 表示应用层删除结果。
 	deleteErr := s.keywordApplication().DeleteByID(r.Context(), userID, cookieID, id)
 	if deleteErr != nil {
-		writeKeywordError(w, deleteErr, "关键字不存在")
+		writeKeywordError(w, r, deleteErr, "关键字不存在")
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
@@ -362,7 +362,7 @@ func (s *Server) deleteKeyword(w http.ResponseWriter, r *http.Request) {
 	// deleteErr 表示应用层删除结果。
 	deleteErr := s.keywordApplication().DeleteByIndex(r.Context(), userID, cookieID, index)
 	if deleteErr != nil {
-		writeKeywordError(w, deleteErr, "关键字不存在")
+		writeKeywordError(w, r, deleteErr, "关键字不存在")
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
@@ -417,7 +417,7 @@ func (s *Server) getItemReply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeKeywordError(w, err, "查询失败")
+		writeKeywordError(w, r, err, "查询失败")
 		return
 	}
 	writeJSON(w, http.StatusOK, itemReplyResponse{ItemID: row.ItemID, CookieID: row.CookieID, ReplyContent: row.ReplyContent})
@@ -443,7 +443,7 @@ func (s *Server) setItemReply(w http.ResponseWriter, r *http.Request) {
 	}
 	// err 表示应用层写入结果。
 	if err := s.keywordApplication().SetItemReply(r.Context(), userID, cookieID, itemID, request.ReplyContent); err != nil {
-		writeKeywordError(w, err, "保存失败")
+		writeKeywordError(w, r, err, "保存失败")
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
@@ -462,7 +462,7 @@ func (s *Server) deleteItemReply(w http.ResponseWriter, r *http.Request) {
 	}
 	// err 表示应用层删除结果。
 	if err := s.keywordApplication().DeleteItemReply(r.Context(), userID, cookieID, itemID); err != nil {
-		writeKeywordError(w, err, "删除失败")
+		writeKeywordError(w, r, err, "删除失败")
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})

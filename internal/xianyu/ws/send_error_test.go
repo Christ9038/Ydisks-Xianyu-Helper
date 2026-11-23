@@ -49,3 +49,15 @@ func TestItoaHandlesZeroNegativeAndPositive(t *testing.T) {
 		}
 	}
 }
+
+// TestSendErrorTextIncludesReason 覆盖带平台原因的错误文本，以及无状态码仅有原因的组合。
+func TestSendErrorTextIncludesReason(t *testing.T) {
+	// got 保存带状态码和原因的错误文本。
+	if got := (&SendError{Kind: SendRejected, Code: 400, Reason: "reason=会话受限"}).Error(); got != "闲鱼聊天发送结果: kind=rejected code=400 reason=reason=会话受限" {
+		t.Fatalf("text=%q", got)
+	}
+	// got 保存无状态码、仅有原因的错误文本。
+	if got := (&SendError{Kind: SendUncertain, Reason: "x"}).Error(); got != "闲鱼聊天发送结果: kind=uncertain reason=x" {
+		t.Fatalf("text=%q", got)
+	}
+}

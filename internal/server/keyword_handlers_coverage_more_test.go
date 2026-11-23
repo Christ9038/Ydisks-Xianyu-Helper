@@ -292,7 +292,7 @@ func TestKeywordHelpersCoverUnauthorizedAndErrorMapping(t *testing.T) {
 		t.Run(mappingCase.name, func(t *testing.T) {
 			// mappingRecorder 保存当前错误映射响应。
 			mappingRecorder := httptest.NewRecorder()
-			writeKeywordError(mappingRecorder, mappingCase.err, "fallback")
+			writeKeywordError(mappingRecorder, httptest.NewRequest(http.MethodGet, "/x", nil), mappingCase.err, "fallback")
 			if mappingRecorder.Code != mappingCase.code {
 				t.Fatalf("status=%d want=%d", mappingRecorder.Code, mappingCase.code)
 			}

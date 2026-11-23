@@ -29,7 +29,7 @@ func (s *Server) getAccountTaskSettings(w http.ResponseWriter, r *http.Request) 
 	// settings、err 用于本次流程后续判断的settings、err
 	settings, err := s.accountTaskApplication().GetSettings(r.Context(), cid)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "读取账号任务配置失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "读取账号任务配置失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, newApplicationAccountTaskSettingsResponse(settings))
@@ -57,7 +57,7 @@ func (s *Server) updateAccountTaskSettings(w http.ResponseWriter, r *http.Reques
 		if strings.Contains(err.Error(), "不能为空") || strings.Contains(err.Error(), "不能超过") || strings.Contains(err.Error(), "格式必须") {
 			writeErr(w, http.StatusBadRequest, err.Error())
 		} else {
-			writeErr(w, http.StatusInternalServerError, "保存账号任务配置失败")
+			writeInternalErr(w, r, http.StatusInternalServerError, "保存账号任务配置失败", err)
 		}
 		return
 	}
@@ -75,7 +75,7 @@ func (s *Server) listAccountTaskRuns(w http.ResponseWriter, r *http.Request) {
 	// runs、err 用于本次流程后续判断的runs、err
 	runs, err := s.accountTaskApplication().ListRuns(r.Context(), cid, parsePositiveInt(r.URL.Query().Get("limit"), 20))
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "读取任务记录失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "读取任务记录失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, accountTaskRunsResponse{Runs: newApplicationAccountTaskRunResponses(runs)})
@@ -99,10 +99,10 @@ func (s *Server) runAccountTask(w http.ResponseWriter, r *http.Request) {
 	summary, err := s.accountTaskApplication().Run(r.Context(), cid, input.TaskType)
 	if err != nil {
 		if errors.Is(err, automationapp.ErrUnavailable) {
-			writeErr(w, http.StatusServiceUnavailable, "自动化中心未启用")
+			writeInternalErr(w, r, http.StatusServiceUnavailable, "自动化中心未启用", err)
 			return
 		}
-		writeErr(w, http.StatusBadGateway, err.Error())
+		writeInternalErr(w, r, http.StatusBadGateway, err.Error(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, accountTaskRunResponseEnvelope{Success: true, Summary: newApplicationAccountTaskSummaryResponse(summary)})

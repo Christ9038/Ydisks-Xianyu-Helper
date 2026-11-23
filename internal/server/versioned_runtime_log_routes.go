@@ -121,7 +121,7 @@ func (s *Server) listRuntimeLogs(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, "日志等级无效")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "查询运行日志失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "查询运行日志失败", queryErr)
 		return
 	}
 	writeJSON(w, http.StatusOK, newRuntimeLogPageResponse(page))

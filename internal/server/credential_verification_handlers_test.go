@@ -141,7 +141,7 @@ func TestCredentialVerificationErrorMapping(t *testing.T) {
 		t.Run(sample.name, func(t *testing.T) {
 			// recorder 保存 httptest.NewRecorder 的结果，供后续分支和断言使用。
 			recorder := httptest.NewRecorder()
-			srv.writeCredentialVerificationError(recorder, sample.err)
+			srv.writeCredentialVerificationError(recorder, httptest.NewRequest(http.MethodGet, "/x", nil), sample.err)
 			if recorder.Code != sample.status || !strings.Contains(recorder.Body.String(), sample.contains) {
 				t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 			}

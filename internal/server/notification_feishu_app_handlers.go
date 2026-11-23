@@ -73,16 +73,16 @@ func (s *Server) startFeishuAppBinding(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if errors.Is(startErr, notificationsapp.ErrFeishuUnavailable) {
-			writeErr(w, http.StatusInternalServerError, "飞书应用绑定未启用")
+			writeInternalErr(w, r, http.StatusInternalServerError, "飞书应用绑定未启用", startErr)
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "发起飞书应用绑定失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "发起飞书应用绑定失败", startErr)
 		return
 	}
 	// qrDataURL、qrErr 保存二维码 PNG data URL 及生成错误。
 	qrDataURL, qrErr := feishuQRCodeDataURL(start.QRCodeURL)
 	if qrErr != nil {
-		writeErr(w, http.StatusInternalServerError, "生成飞书绑定二维码失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "生成飞书绑定二维码失败", qrErr)
 		return
 	}
 	writeJSON(w, http.StatusOK, feishuAppBindingStartResponse{SessionID: start.SessionID, QRCodeURL: qrDataURL, ExpiresIn: start.ExpiresIn})
@@ -106,10 +106,10 @@ func (s *Server) getFeishuAppBindingStatus(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		if errors.Is(statusErr, notificationsapp.ErrFeishuUnavailable) {
-			writeErr(w, http.StatusInternalServerError, "飞书应用绑定未启用")
+			writeInternalErr(w, r, http.StatusInternalServerError, "飞书应用绑定未启用", statusErr)
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "查询飞书绑定状态失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "查询飞书绑定状态失败", statusErr)
 		return
 	}
 	writeJSON(w, http.StatusOK, feishuAppBindingStatusResponse{Status: status.Status, Message: status.Message, ChannelID: status.ChannelID})

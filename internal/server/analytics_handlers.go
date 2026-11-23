@@ -30,7 +30,7 @@ func (s *Server) dashboardStats(w http.ResponseWriter, r *http.Request) {
 	// result 和 err 是订单分析应用服务返回的仪表盘摘要及错误。
 	result, err := s.analyticsApplication().DashboardStats(r.Context(), sess.UserID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "统计数据失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "统计数据失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, dashboardStatsResponseFromApplication(result))
@@ -48,7 +48,7 @@ func (s *Server) orderAnalytics(w http.ResponseWriter, r *http.Request) {
 	// result 和 err 是订单分析应用服务返回的统计结果及错误。
 	result, err := s.analyticsApplication().OrderAnalytics(r.Context(), query)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, analyticsapp.ErrorMessage(err))
+		writeInternalErr(w, r, http.StatusInternalServerError, analyticsapp.ErrorMessage(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, orderAnalyticsResponseFromApplication(result))
@@ -76,7 +76,7 @@ func (s *Server) validOrders(w http.ResponseWriter, r *http.Request) {
 	// result 和 err 是订单分析应用服务返回的分页结果及错误。
 	result, err := s.analyticsApplication().ValidOrders(r.Context(), query, page, pageSize)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, analyticsapp.ErrorMessage(err))
+		writeInternalErr(w, r, http.StatusInternalServerError, analyticsapp.ErrorMessage(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, validOrdersResponseFromApplication(result))
@@ -94,7 +94,7 @@ func (s *Server) salesStats(w http.ResponseWriter, r *http.Request) {
 	// result 和 err 是订单分析应用服务返回的销售统计结果及错误。
 	result, err := s.analyticsApplication().SalesStats(r.Context(), query)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, analyticsapp.ErrorMessage(err))
+		writeInternalErr(w, r, http.StatusInternalServerError, analyticsapp.ErrorMessage(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, salesStatsResponseFromApplication(result))

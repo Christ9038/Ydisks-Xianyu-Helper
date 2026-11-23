@@ -81,7 +81,7 @@ func (s *Server) listDeliveryTemplates(w http.ResponseWriter, r *http.Request) {
 	// items、err 保存模板列表及查询错误。
 	items, err := s.deliveryTemplatesApplication().List(r.Context(), session.UserID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询发货模板失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "查询发货模板失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, deliveryTemplateListResponse{Success: true, Data: deliveryTemplateResponses(items)})
@@ -104,7 +104,7 @@ func (s *Server) getDeliveryTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询发货模板失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "查询发货模板失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, deliveryTemplateResponseModel(item))
@@ -129,7 +129,7 @@ func (s *Server) createDeliveryTemplate(w http.ResponseWriter, r *http.Request) 
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "创建发货模板失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "创建发货模板失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, deliveryTemplateMutationResponse{Success: true, ID: templateID})
@@ -167,7 +167,7 @@ func (s *Server) updateDeliveryTemplate(w http.ResponseWriter, r *http.Request) 
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "更新发货模板失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "更新发货模板失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, deliveryTemplateMutationResponse{Success: true})
@@ -194,7 +194,7 @@ func (s *Server) deleteDeliveryTemplate(w http.ResponseWriter, r *http.Request) 
 			writeErr(w, http.StatusConflict, "发货模板仍被自动化规则引用")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "删除发货模板失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "删除发货模板失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, deliveryTemplateMutationResponse{Success: true})

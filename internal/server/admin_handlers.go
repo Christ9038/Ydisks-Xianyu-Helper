@@ -22,7 +22,7 @@ func (s *Server) adminListUsers(w http.ResponseWriter, r *http.Request) {
 	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := s.applicationServiceSet().admin.ListUsers(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "查询失败", err)
 		return
 	}
 	// out 用于本次流程后续判断的out
@@ -54,7 +54,7 @@ func (s *Server) adminDeleteUser(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, "不能删除当前登录用户")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "删除失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "删除失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
@@ -65,7 +65,7 @@ func (s *Server) adminListCookies(w http.ResponseWriter, r *http.Request) {
 	// rows、err 保存应用服务返回的管理员账号摘要及查询错误。
 	rows, err := s.accountSummaryApplication().ListAdminSummaries(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "查询失败", err)
 		return
 	}
 	// out 用于本次流程后续判断的out
@@ -86,7 +86,7 @@ func (s *Server) adminStats(w http.ResponseWriter, r *http.Request) {
 	// stats 是管理员仪表盘的数据库聚合结果。
 	stats, err := s.applicationServiceSet().admin.Stats(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "统计数据失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "统计数据失败", err)
 		return
 	}
 

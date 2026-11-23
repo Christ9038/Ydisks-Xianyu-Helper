@@ -215,6 +215,6 @@ func writeItemGreetingError(w http.ResponseWriter, r *http.Request, err error, f
 	case errors.Is(err, itemgreetingapp.ErrForbidden):
 		writeErrRequest(w, r, http.StatusForbidden, "无权限操作该账号")
 	default:
-		writeErrRequest(w, r, http.StatusInternalServerError, fallback)
+		writeInternalErrRequest(w, r, http.StatusInternalServerError, fallback, err)
 	}
 }

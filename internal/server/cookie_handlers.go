@@ -49,7 +49,7 @@ func (s *Server) getLongLoginSettings(w http.ResponseWriter, r *http.Request) {
 	// result 保存应用服务返回的不含凭证的长登录状态。
 	result, err := s.accountLongLoginApplication().Query(r.Context(), ownedDetail.UserID, cid)
 	if err != nil {
-		s.writeLongLoginError(w, err)
+		s.writeLongLoginError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, longLoginResponse{CanOpenLongLogin: result.CanOpenLongLogin, Enabled: result.Enabled})
@@ -74,27 +74,27 @@ func (s *Server) setLongLoginSettings(w http.ResponseWriter, r *http.Request) {
 	// result 保存应用服务返回的不含凭证的长登录状态。
 	result, err := s.accountLongLoginApplication().Set(r.Context(), ownedDetail.UserID, cid, *req.Enabled)
 	if err != nil {
-		s.writeLongLoginError(w, err)
+		s.writeLongLoginError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, longLoginResponse{CanOpenLongLogin: result.CanOpenLongLogin, Enabled: result.Enabled})
 }
 
 // writeLongLoginError 将长登录应用错误映射为兼容现有客户端的 HTTP 状态。
-func (s *Server) writeLongLoginError(w http.ResponseWriter, err error) {
+func (s *Server) writeLongLoginError(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.Is(err, accountapp.ErrForbidden) || errors.Is(err, accountapp.ErrNotFound) || errors.Is(err, accountapp.ErrCredentialNotFound) {
 		writeErr(w, http.StatusNotFound, "账号不存在")
 		return
 	}
 	if errors.Is(err, accountapp.ErrLongLoginPlatform) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		writeErr(w, http.StatusBadGateway, err.Error())
+		writeInternalErr(w, r, http.StatusBadGateway, err.Error(), err)
 		return
 	}
 	if strings.Contains(err.Error(), "平台") || strings.Contains(err.Error(), "HTTP") {
-		writeErr(w, http.StatusBadGateway, err.Error())
+		writeInternalErr(w, r, http.StatusBadGateway, err.Error(), err)
 		return
 	}
-	writeErr(w, http.StatusInternalServerError, "保存续期 Cookie 失败")
+	writeInternalErr(w, r, http.StatusInternalServerError, "保存续期 Cookie 失败", err)
 }
 
 // updateRunningCookie 封装updateRunning登录凭证业务协调。
@@ -272,7 +272,7 @@ func (s *Server) listCookies(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())                                     // sess 是当前认证会话。
 	ids, err := s.accountSummaryApplication().ListOwnedIDs(r.Context(), sess.UserID) // ids 和 err 是账号 ID 列表及查询错误。
 	if err != nil {
-		writeErrRequest(w, r, http.StatusInternalServerError, "获取账号失败")
+		writeInternalErrRequest(w, r, http.StatusInternalServerError, "获取账号失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, ids)
@@ -283,7 +283,7 @@ func (s *Server) listCookieDetails(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())                                            // sess 是当前认证会话。
 	summaries, err := s.accountSummaryApplication().ListSummaries(r.Context(), sess.UserID) // summaries 和 err 是账号摘要及查询错误。
 	if err != nil {
-		writeErrRequest(w, r, http.StatusInternalServerError, "获取账号失败")
+		writeInternalErrRequest(w, r, http.StatusInternalServerError, "获取账号失败", err)
 		return
 	}
 	result := make([]cookieSummaryResponse, 0, len(summaries)) // result 是非敏感详情响应列表。
@@ -404,7 +404,7 @@ func (s *Server) refreshCookieProfile(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusForbidden, "无权限操作该账号")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "刷新账号资料失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "刷新账号资料失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, cookieProfileResponse{
@@ -531,7 +531,7 @@ func (s *Server) updateCookieLoginInfo(w http.ResponseWriter, r *http.Request) {
 	if err := s.accountSettingsApplication().UpdateLoginInfo(r.Context(), accountapp.LoginInfoUpdateInput{
 		UserID: detail.UserID, AccountID: cid, Username: req.Username, Password: password, ShowBrowser: req.ShowBrowser,
 	}); err != nil {
-		writeErr(w, http.StatusInternalServerError, "更新失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "更新失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
@@ -564,7 +564,7 @@ func (s *Server) setCookieStatus(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusNotFound, "账号不存在")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "更新失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "更新失败", err)
 		return
 	}
 	if result.RuntimeError != nil {
@@ -617,7 +617,7 @@ func (s *Server) deleteCookie(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if deleteErr != nil {
-		writeErr(w, http.StatusInternalServerError, "删除失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "删除失败", deleteErr)
 		return
 	}
 	s.Logger.Info("账号已删除",
@@ -654,7 +654,7 @@ func (s *Server) setCookieAutoConfirm(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusForbidden, "无权操作该账号")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "保存自动确认设置失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "保存自动确认设置失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
@@ -694,7 +694,7 @@ func (s *Server) setCookieRemark(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusForbidden, "无权操作该账号")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "保存账号备注失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "保存账号备注失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
@@ -727,7 +727,7 @@ func (s *Server) setCookiePauseDuration(w http.ResponseWriter, r *http.Request) 
 			writeErr(w, http.StatusForbidden, "无权操作该账号")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "保存暂停时长失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "保存暂停时长失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, cookieSettingsResponse{

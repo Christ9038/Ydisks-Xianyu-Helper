@@ -182,7 +182,7 @@ func TestWriteItemSyncErrorMapping(t *testing.T) {
 	for _, tc := range cases {
 		// recorder 保存响应。
 		recorder := httptest.NewRecorder()
-		srv.writeItemSyncError(recorder, tc.err)
+		srv.writeItemSyncError(recorder, httptest.NewRequest(http.MethodGet, "/x", nil), tc.err)
 		if recorder.Code != tc.want {
 			t.Errorf("%v => %d want %d", tc.err, recorder.Code, tc.want)
 		}

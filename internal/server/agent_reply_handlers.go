@@ -178,10 +178,10 @@ func writeAgentReplyError(w http.ResponseWriter, r *http.Request, err error, fal
 	case errors.Is(err, agentreplyapp.ErrForbidden):
 		writeErrRequest(w, r, http.StatusForbidden, "无权限操作该账号")
 	case errors.Is(err, agentreplyapp.ErrUnavailable):
-		writeErrRequest(w, r, http.StatusServiceUnavailable, "Agent 连接测试暂不可用")
+		writeInternalErrRequest(w, r, http.StatusServiceUnavailable, "Agent 连接测试暂不可用", err)
 	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
 		writeErrRequest(w, r, http.StatusRequestTimeout, "请求已取消")
 	default:
-		writeErrRequest(w, r, http.StatusInternalServerError, fallback)
+		writeInternalErrRequest(w, r, http.StatusInternalServerError, fallback, err)
 	}
 }

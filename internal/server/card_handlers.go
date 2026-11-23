@@ -115,7 +115,7 @@ func (s *Server) testCardAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	config, err = s.cardsApplication().PrepareAPITest(r.Context(), session.UserID, request.CardID, config)
 	if err != nil {
-		writeCardAPIError(w, err)
+		writeCardAPIError(w, r, err)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -157,7 +157,7 @@ func (s *Server) getCard(w http.ResponseWriter, r *http.Request) {
 	// card、err 保存应用服务返回的卡券组及所有权或查询错误。
 	card, err := s.cardsApplication().Get(r.Context(), session.UserID, cardID)
 	if err != nil {
-		writeCardReadError(w, err)
+		writeCardReadError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, newCardResponse(card))
@@ -182,7 +182,7 @@ func (s *Server) createCard(w http.ResponseWriter, r *http.Request) {
 		case errors.As(err, &validationError):
 			writeErr(w, http.StatusBadRequest, validationError.Error())
 		default:
-			writeErr(w, http.StatusInternalServerError, "创建失败")
+			writeInternalErr(w, r, http.StatusInternalServerError, "创建失败", err)
 		}
 		return
 	}
@@ -220,7 +220,7 @@ func (s *Server) updateCard(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, cardsapp.ErrDataStockChanged):
 			writeErr(w, http.StatusConflict, cardsapp.ErrDataStockChanged.Error())
 		default:
-			writeErr(w, http.StatusInternalServerError, "更新失败")
+			writeInternalErr(w, r, http.StatusInternalServerError, "更新失败", err)
 		}
 		return
 	}
@@ -246,7 +246,7 @@ func (s *Server) deleteCard(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, cardsapp.ErrForbidden):
 			writeErr(w, http.StatusForbidden, "无权操作该卡密组")
 		default:
-			writeErr(w, http.StatusInternalServerError, "删除失败")
+			writeInternalErr(w, r, http.StatusInternalServerError, "删除失败", err)
 		}
 		return
 	}
@@ -333,13 +333,13 @@ func decodeCardAPIConfig(raw json.RawMessage) (string, error) {
 }
 
 // writeCardReadError 将详情查询的应用错误映射为既有 HTTP 状态和统一错误响应。
-func writeCardReadError(w http.ResponseWriter, err error) {
+func writeCardReadError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, cardsapp.ErrNotFound) || errors.Is(err, cardsapp.ErrInvalidCardID):
 		writeErr(w, http.StatusNotFound, "卡券不存在")
 	case errors.Is(err, cardsapp.ErrForbidden):
 		writeErr(w, http.StatusForbidden, "无权操作该卡密组")
 	default:
-		writeErr(w, http.StatusInternalServerError, "查询失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "查询失败", err)
 	}
 }

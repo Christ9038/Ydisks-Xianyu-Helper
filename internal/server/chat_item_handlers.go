@@ -142,6 +142,7 @@ func (s *Server) sendChatItemCard(w http.ResponseWriter, r *http.Request) {
 
 // writeChatItemError 将商品查询与发送应用错误映射为稳定的 HTTP 错误契约。
 func (s *Server) writeChatItemError(w http.ResponseWriter, r *http.Request, accountID, operation string, err error, outgoing *chatapp.Message) {
+	logChatFailure(r.Context(), "item_card_"+operation, accountID, "", err)
 	switch {
 	case errors.Is(err, chatapp.ErrChatItemInvalid), errors.Is(err, chatapp.ErrSendInvalidInput):
 		writeErrCode(w, http.StatusBadRequest, "chat_item_invalid", "商品卡片参数无效", "")

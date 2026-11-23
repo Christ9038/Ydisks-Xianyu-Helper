@@ -126,7 +126,7 @@ func TestWriteCardReadErrorClassification(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			// response 记录错误映射函数写入的状态和统一响应体。
 			response := httptest.NewRecorder()
-			writeCardReadError(response, testCase.err)
+			writeCardReadError(response, httptest.NewRequest(http.MethodGet, "/x", nil), testCase.err)
 			if response.Code != testCase.wantStatus {
 				t.Fatalf("错误状态不匹配 got=%d want=%d body=%s", response.Code, testCase.wantStatus, response.Body.String())
 			}

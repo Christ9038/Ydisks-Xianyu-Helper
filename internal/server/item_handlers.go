@@ -202,6 +202,7 @@ func (s *Server) publishItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if outcome.ResponseCookieErr != nil {
+		logInternalFailure(r.Context(), http.StatusInternalServerError, outcome.ResponseCookieErr)
 		writeErrDetails(w, http.StatusInternalServerError, "remote_published_cookie_save_failed", "商品已在平台发布并保存到本地，但登录凭证更新保存失败，请勿重复发布并尽快重新登录", "", map[string]any{"item_id": res.ItemID, "item_url": res.ItemURL})
 		return
 	}
@@ -387,7 +388,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 	// items、err 保存应用层商品查询结果及错误。
 	items, err := s.itemCatalogApplication().ListForUser(r.Context(), sess.UserID, cookieID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "查询失败", err)
 		return
 	}
 	// result 用于本次流程后续判断的结果。
@@ -425,7 +426,7 @@ func (s *Server) syncItemsFromAccount(w http.ResponseWriter, r *http.Request) {
 	// result、err 保存应用服务返回的全集同步结果及错误。
 	result, err := s.itemSyncApplication().SyncAll(r.Context(), itemapp.SyncQuery{UserID: sess.UserID, CookieID: req.CookieID, PageSize: req.PageSize, MaxPages: req.MaxPages})
 	if err != nil {
-		s.writeItemSyncError(w, err)
+		s.writeItemSyncError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, itemSyncResponse{Success: true, Message: "成功获取商品，共 " + strconv.Itoa(result.TotalCount) + " 件，保存 " + strconv.Itoa(result.SavedCount) + " 件，删除 " + strconv.Itoa(result.DeletedCount) + " 件", TotalCount: result.TotalCount, TotalPages: result.TotalPages, SavedCount: result.SavedCount, DeletedCount: result.DeletedCount})
@@ -445,14 +446,14 @@ func (s *Server) syncItemsPageFromAccount(w http.ResponseWriter, r *http.Request
 	// result、err 保存应用服务返回的分页同步结果及错误。
 	result, err := s.itemSyncApplication().SyncPage(r.Context(), itemapp.SyncQuery{UserID: sess.UserID, CookieID: req.CookieID, PageNumber: req.PageNumber, PageSize: req.PageSize})
 	if err != nil {
-		s.writeItemSyncError(w, err)
+		s.writeItemSyncError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, itemPageSyncResponse{Success: true, Message: "成功获取第" + strconv.Itoa(result.PageNumber) + "页 " + strconv.Itoa(result.CurrentCount) + " 个商品", PageNumber: result.PageNumber, PageSize: result.PageSize, CurrentCount: result.CurrentCount, SavedCount: result.SavedCount})
 }
 
 // writeItemSyncError 将应用同步错误映射为稳定的 HTTP 状态和消息。
-func (s *Server) writeItemSyncError(w http.ResponseWriter, err error) {
+func (s *Server) writeItemSyncError(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.Is(err, itemapp.ErrSyncNotOwned) {
 		writeErr(w, http.StatusForbidden, "无权限操作该账号")
 		return
@@ -468,13 +469,13 @@ func (s *Server) writeItemSyncError(w http.ResponseWriter, err error) {
 		case itemapp.SyncErrorCredential:
 			writeErr(w, http.StatusConflict, "账号凭证已变化，请重试")
 		case itemapp.SyncErrorPersistence:
-			writeErr(w, http.StatusInternalServerError, "保存商品同步结果失败")
+			writeInternalErr(w, r, http.StatusInternalServerError, "保存商品同步结果失败", err)
 		default:
-			writeErr(w, http.StatusBadGateway, stageErr.Error())
+			writeInternalErr(w, r, http.StatusBadGateway, stageErr.Error(), err)
 		}
 		return
 	}
-	writeErr(w, http.StatusInternalServerError, "商品同步失败")
+	writeInternalErr(w, r, http.StatusInternalServerError, "商品同步失败", err)
 }
 
 // cookieForCurrentUser 封装登录凭证ForCurrent用户业务协调。
@@ -498,7 +499,7 @@ func (s *Server) cookieForCurrentUser(w http.ResponseWriter, r *http.Request, co
 			writeErr(w, http.StatusBadRequest, "账号 cookie 为空")
 			return "", 0, false
 		}
-		writeErr(w, http.StatusInternalServerError, "查询账号失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "查询账号失败", err)
 		return "", 0, false
 	}
 	return value, sess.UserID, true
@@ -514,7 +515,7 @@ func (s *Server) listItemsByCookie(w http.ResponseWriter, r *http.Request) {
 	// items、err 保存应用层商品查询结果及错误。
 	items, err := s.itemCatalogApplication().ListByCookie(r.Context(), cid)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "查询失败", err)
 		return
 	}
 	// out 用于本次流程后续判断的out
@@ -625,7 +626,7 @@ func (s *Server) createItem(w http.ResponseWriter, r *http.Request) {
 		ItemCategory: req.ItemCategory, ItemPrice: req.ItemPrice, ItemDetail: req.ItemDetail,
 		IsMultiSpec: req.IsMultiSpec, MultiQuantityDelivery: req.MultiQuantityDelivery,
 	}); err != nil {
-		writeErr(w, http.StatusInternalServerError, "新增失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "新增失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
@@ -662,7 +663,7 @@ func (s *Server) updateItem(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusNotFound, "商品不存在")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "更新失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "更新失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
@@ -679,7 +680,7 @@ func (s *Server) deleteItem(w http.ResponseWriter, r *http.Request) {
 	itemID := chi.URLParam(r, "item_id")
 	// err 保存商品删除应用服务返回的错误。
 	if err := s.itemCatalogMutationApplication().Delete(r.Context(), cid, itemID); err != nil {
-		writeErr(w, http.StatusInternalServerError, "删除失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "删除失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
@@ -703,7 +704,7 @@ func (s *Server) setItemMultiSpec(w http.ResponseWriter, r *http.Request) {
 	}
 	// err 保存商品多规格应用服务返回的错误。
 	if err := s.itemCatalogMutationApplication().SetMultiSpec(r.Context(), cid, itemID, req.IsMultiSpec); err != nil {
-		writeErr(w, http.StatusInternalServerError, "更新失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "更新失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
@@ -727,7 +728,7 @@ func (s *Server) setItemMultiQuantity(w http.ResponseWriter, r *http.Request) {
 	}
 	// err 保存商品多数量应用服务返回的错误。
 	if err := s.itemCatalogMutationApplication().SetMultiQuantity(r.Context(), cid, itemID, req.MultiQuantityDelivery); err != nil {
-		writeErr(w, http.StatusInternalServerError, "更新失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "更新失败", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})

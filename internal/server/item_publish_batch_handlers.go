@@ -142,14 +142,14 @@ func (s *Server) recommendItemPublishCategory(w http.ResponseWriter, r *http.Req
 			return
 		}
 		if errors.Is(callErr, itemapp.ErrCategoryPersistence) {
-			writeErr(w, http.StatusInternalServerError, callErr.Error())
+			writeInternalErr(w, r, http.StatusInternalServerError, callErr.Error(), callErr)
 			return
 		}
 		if errors.Is(callErr, itemapp.ErrCategoryUnrecognized) {
 			writeErr(w, http.StatusNotFound, "没有匹配到可发布类目，请换一个关键词")
 			return
 		}
-		writeErr(w, http.StatusBadGateway, callErr.Error())
+		writeInternalErr(w, r, http.StatusBadGateway, callErr.Error(), callErr)
 		return
 	}
 	// candidates 保存转换为 HTTP DTO 的候选类目，首项即主推荐。
@@ -179,7 +179,7 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 	// defaultOwned 和 ownershipErr 表示默认账号归属复核结果及基础设施错误。
 	defaultOwned, ownershipErr := s.itemBatchPreviewApplication().CookieOwned(r.Context(), sess.UserID, defaultCookieID)
 	if ownershipErr != nil {
-		writeErr(w, http.StatusInternalServerError, "校验默认发布账号失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "校验默认发布账号失败", ownershipErr)
 		return
 	}
 	if !defaultOwned {
@@ -238,7 +238,7 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 	uploadDir := filepath.Join(s.publishUploadRoot(), "publish_batches", batchID)
 	if // err 用于本次流程后续判断的err
 	err := os.MkdirAll(uploadDir, 0o750); err != nil {
-		writeErr(w, http.StatusInternalServerError, "创建上传目录失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "创建上传目录失败", err)
 		return
 	}
 	// keepUpload 用于本次流程后续判断的keepUpload
@@ -255,7 +255,7 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 	}
 	if // err 用于本次流程后续判断的err
 	err := writeFileWithinRoot(uploadDir, sourceName, sourceBytes); err != nil {
-		writeErr(w, http.StatusInternalServerError, "保存商品表格失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "保存商品表格失败", err)
 		return
 	}
 
@@ -279,7 +279,7 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 		}
 		if // err 用于本次流程后续判断的err
 		err := writeFileWithinRoot(uploadDir, zipName, zipBytes); err != nil {
-			writeErr(w, http.StatusInternalServerError, "保存图片 zip 失败")
+			writeInternalErr(w, r, http.StatusInternalServerError, "保存图片 zip 失败", err)
 			return
 		}
 		if // err 用于本次流程后续判断的err
@@ -323,7 +323,7 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 		if errors.Is(err, itemapp.ErrBatchPreviewNoRows) {
 			writeErr(w, http.StatusBadRequest, "表格中没有有效数据行")
 		} else {
-			writeErr(w, http.StatusInternalServerError, "保存预检结果失败")
+			writeInternalErr(w, r, http.StatusInternalServerError, "保存预检结果失败", err)
 		}
 		return
 	}
@@ -364,7 +364,7 @@ func (s *Server) startItemPublishBatch(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, itemapp.ErrBatchNoRows):
 			writeErr(w, http.StatusBadRequest, "没有可发布的商品行")
 		default:
-			writeErr(w, http.StatusInternalServerError, "启动任务失败")
+			writeInternalErr(w, r, http.StatusInternalServerError, "启动任务失败", err)
 		}
 		return
 	}
@@ -380,7 +380,7 @@ func (s *Server) listItemPublishBatches(w http.ResponseWriter, r *http.Request) 
 	// result、err 用于本次流程后续判断的result、err
 	batches, err := s.itemBatchManagementApplication().ListBatches(r.Context(), sess.UserID, limit)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "读取批量任务失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "读取批量任务失败", err)
 		return
 	}
 	// result 保存应用批次转换后的兼容 HTTP 响应。
@@ -404,7 +404,7 @@ func (s *Server) getItemPublishBatch(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, itemapp.ErrBatchNotFound) {
 			writeErr(w, http.StatusNotFound, "批量任务不存在")
 		} else {
-			writeErr(w, http.StatusInternalServerError, "读取任务明细失败")
+			writeInternalErr(w, r, http.StatusInternalServerError, "读取任务明细失败", err)
 		}
 		return
 	}
@@ -425,7 +425,7 @@ func (s *Server) cancelItemPublishBatch(w http.ResponseWriter, r *http.Request) 
 		} else if errors.Is(err, itemapp.ErrBatchConflict) {
 			writeErr(w, http.StatusConflict, "任务状态刚刚发生变化，请重试")
 		} else {
-			writeErr(w, http.StatusInternalServerError, "取消任务失败")
+			writeInternalErr(w, r, http.StatusInternalServerError, "取消任务失败", err)
 		}
 		return
 	}
@@ -446,7 +446,7 @@ func (s *Server) deleteItemPublishBatch(w http.ResponseWriter, r *http.Request) 
 		} else if errors.Is(err, itemapp.ErrBatchConflict) {
 			writeErr(w, http.StatusConflict, "运行中的任务不能删除，请先取消")
 		} else {
-			writeErr(w, http.StatusInternalServerError, "删除批量任务失败")
+			writeInternalErr(w, r, http.StatusInternalServerError, "删除批量任务失败", err)
 		}
 		return
 	}
@@ -469,7 +469,7 @@ func (s *Server) retryFailedItemPublishBatch(w http.ResponseWriter, r *http.Requ
 		} else if errors.Is(err, itemapp.ErrBatchNoRows) {
 			writeErr(w, http.StatusBadRequest, "没有可重试的失败项")
 		} else {
-			writeErr(w, http.StatusInternalServerError, "启动重试失败")
+			writeInternalErr(w, r, http.StatusInternalServerError, "启动重试失败", err)
 		}
 		return
 	}
@@ -488,7 +488,7 @@ func (s *Server) downloadItemPublishBatchResult(w http.ResponseWriter, r *http.R
 		if errors.Is(err, itemapp.ErrBatchNotFound) {
 			writeErr(w, http.StatusNotFound, "批量任务不存在")
 		} else {
-			writeErr(w, http.StatusInternalServerError, "读取任务明细失败")
+			writeInternalErr(w, r, http.StatusInternalServerError, "读取任务明细失败", err)
 		}
 		return
 	}

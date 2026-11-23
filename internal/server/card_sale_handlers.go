@@ -73,7 +73,7 @@ func newCardSaleRecordResponses(records []cardsapp.SaleRecord) []cardSaleRecordR
 }
 
 // writeCardSaleError 把卡密售出相关应用错误映射为统一错误响应；卡密内容绝不出现在错误文本中。
-func writeCardSaleError(w http.ResponseWriter, err error, fallback string) {
+func writeCardSaleError(w http.ResponseWriter, r *http.Request, err error, fallback string) {
 	// validationErr 用于识别可以直接返回客户端的稳定校验提示。
 	var validationErr *cardsapp.ValidationError
 	switch {
@@ -84,7 +84,7 @@ func writeCardSaleError(w http.ResponseWriter, err error, fallback string) {
 	case errors.Is(err, cardsapp.ErrNotDataType), errors.Is(err, cardsapp.ErrInvalidCardID), errors.As(err, &validationErr):
 		writeErr(w, http.StatusBadRequest, err.Error())
 	default:
-		writeErr(w, http.StatusInternalServerError, fallback)
+		writeInternalErr(w, r, http.StatusInternalServerError, fallback, err)
 	}
 }
 
@@ -109,7 +109,7 @@ func (s *Server) listCardSaleRecords(w http.ResponseWriter, r *http.Request) {
 		Status: query.Get("status"), Search: query.Get("search"), Page: page, PageSize: pageSize,
 	})
 	if err != nil {
-		writeCardSaleError(w, err, "读取售出记录失败")
+		writeCardSaleError(w, r, err, "读取售出记录失败")
 		return
 	}
 	// totalPages 是按总数和页大小计算的总页数。
@@ -145,7 +145,7 @@ func (s *Server) exportCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeCardSaleError(w, err, "导出失败")
+		writeCardSaleError(w, r, err, "导出失败")
 		return
 	}
 	w.Header().Set("Content-Type", export.ContentType)
@@ -172,7 +172,7 @@ func (s *Server) getOrderDeliveredCards(w http.ResponseWriter, r *http.Request) 
 	// records、recordsErr 保存订单的已发卡密台账及读取错误。
 	records, recordsErr := s.cardsApplication().SaleRecordsByOrder(r.Context(), sess.UserID, order.CookieID, order.OrderID)
 	if recordsErr != nil {
-		writeCardSaleError(w, recordsErr, "读取已发卡密失败")
+		writeCardSaleError(w, r, recordsErr, "读取已发卡密失败")
 		return
 	}
 	// 响应含卡密明文，禁止被浏览器或代理缓存。

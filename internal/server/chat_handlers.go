@@ -75,7 +75,7 @@ func (s *Server) listChatSessions(w http.ResponseWriter, r *http.Request) {
 	var nextCursor int64
 	if // err 保存清理空会话的错误。
 	err := s.chatApplication().CleanupEmptySessions(r.Context(), accountID); err != nil {
-		writeErr(w, http.StatusInternalServerError, "清理无效聊天会话失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "清理无效聊天会话失败", err)
 		return
 	}
 	if refresh {
@@ -87,20 +87,20 @@ func (s *Server) listChatSessions(w http.ResponseWriter, r *http.Request) {
 		if fetchErr == nil {
 			platformHasMore, nextCursor = page.HasMore, page.NextCursor
 		} else if errors.Is(fetchErr, chatapp.ErrRefreshPersist) {
-			writeErr(w, http.StatusInternalServerError, "保存历史联系人失败")
+			writeInternalErr(w, r, http.StatusInternalServerError, "保存历史联系人失败", fetchErr)
 			return
 		} else if errors.Is(fetchErr, chatapp.ErrRefreshUnavailable) || errors.Is(fetchErr, chatapp.ErrOffline) {
 			platformHasMore = false
 		} else {
 			s.recoverExpiredSession(r.Context(), accountID, fetchErr)
-			writeErr(w, http.StatusBadGateway, "刷新聊天联系人失败")
+			writeInternalErr(w, r, http.StatusBadGateway, "刷新聊天联系人失败", fetchErr)
 			return
 		}
 	}
 	// page 和 pageErr 保存应用层本地会话分页结果及读取错误。
 	page, pageErr := s.chatApplication().ListSessionPage(r.Context(), sess.UserID, accountID, storedCursor, parsePositiveInt(r.URL.Query().Get("limit"), 200))
 	if pageErr != nil {
-		writeErr(w, http.StatusInternalServerError, "读取聊天会话失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "读取聊天会话失败", pageErr)
 		return
 	}
 	// rows 保存当前本地页，身份补全后会替换为刷新后的展示信息。
@@ -119,7 +119,7 @@ func (s *Server) listChatSessions(w http.ResponseWriter, r *http.Request) {
 	// nextStoredCursor 保存编码后的下一本地页游标，编码失败表示服务端内部实现异常。
 	nextStoredCursor, encodeErr := encodeChatSessionCursor(page.NextCursor)
 	if encodeErr != nil {
-		writeErr(w, http.StatusInternalServerError, "生成本地会话游标失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "生成本地会话游标失败", encodeErr)
 		return
 	}
 	writeJSON(w, http.StatusOK, chatSessionPageResponse{
@@ -147,8 +147,10 @@ func (s *Server) deleteChatSession(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(deleteErr, chatapp.ErrChatSessionNotFound):
 		writeErrCode(w, http.StatusNotFound, "chat_session_not_found", "聊天会话不存在", "")
 	case errors.Is(deleteErr, chatapp.ErrSessionUnavailable):
+		logInternalFailure(r.Context(), http.StatusServiceUnavailable, deleteErr)
 		writeErrCode(w, http.StatusServiceUnavailable, "chat_session_service_unavailable", "聊天会话服务未启用", "")
 	default:
+		logInternalFailure(r.Context(), http.StatusInternalServerError, deleteErr)
 		writeErrCode(w, http.StatusInternalServerError, "chat_session_delete_failed", "删除聊天会话失败", "")
 	}
 }
@@ -203,7 +205,8 @@ func (s *Server) sendChatImage(w http.ResponseWriter, r *http.Request) {
 	// sent、err 用于本次流程后续判断的sent、err
 	sent, err := s.chatApplication().SendImage(r.Context(), chatapp.ImageInput{Session: session, Filename: header.Filename, ContentType: contentType, Data: data})
 	if err != nil {
-		writeChatImageSendError(w, err, sent)
+		logChatFailure(r.Context(), "image", session.AccountID, session.ChatID, err)
+		writeChatImageSendError(w, r, err, sent)
 		return
 	}
 	writeJSON(w, http.StatusCreated, chatMessageEnvelope{Message: newChatMessageDTOFromApplication(sent)})
@@ -254,28 +257,31 @@ func (s *Server) sendChatLibraryImage(w http.ResponseWriter, r *http.Request) {
 	// sent、err 保存发送结果及错误。
 	sent, err := s.chatApplication().SendLibraryImage(r.Context(), chatapp.LibraryImageInput{Session: session, ImageID: request.LibraryImageID})
 	if err != nil {
-		writeChatImageSendError(w, err, sent)
+		logChatFailure(r.Context(), "library_image", session.AccountID, session.ChatID, err)
+		writeChatImageSendError(w, r, err, sent)
 		return
 	}
 	writeJSON(w, http.StatusCreated, chatMessageEnvelope{Message: newChatMessageDTOFromApplication(sent)})
 }
 
 // writeChatImageSendError 把图片发送用例错误映射为统一错误信封；手动上传与图片库发送共用，保证状态码与错误码一致。
-func writeChatImageSendError(w http.ResponseWriter, err error, sent *chatapp.Message) {
+func writeChatImageSendError(w http.ResponseWriter, r *http.Request, err error, sent *chatapp.Message) {
 	if errors.Is(err, chatapp.ErrUnavailable) {
-		writeErr(w, http.StatusServiceUnavailable, "图片上传服务未启用")
+		writeInternalErr(w, r, http.StatusServiceUnavailable, "图片上传服务未启用", err)
 	} else if errors.Is(err, chatapp.ErrOffline) {
 		writeErr(w, http.StatusConflict, "账号当前离线，无法发送图片")
 	} else if errors.Is(err, chatapp.ErrSendInvalidInput) {
 		writeErr(w, http.StatusBadRequest, "图片或会话参数无效")
 	} else if errors.Is(err, chatapp.ErrSendUncertain) {
+		logInternalFailure(r.Context(), http.StatusBadGateway, err)
 		writeErrDetails(w, http.StatusBadGateway, "chat_image_send_uncertain", "图片发送结果待确认，请先到闲鱼核对，避免重复发送", "", map[string]any{"outgoing_message": newChatMessageDTOFromApplication(sent)})
 	} else if errors.Is(err, chatapp.ErrSend) {
+		logInternalFailure(r.Context(), http.StatusBadGateway, err)
 		writeErrDetails(w, http.StatusBadGateway, "chat_image_send_failed", "图片发送失败，请重试", "", map[string]any{"outgoing_message": newChatMessageDTOFromApplication(sent)})
 	} else if errors.Is(err, chatapp.ErrStatusSave) {
 		writeChatStatusSaveError(w, sent)
 	} else {
-		writeErr(w, http.StatusInternalServerError, "保存待发送图片失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "保存待发送图片失败", err)
 	}
 }
 
@@ -318,7 +324,7 @@ func (s *Server) listChatMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if errors.Is(fetchErr, chatapp.ErrRefreshPersist) {
-		writeErr(w, http.StatusInternalServerError, "保存聊天历史失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "保存聊天历史失败", fetchErr)
 		return
 	}
 	if !errors.Is(fetchErr, chatapp.ErrRefreshUnavailable) && !errors.Is(fetchErr, chatapp.ErrOffline) {
@@ -327,7 +333,7 @@ func (s *Server) listChatMessages(w http.ResponseWriter, r *http.Request) {
 	// page、err 用于本次流程后续判断的page、err
 	page, err := s.chatApplication().ListStoredMessages(r.Context(), sess.UserID, accountID, chatID, beforeID, limit)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "读取聊天消息失败")
+		writeInternalErr(w, r, http.StatusInternalServerError, "读取聊天消息失败", err)
 		return
 	}
 	// session 是应用层返回的非敏感会话摘要，供平台身份适配器补齐展示名称。
@@ -391,6 +397,7 @@ func (s *Server) sendChatMessage(w http.ResponseWriter, r *http.Request) {
 	// sent、err 保存应用层发送结果及错误；应用层返回的消息不含凭证。
 	sent, err := s.chatApplication().SendText(r.Context(), chatapp.OutgoingInput{Session: chatapp.Session{AccountID: input.AccountID, ChatID: input.ChatID, PeerUserID: input.PeerUserID, PeerName: input.PeerName, ItemID: input.ItemID, ItemTitle: input.ItemTitle}, Text: input.Text})
 	if err != nil {
+		logChatFailure(r.Context(), "text", input.AccountID, input.ChatID, err)
 		if errors.Is(err, chatapp.ErrUnavailable) {
 			writeErr(w, http.StatusServiceUnavailable, "聊天服务未启用")
 		} else if errors.Is(err, chatapp.ErrOffline) {
@@ -538,9 +545,9 @@ func (s *Server) chatWebSocket(w http.ResponseWriter, r *http.Request) {
 	events, unsubscribe, err := s.chatApplication().Subscribe(r.Context(), sess.UserID)
 	if err != nil {
 		if errors.Is(err, chatapp.ErrSubscriptionUnavailable) {
-			writeErr(w, http.StatusServiceUnavailable, "聊天服务未启用")
+			writeInternalErr(w, r, http.StatusServiceUnavailable, "聊天服务未启用", err)
 		} else {
-			writeErr(w, http.StatusInternalServerError, "订阅聊天消息失败")
+			writeInternalErr(w, r, http.StatusInternalServerError, "订阅聊天消息失败", err)
 		}
 		return
 	}

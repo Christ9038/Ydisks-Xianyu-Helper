@@ -45,7 +45,7 @@ func (s *Server) startCredentialVerification(w http.ResponseWriter, r *http.Requ
 	// sessionID、err 是应用服务创建的验证会话标识及错误。
 	sessionID, err := s.credentialVerificationApplication().Start(r.Context(), ownedDetail.UserID, cid)
 	if err != nil {
-		s.writeCredentialVerificationError(w, err)
+		s.writeCredentialVerificationError(w, r, err)
 		return
 	}
 	// 登记会话归属后，既有 /qr-login/status 与 /qr-login/complete-verification 才会放行该会话。
@@ -54,7 +54,7 @@ func (s *Server) startCredentialVerification(w http.ResponseWriter, r *http.Requ
 }
 
 // writeCredentialVerificationError 把验证用例错误映射为统一错误响应。
-func (s *Server) writeCredentialVerificationError(w http.ResponseWriter, err error) {
+func (s *Server) writeCredentialVerificationError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, accountapp.ErrVerificationNotPending):
 		writeErrCode(w, http.StatusConflict, "verification_expired", "安全验证已过期或不存在，请重新扫码授权该账号", "")

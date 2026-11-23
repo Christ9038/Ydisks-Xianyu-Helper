@@ -190,7 +190,7 @@ func (s *Server) appendCardData(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, cardsapp.ErrNotDataType), errors.As(err, &validationErr):
 			writeErr(w, http.StatusBadRequest, err.Error())
 		default:
-			writeErr(w, http.StatusInternalServerError, "追加失败: "+err.Error())
+			writeInternalErr(w, r, http.StatusInternalServerError, "追加失败: "+err.Error(), err)
 		}
 		return
 	}

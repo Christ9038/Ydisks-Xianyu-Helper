@@ -65,7 +65,7 @@ func writeLibraryError(w http.ResponseWriter, r *http.Request, err error, fallba
 	case errors.Is(err, itemapp.ErrBatchPreviewNoRows):
 		writeErrRequest(w, r, http.StatusBadRequest, "没有可发布的商品")
 	default:
-		writeErrRequest(w, r, http.StatusInternalServerError, fallback)
+		writeInternalErrRequest(w, r, http.StatusInternalServerError, fallback, err)
 	}
 }
 
