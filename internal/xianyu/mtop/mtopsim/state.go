@@ -509,6 +509,18 @@ func (g *Gateway) SetAdjustBusy(orderID string, times int) {
 	g.mustOrder(orderID).AdjustBusy = times
 }
 
+// Orders 返回模拟器里的全部订单快照，用于断言异常场景没有产生业务副作用。
+func (g *Gateway) Orders() []Order {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	// orders 是全部订单的值拷贝。
+	orders := make([]Order, 0, len(g.orders))
+	for _, order := range g.orders { // order 是单个订单。
+		orders = append(orders, *order)
+	}
+	return orders
+}
+
 // Order 返回订单的副本；订单不存在属于测试编写错误。
 func (g *Gateway) Order(orderID string) Order {
 	g.mu.Lock()

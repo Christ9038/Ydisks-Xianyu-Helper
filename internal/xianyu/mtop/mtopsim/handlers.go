@@ -29,6 +29,7 @@ func (g *Gateway) handlers() map[string]handlerFunc {
 		APIRateCreate:        g.handleRateCreate,
 		APIPolish:            g.handlePolish,
 		APIPolishBackup:      g.handlePolish,
+		APIDownShelf:         g.handleDownShelf,
 		APIChatUser:          g.handleChatUser,
 		APIChatItemSearch:    g.handleChatItemSearch,
 		APICategoryRecommend: g.handleCategoryRecommend,
@@ -371,6 +372,19 @@ func (g *Gateway) handlePolish(acct *account, data map[string]any) ([]string, an
 	}
 	item.PolishedOn = today
 	return success(map[string]any{})
+}
+
+// handleDownShelf 下架卖家名下的在售商品并返回 data.success=true。
+// 商品不存在、属于他人或已经不在售时返回参数错误；平台对这三种情形的确切文案未经真实账号核实，
+// 模拟器只保证“不修改任何状态且不返回 success=true”，客户端必须因此判定下架失败。
+func (g *Gateway) handleDownShelf(acct *account, data map[string]any) ([]string, any) {
+	// item、exists 是请求下架的商品及其是否存在。
+	item, exists := g.items[dataString(data, "itemId")]
+	if !exists || item.SellerID != acct.UserID || !item.OnSale {
+		return failure(RetBadRequest)
+	}
+	item.OnSale = false
+	return success(map[string]any{"success": true})
 }
 
 // handleChatUser 返回会话中买家的昵称和头像；会话必须属于当前卖家的某笔订单。

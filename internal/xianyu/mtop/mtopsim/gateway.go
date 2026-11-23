@@ -17,6 +17,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -95,6 +96,8 @@ const (
 	APIRateCreate = "mtop.taobao.idle.rate.create"
 	// APIPolish 擦亮商品（主接口）。
 	APIPolish = "mtop.taobao.idle.item.polish"
+	// APIDownShelf 下架在售商品；只改变在售状态，不删除商品。
+	APIDownShelf = "mtop.taobao.idle.item.downshelf"
 	// APIPolishBackup 擦亮商品（备用接口）。
 	APIPolishBackup = "mtop.idle.item.polish"
 	// APIChatUser 读取会话对方资料。
@@ -119,6 +122,8 @@ const uploadHost = "stream-upload.goofish.com"
 // Fault 描述一次由测试注入的网关异常，用于模拟平台故障而不改动模拟器状态机。
 // 注入的异常按先进先出顺序消费，每条只作用于一个请求。
 type Fault struct {
+	// Skip 大于零时，先让该接口的 Skip 个请求正常通过，之后才对下一个请求生效；用于模拟分页或多步流程中途发生的异常。
+	Skip int
 	// Ret 非空时以 HTTP 200 返回该平台标记，业务状态机不会执行。
 	Ret []string
 	// Data 是与 Ret 一起返回的 data 字段，例如风控响应携带的验证地址。
@@ -204,6 +209,17 @@ func (g *Gateway) Client() *mtop.ClientImpl {
 	client.HTTPClient = &http.Client{Transport: g}
 	client.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	return client
+}
+
+// SupportedAPIs 返回模拟器已实现业务状态机的 MTOP 接口名（已排序），供覆盖守卫核对生产代码是否出现了未登记的新接口。
+func (g *Gateway) SupportedAPIs() []string {
+	// names 是处理器登记表里的全部接口名。
+	names := make([]string, 0, len(g.handlers()))
+	for name := range g.handlers() { // name 是单个已登记的接口名。
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // SetClock 替换模拟器时钟，用于让 Token 过期或跨天而不真实等待。
@@ -392,6 +408,11 @@ func (g *Gateway) popFault(api string) (Fault, bool) {
 	// queue 是该接口尚未消费的注入异常。
 	queue := g.faults[api]
 	if len(queue) == 0 {
+		return Fault{}, false
+	}
+	if queue[0].Skip > 0 {
+		// 还没轮到该异常：本次请求正常通过，只消耗一个跳过额度。
+		queue[0].Skip--
 		return Fault{}, false
 	}
 	g.faults[api] = queue[1:]

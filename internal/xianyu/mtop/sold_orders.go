@@ -76,6 +76,10 @@ func (c *ClientImpl) FetchSoldOrdersPage(ctx context.Context, cookies string, pa
 			return nil, err
 		}
 		lastFailure = err
+		if attempt == 3 {
+			// 最后一次尝试已失败，循环即将结束；此时再刷新 Token 只会多发一次无人使用的平台请求。
+			break
+		}
 		// previousCookies 用于判断当前会话是否已经吸收响应下发的新签名 Cookie。
 		previousCookies := currentCookies
 		if // session 用于读取响应刚吸收的最新 Cookie。
@@ -89,9 +93,6 @@ func (c *ClientImpl) FetchSoldOrdersPage(ctx context.Context, cookies string, pa
 				return nil, fmt.Errorf("订单列表 Token 过期且刷新失败: %w", refreshErr)
 			}
 			currentCookies = refreshed.UpdatedCookies
-		}
-		if attempt == 3 {
-			break
 		}
 		if // sleepErr 表示两次平台请求之间等待期间的取消错误。
 		sleepErr := sleepCtx(ctx, MTopRetryGap); sleepErr != nil {
