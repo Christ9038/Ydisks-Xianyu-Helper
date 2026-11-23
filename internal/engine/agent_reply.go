@@ -2,6 +2,8 @@ package engine
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -10,6 +12,8 @@ import (
 
 	"xianyu-go/internal/agentclient"
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/llmclient"
+	"xianyu-go/internal/netguard"
 )
 
 // 以下常量是单轮 Agent 对话的硬性上限，防止外部 Agent 造成无限轮询或回复风暴。
@@ -90,7 +94,78 @@ func (a *AgentReplier) Reply(ctx context.Context, m ChatMessage) (*ReplyResult, 
 		return &ReplyResult{Skip: true, Source: agentReplySource}, nil
 	}
 	defer finish()
+	if cfg.Protocol == db.AgentProtocolOpenAI || cfg.Protocol == db.AgentProtocolAnthropic {
+		return a.replyViaModel(turnCtx, m, cfg)
+	}
 	return a.runTurn(turnCtx, m, cfg)
+}
+
+// agentModelDefaultPrompt 是 openai/anthropic 协议未配置系统提示词时使用的内置客服提示词；
+// 与全场景客服共用“不可覆盖的承诺边界”，避免模型口头承诺价格、退款或赔偿。
+const agentModelDefaultPrompt = `你是闲鱼店铺的自动客服。请简短友好地回复买家，通常一两句话，不要编造信息；
+无法确认时，明确建议买家联系人工客服。直接回复内容，不要加引号或解释。` + fullServiceCommitmentRule
+
+// replyViaModel 处理 openai/anthropic 协议：把买家消息（含图片）交给大模型，并把文字回复发给买家。
+//
+// 它是单轮请求：不轮询、不带历史、最多发送一条文字回复，也不产生改价提案。
+// 模型出错、拒绝回答或没有文字时返回 nil（让后续 AI 与默认回复接管）；回复一旦开始发送就视为已接手，不再降级。
+// 买家图片随请求发送，端点不支持图片时 llmclient 自动降级为纯文字。日志不记录地址、密钥和消息正文。
+func (a *AgentReplier) replyViaModel(ctx context.Context, m ChatMessage, cfg db.AgentReplyRuntime) (*ReplyResult, error) {
+	if cfg.Protocol == db.AgentProtocolOpenAI && strings.TrimSpace(cfg.Model) == "" {
+		// OpenAI 协议没有默认模型，未配置时不接手。
+		return nil, nil
+	}
+	// client、clientErr 是按用户配置地址构造的受限 HTTP 客户端；地址被出站策略拒绝时不接手。
+	client, clientErr := netguard.ConfiguredEndpointHTTPClient(cfg.EndpointURL, cfg.RequestTimeout)
+	if clientErr != nil {
+		return nil, fmt.Errorf("模型地址无效（Agent）: %w", clientErr)
+	}
+	// prompt 是系统提示词；开启订单阶段时追加低信任事实区。
+	prompt := strings.TrimSpace(cfg.SystemPrompt)
+	if prompt == "" {
+		prompt = agentModelDefaultPrompt
+	}
+	if cfg.OrderContextEnabled {
+		// stages、available、err 保存订单阶段摘要、事实是否可用及本地查询错误；失败只降级为“无法确认”。
+		stages, available, err := loadOrderContext(ctx, a.orders, a.cookieID, m)
+		if err != nil {
+			a.logger.WarnContext(ctx, "读取买家订单阶段失败，按无法确认继续回复", "err", err)
+		}
+		prompt = appendOrderContext(prompt, stages, available)
+	}
+	// userText、imageURL 是本轮买家输入：图片消息附带图片地址，文字部分不再是占位符。
+	userText, imageURL := m.Text, buyerImageURL(m)
+	if imageURL != "" {
+		userText = llmclient.ImagePrompt
+	}
+	// completion、err 保存模型结果及调用错误。
+	completion, err := llmclient.Complete(ctx, llmclient.Endpoint{
+		Protocol: cfg.Protocol, BaseURL: cfg.EndpointURL, APIKey: cfg.Token, Model: cfg.Model, HTTPClient: client,
+	}, llmclient.Request{System: prompt, UserText: userText, ImageURL: imageURL, User: opaqueChatID(m.ChatID)})
+	if err != nil {
+		return a.failTurn(ctx, &agentTurnState{}, err)
+	}
+	if completion.ImageDropped {
+		a.logger.WarnContext(ctx, "Agent 模型端点不支持图片输入，已降级为纯文字", "status", completion.Status, "protocol", cfg.Protocol)
+	}
+	if completion.Refused || completion.Text == "" {
+		return nil, nil
+	}
+	// state 记录本轮副作用计数；发送失败或结果不确定时 deliverReplies 已记录日志，本轮直接结束。
+	state := &agentTurnState{engaged: true}
+	a.deliverReplies(ctx, m, []agentclient.Reply{{Text: completion.Text}}, state)
+	a.logger.InfoContext(ctx, "Agent 模型回复轮次结束", "protocol", cfg.Protocol, "replies_sent", state.sent)
+	return a.finishedResult(), nil
+}
+
+// opaqueChatID 把会话标识转换为不可逆的短标识，供上游模型服务关联同一会话而不暴露平台会话号；空标识返回空串。
+func opaqueChatID(chatID string) string {
+	if chatID == "" {
+		return ""
+	}
+	// sum 是会话标识的 SHA-256 摘要。
+	sum := sha256.Sum256([]byte(chatID))
+	return hex.EncodeToString(sum[:8])
 }
 
 // agentTurnState 保存一轮对话已经产生的副作用计数，用于执行硬性上限和日志摘要。
@@ -195,11 +270,9 @@ func (a *AgentReplier) finishedResult() *ReplyResult {
 func (a *AgentReplier) messageRequest(m ChatMessage) agentclient.Request {
 	// message 是转发给 Agent 的买家消息，默认按文字处理。
 	message := agentclient.Message{ID: m.MessageID, Type: agentclient.MessageTypeText, Text: m.Text}
-	if strings.TrimSpace(m.Text) == agentImagePlaceholder {
-		// imageURL 是从买家图片消息中提取的公网图片地址；提取不到时按文字转发。
-		if imageURL := extractImageObservationContent(m.Raw); imageURL != "" {
-			message.Type, message.ImageURL = agentclient.MessageTypeImage, imageURL
-		}
+	// imageURL 是从买家图片消息中提取的公网图片地址；提取不到时按文字转发。
+	if imageURL := buyerImageURL(m); imageURL != "" {
+		message.Type, message.ImageURL = agentclient.MessageTypeImage, imageURL
 	}
 	return agentclient.Request{
 		Event: agentclient.EventMessage, TurnID: agentclient.NewTurnID(),

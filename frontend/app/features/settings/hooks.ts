@@ -2,8 +2,8 @@ import type React from 'react';
 import { useCallback,useEffect,useRef,useState } from 'react';
 import type { SystemSettings } from './api';
 import { fetchAIModels,getSystemSettings,testAIConnection,updateLoginCredentials,updateSystemSettings,verifySession } from './api';
-import { DEFAULT_AI_API_URL } from './constants';
-import { buildPersistableSettings,createCredentials,createCredentialsMessage,isCurrentAIConnectionTest,isCurrentSettingsRequest,isSettingsAbortError,settingsErrorMessage,validateCredentials } from './state';
+import { DEFAULT_AI_API_URL,DEFAULT_ANTHROPIC_API_URL } from './constants';
+import { aiProtocolOf,buildPersistableSettings,createCredentials,createCredentialsMessage,isCurrentAIConnectionTest,isCurrentSettingsRequest,isSettingsAbortError,settingsErrorMessage,validateCredentials } from './state';
 import type { ConnectionTestMessage,CredentialsForm,CredentialsMessage,SettingsFeatureState,SettingsRequestStatus } from './types';
 
 /** Settings feature 的 Hook 返回值。 */
@@ -145,14 +145,14 @@ export const useSettings = (): UseSettingsResult => {
     // current 是本次模型发现使用的配置快照。
     const current = source || settingsRef.current;
     // baseUrl 是兼容模型发现接口的服务地址。
-    const baseUrl = current?.ai_api_url || current?.ai_base_url || DEFAULT_AI_API_URL;
+    const baseUrl = current?.ai_api_url || current?.ai_base_url || (aiProtocolOf(current) === 'anthropic' ? DEFAULT_ANTHROPIC_API_URL : DEFAULT_AI_API_URL);
 	// request 保存本次模型发现独立的代次和取消控制器。
 	const request = beginModelRequest();
     setModelsLoading(true);
     setModelError('');
     try {
       // models 模型列表。
-      const models = await fetchAIModels(baseUrl, current?.ai_api_key || '', { signal: request.controller.signal });
+      const models = await fetchAIModels(baseUrl, current?.ai_api_key || '', { signal: request.controller.signal }, aiProtocolOf(current));
       if (!isCurrentSettingsRequest(modelRequestSequence.current, request.sequence, request.controller.signal)) return;
       setAiModels(models);
       setModelDropdownOpen(openAfterLoad && models.length > 0);
@@ -175,13 +175,13 @@ export const useSettings = (): UseSettingsResult => {
     const current = settingsRef.current;
     if (!current || connectionTestLoading) return;
     // snapshot 绑定本次连接测试的端点、密钥和模型，避免编辑后仍展示旧配置结果。
-    const baseUrl = current.ai_api_url || current.ai_base_url || DEFAULT_AI_API_URL;
+    const baseUrl = current.ai_api_url || current.ai_base_url || (aiProtocolOf(current) === 'anthropic' ? DEFAULT_ANTHROPIC_API_URL : DEFAULT_AI_API_URL);
     // apiKey 是本次连接测试使用的临时或已保存 API Key；它只进入请求作用域。
     const apiKey = current.ai_api_key || '';
     // model 是本次连接测试使用的模型名称，空值交由服务端回退默认模型。
     const model = current.ai_model || '';
     // snapshot 用于在响应到达时确认当前配置没有被编辑。
-    const snapshot = { baseURL: baseUrl, apiKey, model };
+    const snapshot = { baseURL: baseUrl, apiKey, model, protocol: aiProtocolOf(current) };
     testRequestController.current?.abort();
     // controller 只管理本次连接测试，组件卸载或后续测试会取消它。
     const controller = new AbortController();
@@ -193,8 +193,8 @@ export const useSettings = (): UseSettingsResult => {
     setConnectionTestMessage(null);
     try {
       // result 是服务端确认实际完成一次 chat completion 后返回的诊断摘要。
-      const result = await testAIConnection(baseUrl, apiKey, model, { signal: controller.signal });
-      if (testRequestSequence.current !== sequence || !isCurrentAIConnectionTest(settingsRef.current, snapshot, DEFAULT_AI_API_URL)) return;
+      const result = await testAIConnection(baseUrl, apiKey, model, { signal: controller.signal }, snapshot.protocol);
+      if (testRequestSequence.current !== sequence || !isCurrentAIConnectionTest(settingsRef.current, snapshot, snapshot.protocol === 'anthropic' ? DEFAULT_ANTHROPIC_API_URL : DEFAULT_AI_API_URL)) return;
       setConnectionTestMessage({ type: 'success', text: `连接正常 · 模型 ${result.model} · 耗时 ${(result.latency_ms / 1000).toFixed(1)}s · 回复：${result.reply}` });
     } catch (/* error 是连接测试的上游、网络或取消错误；过期和主动取消请求不展示提示。 */ error) {
       if (testRequestSequence.current !== sequence || isSettingsAbortError(error)) return;

@@ -2911,6 +2911,15 @@ export interface components {
             max_session_seconds?: number;
             /** @description 是否在 message 事件中携带买家在当前商品下的本地订单阶段；省略时保留已保存的值。 */
             order_context_enabled?: boolean;
+            /**
+             * @description 回复协议：v1 为项目自定义的 Agent 协议；openai、anthropic 直接调用大模型接口。省略时保留已保存的值（新账号为 v1）。
+             * @enum {string}
+             */
+            protocol?: "v1" | "openai" | "anthropic";
+            /** @description openai/anthropic 协议使用的模型标识；省略时保留已保存的值，v1 协议忽略。 */
+            model?: string;
+            /** @description openai/anthropic 协议使用的系统提示词，为空使用内置客服提示词；省略时保留已保存的值，v1 协议忽略。 */
+            system_prompt?: string;
             token?: components["schemas"]["AgentReplyTokenCommand"];
         };
         AgentReplySettingsResponse: {
@@ -2921,10 +2930,21 @@ export interface components {
             request_timeout_seconds: number;
             max_session_seconds: number;
             order_context_enabled: boolean;
+            /** @enum {string} */
+            protocol: "v1" | "openai" | "anthropic";
+            model: string;
+            system_prompt: string;
         };
         AgentReplyTestRequest: {
             endpoint_url: string;
             request_timeout_seconds?: number;
+            /**
+             * @description 待测试的协议；省略按 v1 处理。
+             * @enum {string}
+             */
+            protocol?: "v1" | "openai" | "anthropic";
+            /** @description openai/anthropic 协议待测试的模型标识。 */
+            model?: string;
             token?: components["schemas"]["AgentReplyTokenCommand"];
         };
         AgentReplyTestResponse: {
@@ -3645,6 +3665,11 @@ export interface components {
         AIModelsRequest: {
             base_url: string;
             api_key?: string;
+            /**
+             * @description 模型协议；省略时使用系统设置 ai_api_protocol（默认 openai）。
+             * @enum {string}
+             */
+            protocol?: "openai" | "anthropic";
         };
         AIModelsResponse: {
             models: string[];
@@ -3653,6 +3678,11 @@ export interface components {
             base_url: string;
             api_key?: string;
             model?: string;
+            /**
+             * @description 模型协议；省略时使用系统设置 ai_api_protocol（默认 openai）。
+             * @enum {string}
+             */
+            protocol?: "openai" | "anthropic";
         };
         AIConnectionTestResponse: {
             success: boolean;

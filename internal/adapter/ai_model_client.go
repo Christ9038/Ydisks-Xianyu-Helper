@@ -12,6 +12,7 @@ import (
 	"time"
 
 	settingsapp "xianyu-go/internal/application/settings"
+	"xianyu-go/internal/llmclient"
 	"xianyu-go/internal/netguard"
 )
 
@@ -44,13 +45,17 @@ func NewAIModelClient() *AIModelClient {
 }
 
 // Fetch 请求模型目录并只返回模型名称，不返回 API 密钥或原始响应内容。
-func (c *AIModelClient) Fetch(ctx context.Context, baseURL, apiKey string) ([]string, error) {
+// protocol 为 anthropic 时读取 Anthropic 模型目录，其余按 OpenAI 兼容协议处理。
+func (c *AIModelClient) Fetch(ctx context.Context, baseURL, apiKey, protocol string) ([]string, error) {
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if baseURL == "" {
 		return nil, fmt.Errorf("AI API 地址为空")
 	}
 	if c == nil || c.newHTTPClient == nil {
 		return nil, fmt.Errorf("AI 模型客户端未初始化")
+	}
+	if protocol == llmclient.ProtocolAnthropic {
+		return c.fetchAnthropic(ctx, baseURL, apiKey)
 	}
 	// req 是带有请求上下文的模型目录请求；API 密钥只存在于请求头。
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/models", nil)
@@ -204,7 +209,8 @@ type aiChatCompletionMessage struct {
 
 // TestConnection 发送一次最小 chat completion 请求，验证 API 地址、密钥和模型的组合是否可用。
 // API 密钥只存在于请求头中，不会被记录或返回。
-func (c *AIModelClient) TestConnection(ctx context.Context, baseURL, apiKey, model string) (settingsapp.AIConnectionTestResult, error) {
+// protocol 为 anthropic 时使用 Anthropic Messages 协议，其余按 OpenAI 兼容协议处理。
+func (c *AIModelClient) TestConnection(ctx context.Context, baseURL, apiKey, model, protocol string) (settingsapp.AIConnectionTestResult, error) {
 	// baseURL、model 分别规范化为无末尾斜杠的端点和无首尾空白的模型名称。
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if baseURL == "" {
@@ -229,6 +235,9 @@ func (c *AIModelClient) TestConnection(ctx context.Context, baseURL, apiKey, mod
 	}
 	if clientErr != nil {
 		return settingsapp.AIConnectionTestResult{}, fmt.Errorf("AI API 地址无效: %w", clientErr)
+	}
+	if protocol == llmclient.ProtocolAnthropic {
+		return c.testAnthropic(ctx, client, baseURL, apiKey, model)
 	}
 	// payload 是不含账号、商品和 API 密钥的固定诊断请求。
 	payload := aiConnectionTestRequest{
@@ -362,7 +371,64 @@ func truncateAIModelBody(value string, limit int) string {
 	return string(runes[:limit])
 }
 
+// fetchAnthropic 通过 Anthropic Models API 读取模型目录，只返回模型标识。
+func (c *AIModelClient) fetchAnthropic(ctx context.Context, baseURL, apiKey string) ([]string, error) {
+	// client 是经过地址校验的出站客户端。
+	client, err := c.newHTTPClient(baseURL)
+	if err != nil {
+		return nil, fmt.Errorf("AI API 地址无效: %w", err)
+	}
+	// models、err 保存模型标识及读取错误；错误只含状态码，不含远端正文。
+	models, err := llmclient.ListAnthropicModels(ctx, llmclient.Endpoint{BaseURL: baseURL, APIKey: strings.TrimSpace(apiKey), HTTPClient: client})
+	if err != nil {
+		// status 是上游返回的 HTTP 状态码，非 0 时按状态码分类错误文案。
+		if status := llmclient.StatusCode(err); status != 0 {
+			return nil, fmt.Errorf("读取模型失败: HTTP %d", status)
+		}
+		return nil, fmt.Errorf("读取模型失败: %w", err)
+	}
+	if len(models) == 0 {
+		return nil, fmt.Errorf("模型列表为空")
+	}
+	return models, nil
+}
+
+// testAnthropic 通过 Anthropic Messages 协议发送一次最小对话请求，并复用 OpenAI 路径的错误分类文案。
+func (c *AIModelClient) testAnthropic(ctx context.Context, client *http.Client, baseURL, apiKey, model string) (settingsapp.AIConnectionTestResult, error) {
+	// start、latency 用于计算本次远端诊断往返的毫秒耗时。
+	start := time.Now()
+	// completion、err 保存模型结果及调用错误。
+	completion, err := llmclient.Complete(ctx, llmclient.Endpoint{Protocol: llmclient.ProtocolAnthropic, BaseURL: baseURL, APIKey: strings.TrimSpace(apiKey), Model: model, HTTPClient: client},
+		llmclient.Request{UserText: "你好", MaxTokens: AIConnectionTestMaxTokens})
+	// result 是不含回复前的诊断结果骨架。
+	result := settingsapp.AIConnectionTestResult{Model: model, LatencyMS: time.Since(start).Milliseconds()}
+	if err != nil {
+		// status 是上游返回的 HTTP 状态码，0 表示请求未到达服务端。
+		switch status := llmclient.StatusCode(err); {
+		case status == 401 || status == 403:
+			return result, fmt.Errorf("认证失败：API Key 无效或权限不足 (HTTP %d)", status)
+		case status == http.StatusNotFound:
+			return result, fmt.Errorf("模型不存在或地址错误 (HTTP 404)")
+		case status == http.StatusTooManyRequests:
+			return result, fmt.Errorf("额度或请求频率受限 (HTTP 429)")
+		case status != 0:
+			return result, fmt.Errorf("AI 服务请求失败 (HTTP %d)", status)
+		case errors.Is(err, context.DeadlineExceeded):
+			return result, fmt.Errorf("连接超时，请稍后重试")
+		}
+		return result, fmt.Errorf("连接失败: %w", err)
+	}
+	if completion.Refused {
+		return result, fmt.Errorf("模型拒绝了测试请求，请换一个模型重试")
+	}
+	if completion.Text == "" {
+		return result, fmt.Errorf("AI 服务返回了空回复，请检查模型名称")
+	}
+	result.Reply = truncateAIModelBody(completion.Text, 100)
+	return result, nil
+}
+
 var _ interface {
-	Fetch(context.Context, string, string) ([]string, error)
-	TestConnection(context.Context, string, string, string) (settingsapp.AIConnectionTestResult, error)
+	Fetch(context.Context, string, string, string) ([]string, error)
+	TestConnection(context.Context, string, string, string, string) (settingsapp.AIConnectionTestResult, error)
 } = (*AIModelClient)(nil)

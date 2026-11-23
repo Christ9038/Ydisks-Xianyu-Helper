@@ -668,3 +668,33 @@ func TestSystemSettingsEndpointUsesExplicitSecretCommands(t *testing.T) {
 		t.Fatalf("legacy forbidden status=%d body=%s", legacyForbiddenRec.Code, legacyForbiddenRec.Body.String())
 	}
 }
+
+// TestAIEndpointsRejectInvalidProtocol 验证模型目录与连接测试接口对无效协议返回 400，并且不向任何端点发出请求。
+func TestAIEndpointsRejectInvalidProtocol(t *testing.T) {
+	// srv 是被测 HTTP 服务；cleanup 释放测试资源。
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	// h、cookie 是完整路由树与管理员会话；hits 统计到达模拟端点的请求数。
+	h := srv.Router()
+	// cookie 是管理员登录会话。
+	cookie := loginHelper(t, h)
+	// hits 统计本地端点收到的请求数，非法协议时必须为 0。
+	var hits int
+	// endpoint 是记录请求的本地模型端点。
+	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits++ }))
+	defer endpoint.Close()
+	// path 是被测的 AI 接口路径。
+	for _, path := range []string{"/ai-models", "/ai-test"} {
+		// body 是带无效协议的请求体。
+		body := `{"base_url":"` + endpoint.URL + `","api_key":"k","model":"m","protocol":"gemini"}`
+		// req 是携带非法协议的请求。
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		req.AddCookie(cookie)
+		// rec 记录接口响应。
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest || hits != 0 {
+			t.Fatalf("%s: status=%d hits=%d body=%s", path, rec.Code, hits, rec.Body.String())
+		}
+	}
+}

@@ -45,7 +45,8 @@ func (f *fakeRepository) Save(_ context.Context, cookieID string, draft Draft) e
 	f.saved = &draft
 	f.settings = &Settings{CookieID: cookieID, Enabled: draft.Enabled, EndpointURL: draft.EndpointURL,
 		RequestTimeoutSeconds: draft.RequestTimeoutSeconds, MaxSessionSeconds: draft.MaxSessionSeconds,
-		OrderContextEnabled: draft.OrderContextEnabled != nil && *draft.OrderContextEnabled}
+		OrderContextEnabled: draft.OrderContextEnabled != nil && *draft.OrderContextEnabled,
+		Protocol:            draft.Protocol, Model: derefString(draft.Model), SystemPrompt: derefString(draft.SystemPrompt)}
 	return nil
 }
 
@@ -307,7 +308,86 @@ func TestUpdateOrderContextRetainsWhenOmitted(t *testing.T) {
 		t.Fatalf("读取失败时不应保存: saved=%+v err=%v", repo.saved, err)
 	}
 	// 显式提交开关时不需要读取已保存值，保存本身应成功写入（随后读回摘要失败属于读取错误）。
-	if _, err := service.Update(ctx, 1, "acc", Draft{OrderContextEnabled: &on}); err == nil || repo.saved == nil || !*repo.saved.OrderContextEnabled {
+	// empty 是显式提交的空模型与空提示词；与协议、开关一起提交后，所有可沿用字段都已明确，无需读取已保存值。
+	empty := ""
+	// err 是显式提交全部可沿用字段后的更新错误，此处为读回摘要失败。
+	if _, err := service.Update(ctx, 1, "acc", Draft{OrderContextEnabled: &on, Protocol: ProtocolV1, Model: &empty, SystemPrompt: &empty}); err == nil || repo.saved == nil || !*repo.saved.OrderContextEnabled {
 		t.Fatalf("显式提交应写入: saved=%+v err=%v", repo.saved, err)
+	}
+}
+
+// TestUpdateProtocolFields 验证协议、模型与系统提示词的默认值、沿用、校验以及启用 openai 协议必须填写模型。
+func TestUpdateProtocolFields(t *testing.T) {
+	// repo、service 是内存仓储及被测服务；ctx 是共用上下文。
+	repo := &fakeRepository{owner: 1}
+	// service 是使用内存仓储的被测服务。
+	service := NewService(repo, nil)
+	// ctx 是测试用的后台上下文。
+	ctx := context.Background()
+	// 未提交协议：新账号默认 v1，模型与提示词为空。
+	settings, err := service.Update(ctx, 1, "acc", Draft{EndpointURL: "https://agent.example.com"})
+	if err != nil || settings.Protocol != ProtocolV1 || settings.Model != "" || settings.SystemPrompt != "" {
+		t.Fatalf("默认协议: %+v err=%v", settings, err)
+	}
+	// model、prompt 是切换到 anthropic 时提交的模型与提示词（含首尾空白）。
+	model, prompt := " claude-opus-5-5 ", " 你是客服 "
+	settings, err = service.Update(ctx, 1, "acc", Draft{Enabled: true, EndpointURL: "https://api.anthropic.com", Protocol: " Anthropic ", Model: &model, SystemPrompt: &prompt})
+	if err != nil || settings.Protocol != ProtocolAnthropic || settings.Model != "claude-opus-5-5" || settings.SystemPrompt != "你是客服" {
+		t.Fatalf("anthropic: %+v err=%v", settings, err)
+	}
+	// 省略协议、模型与提示词的旧客户端保存不得重置它们。
+	settings, err = service.Update(ctx, 1, "acc", Draft{Enabled: true, EndpointURL: "https://api.anthropic.com"})
+	if err != nil || settings.Protocol != ProtocolAnthropic || settings.Model != "claude-opus-5-5" || settings.SystemPrompt != "你是客服" {
+		t.Fatalf("沿用已保存值: %+v err=%v", settings, err)
+	}
+	// 非法协议、openai 缺模型、模型或提示词过长都应报参数错误且不保存。
+	long := strings.Repeat("长", MaxSystemPromptRunes+1)
+	// longModel 是超过长度上限的模型标识。
+	longModel := strings.Repeat("m", MaxModelRunes+1)
+	// empty 是显式提交的空模型标识。
+	empty := ""
+	// name 是用例名称；draft 是应被拒绝的非法草稿。
+	for name, draft := range map[string]Draft{
+		"非法协议":       {EndpointURL: "https://x.example.com", Protocol: "gemini"},
+		"openai 缺模型": {Enabled: true, EndpointURL: "https://x.example.com", Protocol: ProtocolOpenAI, Model: &empty},
+		"提示词过长":      {EndpointURL: "https://x.example.com", Protocol: ProtocolOpenAI, SystemPrompt: &long},
+		"模型过长":       {EndpointURL: "https://x.example.com", Protocol: ProtocolOpenAI, Model: &longModel},
+	} {
+		repo.saved = nil
+		// err 是更新错误，应为参数错误。
+		if _, err := service.Update(ctx, 1, "acc", draft); !errors.Is(err, ErrInvalidInput) || repo.saved != nil {
+			t.Fatalf("%s: err=%v saved=%+v", name, err, repo.saved)
+		}
+	}
+	// 未启用时 openai 不要求模型，允许先选协议后补模型。
+	if _, err := service.Update(ctx, 1, "acc", Draft{EndpointURL: "https://x.example.com", Protocol: ProtocolOpenAI, Model: &empty}); err != nil {
+		t.Fatalf("未启用时不应要求模型: %v", err)
+	}
+}
+
+// TestTestPassesProtocolAndModel 验证连接测试把协议和模型交给出站适配器，空协议按 v1，openai 缺模型被拒绝。
+func TestTestPassesProtocolAndModel(t *testing.T) {
+	// tester、service 是记录出站目标的假适配器及被测服务；ctx 是共用上下文。
+	tester := &fakeTester{result: TestResult{Status: TestStatusOK}}
+	// service 是注入了记录型测试器的被测服务。
+	service := NewService(&fakeRepository{owner: 1}, tester)
+	// ctx 是测试用的后台上下文。
+	ctx := context.Background()
+	// err 是默认协议连接测试的错误，应为空。
+	if _, err := service.Test(ctx, 1, "acc", TestInput{EndpointURL: "https://api.openai.com/v1"}); err != nil || tester.got.Protocol != ProtocolV1 || tester.got.Model != "" {
+		t.Fatalf("默认协议: %+v err=%v", tester.got, err)
+	}
+	// err 是 openai 协议连接测试的错误，应为空。
+	if _, err := service.Test(ctx, 1, "acc", TestInput{EndpointURL: "https://api.openai.com/v1", Protocol: ProtocolOpenAI, Model: " gpt-x ", TokenAction: TokenReplace, Token: "k"}); err != nil ||
+		tester.got.Protocol != ProtocolOpenAI || tester.got.Model != "gpt-x" || tester.got.Token != "k" {
+		t.Fatalf("openai: %+v err=%v", tester.got, err)
+	}
+	// err 是缺模型的连接测试错误，应为参数错误。
+	if _, err := service.Test(ctx, 1, "acc", TestInput{EndpointURL: "https://api.openai.com/v1", Protocol: ProtocolOpenAI}); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("openai 缺模型应拒绝: %v", err)
+	}
+	// err 是非法协议的连接测试错误，应为参数错误。
+	if _, err := service.Test(ctx, 1, "acc", TestInput{EndpointURL: "https://x.example.com", Protocol: "gemini"}); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("非法协议应拒绝: %v", err)
 	}
 }

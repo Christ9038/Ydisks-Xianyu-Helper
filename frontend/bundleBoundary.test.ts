@@ -17,8 +17,8 @@ const PAGE_CHUNK_BUDGETS: Record<string, number> = {
   // ItemList 页面新增列表视图与规则筛选，以及商品库存调整入口（弹窗本体已按需懒加载、不计入此分片），实际约 66.0 KiB，67 KiB 预算容纳该功能并保留少量余量。
   ItemList: 67 * 1024,
   Settings: 30 * 1024,
-  // Rules 页面包含模板发货模式入口、模板变量编辑器、规则筛选和商品首次回复面板，实际约 80 KiB，81 KiB 预算保留少量余量。
-  Rules: 81 * 1024,
+  // Rules 页面包含模板发货模式入口、模板变量编辑器、规则筛选和商品首次回复面板，以及 Agent 回复的 OpenAI/Anthropic 协议选择（模型与系统提示词表单），实际约 85.3 KiB，86 KiB 预算保留少量余量。
+  Rules: 86 * 1024,
   // DeliveryTemplates 页面承载模板 CRUD 编辑器。
   DeliveryTemplates: 12 * 1024,
   Notifications: 45 * 1024,

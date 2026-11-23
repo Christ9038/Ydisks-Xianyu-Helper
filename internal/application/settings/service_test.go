@@ -195,17 +195,21 @@ type modelClientFake struct {
 	testAPIKey string
 	// testModel 保存连接测试实际收到的模型名称。
 	testModel string
+	// fetchBaseURL、fetchProtocol 与 testProtocol 保存模型目录和连接测试实际收到的地址与协议。
+	fetchBaseURL, fetchProtocol, testProtocol string
 }
 
 // Fetch 返回固定模型列表并记录调用次数。
-func (c *modelClientFake) Fetch(context.Context, string, string) ([]string, error) {
+func (c *modelClientFake) Fetch(_ context.Context, baseURL, _, protocol string) ([]string, error) {
 	c.calls++
+	c.fetchBaseURL, c.fetchProtocol = baseURL, protocol
 	return []string{"qwen-plus"}, nil
 }
 
 // TestConnection 返回固定连接测试结果并记录实际转交参数，不记录或输出 API Key。
-func (c *modelClientFake) TestConnection(_ context.Context, baseURL, apiKey, model string) (AIConnectionTestResult, error) {
+func (c *modelClientFake) TestConnection(_ context.Context, baseURL, apiKey, model, protocol string) (AIConnectionTestResult, error) {
 	c.calls++
+	c.testProtocol = protocol
 	c.testBaseURL = baseURL
 	c.testAPIKey = apiKey
 	c.testModel = model
@@ -295,7 +299,7 @@ func TestServiceListAIModelsAuditsExplicitKey(t *testing.T) {
 	// service 保存待测试的设置应用服务。
 	service := NewService(repository, client)
 	// models、err 保存模型目录结果和调用错误。
-	models, err := service.ListAIModels(context.Background(), 7, "https://example.test/v1", "provided-secret")
+	models, err := service.ListAIModels(context.Background(), 7, "https://example.test/v1", "provided-secret", "")
 	if err != nil || len(models) != 1 || client.calls != 1 {
 		t.Fatalf("models=%v err=%v calls=%d", models, err, client.calls)
 	}
@@ -313,7 +317,7 @@ func TestServiceListAIModelsFailsClosedWhenAuditUnavailable(t *testing.T) {
 	// service 保存待测试的设置应用服务。
 	service := NewService(repository, client)
 	// models、err 保存审计失败时的模型结果和错误。
-	models, err := service.ListAIModels(context.Background(), 7, "https://example.test/v1", "provided-secret")
+	models, err := service.ListAIModels(context.Background(), 7, "https://example.test/v1", "provided-secret", "")
 	if err == nil || models != nil || client.calls != 0 {
 		t.Fatalf("audit failure should stop model request: models=%v err=%v calls=%d", models, err, client.calls)
 	}
@@ -328,7 +332,7 @@ func TestServiceTestAIConnectionAuditsByPurpose(t *testing.T) {
 	// service 是待验证的设置应用服务。
 	service := NewService(repository, client)
 	// result、testErr 分别保存连接测试结果和应用服务返回的错误。
-	result, testErr := service.TestAIConnection(context.Background(), 7, "", "", "")
+	result, testErr := service.TestAIConnection(context.Background(), 7, "", "", "", "")
 	if testErr != nil || result.Model != "qwen-plus" {
 		t.Fatalf("result=%+v err=%v", result, testErr)
 	}
@@ -337,7 +341,7 @@ func TestServiceTestAIConnectionAuditsByPurpose(t *testing.T) {
 	}
 
 	// explicitResult、explicitErr 分别保存临时密钥场景的结果与错误。
-	explicitResult, explicitErr := service.TestAIConnection(context.Background(), 7, "https://temporary.test/v1", "temporary-secret", "temporary-model")
+	explicitResult, explicitErr := service.TestAIConnection(context.Background(), 7, "https://temporary.test/v1", "temporary-secret", "temporary-model", "")
 	if explicitErr != nil || explicitResult.Model != "qwen-plus" {
 		t.Fatalf("explicit result=%+v err=%v", explicitResult, explicitErr)
 	}
@@ -442,11 +446,11 @@ func TestServiceCoversSettingsAndAIReadWrite(t *testing.T) {
 		t.Fatalf("账号 AI 设置写入失败: %v", err)
 	}
 	if // err 是显式地址和密钥读取模型目录的错误。
-	_, err := service.ListAIModels(ctx, 7, "https://models.test/v1", "provided-key"); err != nil {
+	_, err := service.ListAIModels(ctx, 7, "https://models.test/v1", "provided-key", ""); err != nil {
 		t.Fatalf("显式模型目录读取失败: %v", err)
 	}
 	if // err 是从系统地址和受控密钥读取模型目录的错误。
-	_, err := service.ListAIModels(ctx, 7, "", ""); err != nil {
+	_, err := service.ListAIModels(ctx, 7, "", "", ""); err != nil {
 		t.Fatalf("受控模型目录读取失败: %v", err)
 	}
 	if client.calls != 2 {
@@ -544,12 +548,12 @@ func TestServiceRejectsInvalidSettingsInputs(t *testing.T) {
 		}},
 		{name: "models invalid user", run: func() error {
 			// err 是无效用户模型目录查询的身份错误。
-			_, err := service.ListAIModels(ctx, 0, "", "")
+			_, err := service.ListAIModels(ctx, 0, "", "", "")
 			return err
 		}},
 		{name: "models missing client", run: func() error {
 			// err 是模型客户端未装配的初始化错误。
-			_, err := NewService(repository, nil).ListAIModels(ctx, 7, "", "")
+			_, err := NewService(repository, nil).ListAIModels(ctx, 7, "", "", "")
 			return err
 		}},
 		{name: "user list nil service", run: func() error {
@@ -640,7 +644,7 @@ func TestServicePropagatesSettingsPortErrors(t *testing.T) {
 	// systemService 是注入系统地址读取错误的应用服务。
 	systemService := NewService(&settingsRepositoryFake{systemErr: systemFailure}, &modelClientFake{})
 	if // err 是系统 AI 地址读取错误。
-	_, err := systemService.ListAIModels(ctx, 7, "", "provided"); !errors.Is(err, systemFailure) {
+	_, err := systemService.ListAIModels(ctx, 7, "", "provided", ""); !errors.Is(err, systemFailure) {
 		t.Fatalf("系统地址读取错误未透传: %v", err)
 	}
 	// secretFailure 是受控读取敏感 API 密钥错误。
@@ -648,13 +652,13 @@ func TestServicePropagatesSettingsPortErrors(t *testing.T) {
 	// secretService 是注入敏感密钥读取错误的应用服务。
 	secretService := NewService(&settingsRepositoryFake{readSecretErr: secretFailure}, &modelClientFake{})
 	if // err 是敏感 API 密钥读取错误。
-	_, err := secretService.ListAIModels(ctx, 7, "https://models.test", ""); !errors.Is(err, secretFailure) {
+	_, err := secretService.ListAIModels(ctx, 7, "https://models.test", "", ""); !errors.Is(err, secretFailure) {
 		t.Fatalf("敏感密钥读取错误未透传: %v", err)
 	}
 	// blankSystemService 是系统地址为空时使用默认地址的应用服务。
 	blankSystemService := NewService(&settingsRepositoryFake{systemValues: map[string]string{"ai_api_url": ""}, readSecretErr: nil}, &modelClientFake{})
 	if // err 是默认 AI 地址和受控密钥读取的成功结果。
-	_, err := blankSystemService.ListAIModels(ctx, 7, "", ""); err != nil {
+	_, err := blankSystemService.ListAIModels(ctx, 7, "", "", ""); err != nil {
 		t.Fatalf("默认 AI 地址读取失败: %v", err)
 	}
 }
@@ -707,6 +711,49 @@ func TestServiceUpsertAIReplyNormalizesAndValidatesMode(t *testing.T) {
 		}
 		if err != nil || repository.aiSettings["acc1"].AIMode != tc.want {
 			t.Errorf("%s: err=%v saved=%q want %q", tc.name, err, repository.aiSettings["acc1"].AIMode, tc.want)
+		}
+	}
+}
+
+// TestServiceAIProtocolResolution 验证模型协议的取值优先级（请求 > 系统设置 > openai）、无效取值拒绝以及各协议的默认地址。
+func TestServiceAIProtocolResolution(t *testing.T) {
+	// ctx 是共用上下文；cases 依次是请求协议、系统设置协议、期望协议与请求地址为空时期望的默认地址。
+	ctx := context.Background()
+	// tc 是一组协议解析用例：请求协议、系统设置协议及期望结果。
+	for _, tc := range []struct{ request, system, wantProtocol, wantURL string }{
+		{"", "", "openai", "https://dashscope.aliyuncs.com/compatible-mode/v1"},
+		{"", " Anthropic ", "anthropic", "https://api.anthropic.com"},
+		{"openai", "anthropic", "openai", "https://dashscope.aliyuncs.com/compatible-mode/v1"},
+		{"ANTHROPIC", "", "anthropic", "https://api.anthropic.com"},
+	} {
+		// repository 是带系统协议设置的仓储替身。
+		repository := &settingsRepositoryFake{systemValues: map[string]string{"ai_api_protocol": tc.system}}
+		// client 是记录协议与地址的模型客户端替身。
+		client := &modelClientFake{}
+		// service 是被测设置服务。
+		service := NewService(repository, client)
+		// err 是读取模型列表的错误，应为空。
+		if _, err := service.ListAIModels(ctx, 7, "", "key", tc.request); err != nil || client.fetchProtocol != tc.wantProtocol || client.fetchBaseURL != tc.wantURL {
+			t.Fatalf("%+v: protocol=%q url=%q err=%v", tc, client.fetchProtocol, client.fetchBaseURL, err)
+		}
+		// err 是连接测试的错误，应为空。
+		if _, err := service.TestAIConnection(ctx, 7, "", "key", "m", tc.request); err != nil || client.testProtocol != tc.wantProtocol || client.testBaseURL != tc.wantURL {
+			t.Fatalf("%+v: test protocol=%q url=%q err=%v", tc, client.testProtocol, client.testBaseURL, err)
+		}
+	}
+	// 请求或系统设置里的无效协议都必须在出站前被拒绝。
+	for _, tc := range []struct{ request, system string }{{"gemini", ""}, {"", "gemini"}} {
+		// client 是记录调用次数的模型客户端替身，非法协议时不应被调用。
+		client := &modelClientFake{}
+		// service 是被测设置服务。
+		service := NewService(&settingsRepositoryFake{systemValues: map[string]string{"ai_api_protocol": tc.system}}, client)
+		// err 是读取模型列表的错误，应为非法协议。
+		if _, err := service.ListAIModels(ctx, 7, "https://x.test", "key", tc.request); !errors.Is(err, ErrInvalidAIProtocol) || client.calls != 0 {
+			t.Fatalf("%+v: ListAIModels err=%v calls=%d", tc, err, client.calls)
+		}
+		// err 是连接测试的错误，应为非法协议。
+		if _, err := service.TestAIConnection(ctx, 7, "https://x.test", "key", "m", tc.request); !errors.Is(err, ErrInvalidAIProtocol) || client.calls != 0 {
+			t.Fatalf("%+v: TestAIConnection err=%v calls=%d", tc, err, client.calls)
 		}
 	}
 }

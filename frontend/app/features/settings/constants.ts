@@ -1,6 +1,9 @@
 /** AI 服务默认兼容 API 地址。 */
 export const DEFAULT_AI_API_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
 
+/** Anthropic 协议未配置地址时的默认官方地址。 */
+export const DEFAULT_ANTHROPIC_API_URL = 'https://api.anthropic.com';
+
 /** 日志等级选择项。 */
 export const LOG_LEVELS = [
   { value: 'debug', label: 'Debug' },

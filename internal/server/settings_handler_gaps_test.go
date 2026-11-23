@@ -66,12 +66,12 @@ func (p *settingsGapPort) ListAIReply(context.Context, int64) ([]settingsapp.AIR
 }
 
 // ListAIModels 返回预设错误。
-func (p *settingsGapPort) ListAIModels(context.Context, int64, string, string) ([]string, error) {
+func (p *settingsGapPort) ListAIModels(context.Context, int64, string, string, string) ([]string, error) {
 	return nil, p.modelsErr
 }
 
 // TestAIConnection 返回预设错误。
-func (p *settingsGapPort) TestAIConnection(context.Context, int64, string, string, string) (settingsapp.AIConnectionTestResult, error) {
+func (p *settingsGapPort) TestAIConnection(context.Context, int64, string, string, string, string) (settingsapp.AIConnectionTestResult, error) {
 	return settingsapp.AIConnectionTestResult{}, p.testErr
 }
 

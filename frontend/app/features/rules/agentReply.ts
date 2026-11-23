@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getAgentReplySettings, saveAgentReplySettings, testAgentReplyConnection } from './api';
-import type { AgentReplyPayload, AgentReplySettings, AgentReplyTestResult, AgentReplyTokenAction } from './api';
+import type { AgentReplyPayload, AgentReplyProtocol, AgentReplySettings, AgentReplyTestResult, AgentReplyTokenAction } from './api';
 import { isCurrentRequest, nextRequestGeneration } from './interactionState';
 
 // AGENT_REQUEST_TIMEOUT_MIN、AGENT_REQUEST_TIMEOUT_MAX 是单次 Agent 请求超时允许的秒数区间，与后端校验一致。
@@ -9,6 +9,10 @@ export const AGENT_REQUEST_TIMEOUT_MAX = 30;
 // AGENT_SESSION_MIN、AGENT_SESSION_MAX 是单轮对话总时长允许的秒数区间，与后端校验一致。
 export const AGENT_SESSION_MIN = 10;
 export const AGENT_SESSION_MAX = 300;
+
+// AGENT_MODEL_MAX_LENGTH、AGENT_PROMPT_MAX_LENGTH 是模型标识与系统提示词允许的字符数，与后端校验一致。
+export const AGENT_MODEL_MAX_LENGTH = 255;
+export const AGENT_PROMPT_MAX_LENGTH = 2000;
 
 // AgentReplyForm 是配置表单的草稿状态；tokenValue 是敏感值，只存在于内存，保存、切换账号或卸载后即丢弃。
 export interface AgentReplyForm {
@@ -22,6 +26,12 @@ export interface AgentReplyForm {
   maxSessionSeconds: number;
   // orderContextEnabled 表示 message 事件是否携带买家在当前商品下的本地订单阶段。
   orderContextEnabled: boolean;
+  // protocol 是回复协议。
+  protocol: AgentReplyProtocol;
+  // model 是 openai/anthropic 协议使用的模型标识。
+  model: string;
+  // systemPrompt 是 openai/anthropic 协议使用的系统提示词。
+  systemPrompt: string;
   // tokenAction 是访问令牌写入命令。
   tokenAction: AgentReplyTokenAction;
   // tokenValue 是 tokenAction 为 replace 时用户输入的新令牌明文。
@@ -38,7 +48,8 @@ export interface AgentReplyToast {
 
 // emptyAgentReplyForm 是尚未加载或未选择账号时的关闭状态表单。
 export const emptyAgentReplyForm = (): AgentReplyForm => ({
-  enabled: false, endpointUrl: '', requestTimeoutSeconds: 15, maxSessionSeconds: 120, orderContextEnabled: false, tokenAction: 'retain', tokenValue: '',
+  enabled: false, endpointUrl: '', requestTimeoutSeconds: 15, maxSessionSeconds: 120, orderContextEnabled: false,
+  protocol: 'v1', model: '', systemPrompt: '', tokenAction: 'retain', tokenValue: '',
 });
 
 // agentReplyFormFromSettings 由服务端配置生成表单草稿；令牌命令回到 retain，不携带任何令牌明文。
@@ -48,6 +59,9 @@ export const agentReplyFormFromSettings = (settings: AgentReplySettings): AgentR
   requestTimeoutSeconds: settings.request_timeout_seconds,
   maxSessionSeconds: settings.max_session_seconds,
   orderContextEnabled: settings.order_context_enabled,
+  protocol: settings.protocol,
+  model: settings.model,
+  systemPrompt: settings.system_prompt,
   tokenAction: 'retain',
   tokenValue: '',
 });
@@ -59,6 +73,9 @@ export const agentReplyPayloadFromForm = (form: AgentReplyForm): AgentReplyPaylo
   request_timeout_seconds: form.requestTimeoutSeconds,
   max_session_seconds: form.maxSessionSeconds,
   order_context_enabled: form.orderContextEnabled,
+  protocol: form.protocol,
+  model: form.model.trim(),
+  system_prompt: form.systemPrompt.trim(),
   token_action: form.tokenAction,
   token_value: form.tokenAction === 'replace' ? form.tokenValue.trim() : '',
 });
@@ -68,8 +85,15 @@ export const agentReplyPayloadFromForm = (form: AgentReplyForm): AgentReplyPaylo
 export const validateAgentReplyForm = (form: AgentReplyForm, requireEndpoint: boolean): string => {
   // endpoint 是裁剪后的地址，用于必填和格式判断。
   const endpoint = form.endpointUrl.trim();
-  if ((form.enabled || requireEndpoint) && !endpoint) return requireEndpoint ? '请先填写 Agent 地址' : '启用前请填写 Agent 地址';
-  if (endpoint && !/^https?:\/\/\S+$/i.test(endpoint)) return 'Agent 地址需以 http:// 或 https:// 开头';
+  // addressLabel 是地址字段在当前协议下的名称：v1 是 Agent 地址，其余协议是模型服务地址。
+  const addressLabel = form.protocol === 'v1' ? 'Agent 地址' : '模型服务地址';
+  // separator 是动作文字与地址名称之间的分隔：英文名称前保留空格，保持历史文案不变。
+  const separator = form.protocol === 'v1' ? ' ' : '';
+  if ((form.enabled || requireEndpoint) && !endpoint) return `${requireEndpoint ? '请先填写' : '启用前请填写'}${separator}${addressLabel}`;
+  if (endpoint && !/^https?:\/\/\S+$/i.test(endpoint)) return `${addressLabel}需以 http:// 或 https:// 开头`;
+  if (form.protocol === 'openai' && (form.enabled || requireEndpoint) && !form.model.trim()) return 'OpenAI 兼容协议需要填写模型名称';
+  if (form.model.trim().length > AGENT_MODEL_MAX_LENGTH) return `模型名称不能超过 ${AGENT_MODEL_MAX_LENGTH} 个字符`;
+  if (form.systemPrompt.trim().length > AGENT_PROMPT_MAX_LENGTH) return `系统提示词不能超过 ${AGENT_PROMPT_MAX_LENGTH} 个字符`;
   if (!Number.isInteger(form.requestTimeoutSeconds) || form.requestTimeoutSeconds < AGENT_REQUEST_TIMEOUT_MIN || form.requestTimeoutSeconds > AGENT_REQUEST_TIMEOUT_MAX) {
     return `单次请求超时需在 ${AGENT_REQUEST_TIMEOUT_MIN} 到 ${AGENT_REQUEST_TIMEOUT_MAX} 秒之间`;
   }

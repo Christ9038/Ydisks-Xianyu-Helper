@@ -15,9 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sashabaranov/go-openai"
-
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/llmclient"
 	"xianyu-go/internal/netguard"
 )
 
@@ -25,7 +24,27 @@ import (
 const (
 	defaultAIBaseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 	defaultAIModel   = "qwen-plus"
+	// defaultAnthropicBaseURL 是 Anthropic 协议未配置地址时使用的官方地址。
+	defaultAnthropicBaseURL = "https://api.anthropic.com"
 )
+
+// isTruthySetting 判断系统设置里的布尔文本是否为开启（true/1/on/yes，忽略大小写）。
+func isTruthySetting(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "true", "1", "on", "yes":
+		return true
+	}
+	return false
+}
+
+// buyerImageURL 返回买家图片消息的公网图片地址；非图片消息或提取不到地址时返回空串。
+// AI 回复与 Agent 回复共用，保证两条链路对“是否为图片消息”的判断一致。
+func buyerImageURL(m ChatMessage) string {
+	if strings.TrimSpace(m.Text) != agentImagePlaceholder {
+		return ""
+	}
+	return extractImageObservationContent(m.Raw)
+}
 
 // newAIHTTPClient 用于本次流程后续判断的newAIHTTPClient
 var newAIHTTPClient = func(baseURL string) (*http.Client, error) {
@@ -133,48 +152,44 @@ func (a *AIReplierImpl) Reply(ctx context.Context, m ChatMessage) (*ReplyResult,
 		systemPrompt += "\n当前买家已经超过最大砍价轮次。不得继续降价，只能礼貌说明价格不再优惠。"
 	}
 
-	// 调 OpenAI 兼容接口。
-	clientCfg := openai.DefaultConfig(aiCfg.APIKey)
-	if aiCfg.BaseURL != "" {
-		clientCfg.BaseURL = aiCfg.BaseURL
-	}
-	clientCfg.HTTPClient, err = newAIHTTPClient(clientCfg.BaseURL)
+	// 按全局协议调用模型端点（OpenAI 兼容或 Anthropic）。
+	httpClient, err := newAIHTTPClient(aiCfg.BaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("AI API 地址无效: %w", err)
 	}
-	// client 用于本次流程后续判断的client
-	client := openai.NewClientWithConfig(clientCfg)
-
-	// messages 用于本次流程后续判断的消息列表
-	messages := []openai.ChatCompletionMessage{{Role: openai.ChatMessageRoleSystem, Content: systemPrompt}}
-	// message 表示当前遍历过程中的消息
+	// turns 是历史对话（纯文字，图片不进入历史）。
+	turns := make([]llmclient.Turn, 0, len(history))
+	// message 表示当前遍历过程中的历史消息
 	for _, message := range history {
-		// role 用于本次流程后续判断的role
-		role := openai.ChatMessageRoleUser
-		if message.Role == "assistant" {
-			role = openai.ChatMessageRoleAssistant
-		}
-		messages = append(messages, openai.ChatCompletionMessage{Role: role, Content: truncateAIContent(message.Content)})
+		turns = append(turns, llmclient.Turn{Role: message.Role, Text: truncateAIContent(message.Content)})
 	}
-	messages = append(messages, openai.ChatCompletionMessage{Role: openai.ChatMessageRoleUser, Content: m.Text})
+	// userText、imageURL 是本轮买家输入：仅在开启图片识别且取到公网图片地址时附带图片，文字部分不再是占位符。
+	userText, imageURL := m.Text, ""
+	if aiCfg.VisionEnabled {
+		if imageURL = buyerImageURL(m); imageURL != "" {
+			userText = llmclient.ImagePrompt
+		}
+	}
 
 	// aiCtx、cancel 用于本次流程后续判断的人工智能Ctx、cancel
 	aiCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	// resp、err 用于本次流程后续判断的resp、err
-	resp, err := client.CreateChatCompletion(aiCtx, openai.ChatCompletionRequest{
-		Model:       aiCfg.Model,
-		Messages:    messages,
-		Temperature: 0.7,
-	})
+	// completion、err 保存模型结果与调用错误；端点拒绝图片时 llmclient 已自动降级为纯文字重试一次。
+	completion, err := llmclient.Complete(aiCtx, llmclient.Endpoint{
+		Protocol: aiCfg.Protocol, BaseURL: aiCfg.BaseURL, APIKey: aiCfg.APIKey, Model: aiCfg.Model, HTTPClient: httpClient,
+	}, llmclient.Request{System: systemPrompt, History: turns, UserText: userText, ImageURL: imageURL})
 	if err != nil {
 		return nil, fmt.Errorf("AI 调用失败: %w", err)
 	}
-	if len(resp.Choices) == 0 {
+	if completion.ImageDropped {
+		a.logger.WarnContext(ctx, "AI 端点不支持图片输入，已降级为纯文字", "status", completion.Status, "protocol", aiCfg.Protocol)
+	}
+	if completion.Refused {
+		a.logger.WarnContext(ctx, "AI 模型拒绝回答，交给后续回复", "protocol", aiCfg.Protocol)
 		return nil, nil
 	}
 	// reply 用于本次流程后续判断的回复
-	reply, markerPrice, markerOK := extractExecutableOffer(strings.TrimSpace(resp.Choices[0].Message.Content))
+	reply, markerPrice, markerOK := extractExecutableOffer(completion.Text)
 	if reply == "" {
 		return nil, nil
 	}
@@ -250,6 +265,10 @@ type globalAIConfig struct {
 	APIKey  string
 	BaseURL string
 	Model   string
+	// Protocol 是模型协议（openai 或 anthropic），未配置时为 openai。
+	Protocol string
+	// VisionEnabled 表示是否把买家图片发给模型；默认关闭，因为不是所有端点都支持图片输入。
+	VisionEnabled bool
 }
 
 // globalAIConfig 封装globalAI配置业务协调。
@@ -276,18 +295,45 @@ func (a *AIReplierImpl) globalAIConfig(ctx context.Context) (*globalAIConfig, er
 		return nil, err
 	}
 
-	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
-	if baseURL == "" {
-		baseURL = defaultAIBaseURL
+	// rawProtocol、vision 分别是协议与图片识别开关的原始设置值。
+	rawProtocol, err := a.store.Settings.Get(ctx, "ai_api_protocol")
+	if err != nil {
+		return nil, err
 	}
+	// vision 是全局“识别买家图片”开关的原始字符串；err 是读取失败原因，读取失败按关闭处理。
+	vision, err := a.store.Settings.Get(ctx, "ai_vision_enabled")
+	if err != nil {
+		return nil, err
+	}
+	// protocol 无法识别时回退到 openai，保证历史或手工写入的异常值不会让 AI 回复整体失效。
+	protocol, protocolErr := llmclient.NormalizeProtocol(rawProtocol)
+	if protocolErr != nil {
+		protocol = llmclient.ProtocolOpenAI
+	}
+
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	model = strings.TrimSpace(model)
-	if model == "" {
-		model = defaultAIModel
+	if protocol == llmclient.ProtocolAnthropic {
+		if baseURL == "" {
+			baseURL = defaultAnthropicBaseURL
+		}
+		if model == "" {
+			model = llmclient.DefaultAnthropicModel
+		}
+	} else {
+		if baseURL == "" {
+			baseURL = defaultAIBaseURL
+		}
+		if model == "" {
+			model = defaultAIModel
+		}
 	}
 	return &globalAIConfig{
-		APIKey:  strings.TrimSpace(apiKey),
-		BaseURL: baseURL,
-		Model:   model,
+		APIKey:        strings.TrimSpace(apiKey),
+		BaseURL:       baseURL,
+		Model:         model,
+		Protocol:      protocol,
+		VisionEnabled: isTruthySetting(vision),
 	}, nil
 }
 

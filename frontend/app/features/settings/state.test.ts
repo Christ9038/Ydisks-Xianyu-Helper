@@ -1,6 +1,6 @@
 import { expect,test } from 'vitest';
 import type { SystemSettings } from './api';
-import { buildPersistableSettings,createCredentials,createCredentialsMessage,isCurrentSettingsRequest,validateCredentials } from './state';
+import { aiProtocolOf,aiVisionEnabledOf,isCurrentAIConnectionTest,buildPersistableSettings,createCredentials,createCredentialsMessage,isCurrentSettingsRequest,validateCredentials } from './state';
 
 // settingsFixture 是覆盖敏感字段过滤和系统配置保留字段的最小草稿。
 const settingsFixture: SystemSettings = {
@@ -36,4 +36,20 @@ test('Settings 请求代次拒绝过期响应和取消响应',
     expect(isCurrentSettingsRequest(1, 2, controller.signal)).toBe(false);
     controller.abort();
     expect(isCurrentSettingsRequest(2, 2, controller.signal)).toBe(false);
+  });
+
+test('AI 协议与图片识别开关归一，连接测试快照包含协议',
+  // 归一测试验证未知协议回退 openai、字符串开关可识别，且切换协议会使旧测试结果失效。
+  () => {
+    expect(aiProtocolOf(null)).toBe('openai');
+    expect(aiProtocolOf({ ai_api_protocol: 'gemini' })).toBe('openai');
+    expect(aiProtocolOf({ ai_api_protocol: 'anthropic' })).toBe('anthropic');
+    expect(aiVisionEnabledOf(undefined)).toBe(false);
+    expect(aiVisionEnabledOf({ ai_vision_enabled: true })).toBe(true);
+    expect(aiVisionEnabledOf({ ai_vision_enabled: ' TRUE ' })).toBe(true);
+    expect(aiVisionEnabledOf({ ai_vision_enabled: 'false' })).toBe(false);
+    // snapshot 是协议为 anthropic 的连接测试快照。
+    const snapshot = { baseURL: 'https://u', apiKey: 'k', model: 'm', protocol: 'anthropic' as const };
+    expect(isCurrentAIConnectionTest({ ai_api_url: 'https://u', ai_api_key: 'k', ai_model: 'm', ai_api_protocol: 'anthropic' }, snapshot, 'd')).toBe(true);
+    expect(isCurrentAIConnectionTest({ ai_api_url: 'https://u', ai_api_key: 'k', ai_model: 'm' }, snapshot, 'd')).toBe(false);
   });

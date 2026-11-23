@@ -161,3 +161,73 @@ func TestAgentReplyHandlersContract(t *testing.T) {
 		t.Errorf("不存在账号 status=%d", got.Code)
 	}
 }
+
+// TestAgentReplyProtocolContract 覆盖 openai/anthropic 协议的保存、读回、沿用、连接测试与非法取值，并断言密钥不会出现在响应中。
+func TestAgentReplyProtocolContract(t *testing.T) {
+	// srv、store、cleanup 是被测 HTTP 服务、测试数据库聚合和资源释放函数；handler、session 是路由树与管理员会话。
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	// handler 是被测服务的路由树。
+	handler := srv.Router()
+	// session 是管理员登录会话。
+	session := loginHelper(t, handler)
+	// err 是预置账号记录的写入错误，应为空。
+	if _, err := store.DB.ExecContext(context.Background(), `INSERT OR IGNORE INTO cookies (id,value,user_id) VALUES ('acc1','cookie-value',1)`); err != nil {
+		t.Fatal(err)
+	}
+	// model 是本地模拟的 OpenAI 兼容端点：校验密钥并返回固定回复。
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer llm-secret-key" {
+			http.Error(w, "denied", http.StatusUnauthorized)
+			return
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"pong"}}]}`))
+	}))
+	defer model.Close()
+
+	// 未保存时默认协议为 v1，模型与提示词为空。
+	if got := greetingRequest(t, handler, session, http.MethodGet, "/api/v1/agent-replies/acc1", ""); !strings.Contains(got.Body.String(), `"protocol":"v1"`) || !strings.Contains(got.Body.String(), `"model":""`) {
+		t.Fatalf("默认协议: %s", got.Body.String())
+	}
+	// 保存 openai 协议、模型、提示词与密钥；响应不含密钥。
+	saved := greetingRequest(t, handler, session, http.MethodPut, "/api/v1/agent-replies/acc1",
+		`{"enabled":true,"endpoint_url":"`+model.URL+`","protocol":"openai","model":" gpt-x ","system_prompt":"只回答发货问题","token":{"action":"replace","value":"llm-secret-key"}}`)
+	// settings 保存响应中的配置摘要。
+	var settings agentReplySettingsResponse
+	// err 是保存响应的解码错误，应为空。
+	if err := json.Unmarshal(saved.Body.Bytes(), &settings); err != nil || saved.Code != http.StatusOK || settings.Protocol != "openai" || settings.Model != "gpt-x" || settings.SystemPrompt != "只回答发货问题" {
+		t.Fatalf("保存 status=%d body=%s err=%v", saved.Code, saved.Body.String(), err)
+	}
+	if strings.Contains(saved.Body.String(), "llm-secret-key") {
+		t.Fatal("响应泄漏了密钥")
+	}
+	// 省略协议、模型与提示词的旧客户端保存必须沿用已保存值。
+	if got := greetingRequest(t, handler, session, http.MethodPut, "/api/v1/agent-replies/acc1", `{"enabled":true,"endpoint_url":"`+model.URL+`"}`); !strings.Contains(got.Body.String(), `"protocol":"openai"`) || !strings.Contains(got.Body.String(), `"model":"gpt-x"`) {
+		t.Fatalf("应沿用协议与模型: %s", got.Body.String())
+	}
+	// 连接测试：retain 使用已保存密钥，经 openai 协议得到一条回复。
+	if tested := greetingRequest(t, handler, session, http.MethodPost, "/api/v1/agent-replies/acc1/test", `{"endpoint_url":"`+model.URL+`","protocol":"openai","model":"gpt-x"}`); tested.Code != http.StatusOK ||
+		!strings.Contains(tested.Body.String(), `"status":"ok"`) || !strings.Contains(tested.Body.String(), `"reply_count":1`) {
+		t.Fatalf("测试连接 status=%d body=%s", tested.Code, tested.Body.String())
+	}
+	// 密钥错误归类为 http_error 并带状态码。
+	if denied := greetingRequest(t, handler, session, http.MethodPost, "/api/v1/agent-replies/acc1/test", `{"endpoint_url":"`+model.URL+`","protocol":"openai","model":"gpt-x","token":{"action":"clear"}}`); !strings.Contains(denied.Body.String(), `"status":"http_error"`) ||
+		!strings.Contains(denied.Body.String(), `"status_code":401`) {
+		t.Fatalf("http_error body=%s", denied.Body.String())
+	}
+	// 非法协议、openai 缺模型、提示词过长都是 400。
+	for name, body := range map[string]string{
+		"bad-protocol":    `{"enabled":false,"endpoint_url":"","protocol":"gemini"}`,
+		"openai-no-model": `{"enabled":true,"endpoint_url":"` + model.URL + `","protocol":"openai","model":""}`,
+		"long-prompt":     `{"enabled":false,"endpoint_url":"","system_prompt":"` + strings.Repeat("长", 2001) + `"}`,
+	} {
+		// got 是非法保存请求的响应，应为 400。
+		if got := greetingRequest(t, handler, session, http.MethodPut, "/api/v1/agent-replies/acc1", body); got.Code != http.StatusBadRequest {
+			t.Errorf("%s status=%d body=%s", name, got.Code, got.Body.String())
+		}
+	}
+	// got 是缺模型的测试请求响应，应为 400。
+	if got := greetingRequest(t, handler, session, http.MethodPost, "/api/v1/agent-replies/acc1/test", `{"endpoint_url":"`+model.URL+`","protocol":"openai"}`); got.Code != http.StatusBadRequest {
+		t.Errorf("测试缺模型 status=%d", got.Code)
+	}
+}

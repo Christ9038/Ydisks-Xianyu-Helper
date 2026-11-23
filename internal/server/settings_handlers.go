@@ -56,6 +56,8 @@ type aiModelListRequest struct {
 	BaseURL string `json:"base_url"`
 	// APIKey 是仅在请求作用域内转交给模型目录适配器的访问密钥。
 	APIKey string `json:"api_key"`
+	// Protocol 是模型协议 openai 或 anthropic；省略时使用系统设置 ai_api_protocol。
+	Protocol string `json:"protocol"`
 }
 
 // aiConnectionTestRequest 是 AI 连接测试的 HTTP 请求 DTO。
@@ -66,6 +68,8 @@ type aiConnectionTestRequest struct {
 	APIKey string `json:"api_key"`
 	// Model 是要测试的模型名称，为空时使用系统设置中的 ai_model。
 	Model string `json:"model"`
+	// Protocol 是模型协议 openai 或 anthropic；省略时使用系统设置 ai_api_protocol。
+	Protocol string `json:"protocol"`
 }
 
 // userSettingUpdateRequest 是保存用户范围设置的 HTTP 请求 DTO。
@@ -495,7 +499,11 @@ func (s *Server) listAIModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// models、err 保存应用服务读取的模型名称及错误。
-	models, err := s.settingsApplication().ListAIModels(r.Context(), sess.UserID, req.BaseURL, req.APIKey)
+	models, err := s.settingsApplication().ListAIModels(r.Context(), sess.UserID, req.BaseURL, req.APIKey, req.Protocol)
+	if errors.Is(err, settingsapp.ErrInvalidAIProtocol) {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if err != nil {
 		writeInternalErr(w, r, http.StatusBadGateway, err.Error(), err)
 		return
@@ -519,7 +527,11 @@ func (s *Server) testAIConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// result、testErr 分别保存非敏感诊断结果和应用服务或上游请求错误。
-	result, testErr := s.settingsApplication().TestAIConnection(r.Context(), sess.UserID, req.BaseURL, req.APIKey, req.Model)
+	result, testErr := s.settingsApplication().TestAIConnection(r.Context(), sess.UserID, req.BaseURL, req.APIKey, req.Model, req.Protocol)
+	if errors.Is(testErr, settingsapp.ErrInvalidAIProtocol) {
+		writeErr(w, http.StatusBadRequest, testErr.Error())
+		return
+	}
 	if testErr != nil {
 		writeInternalErr(w, r, http.StatusBadGateway, testErr.Error(), testErr)
 		return

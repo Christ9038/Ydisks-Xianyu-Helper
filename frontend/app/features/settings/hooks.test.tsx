@@ -86,6 +86,16 @@ describe('useSettings', /* 当前回调处理系统设置、模型和凭据请�
     expect(hook.result.current.modelError).toBe('模型服务不可用');
   });
 
+  test('Anthropic 协议下模型发现和连接测试都携带协议', /* 当前回调验证协议随设置草稿传给两个 AI 请求。 */ async () => {
+    // hook 是设置 Hook 渲染结果。
+    const hook = renderHook(renderSettingsHook);
+    await waitFor(/* 当前回调等待初始设置与自动选模型完成。 */ () => expect(hook.result.current.settings?.ai_model).toBe('model-a'));
+    act(/* 当前回调把草稿协议切到 anthropic。 */ () => hook.result.current.setSettings(/* previous 是切换前的草稿。 */ previous => previous ? { ...previous, ai_api_protocol: 'anthropic' } : previous));
+    await act(/* 当前回调发起连接测试。 */ async () => hook.result.current.testConnection());
+    expect(testConnectionMock).toHaveBeenLastCalledWith('https://ai.example.com', 'secret', 'model-a', expect.anything(), 'anthropic');
+    hook.unmount();
+  });
+
   test('连接测试展示真实模型回复并使用当前未保存配置', /* 当前回调验证 AI 连接测试与设置草稿使用相同的端点、密钥和模型。 */ async () => {
     // hook 是连接测试成功场景的设置 Hook 渲染结果。
     const hook = renderHook(renderSettingsHook);
@@ -97,7 +107,7 @@ describe('useSettings', /* 当前回调处理系统设置、模型和凭据请�
       // testAction 发起一次真实功能等价的连接测试操作。
       async () => hook.result.current.testConnection(),
     );
-    expect(testConnectionMock).toHaveBeenCalledWith('https://ai.example.com', 'secret', 'model-a', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(testConnectionMock).toHaveBeenCalledWith('https://ai.example.com', 'secret', 'model-a', expect.objectContaining({ signal: expect.any(AbortSignal) }), 'openai');
     expect(hook.result.current.connectionTestMessage).toEqual({ type: 'success', text: '连接正常 · 模型 model-a · 耗时 0.0s · 回复：你好' });
     hook.unmount();
   });

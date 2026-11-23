@@ -22,6 +22,16 @@ const (
 	AgentTokenClear = "clear"
 )
 
+// 以下常量是 Agent 回复的协议取值：v1 是项目自定义的外部 Agent 协议，其余两种直接调用大模型接口。
+const (
+	// AgentProtocolV1 表示项目自定义的 Agent 连接协议 v1（message/poll），是历史配置的默认值。
+	AgentProtocolV1 = "v1"
+	// AgentProtocolOpenAI 表示 OpenAI 兼容的 chat/completions 协议。
+	AgentProtocolOpenAI = "openai"
+	// AgentProtocolAnthropic 表示 Anthropic Messages 协议。
+	AgentProtocolAnthropic = "anthropic"
+)
+
 // AgentReplySettings 是账号 Agent 回复配置的非敏感摘要，不包含访问令牌。
 type AgentReplySettings struct {
 	// CookieID 是配置所属账号。
@@ -38,6 +48,12 @@ type AgentReplySettings struct {
 	MaxSessionSeconds int
 	// OrderContextEnabled 表示 message 事件是否携带买家在当前商品下的本地订单阶段；默认关闭。
 	OrderContextEnabled bool
+	// Protocol 是回复协议，取 AgentProtocol* 常量；历史配置为 v1。
+	Protocol string
+	// Model 是 openai/anthropic 协议使用的模型标识，v1 协议忽略。
+	Model string
+	// SystemPrompt 是 openai/anthropic 协议使用的系统提示词，为空时使用内置客服提示词，v1 协议忽略。
+	SystemPrompt string
 }
 
 // AgentReplyWrite 是保存账号 Agent 回复配置的一次写入命令。
@@ -49,6 +65,10 @@ type AgentReplyWrite struct {
 	MaxSessionSeconds     int
 	// OrderContextEnabled 表示是否在 message 事件中携带买家订单阶段。
 	OrderContextEnabled bool
+	// Protocol、Model 与 SystemPrompt 是调用方已校验的协议、模型和系统提示词；Protocol 为空按 v1 处理。
+	Protocol     string
+	Model        string
+	SystemPrompt string
 	// TokenAction 是令牌写入命令，取 AgentToken* 常量；空值按 retain 处理。
 	TokenAction string
 	// Token 是 TokenAction 为 replace 时写入的明文令牌，仓储加密后落库，不得记录日志。
@@ -69,6 +89,11 @@ type AgentReplyRuntime struct {
 	MaxSession time.Duration
 	// OrderContextEnabled 表示 message 事件是否携带买家订单阶段；只含非敏感阶段事实。
 	OrderContextEnabled bool
+	// Protocol 是回复协议，取 AgentProtocol* 常量。
+	Protocol string
+	// Model 与 SystemPrompt 是 openai/anthropic 协议使用的模型标识和系统提示词。
+	Model        string
+	SystemPrompt string
 }
 
 // AgentReply 读写 agent_reply_settings；令牌字段使用 secretCodec 加密落库。
@@ -90,9 +115,11 @@ func (a *AgentReply) Get(ctx context.Context, cookieID string) (AgentReplySettin
 	// err 保存查询与扫描错误；令牌只判断是否为空，不会被读入内存。
 	err := a.DB.QueryRowContext(ctx,
 		`SELECT enabled, endpoint_url, CASE WHEN auth_token <> '' THEN 1 ELSE 0 END,
-		        request_timeout_seconds, max_session_seconds, COALESCE(order_context_enabled, 0)
+		        request_timeout_seconds, max_session_seconds, COALESCE(order_context_enabled, 0),
+		        protocol, model, system_prompt
 		   FROM agent_reply_settings WHERE cookie_id = ?`, cookieID).
-		Scan(&enabled, &settings.EndpointURL, &tokenConfigured, &settings.RequestTimeoutSeconds, &settings.MaxSessionSeconds, &orderContextEnabled)
+		Scan(&enabled, &settings.EndpointURL, &tokenConfigured, &settings.RequestTimeoutSeconds, &settings.MaxSessionSeconds, &orderContextEnabled,
+			&settings.Protocol, &settings.Model, &settings.SystemPrompt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return AgentReplySettings{}, ErrNotFound
 	}
@@ -115,6 +142,9 @@ func (a *AgentReply) Upsert(ctx context.Context, cookieID string, write AgentRep
 		"request_timeout_seconds": "EXCLUDED.request_timeout_seconds",
 		"max_session_seconds":     "EXCLUDED.max_session_seconds",
 		"order_context_enabled":   "EXCLUDED.order_context_enabled",
+		"protocol":                "EXCLUDED.protocol",
+		"model":                   "EXCLUDED.model",
+		"system_prompt":           "EXCLUDED.system_prompt",
 		"updated_at":              "CURRENT_TIMESTAMP",
 	}
 	switch strings.TrimSpace(write.TokenAction) {
@@ -132,14 +162,20 @@ func (a *AgentReply) Upsert(ctx context.Context, cookieID string, write AgentRep
 	default:
 		return fmt.Errorf("未知的 Agent 令牌命令")
 	}
+	// protocol 为空时按历史默认协议 v1 保存。
+	protocol := strings.TrimSpace(write.Protocol)
+	if protocol == "" {
+		protocol = AgentProtocolV1
+	}
 	// err 保存 upsert 执行错误；新建行在 retain 时令牌列取空串。
 	_, err := a.DB.ExecContext(ctx,
 		`INSERT INTO agent_reply_settings
 		 (cookie_id, enabled, endpoint_url, auth_token, request_timeout_seconds, max_session_seconds,
-		  order_context_enabled, updated_at)
-		 VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP)`+dialectUpsert(a.Dialect, []string{"cookie_id"}, updates),
+		  order_context_enabled, protocol, model, system_prompt, updated_at)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)`+dialectUpsert(a.Dialect, []string{"cookie_id"}, updates),
 		cookieID, boolToInt(write.Enabled), strings.TrimSpace(write.EndpointURL), token,
-		write.RequestTimeoutSeconds, write.MaxSessionSeconds, boolToInt(write.OrderContextEnabled))
+		write.RequestTimeoutSeconds, write.MaxSessionSeconds, boolToInt(write.OrderContextEnabled),
+		protocol, strings.TrimSpace(write.Model), strings.TrimSpace(write.SystemPrompt))
 	return err
 }
 
@@ -149,12 +185,14 @@ func (a *AgentReply) RuntimeConfig(ctx context.Context, cookieID string) (AgentR
 	var enabled, timeout, session, orderContextEnabled int
 	// endpoint 是配置的 Agent 地址；rawToken 是库中可能已加密的令牌，解密前不得使用。
 	var endpoint, rawToken string
+	// protocol、model、systemPrompt 是回复协议、模型标识和系统提示词。
+	var protocol, model, systemPrompt string
 	// err 保存查询与扫描错误。
 	err := a.DB.QueryRowContext(ctx,
 		`SELECT enabled, endpoint_url, auth_token, request_timeout_seconds, max_session_seconds,
-		        COALESCE(order_context_enabled, 0)
+		        COALESCE(order_context_enabled, 0), protocol, model, system_prompt
 		   FROM agent_reply_settings WHERE cookie_id = ?`, cookieID).
-		Scan(&enabled, &endpoint, &rawToken, &timeout, &session, &orderContextEnabled)
+		Scan(&enabled, &endpoint, &rawToken, &timeout, &session, &orderContextEnabled, &protocol, &model, &systemPrompt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return AgentReplyRuntime{}, ErrNotFound
 	}
@@ -170,6 +208,7 @@ func (a *AgentReply) RuntimeConfig(ctx context.Context, cookieID string) (AgentR
 		Enabled: enabled != 0, EndpointURL: endpoint, Token: token,
 		RequestTimeout: time.Duration(timeout) * time.Second, MaxSession: time.Duration(session) * time.Second,
 		OrderContextEnabled: orderContextEnabled != 0,
+		Protocol:            protocol, Model: model, SystemPrompt: systemPrompt,
 	}, nil
 }
 

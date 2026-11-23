@@ -62,6 +62,7 @@ func (r *AgentReplyRepository) Get(ctx context.Context, cookieID string) (agentr
 		CookieID: row.CookieID, Enabled: row.Enabled, EndpointURL: row.EndpointURL, TokenConfigured: row.TokenConfigured,
 		RequestTimeoutSeconds: row.RequestTimeoutSeconds, MaxSessionSeconds: row.MaxSessionSeconds,
 		OrderContextEnabled: row.OrderContextEnabled,
+		Protocol:            row.Protocol, Model: row.Model, SystemPrompt: row.SystemPrompt,
 	}, nil
 }
 
@@ -76,7 +77,17 @@ func (r *AgentReplyRepository) Save(ctx context.Context, cookieID string, draft 
 		MaxSessionSeconds: draft.MaxSessionSeconds, TokenAction: draft.TokenAction, Token: draft.Token,
 		// 应用服务在保存前已把省略的开关解析为已保存值；这里对 nil 按关闭处理，保证适配器自身不会写入未定义状态。
 		OrderContextEnabled: draft.OrderContextEnabled != nil && *draft.OrderContextEnabled,
+		// 协议、模型与提示词同样已由应用服务解析；nil 与空值按默认（v1、空）写入。
+		Protocol: draft.Protocol, Model: derefAgentString(draft.Model), SystemPrompt: derefAgentString(draft.SystemPrompt),
 	})
+}
+
+// derefAgentString 返回字符串指针的值，nil 为空串。
+func derefAgentString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 // StoredToken 读取已保存令牌明文，仅供连接测试使用；没有配置时返回空串。

@@ -9,6 +9,10 @@ export interface SystemSettings {
   ai_api_key_configured?: boolean;
   /** 全局 AI API 地址。 */
   ai_api_url?: string;
+  /** 全局 AI 接口协议：openai（默认）或 anthropic。 */
+  ai_api_protocol?: 'openai' | 'anthropic' | string;
+  /** 是否把买家图片发给模型识别；服务端可能返回字符串。 */
+  ai_vision_enabled?: boolean | string;
   /** 全局 AI 基础地址。 */
   ai_base_url?: string;
   /** 系统默认回复文案。 */

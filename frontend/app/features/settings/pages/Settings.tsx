@@ -12,7 +12,8 @@ UserRound,
 Zap
 } from 'lucide-react';
 import React from 'react';
-import { DEFAULT_AI_API_URL,LOG_LEVELS } from '../constants';
+import { DEFAULT_AI_API_URL,DEFAULT_ANTHROPIC_API_URL,LOG_LEVELS } from '../constants';
+import { aiProtocolOf,aiVisionEnabledOf } from '../state';
 import { useNotificationSoundPreference } from '../../../../shared/browser/notificationSound';
 import { useSettings } from '../hooks';
 import { PageHeader } from '../../../../shared/ui/PageHeader';
@@ -45,6 +46,8 @@ const Settings: React.FC = () => {
 
   // currentModel 是当前配置中的模型名称。
   const currentModel = settings.ai_model || '';
+  // aiProtocol 是归一后的接口协议，决定默认地址和提示文案。
+  const aiProtocol = aiProtocolOf(settings);
   // visibleAIModels 是模型下拉框当前展示的候选列表。
   const visibleAIModels = aiModels;
 
@@ -150,15 +153,41 @@ const Settings: React.FC = () => {
 
             <div className="ios-card rounded-xl p-6 bg-white space-y-6">
               <div className="space-y-3">
+                <label htmlFor="ai-protocol" className="block text-sm font-bold text-gray-800">接口协议</label>
+                <select
+                  id="ai-protocol"
+                  value={aiProtocol}
+                  onChange={/* 当前回调切换协议，并清空旧协议下已读取的模型列表。 */ e => setSettings({...settings, ai_api_protocol: e.target.value})}
+                  className="w-full ios-input px-4 py-3 rounded-xl text-sm"
+                >
+                  <option value="openai">OpenAI 兼容（chat/completions）</option>
+                  <option value="anthropic">Anthropic（Messages）</option>
+                </select>
+              </div>
+
+              <label className="flex items-start gap-2 text-sm font-bold text-gray-800">
+                <input
+                  type="checkbox"
+                  checked={aiVisionEnabledOf(settings)}
+                  onChange={/* 当前回调切换买家图片识别开关。 */ e => setSettings({...settings, ai_vision_enabled: e.target.checked})}
+                  className="mt-1"
+                />
+                <span>
+                  识别买家图片（需模型支持视觉）
+                  <span className="block text-xs font-normal text-gray-500">仅全场景客服模式生效；只识别买家当前发送的这一张图片，图片地址会发送给上方配置的模型服务；端点不支持时自动降级为文字。</span>
+                </span>
+              </label>
+
+              <div className="space-y-3">
                 <label className="block text-sm font-bold text-gray-800">API 地址</label>
                 <input
                   type="text"
-                  value={settings.ai_api_url || DEFAULT_AI_API_URL}
+                  value={settings.ai_api_url || (aiProtocol === 'anthropic' ? DEFAULT_ANTHROPIC_API_URL : DEFAULT_AI_API_URL)}
                   onChange={/* 当前回调处理用户交互或异步状态变化。 */ e => setSettings({...settings, ai_api_url: e.target.value})}
                   className="w-full ios-input px-4 py-3 rounded-xl text-sm"
-                  placeholder="https://api.openai.com/v1"
+                  placeholder={aiProtocol === 'anthropic' ? 'https://api.anthropic.com' : 'https://api.openai.com/v1'}
                 />
-                <p className="text-xs text-gray-500">无需补全 /chat/completions</p>
+                <p className="text-xs text-gray-500">{aiProtocol === 'anthropic' ? '无需补全 /v1/messages' : '无需补全 /chat/completions'}</p>
               </div>
 
               <div className="space-y-3">

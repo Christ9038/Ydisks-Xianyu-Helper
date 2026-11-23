@@ -19,7 +19,7 @@ const saveMock = vi.mocked(saveAgentReplySettings);
 const testMock = vi.mocked(testAgentReplyConnection);
 
 // settingsFixture 是账号 a1 已启用且已保存令牌的配置。
-const settingsFixture: AgentReplySettings = { cookie_id: 'a1', enabled: true, endpoint_url: 'https://agent.example.com/v1', token_configured: true, request_timeout_seconds: 15, max_session_seconds: 120, order_context_enabled: true };
+const settingsFixture: AgentReplySettings = { cookie_id: 'a1', enabled: true, endpoint_url: 'https://agent.example.com/v1', token_configured: true, request_timeout_seconds: 15, max_session_seconds: 120, order_context_enabled: true, protocol: 'v1', model: '', system_prompt: '' };
 // okResult 是成功的连接测试结果。
 const okResult: AgentReplyTestResult = { status: 'ok', status_code: 200, duration_ms: 5, handled: true, working: false, reply_count: 1 };
 
@@ -144,7 +144,7 @@ describe('useAgentReply', /* 当前回调覆盖 Agent 回复 Hook 的加载、�
     let saved = false;
     await act(/* 当前回调保存。 */ async () => { saved = await result.current.save(); });
     expect(saved).toBe(true);
-    expect(saveMock).toHaveBeenCalledWith('a1', { enabled: true, endpoint_url: 'https://new.example.com', request_timeout_seconds: 15, max_session_seconds: 120, order_context_enabled: true, token_action: 'replace', token_value: 'new-token' });
+    expect(saveMock).toHaveBeenCalledWith('a1', { enabled: true, endpoint_url: 'https://new.example.com', request_timeout_seconds: 15, max_session_seconds: 120, order_context_enabled: true, protocol: 'v1', model: '', system_prompt: '', token_action: 'replace', token_value: 'new-token' });
     expect(result.current.toast).toEqual({ type: 'success', text: '保存成功' });
     expect(result.current.form).toMatchObject({ endpointUrl: 'https://new.example.com', tokenAction: 'retain', tokenValue: '' });
   });
@@ -275,6 +275,29 @@ describe('Agent 回复表单纯函数', /* 当前回调覆盖校验、载荷与�
     expect(validateAgentReplyForm({ ...base, maxSessionSeconds: 301 }, false)).toContain('单轮对话总时长');
     expect(validateAgentReplyForm({ ...base, requestTimeoutSeconds: 30, maxSessionSeconds: 20 }, false)).toBe('单轮对话总时长不能小于单次请求超时');
     expect(validateAgentReplyForm({ ...base, tokenAction: 'replace', tokenValue: '  ' }, false)).toBe('请输入新的访问令牌');
+  });
+
+  test('模型协议校验：openai 启用前必须填模型，anthropic 可留空，长度受限，地址文案随协议变化', /* 当前回调执行该行为用例。 */ () => {
+    // openai、anthropic 是两种直接调用大模型接口的表单基线。
+    const openai = { ...base, protocol: 'openai' as const };
+    // anthropic 是 Anthropic 协议的表单基线，模型可留空。
+    const anthropic = { ...base, protocol: 'anthropic' as const };
+    expect(validateAgentReplyForm(openai, false)).toBe('OpenAI 兼容协议需要填写模型名称');
+    expect(validateAgentReplyForm({ ...openai, model: ' gpt-x ' }, false)).toBe('');
+    // 未启用且不是测试连接时允许先选协议后补模型；测试连接同样要求模型。
+    expect(validateAgentReplyForm({ ...openai, enabled: false }, false)).toBe('');
+    expect(validateAgentReplyForm({ ...openai, enabled: false }, true)).toBe('OpenAI 兼容协议需要填写模型名称');
+    expect(validateAgentReplyForm(anthropic, false)).toBe('');
+    expect(validateAgentReplyForm({ ...openai, model: 'm'.repeat(256) }, false)).toContain('模型名称不能超过');
+    expect(validateAgentReplyForm({ ...anthropic, systemPrompt: '长'.repeat(2001) }, false)).toContain('系统提示词不能超过');
+    expect(validateAgentReplyForm({ ...anthropic, endpointUrl: '' }, false)).toBe('启用前请填写模型服务地址');
+    expect(validateAgentReplyForm({ ...anthropic, endpointUrl: 'ftp://x' }, false)).toContain('模型服务地址需以');
+  });
+
+  test('载荷携带协议、裁剪后的模型与提示词，并随服务端配置回填', /* 当前回调执行该行为用例。 */ () => {
+    expect(agentReplyPayloadFromForm({ ...base, protocol: 'anthropic', model: ' claude-x ', systemPrompt: ' 你是客服 ' })).toMatchObject({ protocol: 'anthropic', model: 'claude-x', system_prompt: '你是客服' });
+    expect(agentReplyFormFromSettings({ ...settingsFixture, protocol: 'openai', model: 'gpt-x', system_prompt: 'p' })).toMatchObject({ protocol: 'openai', model: 'gpt-x', systemPrompt: 'p' });
+    expect(emptyAgentReplyForm()).toMatchObject({ protocol: 'v1', model: '', systemPrompt: '' });
   });
 
   test('载荷裁剪地址，仅替换命令携带令牌', /* 当前回调执行该行为用例。 */ () => {

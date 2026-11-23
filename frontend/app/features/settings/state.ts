@@ -36,6 +36,8 @@ export type AIConnectionTestSnapshot = {
   apiKey: string;
   /** model 是本次实际验证的模型名称。 */
   model: string;
+  /** protocol 是本次测试使用的接口协议；缺省视为 openai。 */
+  protocol?: 'openai' | 'anthropic';
 };
 
 /** isCurrentAIConnectionTest 判断页面当前 AI 配置是否仍与开始测试时的快照一致。 */
@@ -46,7 +48,17 @@ export const isCurrentAIConnectionTest = (settings: SystemSettings | null, snaps
   const currentAPIKey = settings?.ai_api_key || '';
   // currentModel 保存当前草稿的模型名称；空值表示服务端应读取默认模型。
   const currentModel = settings?.ai_model || '';
-  return currentBaseURL === snapshot.baseURL && currentAPIKey === snapshot.apiKey && currentModel === snapshot.model;
+  return currentBaseURL === snapshot.baseURL && currentAPIKey === snapshot.apiKey && currentModel === snapshot.model && aiProtocolOf(settings) === (snapshot.protocol ?? 'openai');
+};
+
+/** aiProtocolOf 把设置中的协议值归一为受支持协议，未知值按 openai 处理。 */
+export const aiProtocolOf = (settings: SystemSettings | null | undefined): 'openai' | 'anthropic' => settings?.ai_api_protocol === 'anthropic' ? 'anthropic' : 'openai';
+
+/** aiVisionEnabledOf 把设置中的图片识别开关（布尔或字符串）归一为布尔值。 */
+export const aiVisionEnabledOf = (settings: SystemSettings | null | undefined): boolean => {
+  // raw 是服务端保存的开关原值，可能是布尔或 true/1/yes/on 字符串。
+  const raw = settings?.ai_vision_enabled;
+  return raw === true || (typeof raw === 'string' && ['true', '1', 'yes', 'on'].includes(raw.trim().toLowerCase()));
 };
 
 /** 判断错误是否来自主动取消。 */

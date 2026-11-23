@@ -30,6 +30,12 @@ type agentReplySettingsRequest struct {
 	MaxSessionSeconds int `json:"max_session_seconds"`
 	// OrderContextEnabled 是“请求中携带买家订单阶段”开关；省略（nil）时保留已保存的值，兼容尚未携带该字段的旧客户端。
 	OrderContextEnabled *bool `json:"order_context_enabled"`
+	// Protocol 是回复协议：v1（自定义 Agent 协议）、openai 或 anthropic；省略时保留已保存的值。
+	Protocol string `json:"protocol"`
+	// Model 是 openai/anthropic 协议使用的模型标识；省略（nil）时保留已保存的值。
+	Model *string `json:"model"`
+	// SystemPrompt 是 openai/anthropic 协议使用的系统提示词；省略（nil）时保留已保存的值。
+	SystemPrompt *string `json:"system_prompt"`
 	// Token 是访问令牌写入命令，省略表示保留已保存令牌。
 	Token agentReplyTokenRequest `json:"token"`
 }
@@ -40,6 +46,9 @@ type agentReplyTestRequest struct {
 	EndpointURL string `json:"endpoint_url"`
 	// RequestTimeoutSeconds 是单次请求超时秒数，省略或 0 使用默认值。
 	RequestTimeoutSeconds int `json:"request_timeout_seconds"`
+	// Protocol 与 Model 是待测试的协议和模型；Protocol 省略按 v1 处理。
+	Protocol string `json:"protocol"`
+	Model    string `json:"model"`
 	// Token 是访问令牌命令；retain 时使用账号已保存令牌。
 	Token agentReplyTokenRequest `json:"token"`
 }
@@ -60,6 +69,11 @@ type agentReplySettingsResponse struct {
 	MaxSessionSeconds int `json:"max_session_seconds"`
 	// OrderContextEnabled 表示 message 事件是否携带买家在当前商品下的本地订单阶段。
 	OrderContextEnabled bool `json:"order_context_enabled"`
+	// Protocol 是回复协议：v1、openai 或 anthropic。
+	Protocol string `json:"protocol"`
+	// Model 与 SystemPrompt 是 openai/anthropic 协议使用的模型标识和系统提示词。
+	Model        string `json:"model"`
+	SystemPrompt string `json:"system_prompt"`
 }
 
 // agentReplyTestResponse 是连接测试的具名响应 DTO，只含诊断概要，不含 Agent 响应正文。
@@ -116,6 +130,7 @@ func (s *Server) setAgentReply(w http.ResponseWriter, r *http.Request) {
 	settings, err := s.agentReplyApplication().Update(r.Context(), userID, chi.URLParam(r, "cookie_id"), agentreplyapp.Draft{
 		Enabled: req.Enabled, EndpointURL: req.EndpointURL, RequestTimeoutSeconds: req.RequestTimeoutSeconds,
 		MaxSessionSeconds: req.MaxSessionSeconds, OrderContextEnabled: req.OrderContextEnabled,
+		Protocol: req.Protocol, Model: req.Model, SystemPrompt: req.SystemPrompt,
 		TokenAction: req.Token.Action, Token: req.Token.Value,
 	})
 	if err != nil {
@@ -143,6 +158,7 @@ func (s *Server) testAgentReply(w http.ResponseWriter, r *http.Request) {
 	// result、err 保存诊断结果及调用错误；网络类失败已编码在 result.Status 中。
 	result, err := s.agentReplyApplication().Test(r.Context(), userID, chi.URLParam(r, "cookie_id"), agentreplyapp.TestInput{
 		EndpointURL: req.EndpointURL, RequestTimeoutSeconds: req.RequestTimeoutSeconds, TokenAction: req.Token.Action, Token: req.Token.Value,
+		Protocol: req.Protocol, Model: req.Model,
 	})
 	if err != nil {
 		writeAgentReplyError(w, r, err, "测试失败")
@@ -161,6 +177,7 @@ func newAgentReplySettingsResponse(settings agentreplyapp.Settings) agentReplySe
 		CookieID: settings.CookieID, Enabled: settings.Enabled, EndpointURL: settings.EndpointURL, TokenConfigured: settings.TokenConfigured,
 		RequestTimeoutSeconds: settings.RequestTimeoutSeconds, MaxSessionSeconds: settings.MaxSessionSeconds,
 		OrderContextEnabled: settings.OrderContextEnabled,
+		Protocol:            settings.Protocol, Model: settings.Model, SystemPrompt: settings.SystemPrompt,
 	}
 }
 

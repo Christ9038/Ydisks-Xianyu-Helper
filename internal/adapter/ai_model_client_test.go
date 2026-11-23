@@ -31,7 +31,7 @@ func TestAIModelClientFetchUsesHeaderAndBounds(t *testing.T) {
 	// client 是替换了受信任端点 HTTP 工厂的测试客户端。
 	client := &AIModelClient{newHTTPClient: func(string) (*http.Client, error) { return &http.Client{}, nil }}
 	// models、err 保存模型请求结果和错误。
-	models, err := client.Fetch(context.Background(), server.URL, "test-secret")
+	models, err := client.Fetch(context.Background(), server.URL, "test-secret", "openai")
 	if err != nil || len(models) != 1 || models[0] != "qwen-plus" {
 		t.Fatalf("models=%v err=%v", models, err)
 	}
@@ -94,7 +94,7 @@ func TestAIModelClientTestConnection(t *testing.T) {
 	// client 仅装配测试连接客户端，验证 TestConnection 不错误依赖模型目录客户端工厂。
 	client := &AIModelClient{newTestHTTPClient: func(string) (*http.Client, error) { return server.Client(), nil }}
 	// result、testErr 分别保存连接测试的非敏感结果及失败原因。
-	result, testErr := client.TestConnection(context.Background(), server.URL+"/", "test-secret", " reasoning-model ")
+	result, testErr := client.TestConnection(context.Background(), server.URL+"/", "test-secret", " reasoning-model ", "openai")
 	if testErr != nil {
 		t.Fatalf("test connection: %v", testErr)
 	}
@@ -131,7 +131,7 @@ func TestAIModelClientTestConnectionClassifiesErrors(t *testing.T) {
 			// client 使用本地替身的 HTTP 客户端，避免触发真实外部服务。
 			client := &AIModelClient{newTestHTTPClient: func(string) (*http.Client, error) { return server.Client(), nil }}
 			// result、testErr 分别保存失败测试返回的诊断信息和错误。
-			result, testErr := client.TestConnection(context.Background(), server.URL, "test-secret", "test-model")
+			result, testErr := client.TestConnection(context.Background(), server.URL, "test-secret", "test-model", "openai")
 			if testErr == nil || !strings.Contains(testErr.Error(), testCase.want) || strings.Contains(testErr.Error(), "upstream-secret-body") {
 				t.Fatalf("result=%+v err=%v", result, testErr)
 			}

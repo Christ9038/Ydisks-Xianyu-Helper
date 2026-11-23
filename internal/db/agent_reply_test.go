@@ -162,3 +162,33 @@ func TestAgentReplyRetainOnFreshRowAndLegacyMigration(t *testing.T) {
 		t.Fatal("错误密钥应使启动期校验失败")
 	}
 }
+
+// TestAgentReplyProtocolFields 验证协议、模型与系统提示词的默认值（v1）、保存、读回与运行时读取。
+func TestAgentReplyProtocolFields(t *testing.T) {
+	// store、account 是带一个账号的隔离仓储及账号标识；ctx 是本测试共用的上下文。
+	store, account := newAgentReplyTestStore(t)
+	// ctx 是测试用的后台上下文。
+	ctx := context.Background()
+	// 未指定协议的写入按历史默认 v1 保存，模型与提示词为空。
+	if err := store.AgentReply.Upsert(ctx, account, AgentReplyWrite{Enabled: true, EndpointURL: "https://agent.example.com", RequestTimeoutSeconds: 10, MaxSessionSeconds: 60}); err != nil {
+		t.Fatal(err)
+	}
+	// summary、err 保存读回的非敏感摘要。
+	summary, err := store.AgentReply.Get(ctx, account)
+	if err != nil || summary.Protocol != AgentProtocolV1 || summary.Model != "" || summary.SystemPrompt != "" {
+		t.Fatalf("默认协议应为 v1: %+v err=%v", summary, err)
+	}
+	// 切换到 anthropic 并保存模型与提示词（首尾空白被裁剪）。
+	if err := store.AgentReply.Upsert(ctx, account, AgentReplyWrite{Enabled: true, EndpointURL: "https://api.anthropic.com", RequestTimeoutSeconds: 10, MaxSessionSeconds: 60,
+		Protocol: AgentProtocolAnthropic, Model: " claude-opus-5-5 ", SystemPrompt: " 你是客服 "}); err != nil {
+		t.Fatal(err)
+	}
+	// runtime、err 保存运行时配置；摘要与运行时配置必须一致。
+	runtime, err := store.AgentReply.RuntimeConfig(ctx, account)
+	if err != nil || runtime.Protocol != AgentProtocolAnthropic || runtime.Model != "claude-opus-5-5" || runtime.SystemPrompt != "你是客服" {
+		t.Fatalf("运行时配置: %+v err=%v", runtime, err)
+	}
+	if summary, err = store.AgentReply.Get(ctx, account); err != nil || summary.Protocol != AgentProtocolAnthropic || summary.Model != "claude-opus-5-5" {
+		t.Fatalf("摘要: %+v err=%v", summary, err)
+	}
+}

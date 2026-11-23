@@ -1,6 +1,7 @@
 import {
 AccountDetail,
 AgentReplyPayload,
+AgentReplyProtocol,
 AgentReplySettings,
 AgentReplyTestResult,
 AgentReplyTestStatus,
@@ -701,6 +702,9 @@ export const clearItemGreetingRecords = async (cookieID: string): Promise<Operat
 // AGENT_REPLY_TEST_STATUSES 是连接测试允许的诊断状态，未知值按不可达处理。
 const AGENT_REPLY_TEST_STATUSES: readonly AgentReplyTestStatus[] = ['ok', 'http_error', 'invalid_response', 'unreachable'];
 
+// AGENT_REPLY_PROTOCOLS 是允许的回复协议，未知值按历史默认 v1 处理。
+const AGENT_REPLY_PROTOCOLS: readonly AgentReplyProtocol[] = ['v1', 'openai', 'anthropic'];
+
 // normalizeAgentReplySettings 把服务端配置 DTO 归一为 UI 模型，缺失字段使用与后端一致的默认值。
 const normalizeAgentReplySettings = (raw: unknown, accountID: string): AgentReplySettings => {
   // dto 是待归一的原始配置对象。
@@ -713,6 +717,9 @@ const normalizeAgentReplySettings = (raw: unknown, accountID: string): AgentRepl
     request_timeout_seconds: typeof dto.request_timeout_seconds === 'number' ? dto.request_timeout_seconds : 15,
     max_session_seconds: typeof dto.max_session_seconds === 'number' ? dto.max_session_seconds : 120,
     order_context_enabled: dto.order_context_enabled === true,
+    protocol: AGENT_REPLY_PROTOCOLS.find(/* candidate 是允许的回复协议。 */ candidate => candidate === dto.protocol) ?? 'v1',
+    model: typeof dto.model === 'string' ? dto.model : '',
+    system_prompt: typeof dto.system_prompt === 'string' ? dto.system_prompt : '',
   };
 };
 
@@ -737,6 +744,9 @@ export const saveAgentReplySettings = async (accountID: string, payload: AgentRe
       request_timeout_seconds: payload.request_timeout_seconds,
       max_session_seconds: payload.max_session_seconds,
       order_context_enabled: payload.order_context_enabled,
+      protocol: payload.protocol,
+      model: payload.model,
+      system_prompt: payload.system_prompt,
       token: agentReplyTokenBody(payload),
     },
     signal,
@@ -749,7 +759,7 @@ export const testAgentReplyConnection = async (accountID: string, payload: Agent
   // response 保存连接测试接口的诊断响应。
   const response = await runContractRequest(/* signal 控制 Agent 连接测试的取消和超时。 */ signal => contractClient.POST('/api/v1/agent-replies/{cookie_id}/test', {
     params: { path: { cookie_id: accountID } },
-    body: { endpoint_url: payload.endpoint_url, request_timeout_seconds: payload.request_timeout_seconds, token: agentReplyTokenBody(payload) },
+    body: { endpoint_url: payload.endpoint_url, request_timeout_seconds: payload.request_timeout_seconds, protocol: payload.protocol, model: payload.model, token: agentReplyTokenBody(payload) },
     signal,
   }), options) as unknown;
   // dto 是待归一的诊断对象。

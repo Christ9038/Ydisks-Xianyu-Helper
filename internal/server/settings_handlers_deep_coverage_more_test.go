@@ -64,7 +64,7 @@ func (port *settingsHandlerDeepCoveragePort) GetSystem(context.Context, int64) (
 }
 
 // ListAIModels 返回测试预置的模型列表或错误。
-func (port *settingsHandlerDeepCoveragePort) ListAIModels(context.Context, int64, string, string) ([]string, error) {
+func (port *settingsHandlerDeepCoveragePort) ListAIModels(context.Context, int64, string, string, string) ([]string, error) {
 	if port.listErr != nil {
 		return nil, port.listErr
 	}
@@ -72,7 +72,7 @@ func (port *settingsHandlerDeepCoveragePort) ListAIModels(context.Context, int64
 }
 
 // TestAIConnection 返回测试预置的连接测试结果或错误。
-func (port *settingsHandlerDeepCoveragePort) TestAIConnection(context.Context, int64, string, string, string) (settingsapp.AIConnectionTestResult, error) {
+func (port *settingsHandlerDeepCoveragePort) TestAIConnection(context.Context, int64, string, string, string, string) (settingsapp.AIConnectionTestResult, error) {
 	if port.listErr != nil {
 		return settingsapp.AIConnectionTestResult{}, port.listErr
 	}

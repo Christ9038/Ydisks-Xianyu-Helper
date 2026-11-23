@@ -16,10 +16,13 @@ Do not paste Cookies, notification tokens, or database passwords here. Sensitive
 
 ## Configure AI
 
+1. Choose the interface protocol: OpenAI-compatible (default, `chat/completions`) or Anthropic (Messages API, default URL `https://api.anthropic.com` and model `claude-opus-5-5` when left empty; the key is sent as `x-api-key`). Read Models and Test connection follow the selected protocol.
 1. Enter an OpenAI-compatible API base URL such as `https://api.openai.com/v1`; do not enter the complete `/chat/completions` path. If left empty, the Qwen-compatible endpoint `https://dashscope.aliyuncs.com/compatible-mode/v1` is used.
 2. Enter the API key and click Read Models. If the provider does not expose a model list, enter the model name manually.
 3. Click Save All Configuration.
 4. Open the target account's AI Settings in Account Management, enable automatic AI replies, and set bargaining limits.
+
+Optional **Recognize buyer images** (off by default): when ticked and the account runs in Full Service mode, an image the buyer just sent is passed to the model (the image URL is sent to the AI provider you configured; only the current image, never earlier ones, and nothing is stored locally besides the `[图片]` placeholder). If the endpoint or model rejects images (HTTP 400/415/422) the helper retries once as plain text and logs a warning. In Bargaining Only mode images are still ignored. Use a vision-capable model.
 
 AI handles bargaining by default; an account can switch to Full Service mode to also answer consultation, shipping, and after-sales messages, and each product can override the account setting. The reply priority is external API reply, keyword reply, AI, then default reply, so keywords always win over AI and messages AI does not handle continue to the default reply. Test discount amount, percentage, and maximum rounds with a low-risk account before enabling it. The account-side settings are explained in [AI, Notifications and Operations](AI-Notifications-and-Operations).
 

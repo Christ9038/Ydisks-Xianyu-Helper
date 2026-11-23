@@ -104,7 +104,7 @@ curl -fsS -X PUT "$YDISKS_BASE_URL/api/v1/agent-replies/$COOKIE_ID" -H "Authoriz
 ### AI 客服与 Agent 回复
 
 - `GET/PUT /api/v1/settings/ai-reply/{cookie_id}`：读取/更新账号 AI 回复配置。
-- `GET/PUT /api/v1/agent-replies/{cookie_id}`：读取/更新账号外部 Agent 回复配置。
+- `GET/PUT /api/v1/agent-replies/{cookie_id}`：读取/更新账号外部 Agent 回复配置；配置另含 `protocol`（`v1` 默认、`openai`、`anthropic`）、`model` 与 `system_prompt`（写入时省略表示保留已存值）。`POST /api/v1/settings/ai-models` 与 `/ai-test` 可选携带 `protocol`（`openai`/`anthropic`，缺省取已保存的 `ai_api_protocol`），测试请求可携带 `protocol` 与 `model`。
 - `POST /api/v1/agent-replies/{cookie_id}/test`：按提交的地址和令牌草稿测试 Agent 连接。令牌写入支持 `retain`、`replace`、`clear`；读取响应只返回 `token_configured`，不会返回令牌明文。
 - 现有回复优先级和 Agent 协议见[自动化发货与回复](自动化发货与回复.zh-CN)。本次只通过 API 暴露现有 AI/关键词/Agent 能力，不创建第二套回复 Worker。
 

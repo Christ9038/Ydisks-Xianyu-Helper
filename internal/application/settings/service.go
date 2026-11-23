@@ -18,6 +18,9 @@ var ErrAccountNotFound = errors.New("设置账号不存在")
 // ErrForbidden 表示目标账号属于其他用户。
 var ErrForbidden = errors.New("无权操作该账号设置")
 
+// ErrInvalidAIProtocol 表示模型协议不是 openai 或 anthropic。
+var ErrInvalidAIProtocol = errors.New("AI 协议无效，仅支持 openai 或 anthropic")
+
 // ErrConfigNotFound 表示账号存在但尚未保存 AI 回复设置。
 var ErrConfigNotFound = errors.New("AI 回复设置不存在")
 
@@ -109,9 +112,10 @@ type Repository interface {
 // ModelClient 定义读取远端 AI 模型列表所需的最小网络能力。
 type ModelClient interface {
 	// Fetch 获取指定 AI 服务地址的模型名称，调用方不得把 API 密钥写入日志或响应。
-	Fetch(ctx context.Context, baseURL, apiKey string) ([]string, error)
-	// TestConnection 发送一次最小 chat completion 请求验证端点可用性。
-	TestConnection(ctx context.Context, baseURL, apiKey, model string) (AIConnectionTestResult, error)
+	// protocol 是 openai 或 anthropic，已由应用服务归一化。
+	Fetch(ctx context.Context, baseURL, apiKey, protocol string) ([]string, error)
+	// TestConnection 发送一次最小对话请求验证端点可用性；protocol 同 Fetch。
+	TestConnection(ctx context.Context, baseURL, apiKey, model, protocol string) (AIConnectionTestResult, error)
 }
 
 // AIConnectionTestResult 是连接测试的应用层诊断模型。
@@ -343,13 +347,19 @@ func (s *Service) UpsertAIReply(ctx context.Context, userID int64, cookieID stri
 }
 
 // ListAIModels 读取远端模型目录，API 密钥使用前必须经过受控读取或审计。
-func (s *Service) ListAIModels(ctx context.Context, userID int64, baseURL, apiKey string) ([]string, error) {
+// protocol 为空时使用系统设置 ai_api_protocol（默认 openai）。
+func (s *Service) ListAIModels(ctx context.Context, userID int64, baseURL, apiKey, protocol string) ([]string, error) {
 	// err 表示设置 Port 未装配或用户身份无效。
 	if err := s.validateUser(userID); err != nil {
 		return nil, err
 	}
 	if s.modelClient == nil {
 		return nil, errors.New("AI 模型客户端未初始化")
+	}
+	// protocol、protocolErr 是归一化后的模型协议及设置读取或取值错误。
+	protocol, protocolErr := s.resolveAIProtocol(ctx, protocol)
+	if protocolErr != nil {
+		return nil, protocolErr
 	}
 	baseURL = strings.TrimSpace(baseURL)
 	if baseURL == "" {
@@ -360,9 +370,7 @@ func (s *Service) ListAIModels(ctx context.Context, userID int64, baseURL, apiKe
 			return nil, err
 		}
 	}
-	if baseURL == "" {
-		baseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-	}
+	baseURL = defaultAIBaseURL(baseURL, protocol)
 	apiKey = strings.TrimSpace(apiKey)
 	if apiKey == "" {
 		// err 表示敏感 API 密钥读取或审计失败。
@@ -375,18 +383,24 @@ func (s *Service) ListAIModels(ctx context.Context, userID int64, baseURL, apiKe
 	err := s.audit(ctx, AuditRecord{UserID: userID, Action: "settings.use", Resource: "ai_models", Keys: []string{"ai_api_key"}}); err != nil {
 		return nil, err
 	}
-	return s.modelClient.Fetch(ctx, baseURL, apiKey)
+	return s.modelClient.Fetch(ctx, baseURL, apiKey, protocol)
 }
 
 // TestAIConnection 发送一次最小对话请求验证 API 地址、密钥和模型的组合。
 // baseURL 和 apiKey 为空时回退到系统设置，与 ListAIModels 的解析逻辑一致。
-func (s *Service) TestAIConnection(ctx context.Context, userID int64, baseURL, apiKey, model string) (AIConnectionTestResult, error) {
+// protocol 为空时使用系统设置 ai_api_protocol（默认 openai）。
+func (s *Service) TestAIConnection(ctx context.Context, userID int64, baseURL, apiKey, model, protocol string) (AIConnectionTestResult, error) {
 	// err 表示服务依赖或当前用户身份校验失败。
 	if err := s.validateUser(userID); err != nil {
 		return AIConnectionTestResult{}, err
 	}
 	if s.modelClient == nil {
 		return AIConnectionTestResult{}, errors.New("AI 模型客户端未初始化")
+	}
+	// protocol、protocolErr 是归一化后的模型协议及设置读取或取值错误。
+	protocol, protocolErr := s.resolveAIProtocol(ctx, protocol)
+	if protocolErr != nil {
+		return AIConnectionTestResult{}, protocolErr
 	}
 	baseURL = strings.TrimSpace(baseURL)
 	if baseURL == "" {
@@ -397,9 +411,7 @@ func (s *Service) TestAIConnection(ctx context.Context, userID int64, baseURL, a
 			return AIConnectionTestResult{}, lookupErr
 		}
 	}
-	if baseURL == "" {
-		baseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-	}
+	baseURL = defaultAIBaseURL(baseURL, protocol)
 	apiKey = strings.TrimSpace(apiKey)
 	if apiKey == "" {
 		// secretErr 表示受控读取已保存 API Key 或写入相应审计时产生的错误。
@@ -421,7 +433,38 @@ func (s *Service) TestAIConnection(ctx context.Context, userID int64, baseURL, a
 			return AIConnectionTestResult{}, lookupErr
 		}
 	}
-	return s.modelClient.TestConnection(ctx, baseURL, apiKey, model)
+	return s.modelClient.TestConnection(ctx, baseURL, apiKey, model, protocol)
+}
+
+// resolveAIProtocol 归一化模型协议：为空时读取系统设置 ai_api_protocol，仍为空按 openai；取值无效时返回 ErrInvalidAIProtocol。
+func (s *Service) resolveAIProtocol(ctx context.Context, protocol string) (string, error) {
+	protocol = strings.ToLower(strings.TrimSpace(protocol))
+	if protocol == "" {
+		// err 表示系统协议设置读取失败。
+		var err error
+		if protocol, err = s.repository.GetSystem(ctx, "ai_api_protocol"); err != nil {
+			return "", err
+		}
+		protocol = strings.ToLower(strings.TrimSpace(protocol))
+	}
+	switch protocol {
+	case "", "openai":
+		return "openai", nil
+	case "anthropic":
+		return "anthropic", nil
+	}
+	return "", ErrInvalidAIProtocol
+}
+
+// defaultAIBaseURL 在地址为空时返回协议对应的默认服务地址。
+func defaultAIBaseURL(baseURL, protocol string) string {
+	if strings.TrimSpace(baseURL) != "" {
+		return baseURL
+	}
+	if protocol == "anthropic" {
+		return "https://api.anthropic.com"
+	}
+	return "https://dashscope.aliyuncs.com/compatible-mode/v1"
 }
 
 // validateRepository 检查应用服务的基础设施 Port 是否已装配。

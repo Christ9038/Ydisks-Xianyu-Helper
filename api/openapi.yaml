@@ -9765,11 +9765,23 @@ components:
         order_context_enabled:
           type: boolean
           description: 是否在 message 事件中携带买家在当前商品下的本地订单阶段；省略时保留已保存的值。
+        protocol:
+          type: string
+          enum: [v1, openai, anthropic]
+          description: 回复协议：v1 为项目自定义的 Agent 协议；openai、anthropic 直接调用大模型接口。省略时保留已保存的值（新账号为 v1）。
+        model:
+          type: string
+          maxLength: 255
+          description: openai/anthropic 协议使用的模型标识；省略时保留已保存的值，v1 协议忽略。
+        system_prompt:
+          type: string
+          maxLength: 2000
+          description: openai/anthropic 协议使用的系统提示词，为空使用内置客服提示词；省略时保留已保存的值，v1 协议忽略。
         token:
           $ref: '#/components/schemas/AgentReplyTokenCommand'
     AgentReplySettingsResponse:
       type: object
-      required: [cookie_id, enabled, endpoint_url, token_configured, request_timeout_seconds, max_session_seconds, order_context_enabled]
+      required: [cookie_id, enabled, endpoint_url, token_configured, request_timeout_seconds, max_session_seconds, order_context_enabled, protocol, model, system_prompt]
       properties:
         cookie_id: {type: string}
         enabled: {type: boolean}
@@ -9778,12 +9790,17 @@ components:
         request_timeout_seconds: {type: integer}
         max_session_seconds: {type: integer}
         order_context_enabled: {type: boolean}
+        protocol: {type: string, enum: [v1, openai, anthropic]}
+        model: {type: string}
+        system_prompt: {type: string}
     AgentReplyTestRequest:
       type: object
       required: [endpoint_url]
       properties:
         endpoint_url: {type: string, maxLength: 2048}
         request_timeout_seconds: {type: integer, minimum: 0, maximum: 30}
+        protocol: {type: string, enum: [v1, openai, anthropic], description: 待测试的协议；省略按 v1 处理。}
+        model: {type: string, maxLength: 255, description: openai/anthropic 协议待测试的模型标识。}
         token:
           $ref: '#/components/schemas/AgentReplyTokenCommand'
     AgentReplyTestResponse:
@@ -10784,6 +10801,10 @@ components:
           type: string
         api_key:
           type: string
+        protocol:
+          type: string
+          enum: [openai, anthropic]
+          description: 模型协议；省略时使用系统设置 ai_api_protocol（默认 openai）。
     AIModelsResponse:
       type: object
       required: [models]
@@ -10802,6 +10823,10 @@ components:
           type: string
         model:
           type: string
+        protocol:
+          type: string
+          enum: [openai, anthropic]
+          description: 模型协议；省略时使用系统设置 ai_api_protocol（默认 openai）。
     AIConnectionTestResponse:
       type: object
       required: [success, model, latency_ms, reply]

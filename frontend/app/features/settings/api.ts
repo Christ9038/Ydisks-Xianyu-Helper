@@ -65,11 +65,14 @@ export const updateSystemSettings = async (settings: Partial<SystemSettings> | S
     signal,
   }), options);
 
-/** 向服务端请求指定人工智能服务的可用模型列表。 */
-export const fetchAIModels = async (baseURL: string, apiKey = '', options?: RequestControlOptions): Promise<string[]> => {
+/** AIProtocol 是全局 AI 接口协议：openai 兼容或 anthropic。 */
+export type AIProtocol = 'openai' | 'anthropic';
+
+/** 向服务端请求指定人工智能服务的可用模型列表；protocol 决定服务端使用的接口格式。 */
+export const fetchAIModels = async (baseURL: string, apiKey = '', options?: RequestControlOptions, protocol: AIProtocol = 'openai'): Promise<string[]> => {
   // response 是模型发现接口的具名响应。
   const response = await runContractRequest(/* signal 是本次模型发现请求的超时与取消控制信号。 */ signal => contractClient.POST('/api/v1/settings/ai-models', {
-    body: { base_url: baseURL, api_key: apiKey },
+    body: { base_url: baseURL, api_key: apiKey, protocol },
     signal,
   }), options);
   return Array.isArray(response.models) ? response.models : [];
@@ -88,10 +91,10 @@ export interface AIConnectionTestResult {
 }
 
 /** 发送一次最小对话请求验证 AI API 地址、密钥和模型的组合是否可用。 */
-export const testAIConnection = async (baseURL: string, apiKey: string, model: string, options?: RequestControlOptions): Promise<AIConnectionTestResult> => {
+export const testAIConnection = async (baseURL: string, apiKey: string, model: string, options?: RequestControlOptions, protocol: AIProtocol = 'openai'): Promise<AIConnectionTestResult> => {
   // response 是由版本化 OpenAPI operation 校验后的非敏感连接诊断结果。
   const response = await runContractRequest(/* signal 是本次长时连接测试的超时与取消控制信号。 */ signal => contractClient.POST('/api/v1/settings/ai-test', {
-    body: { base_url: baseURL, api_key: apiKey, model },
+    body: { base_url: baseURL, api_key: apiKey, model, protocol },
     signal,
   }), { timeoutMs: 60_000, ...options });
   return response;

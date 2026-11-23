@@ -27,6 +27,20 @@ const (
 	MaxEndpointURLRunes = 2048
 	// MaxTokenRunes 是访问令牌的最大字符数。
 	MaxTokenRunes = 512
+	// MaxModelRunes 是模型标识的最大字符数。
+	MaxModelRunes = 255
+	// MaxSystemPromptRunes 是系统提示词的最大字符数。
+	MaxSystemPromptRunes = 2000
+)
+
+// 以下常量是回复协议取值：v1 是项目自定义的外部 Agent 协议，openai 与 anthropic 直接调用大模型接口。
+const (
+	// ProtocolV1 表示自定义 Agent 协议 v1；空值按此处理，兼容历史配置。
+	ProtocolV1 = "v1"
+	// ProtocolOpenAI 表示 OpenAI 兼容的 chat/completions 协议。
+	ProtocolOpenAI = "openai"
+	// ProtocolAnthropic 表示 Anthropic Messages 协议。
+	ProtocolAnthropic = "anthropic"
 )
 
 // 以下常量是访问令牌写入命令，与系统敏感设置的三态保持一致。
@@ -100,6 +114,12 @@ type Settings struct {
 	MaxSessionSeconds int
 	// OrderContextEnabled 表示 message 事件是否携带买家在当前商品下的本地订单阶段；默认关闭。
 	OrderContextEnabled bool
+	// Protocol 是回复协议，取 Protocol* 常量。
+	Protocol string
+	// Model 是 openai/anthropic 协议使用的模型标识；v1 协议忽略。
+	Model string
+	// SystemPrompt 是 openai/anthropic 协议使用的系统提示词，为空使用内置客服提示词；v1 协议忽略。
+	SystemPrompt string
 }
 
 // Draft 是保存配置时调用方提交的内容。
@@ -114,6 +134,11 @@ type Draft struct {
 	// OrderContextEnabled 是订单阶段携带开关；nil 表示调用方未提交该字段，保存时沿用已保存的值（未保存过则为关闭）。
 	// 传给仓储 Save 时已由 Update 解析为非 nil。
 	OrderContextEnabled *bool
+	// Protocol 是回复协议；空值表示调用方未提交该字段，保存时沿用已保存的值（未保存过则为 v1）。
+	Protocol string
+	// Model 与 SystemPrompt 为 nil 表示调用方未提交，保存时沿用已保存的值。
+	Model        *string
+	SystemPrompt *string
 	// TokenAction 是令牌写入命令，取 Token* 常量。
 	TokenAction string
 	// Token 是 TokenAction 为 replace 时提交的明文令牌，不得记录日志。
@@ -129,6 +154,9 @@ type TestInput struct {
 	Token       string
 	// RequestTimeoutSeconds 为 0 时使用默认值。
 	RequestTimeoutSeconds int
+	// Protocol 与 Model 是待测试的协议和模型；Protocol 为空按 v1 处理。
+	Protocol string
+	Model    string
 }
 
 // TestResult 是连接测试的非敏感诊断结果，不含响应正文和令牌。
@@ -171,6 +199,10 @@ type Endpoint struct {
 	Token string
 	// Timeout 是单次请求超时。
 	Timeout time.Duration
+	// Protocol 是回复协议；v1 发送 ping 事件，openai/anthropic 发送一次最小对话请求。
+	Protocol string
+	// Model 是 openai/anthropic 协议使用的模型标识。
+	Model string
 }
 
 // Tester 定义发送一次 ping 事件的最小出站能力，由适配器基于协议客户端实现。
@@ -221,13 +253,28 @@ func (s *Service) Update(ctx context.Context, userID int64, cookieID string, dra
 	if err := s.requireTokenReentry(ctx, cookieID, normalized.EndpointURL, normalized.TokenAction); err != nil {
 		return Settings{}, err
 	}
-	if normalized.OrderContextEnabled == nil {
-		// retained、err 保存沿用的订单阶段开关及已保存配置的读取错误。
-		retained, err := s.storedOrderContextEnabled(ctx, cookieID)
+	if normalized.OrderContextEnabled == nil || normalized.Protocol == "" || normalized.Model == nil || normalized.SystemPrompt == nil {
+		// stored、err 保存已保存配置（未保存过为默认值），仅在调用方省略了字段时读取，用来沿用原值。
+		stored, err := s.storedSettings(ctx, cookieID)
 		if err != nil {
 			return Settings{}, err
 		}
-		normalized.OrderContextEnabled = &retained
+		if normalized.OrderContextEnabled == nil {
+			normalized.OrderContextEnabled = &stored.OrderContextEnabled
+		}
+		if normalized.Protocol == "" {
+			normalized.Protocol = stored.Protocol
+		}
+		if normalized.Model == nil {
+			normalized.Model = &stored.Model
+		}
+		if normalized.SystemPrompt == nil {
+			normalized.SystemPrompt = &stored.SystemPrompt
+		}
+	}
+	// err 表示补全后的协议、模型与提示词组合不满足业务约束。
+	if err := validateProtocolFields(normalized.Enabled, normalized.Protocol, derefString(normalized.Model), derefString(normalized.SystemPrompt)); err != nil {
+		return Settings{}, err
 	}
 	// err 表示配置持久化错误，原样返回给调用方。
 	if err := s.repository.Save(ctx, cookieID, normalized); err != nil {
@@ -247,8 +294,16 @@ func (s *Service) Test(ctx context.Context, userID int64, cookieID string, input
 	}
 	// draft、err 复用保存时的校验，保证测试与实际运行使用同一套规则。
 	draft, err := normalizeDraft(Draft{Enabled: true, EndpointURL: input.EndpointURL, RequestTimeoutSeconds: input.RequestTimeoutSeconds,
-		MaxSessionSeconds: DefaultMaxSessionSeconds, TokenAction: input.TokenAction, Token: input.Token})
+		MaxSessionSeconds: DefaultMaxSessionSeconds, TokenAction: input.TokenAction, Token: input.Token, Protocol: input.Protocol})
 	if err != nil {
+		return TestResult{}, err
+	}
+	if draft.Protocol == "" {
+		draft.Protocol = ProtocolV1
+	}
+	// model 是去除空白后的待测试模型；测试只校验协议与模型的组合，不涉及提示词。
+	model := strings.TrimSpace(input.Model)
+	if err = validateProtocolFields(true, draft.Protocol, model, ""); err != nil {
 		return TestResult{}, err
 	}
 	// token 保存本次测试使用的令牌：replace 用草稿，retain 用已保存值，clear 不带令牌。
@@ -265,21 +320,52 @@ func (s *Service) Test(ctx context.Context, userID int64, cookieID string, input
 			return TestResult{}, err
 		}
 	}
-	return s.tester.Ping(ctx, Endpoint{URL: draft.EndpointURL, Token: token, Timeout: time.Duration(draft.RequestTimeoutSeconds) * time.Second})
+	return s.tester.Ping(ctx, Endpoint{URL: draft.EndpointURL, Token: token, Timeout: time.Duration(draft.RequestTimeoutSeconds) * time.Second,
+		Protocol: draft.Protocol, Model: model})
 }
 
-// storedOrderContextEnabled 返回账号已保存的订单阶段携带开关；尚未保存配置时为关闭。
-// 供未提交该字段的旧客户端保存配置时沿用原值，避免把开关意外重置。
-func (s *Service) storedOrderContextEnabled(ctx context.Context, cookieID string) (bool, error) {
+// storedSettings 返回账号已保存的配置摘要；尚未保存配置时返回默认值。
+// 供未提交某些字段的旧客户端保存配置时沿用原值，避免把订单阶段开关、协议、模型或提示词意外重置。
+func (s *Service) storedSettings(ctx context.Context, cookieID string) (Settings, error) {
 	// stored、err 保存账号已保存配置的非敏感摘要及读取错误。
 	stored, err := s.repository.Get(ctx, cookieID)
 	if errors.Is(err, ErrConfigNotFound) {
-		return false, nil
+		return defaultSettings(cookieID), nil
 	}
 	if err != nil {
-		return false, err
+		return Settings{}, err
 	}
-	return stored.OrderContextEnabled, nil
+	if stored.Protocol == "" {
+		stored.Protocol = ProtocolV1
+	}
+	return stored, nil
+}
+
+// derefString 返回字符串指针的值，nil 为空串。
+func derefString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+// validateProtocolFields 校验协议取值，以及 openai/anthropic 协议下的模型和提示词约束。
+// 只在启用时要求 openai 协议必须有模型（该协议没有默认模型）；anthropic 为空时使用默认模型。
+func validateProtocolFields(enabled bool, protocol, model, systemPrompt string) error {
+	switch protocol {
+	case ProtocolV1, ProtocolOpenAI, ProtocolAnthropic:
+	default:
+		return &InvalidInputError{Reason: "回复协议无效"}
+	}
+	switch {
+	case utf8.RuneCountInString(model) > MaxModelRunes:
+		return &InvalidInputError{Reason: "模型名称过长"}
+	case utf8.RuneCountInString(systemPrompt) > MaxSystemPromptRunes:
+		return &InvalidInputError{Reason: "系统提示词过长"}
+	case enabled && protocol == ProtocolOpenAI && strings.TrimSpace(model) == "":
+		return &InvalidInputError{Reason: "OpenAI 兼容协议需要填写模型名称"}
+	}
+	return nil
 }
 
 // requireTokenReentry 阻止已保存的访问令牌被发往新的地址来源：令牌只对保存时的协议、主机和端口有效，
@@ -325,7 +411,7 @@ func endpointOrigin(rawURL string) string {
 
 // defaultSettings 返回账号尚未配置时的默认关闭配置。
 func defaultSettings(cookieID string) Settings {
-	return Settings{CookieID: cookieID, RequestTimeoutSeconds: DefaultRequestTimeoutSeconds, MaxSessionSeconds: DefaultMaxSessionSeconds}
+	return Settings{CookieID: cookieID, RequestTimeoutSeconds: DefaultRequestTimeoutSeconds, MaxSessionSeconds: DefaultMaxSessionSeconds, Protocol: ProtocolV1}
 }
 
 // normalizeDraft 补默认值、规整空白并校验取值范围；启用时必须有合法地址。
@@ -333,6 +419,17 @@ func normalizeDraft(draft Draft) (Draft, error) {
 	draft.EndpointURL = strings.TrimSpace(draft.EndpointURL)
 	draft.Token = strings.TrimSpace(draft.Token)
 	draft.TokenAction = strings.TrimSpace(draft.TokenAction)
+	draft.Protocol = strings.ToLower(strings.TrimSpace(draft.Protocol))
+	if draft.Model != nil {
+		// trimmed 是去除首尾空白后的模型标识，用于长度与必填校验。
+		trimmed := strings.TrimSpace(*draft.Model)
+		draft.Model = &trimmed
+	}
+	if draft.SystemPrompt != nil {
+		// trimmed 是去除首尾空白后的系统提示词，用于长度校验。
+		trimmed := strings.TrimSpace(*draft.SystemPrompt)
+		draft.SystemPrompt = &trimmed
+	}
 	if draft.RequestTimeoutSeconds == 0 {
 		draft.RequestTimeoutSeconds = DefaultRequestTimeoutSeconds
 	}

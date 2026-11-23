@@ -383,6 +383,9 @@ export interface ItemGreetingRule {
 /** Agent 访问令牌写入命令：retain 保留已保存令牌，replace 用新值替换，clear 清空。 */
 export type AgentReplyTokenAction = 'retain' | 'replace' | 'clear';
 
+/** Agent 回复协议：v1 是项目自定义的外部 Agent 协议；openai、anthropic 直接调用大模型接口。 */
+export type AgentReplyProtocol = 'v1' | 'openai' | 'anthropic';
+
 /** 账号 Agent 回复配置的 UI 模型；访问令牌明文永远不会出现在其中，只有 token_configured。 */
 export interface AgentReplySettings {
   /** 配置所属账号标识。 */
@@ -399,6 +402,12 @@ export interface AgentReplySettings {
   max_session_seconds: number;
   /** message 事件是否携带买家在当前商品下的本地订单阶段；默认关闭。 */
   order_context_enabled: boolean;
+  /** 回复协议；历史配置为 v1。 */
+  protocol: AgentReplyProtocol;
+  /** openai/anthropic 协议使用的模型标识；v1 忽略。 */
+  model: string;
+  /** openai/anthropic 协议使用的系统提示词，为空使用内置客服提示词；v1 忽略。 */
+  system_prompt: string;
 }
 
 /** 保存或测试 Agent 回复配置时提交的表单载荷；token_value 只在 token_action 为 replace 时有意义。 */
@@ -413,6 +422,12 @@ export interface AgentReplyPayload {
   max_session_seconds: number;
   /** 是否在 message 事件中携带买家订单阶段；连接测试不使用该字段。 */
   order_context_enabled: boolean;
+  /** 回复协议。 */
+  protocol: AgentReplyProtocol;
+  /** 模型标识；连接测试使用，保存时一并提交。 */
+  model: string;
+  /** 系统提示词；连接测试不使用该字段。 */
+  system_prompt: string;
   /** 访问令牌写入命令。 */
   token_action: AgentReplyTokenAction;
   /** 新访问令牌明文，只存在于表单草稿和单次请求中。 */
