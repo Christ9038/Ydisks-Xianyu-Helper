@@ -80,13 +80,24 @@ export const agentReplyPayloadFromForm = (form: AgentReplyForm): AgentReplyPaylo
   token_value: form.tokenAction === 'replace' ? form.tokenValue.trim() : '',
 });
 
+// isModelProtocol 判断协议是否直接调用大模型接口（OpenAI 兼容或 Anthropic）：地址是 Base URL、令牌是 API Key，另有模型名称与系统提示词。
+export const isModelProtocol = (protocol: AgentReplyProtocol): boolean => protocol === 'openai' || protocol === 'anthropic';
+
+// isPlatformProtocol 判断协议是否调用 Dify / FastGPT 工作流 Agent 平台：地址是用户自定义的平台地址、令牌是应用 API Key，会话记忆由平台维护。
+export const isPlatformProtocol = (protocol: AgentReplyProtocol): boolean => protocol === 'dify' || protocol === 'fastgpt';
+
+// agentAddressLabel 返回地址字段在各协议下的名称，用于表单标题与校验提示。
+export const agentAddressLabel = (protocol: AgentReplyProtocol): string => (
+  { dify: 'Dify 地址', fastgpt: 'FastGPT 地址', v1: 'Agent 地址', openai: '模型服务地址', anthropic: '模型服务地址' }[protocol]
+);
+
 // validateAgentReplyForm 在提交前校验表单并返回第一条问题；空串表示通过。
 // requireEndpoint 为 true 时（测试连接）地址必填，即使未启用。
 export const validateAgentReplyForm = (form: AgentReplyForm, requireEndpoint: boolean): string => {
   // endpoint 是裁剪后的地址，用于必填和格式判断。
   const endpoint = form.endpointUrl.trim();
-  // addressLabel 是地址字段在当前协议下的名称：v1 是 Agent 地址，其余协议是模型服务地址。
-  const addressLabel = form.protocol === 'v1' ? 'Agent 地址' : '模型服务地址';
+  // addressLabel 是地址字段在当前协议下的名称。
+  const addressLabel = agentAddressLabel(form.protocol);
   // separator 是动作文字与地址名称之间的分隔：英文名称前保留空格，保持历史文案不变。
   const separator = form.protocol === 'v1' ? ' ' : '';
   if ((form.enabled || requireEndpoint) && !endpoint) return `${requireEndpoint ? '请先填写' : '启用前请填写'}${separator}${addressLabel}`;

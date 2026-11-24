@@ -703,7 +703,7 @@ export const clearItemGreetingRecords = async (cookieID: string): Promise<Operat
 const AGENT_REPLY_TEST_STATUSES: readonly AgentReplyTestStatus[] = ['ok', 'http_error', 'invalid_response', 'unreachable'];
 
 // AGENT_REPLY_PROTOCOLS 是允许的回复协议，未知值按历史默认 v1 处理。
-const AGENT_REPLY_PROTOCOLS: readonly AgentReplyProtocol[] = ['v1', 'openai', 'anthropic'];
+const AGENT_REPLY_PROTOCOLS: readonly AgentReplyProtocol[] = ['v1', 'openai', 'anthropic', 'dify', 'fastgpt'];
 
 // normalizeAgentReplySettings 把服务端配置 DTO 归一为 UI 模型，缺失字段使用与后端一致的默认值。
 const normalizeAgentReplySettings = (raw: unknown, accountID: string): AgentReplySettings => {

@@ -33,7 +33,7 @@ const (
 	MaxSystemPromptRunes = 2000
 )
 
-// 以下常量是回复协议取值：v1 是项目自定义的外部 Agent 协议，openai 与 anthropic 直接调用大模型接口。
+// 以下常量是回复协议取值：v1 是项目自定义的外部 Agent 协议，openai 与 anthropic 直接调用大模型接口，dify 与 fastgpt 调用工作流 Agent 平台。
 const (
 	// ProtocolV1 表示自定义 Agent 协议 v1；空值按此处理，兼容历史配置。
 	ProtocolV1 = "v1"
@@ -41,6 +41,10 @@ const (
 	ProtocolOpenAI = "openai"
 	// ProtocolAnthropic 表示 Anthropic Messages 协议。
 	ProtocolAnthropic = "anthropic"
+	// ProtocolDify 表示 Dify 云端或自建应用；会话记忆由 Dify 维护。
+	ProtocolDify = "dify"
+	// ProtocolFastGPT 表示 FastGPT 应用；会话记忆由 FastGPT 维护。
+	ProtocolFastGPT = "fastgpt"
 )
 
 // 以下常量是访问令牌写入命令，与系统敏感设置的三态保持一致。
@@ -199,7 +203,7 @@ type Endpoint struct {
 	Token string
 	// Timeout 是单次请求超时。
 	Timeout time.Duration
-	// Protocol 是回复协议；v1 发送 ping 事件，openai/anthropic 发送一次最小对话请求。
+	// Protocol 是回复协议；v1 发送 ping 事件，其余协议发送一次最小对话请求。
 	Protocol string
 	// Model 是 openai/anthropic 协议使用的模型标识。
 	Model string
@@ -353,7 +357,7 @@ func derefString(value *string) string {
 // 只在启用时要求 openai 协议必须有模型（该协议没有默认模型）；anthropic 为空时使用默认模型。
 func validateProtocolFields(enabled bool, protocol, model, systemPrompt string) error {
 	switch protocol {
-	case ProtocolV1, ProtocolOpenAI, ProtocolAnthropic:
+	case ProtocolV1, ProtocolOpenAI, ProtocolAnthropic, ProtocolDify, ProtocolFastGPT:
 	default:
 		return &InvalidInputError{Reason: "回复协议无效"}
 	}

@@ -1,6 +1,6 @@
 import { AlertCircle } from 'lucide-react';
 import React, { useEffect } from 'react';
-import { AGENT_MODEL_MAX_LENGTH, AGENT_PROMPT_MAX_LENGTH, AGENT_REQUEST_TIMEOUT_MAX, AGENT_REQUEST_TIMEOUT_MIN, AGENT_SESSION_MAX, AGENT_SESSION_MIN, useAgentReply } from '../agentReply';
+import { AGENT_MODEL_MAX_LENGTH, AGENT_PROMPT_MAX_LENGTH, AGENT_REQUEST_TIMEOUT_MAX, AGENT_REQUEST_TIMEOUT_MIN, AGENT_SESSION_MAX, AGENT_SESSION_MIN, agentAddressLabel, isModelProtocol, isPlatformProtocol, useAgentReply } from '../agentReply';
 import type { AgentReplyProtocol, AgentReplyTestResult } from '../api';
 import Toast from './Toast';
 
@@ -20,16 +20,27 @@ const AGENT_PROTOCOL_EXAMPLE = `请求（POST JSON，可选 Authorization: Beare
  "replies":[{"text":"在的","image_url":""}],"poll_after_ms":2000}
 // handled:false 表示不接手，交给 AI / 默认回复；working:true 表示仍在处理，助手稍后继续 poll。`;
 
-// AGENT_PROTOCOL_OPTIONS 是协议下拉框的选项：v1 是项目自定义的 Agent 协议，其余两种直接调用大模型接口。
-const AGENT_PROTOCOL_OPTIONS: ReadonlyArray<{
-  // value 是提交给服务端的协议标识。
-  value: AgentReplyProtocol;
-  // label 是下拉框展示文案。
+// AGENT_PROTOCOL_GROUPS 是协议下拉框的分组选项：Agent 平台（自建 v1、Dify、FastGPT）与直连大模型（OpenAI 兼容、Anthropic）。
+const AGENT_PROTOCOL_GROUPS: ReadonlyArray<{
+  // label 是分组标题。
   label: string;
+  // options 是该分组下的协议选项。
+  options: ReadonlyArray<{
+    // value 是提交给服务端的协议标识。
+    value: AgentReplyProtocol;
+    // label 是下拉框展示文案。
+    label: string;
+  }>;
 }> = [
-  { value: 'v1', label: '自建 Agent（助手 v1 协议）' },
-  { value: 'openai', label: 'OpenAI 兼容（chat/completions）' },
-  { value: 'anthropic', label: 'Anthropic（Messages）' },
+  { label: 'Agent 平台（工作流）', options: [
+    { value: 'dify', label: 'Dify' },
+    { value: 'fastgpt', label: 'FastGPT' },
+    { value: 'v1', label: '自建 Agent（助手 v1 协议）' },
+  ] },
+  { label: '直连大模型（无工作流）', options: [
+    { value: 'openai', label: 'OpenAI 兼容（chat/completions）' },
+    { value: 'anthropic', label: 'Anthropic（Messages）' },
+  ] },
 ];
 
 /** AgentReplyPanelProps 描述 Agent 回复面板需要的账号上下文。 */
@@ -43,20 +54,27 @@ const ENDPOINT_PLACEHOLDERS: Record<AgentReplyProtocol, string> = {
   v1: 'https://agent.example.com/xianyu',
   openai: 'https://api.openai.com/v1',
   anthropic: 'https://api.anthropic.com',
+  dify: 'https://api.dify.ai/v1 或 https://你的域名/v1',
+  fastgpt: 'https://cloud.fastgpt.cn/api 或 https://你的域名/api',
 };
 
 // testResultText 把连接测试的诊断结果转换为一行用户可读文案。
-// protocol 是当前协议：v1 展示 Agent 接手与轮询信息，openai/anthropic 只展示模型是否有回复。
+// protocol 是当前协议：v1 展示 Agent 接手与轮询信息，其余协议只展示对方是否有回复。
 const testResultText = (result: AgentReplyTestResult, protocol: AgentReplyProtocol): string => {
   // isModel 表示当前协议直接调用大模型接口。
-  const isModel = protocol !== 'v1';
+  const isModel = isModelProtocol(protocol);
+  // isPlatform 表示当前协议调用 Dify / FastGPT 平台。
+  const isPlatform = isPlatformProtocol(protocol);
+  // peer 是提示文案里对方的称呼。
+  const peer = isPlatform ? agentAddressLabel(protocol).replace(' 地址', '') : isModel ? '模型服务' : 'Agent ';
   switch (result.status) {
     case 'ok':
+      if (isPlatform) return `连接成功（${result.duration_ms} ms）：${peer} 已正常回复`;
       if (isModel) return `连接成功（${result.duration_ms} ms）：${result.reply_count > 0 ? '模型已正常回复' : '模型已响应但没有文字回复'}`;
       return `连接成功（${result.duration_ms} ms）：${result.handled ? '接手' : '不接手'}，${result.working ? '仍在处理' : '已完成'}，返回 ${result.reply_count} 条回复`;
-    case 'http_error': return `${isModel ? '模型服务' : 'Agent '}返回了 HTTP ${result.status_code}，请检查地址、${isModel ? '密钥与模型名称' : '访问令牌'}`;
-    case 'invalid_response': return 'Agent 返回的内容不符合协议，请检查响应 JSON';
-    default: return `无法连接到${isModel ? '模型服务' : ' Agent '}，请检查地址、网络和出站限制`;
+    case 'http_error': return `${peer}返回了 HTTP ${result.status_code}，请检查地址、${isPlatform ? '应用 API Key' : isModel ? '密钥与模型名称' : '访问令牌'}`;
+    case 'invalid_response': return isPlatform ? `${peer} 没有返回文字回复，请检查应用是否发布` : 'Agent 返回的内容不符合协议，请检查响应 JSON';
+    default: return `无法连接到${peer}，请检查地址、网络和出站限制`;
   }
 };
 
@@ -75,7 +93,11 @@ const AgentReplyPanel: React.FC<AgentReplyPanelProps> = ({ accountID }) => {
   }, [toast, dismissToast]);
 
   // isModel 表示当前协议直接调用大模型接口（OpenAI 兼容或 Anthropic），此时地址是 Base URL、令牌是 API Key。
-  const isModel = form.protocol !== 'v1';
+  const isModel = isModelProtocol(form.protocol);
+  // isPlatform 表示当前协议调用 Dify / FastGPT 工作流平台，令牌是应用 API Key，会话记忆由平台维护。
+  const isPlatform = isPlatformProtocol(form.protocol);
+  // isV1 表示当前协议是自建 Agent v1 协议。
+  const isV1 = form.protocol === 'v1';
   // tokenConfigured 表示服务端已保存访问令牌；令牌明文永远不会回到浏览器。
   const tokenConfigured = settings?.token_configured === true;
   // busy 表示读取、保存或测试正在进行，期间禁用相关按钮。
@@ -88,7 +110,7 @@ const AgentReplyPanel: React.FC<AgentReplyPanelProps> = ({ accountID }) => {
         <span>
           开启后，没有命中关键词的买家消息（文字或图片）会转发给你自己的 Agent 或大模型服务，并把回复发回给买家。
           优先级：商品首次回复 → 关键词 → Agent → AI → 默认回复。Agent 不接手或请求失败时，会继续走 AI 与默认回复。Agent 的回复不会触发自动改价。
-          选择 OpenAI 兼容或 Anthropic 协议时，每条买家消息只发起一次模型请求（不轮询、不带历史、最多回复一条文字），买家图片会随请求发送；端点不支持图片时自动降级为纯文字。
+          选择 Dify、FastGPT、OpenAI 兼容或 Anthropic 时，每批（合并后的）买家消息只发起一次请求（不轮询、最多回复一条文字），买家图片会随请求发送，平台不支持图片时降级为纯文字。
         </span>
       </div>
 
@@ -110,12 +132,16 @@ const AgentReplyPanel: React.FC<AgentReplyPanelProps> = ({ accountID }) => {
           <div>
             <label htmlFor="agent-protocol" className="block text-sm font-bold text-gray-700 mb-2">回复协议</label>
             <select id="agent-protocol" value={form.protocol} disabled={agent.loading} onChange={/* 当前回调切换回复协议。 */ event => agent.updateForm({ protocol: event.target.value as AgentReplyProtocol })} className="w-full ios-input px-4 py-3 rounded-xl">
-              {AGENT_PROTOCOL_OPTIONS.map(/* option 是协议选项。 */ option => <option key={option.value} value={option.value}>{option.label}</option>)}
+              {AGENT_PROTOCOL_GROUPS.map(/* group 是协议分组。 */ group => (
+                <optgroup key={group.label} label={group.label}>
+                  {group.options.map(/* option 是协议选项。 */ option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </optgroup>
+              ))}
             </select>
           </div>
 
           <div>
-            <label htmlFor="agent-endpoint" className="block text-sm font-bold text-gray-700 mb-2">{isModel ? '模型服务地址（Base URL）' : 'Agent 地址'}</label>
+            <label htmlFor="agent-endpoint" className="block text-sm font-bold text-gray-700 mb-2">{isModel ? '模型服务地址（Base URL）' : agentAddressLabel(form.protocol)}</label>
             <input id="agent-endpoint" value={form.endpointUrl} disabled={agent.loading} onChange={/* 当前回调更新 Agent 地址。 */ event => agent.updateForm({ endpointUrl: event.target.value })} className="w-full ios-input px-4 py-3 rounded-xl" placeholder={ENDPOINT_PLACEHOLDERS[form.protocol]} autoComplete="off" />
           </div>
 
@@ -134,7 +160,7 @@ const AgentReplyPanel: React.FC<AgentReplyPanelProps> = ({ accountID }) => {
           )}
 
           <div>
-            <span className="block text-sm font-bold text-gray-700 mb-2">{isModel ? 'API Key' : '访问令牌（可选，作为 Bearer 令牌发送）'}</span>
+            <span className="block text-sm font-bold text-gray-700 mb-2">{isPlatform ? '应用 API Key' : isModel ? 'API Key' : '访问令牌（可选，作为 Bearer 令牌发送）'}</span>
             {form.tokenAction === 'retain' && tokenConfigured && (
               <div className="flex items-center gap-3 text-sm">
                 <span className="px-3 py-2 bg-green-50 text-green-700 rounded-xl font-bold">已保存令牌（不会显示）</span>
@@ -160,7 +186,7 @@ const AgentReplyPanel: React.FC<AgentReplyPanelProps> = ({ accountID }) => {
             <div>
               <label htmlFor="agent-request-timeout" className="block text-sm font-bold text-gray-700 mb-2">单次请求超时（秒）</label>
               <input id="agent-request-timeout" type="number" min={AGENT_REQUEST_TIMEOUT_MIN} max={AGENT_REQUEST_TIMEOUT_MAX} value={form.requestTimeoutSeconds} onChange={/* 当前回调更新单次请求超时。 */ event => agent.updateForm({ requestTimeoutSeconds: Number(event.target.value) })} className="w-full ios-input px-4 py-3 rounded-xl" />
-              <p className="mt-2 text-xs text-gray-400">{AGENT_REQUEST_TIMEOUT_MIN}–{AGENT_REQUEST_TIMEOUT_MAX} 秒</p>
+              <p className="mt-2 text-xs text-gray-400">{AGENT_REQUEST_TIMEOUT_MIN}–{AGENT_REQUEST_TIMEOUT_MAX} 秒{isPlatform ? '（仅测试连接用）' : ''}</p>
             </div>
             <div>
               <label htmlFor="agent-session" className="block text-sm font-bold text-gray-700 mb-2">单轮对话总时长上限（秒）</label>
@@ -169,10 +195,10 @@ const AgentReplyPanel: React.FC<AgentReplyPanelProps> = ({ accountID }) => {
             </div>
           </div>
 
-          <label className="flex items-start gap-2 text-sm font-bold text-gray-700">
+          {!isPlatform && <label className="flex items-start gap-2 text-sm font-bold text-gray-700">
             <input type="checkbox" checked={form.orderContextEnabled} onChange={/* 当前回调切换订单阶段携带开关。 */ event => agent.updateForm({ orderContextEnabled: event.target.checked })} className="mt-1" />
             <span>请求中携带买家订单阶段<span className="block text-xs font-normal text-gray-400">仅本地记录，可能滞后，不含订单号与收货信息</span></span>
-          </label>
+          </label>}
 
           {agent.testResult && (
             <div role="status" className={`text-sm px-4 py-3 rounded-xl ${agent.testResult.status === 'ok' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>{testResultText(agent.testResult, form.protocol)}</div>
@@ -183,7 +209,7 @@ const AgentReplyPanel: React.FC<AgentReplyPanelProps> = ({ accountID }) => {
             <button onClick={/* 当前回调保存配置。 */ () => void agent.save()} disabled={busy} className="ios-btn-primary px-6 py-3 rounded-2xl font-extrabold disabled:opacity-50">{agent.submitting ? '保存中…' : '保存'}</button>
           </div>
 
-          {!isModel && (
+          {isV1 && (
             <details className="text-sm text-gray-600">
               <summary className="cursor-pointer font-bold text-gray-700">Agent 接口协议</summary>
               <pre className="mt-3 p-4 bg-gray-50 rounded-xl overflow-x-auto text-xs whitespace-pre-wrap break-all">{AGENT_PROTOCOL_EXAMPLE}</pre>

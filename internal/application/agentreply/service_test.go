@@ -324,6 +324,14 @@ func TestUpdateProtocolFields(t *testing.T) {
 	service := NewService(repo, nil)
 	// ctx 是测试用的后台上下文。
 	ctx := context.Background()
+	// dify、fastgpt 协议合法，不要求模型名称；地址即用户自定义的平台域名。
+	for _, protocol := range []string{ProtocolDify, ProtocolFastGPT} {
+		// err 是该步骤的错误，期望为空或为被测的特定错误；settings 是保存后读回的配置摘要。
+		if settings, err := service.Update(ctx, 1, "acc", Draft{Enabled: true, EndpointURL: "https://workflow.example.com", Protocol: protocol}); err != nil || settings.Protocol != protocol {
+			t.Fatalf("%s: %+v err=%v", protocol, settings, err)
+		}
+	}
+	repo.settings = nil
 	// 未提交协议：新账号默认 v1，模型与提示词为空。
 	settings, err := service.Update(ctx, 1, "acc", Draft{EndpointURL: "https://agent.example.com"})
 	if err != nil || settings.Protocol != ProtocolV1 || settings.Model != "" || settings.SystemPrompt != "" {

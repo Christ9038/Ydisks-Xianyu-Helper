@@ -57,6 +57,11 @@ describe('agentReply API adapter', /* 当前回调验证 Agent 回复适配器�
     // 服务端返回 anthropic 协议及模型；未知协议回退到 v1。
     getMock.mockResolvedValueOnce({ data: { protocol: 'anthropic', model: 'claude-x', system_prompt: '你是客服' } });
     await expect(getAgentReplySettings('a1')).resolves.toMatchObject({ protocol: 'anthropic', model: 'claude-x', system_prompt: '你是客服' });
+    // 新增的 dify、fastgpt 协议被原样接受。
+    getMock.mockResolvedValueOnce({ data: { protocol: 'dify' } });
+    await expect(getAgentReplySettings('a1')).resolves.toMatchObject({ protocol: 'dify' });
+    getMock.mockResolvedValueOnce({ data: { protocol: 'fastgpt' } });
+    await expect(getAgentReplySettings('a1')).resolves.toMatchObject({ protocol: 'fastgpt' });
     getMock.mockResolvedValueOnce({ data: { protocol: 'gemini', model: 3, system_prompt: null } });
     await expect(getAgentReplySettings('a1')).resolves.toMatchObject({ protocol: 'v1', model: '', system_prompt: '' });
     // 保存与测试都携带协议和模型；系统提示词只随保存提交。

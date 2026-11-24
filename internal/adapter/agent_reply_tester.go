@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"xianyu-go/internal/agentclient"
+	"xianyu-go/internal/agentplatform"
 	agentreplyapp "xianyu-go/internal/application/agentreply"
 	"xianyu-go/internal/llmclient"
 	"xianyu-go/internal/netguard"
@@ -22,6 +23,9 @@ func NewAgentReplyTester() agentreplyapp.Tester { return agentReplyTester{} }
 func (agentReplyTester) Ping(ctx context.Context, endpoint agentreplyapp.Endpoint) (agentreplyapp.TestResult, error) {
 	if endpoint.Protocol == agentreplyapp.ProtocolOpenAI || endpoint.Protocol == agentreplyapp.ProtocolAnthropic {
 		return pingModel(ctx, endpoint)
+	}
+	if endpoint.Protocol == agentreplyapp.ProtocolDify || endpoint.Protocol == agentreplyapp.ProtocolFastGPT {
+		return pingPlatform(ctx, endpoint)
 	}
 	// started 是请求开始时刻，用于计算诊断耗时。
 	started := time.Now()
@@ -76,6 +80,43 @@ func pingModel(ctx context.Context, endpoint agentreplyapp.Endpoint) (agentreply
 		if completion.Text != "" {
 			result.ReplyCount = 1
 		}
+	case status != 0:
+		result.Status, result.StatusCode = agentreplyapp.TestStatusHTTPError, status
+	case ctx.Err() != nil:
+		return agentreplyapp.TestResult{}, ctx.Err()
+	default:
+		result.Status = agentreplyapp.TestStatusUnreachable
+	}
+	return finish(result)
+}
+
+// pingPlatform 向 Dify 或 FastGPT 应用发送一次固定文字“ping”的对话，只验证地址、密钥与应用是否可用。
+// 请求不含任何买家、商品或订单数据，只在用户点击“测试连接”时发生一次，不重试；平台上会留下一条测试会话记录。
+func pingPlatform(ctx context.Context, endpoint agentreplyapp.Endpoint) (agentreplyapp.TestResult, error) {
+	// started 是请求开始时刻，用于计算诊断耗时。
+	started := time.Now()
+	// result 保存诊断结果；耗时在所有分支都会记录。
+	result := agentreplyapp.TestResult{}
+	// finish 补全耗时后返回结果。
+	finish := func(result agentreplyapp.TestResult) (agentreplyapp.TestResult, error) {
+		result.DurationMillis = time.Since(started).Milliseconds()
+		return result, nil
+	}
+	// client、clientErr 是按用户配置地址构造的受限客户端；地址被出站策略拒绝时按未能到达处理。
+	client, clientErr := netguard.ConfiguredEndpointHTTPClient(endpoint.URL, endpoint.Timeout)
+	if clientErr != nil {
+		result.Status = agentreplyapp.TestStatusUnreachable
+		return finish(result)
+	}
+	// _、err 丢弃回复正文（连接测试只关心能否成功）并保存调用错误；User 固定为测试标识，FastGPT 不带 chatId 让平台新建临时会话。
+	_, err := agentplatform.Call(ctx, endpoint.Protocol, agentplatform.Endpoint{BaseURL: endpoint.URL, Token: endpoint.Token, HTTPClient: client},
+		agentplatform.Request{Text: "ping", User: "xianyu-helper-connection-test"})
+	// status 是平台返回的 HTTP 状态码，0 表示请求未到达服务端。
+	switch status := agentplatform.StatusCode(err); {
+	case err == nil:
+		result.Status, result.Handled, result.ReplyCount = agentreplyapp.TestStatusOK, true, 1
+	case errors.Is(err, agentplatform.ErrEmptyReply):
+		result.Status = agentreplyapp.TestStatusInvalidResponse
 	case status != 0:
 		result.Status, result.StatusCode = agentreplyapp.TestStatusHTTPError, status
 	case ctx.Err() != nil:

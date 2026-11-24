@@ -89,8 +89,11 @@ func (a *AgentReplier) Reply(ctx context.Context, m ChatMessage) (*ReplyResult, 
 	// turnCtx、cancel 是本轮次的上下文（随买家新消息取消，另受单轮总时长上限约束）及其取消函数。
 	turnCtx, cancel := context.WithTimeout(m.Turn.Context(ctx), cfg.MaxSession)
 	defer cancel()
-	if cfg.Protocol == db.AgentProtocolOpenAI || cfg.Protocol == db.AgentProtocolAnthropic {
+	switch cfg.Protocol {
+	case db.AgentProtocolOpenAI, db.AgentProtocolAnthropic:
 		return a.replyViaModel(turnCtx, m, cfg)
+	case db.AgentProtocolDify, db.AgentProtocolFastGPT:
+		return a.replyViaPlatform(turnCtx, m, cfg)
 	}
 	return a.runTurn(turnCtx, m, cfg)
 }

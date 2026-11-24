@@ -384,7 +384,7 @@ export interface ItemGreetingRule {
 export type AgentReplyTokenAction = 'retain' | 'replace' | 'clear';
 
 /** Agent 回复协议：v1 是项目自定义的外部 Agent 协议；openai、anthropic 直接调用大模型接口。 */
-export type AgentReplyProtocol = 'v1' | 'openai' | 'anthropic';
+export type AgentReplyProtocol = 'v1' | 'openai' | 'anthropic' | 'dify' | 'fastgpt';
 
 /** 账号 Agent 回复配置的 UI 模型；访问令牌明文永远不会出现在其中，只有 token_configured。 */
 export interface AgentReplySettings {

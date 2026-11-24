@@ -3,7 +3,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { AgentReplySettings, AgentReplyTestResult } from './api';
 import { getAgentReplySettings, saveAgentReplySettings, testAgentReplyConnection } from './api';
-import { agentReplyErrorMessage, agentReplyFormFromSettings, agentReplyPayloadFromForm, emptyAgentReplyForm, useAgentReply, validateAgentReplyForm } from './agentReply';
+import { agentAddressLabel, agentReplyErrorMessage, agentReplyFormFromSettings, agentReplyPayloadFromForm, emptyAgentReplyForm, isModelProtocol, isPlatformProtocol, useAgentReply, validateAgentReplyForm } from './agentReply';
 
 vi.mock('./api', /* agentReplyApiMockFactory 提供 Agent 回复 Hook 的确定性 API 替身。 */ () => ({
   getAgentReplySettings: vi.fn(),
@@ -292,6 +292,21 @@ describe('Agent 回复表单纯函数', /* 当前回调覆盖校验、载荷与�
     expect(validateAgentReplyForm({ ...anthropic, systemPrompt: '长'.repeat(2001) }, false)).toContain('系统提示词不能超过');
     expect(validateAgentReplyForm({ ...anthropic, endpointUrl: '' }, false)).toBe('启用前请填写模型服务地址');
     expect(validateAgentReplyForm({ ...anthropic, endpointUrl: 'ftp://x' }, false)).toContain('模型服务地址需以');
+  });
+
+  test('Dify / FastGPT 协议：不要求模型名称，地址文案与协议判断随协议变化，载荷与回填保留协议', /* 当前回调验证两种工作流平台协议的表单行为。 */ () => {
+    // dify、fastgpt 是两种平台协议的表单基线，地址是用户自定义域名。
+    const dify = { ...base, protocol: 'dify' as const, endpointUrl: 'https://dify.my-company.com/v1' };
+    // fastgpt 是 FastGPT 协议的表单基线。
+    const fastgpt = { ...base, protocol: 'fastgpt' as const, endpointUrl: 'https://fastgpt.my-company.com/api' };
+    expect(validateAgentReplyForm(dify, false)).toBe('');
+    expect(validateAgentReplyForm(fastgpt, true)).toBe('');
+    expect(validateAgentReplyForm({ ...dify, endpointUrl: '' }, false)).toBe('启用前请填写Dify 地址');
+    expect(validateAgentReplyForm({ ...fastgpt, endpointUrl: 'ftp://x' }, false)).toBe('FastGPT 地址需以 http:// 或 https:// 开头');
+    expect([agentAddressLabel('dify'), agentAddressLabel('fastgpt'), agentAddressLabel('v1'), agentAddressLabel('openai')]).toEqual(['Dify 地址', 'FastGPT 地址', 'Agent 地址', '模型服务地址']);
+    expect(['v1', 'openai', 'anthropic', 'dify', 'fastgpt'].map(/* protocol 是待判断的协议。 */ protocol => [isModelProtocol(protocol as never), isPlatformProtocol(protocol as never)])).toEqual([[false, false], [true, false], [true, false], [false, true], [false, true]]);
+    expect(agentReplyPayloadFromForm(dify)).toMatchObject({ protocol: 'dify', endpoint_url: 'https://dify.my-company.com/v1' });
+    expect(agentReplyFormFromSettings({ ...settingsFixture, protocol: 'fastgpt' })).toMatchObject({ protocol: 'fastgpt' });
   });
 
   test('载荷携带协议、裁剪后的模型与提示词，并随服务端配置回填', /* 当前回调执行该行为用例。 */ () => {

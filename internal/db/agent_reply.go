@@ -22,7 +22,7 @@ const (
 	AgentTokenClear = "clear"
 )
 
-// 以下常量是 Agent 回复的协议取值：v1 是项目自定义的外部 Agent 协议，其余两种直接调用大模型接口。
+// 以下常量是 Agent 回复的协议取值：v1 是项目自定义的外部 Agent 协议，openai/anthropic 直接调用大模型接口，dify/fastgpt 调用工作流 Agent 平台。
 const (
 	// AgentProtocolV1 表示项目自定义的 Agent 连接协议 v1（message/poll），是历史配置的默认值。
 	AgentProtocolV1 = "v1"
@@ -30,6 +30,10 @@ const (
 	AgentProtocolOpenAI = "openai"
 	// AgentProtocolAnthropic 表示 Anthropic Messages 协议。
 	AgentProtocolAnthropic = "anthropic"
+	// AgentProtocolDify 表示 Dify 云端或自建应用的聊天消息接口；会话记忆由 Dify 的 conversation_id 维护。
+	AgentProtocolDify = "dify"
+	// AgentProtocolFastGPT 表示 FastGPT 的对话接口；会话记忆由 FastGPT 的 chatId 维护。
+	AgentProtocolFastGPT = "fastgpt"
 )
 
 // AgentReplySettings 是账号 Agent 回复配置的非敏感摘要，不包含访问令牌。

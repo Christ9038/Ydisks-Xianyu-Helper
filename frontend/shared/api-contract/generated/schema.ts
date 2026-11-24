@@ -2912,10 +2912,10 @@ export interface components {
             /** @description 是否在 message 事件中携带买家在当前商品下的本地订单阶段；省略时保留已保存的值。 */
             order_context_enabled?: boolean;
             /**
-             * @description 回复协议：v1 为项目自定义的 Agent 协议；openai、anthropic 直接调用大模型接口。省略时保留已保存的值（新账号为 v1）。
+             * @description 回复协议：v1 为项目自定义的 Agent 协议；openai、anthropic 直接调用大模型接口；dify、fastgpt 调用 Dify / FastGPT 工作流 Agent 平台（endpoint_url 为用户自定义的平台地址，令牌为应用 API Key，会话记忆由平台维护）。省略时保留已保存的值（新账号为 v1）。
              * @enum {string}
              */
-            protocol?: "v1" | "openai" | "anthropic";
+            protocol?: "v1" | "openai" | "anthropic" | "dify" | "fastgpt";
             /** @description openai/anthropic 协议使用的模型标识；省略时保留已保存的值，v1 协议忽略。 */
             model?: string;
             /** @description openai/anthropic 协议使用的系统提示词，为空使用内置客服提示词；省略时保留已保存的值，v1 协议忽略。 */
@@ -2931,7 +2931,7 @@ export interface components {
             max_session_seconds: number;
             order_context_enabled: boolean;
             /** @enum {string} */
-            protocol: "v1" | "openai" | "anthropic";
+            protocol: "v1" | "openai" | "anthropic" | "dify" | "fastgpt";
             model: string;
             system_prompt: string;
         };
@@ -2942,7 +2942,7 @@ export interface components {
              * @description 待测试的协议；省略按 v1 处理。
              * @enum {string}
              */
-            protocol?: "v1" | "openai" | "anthropic";
+            protocol?: "v1" | "openai" | "anthropic" | "dify" | "fastgpt";
             /** @description openai/anthropic 协议待测试的模型标识。 */
             model?: string;
             token?: components["schemas"]["AgentReplyTokenCommand"];

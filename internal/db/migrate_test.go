@@ -207,7 +207,7 @@ func TestMigrate_ExistingAutomationRunsReceiveEmptyDeliveryProof(t *testing.T) {
 	}
 	// finalVersion、versionErr 验证升级已包含当前全部迁移，不能仅证明旧 delivery_proof 列存在。
 	finalVersion, versionErr := goose.GetDBVersion(rawDB)
-	if versionErr != nil || finalVersion != 68 {
+	if versionErr != nil || finalVersion != 69 {
 		t.Fatalf("final migration version=%d err=%v", finalVersion, versionErr)
 	}
 	if !tableExists(t, rawDB, "api_access_tokens") || !columnExists(t, rawDB, "api_access_tokens", "token_hash") || !columnExists(t, rawDB, "api_access_tokens", "scopes_json") {
@@ -293,13 +293,13 @@ func TestMigrate_UpgradesDatabaseWithMainChatVersions(t *testing.T) {
 	if !columnExists(t, rawDB, "automation_rule_actions", "delivery_template_id") {
 		t.Fatal("automation_rule_actions should reference delivery templates")
 	}
-	// finalVersion、versionErr 验证迁移账本已推进到最新迁移 00068，或记录读取失败。
+	// finalVersion、versionErr 验证迁移账本已推进到最新迁移 00069，或记录读取失败。
 	finalVersion, versionErr := goose.GetDBVersion(rawDB)
 	if versionErr != nil {
 		t.Fatalf("read final migration version: %v", versionErr)
 	}
-	if finalVersion != 68 {
-		t.Fatalf("final migration version=%d, want 68", finalVersion)
+	if finalVersion != 69 {
+		t.Fatalf("final migration version=%d, want 69", finalVersion)
 	}
 	if !columnExists(t, rawDB, "keywords", "keyword_expressions") || !columnExists(t, rawDB, "keywords", "match_type") {
 		t.Fatal("keywords should include expression collection and match type columns")
@@ -451,14 +451,15 @@ func TestLatestMigrationsDownUpSQLite(t *testing.T) {
 		{"agent_reply_settings", "protocol"},
 		{"agent_reply_settings", "model"},
 		{"agent_reply_settings", "system_prompt"},
+		{"agent_remote_sessions", "session_id"},
 	} {
 		if !columnExists(t, d, c.table, c.col) {
 			t.Fatalf("column missing after re-up: %s.%s", c.table, c.col)
 		}
 	}
-	// finalVersion、versionErr 验证完整回滚后重新升级仍到达最新迁移 00068。
+	// finalVersion、versionErr 验证完整回滚后重新升级仍到达最新迁移 00069。
 	finalVersion, versionErr := goose.GetDBVersion(d)
-	if versionErr != nil || finalVersion != 68 {
+	if versionErr != nil || finalVersion != 69 {
 		t.Fatalf("final migration version=%d err=%v", finalVersion, versionErr)
 	}
 	// val 用于本次流程后续判断的val
