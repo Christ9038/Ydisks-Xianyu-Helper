@@ -5,6 +5,7 @@ import {
   Bell, Box, ChevronLeft, ChevronRight, CreditCard, FileStack, Library, LayoutDashboard, KeyRound,
   GitCommitHorizontal, LogOut, MessageCircleMore, ScrollText, Settings, ShoppingBag, TrendingUp, Users, Zap,
 } from 'lucide-react';
+import NewVersionBadge from './NewVersionBadge';
 import { YdisksBrandIcon } from './YdisksLogo';
 
 // SidebarBuildInfo 描述应用壳传递给侧边栏的公开构建版本信息。
@@ -13,6 +14,8 @@ export interface SidebarBuildInfo {
   version: string;
   // commit 是当前服务构建提交标识，只用于界面展示。
   commit: string;
+  // latestVersion 存在时表示 GitHub 有更高的正式版本，只展示提示箭头。
+  latestVersion?: string;
 }
 
 // SidebarProps 描述侧边栏所需的导航和会话回调。
@@ -100,11 +103,11 @@ const Sidebar: React.FC<SidebarProps> = ({
 
       <div>
         <div
-          title={collapsed ? `版本 ${buildInfo.version} · ${buildInfo.commit}` : undefined}
+          title={collapsed ? `版本 ${buildInfo.version} · ${buildInfo.commit}${buildInfo.latestVersion ? ` · 有新版本 ${buildInfo.latestVersion}` : ''}` : undefined}
           className={`border-y border-slate-100 bg-slate-50/70 py-2.5 ${collapsed ? 'flex justify-center px-1' : 'px-6'}`}
         >
           {collapsed ? (
-            <GitCommitHorizontal className="h-[18px] w-[18px] text-slate-400" aria-label={`版本 ${buildInfo.version}`} />
+            <span className="relative"><GitCommitHorizontal className="h-[18px] w-[18px] text-slate-400" aria-label={`版本 ${buildInfo.version}`} />{buildInfo.latestVersion && <span className="absolute -right-1.5 -top-1.5"><NewVersionBadge latestVersion={buildInfo.latestVersion} variant="dot" /></span>}</span>
           ) : (
             <div className="min-w-0">
               <div className="flex items-center gap-2 text-[10px] font-extrabold uppercase tracking-[0.18em] text-slate-400">
@@ -113,6 +116,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               </div>
               <div className="mt-1 flex items-baseline gap-2">
                 <span className="truncate font-mono text-xs font-bold text-slate-700">{displayVersion}</span>
+                {buildInfo.latestVersion && <NewVersionBadge latestVersion={buildInfo.latestVersion} />}
                 <span className="truncate font-mono text-[10px] text-slate-400">{buildInfo.commit}</span>
               </div>
             </div>

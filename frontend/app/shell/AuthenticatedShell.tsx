@@ -6,6 +6,7 @@ import { useThemePreference } from '../../shared/browser/useThemePreference';
 import { requestChatAccount } from '../../shared/browser/chatAccountTarget';
 import { useChatTitleNotification } from '../features/chat/titleNotification';
 import { getHealth } from '../features/system/api';
+import { useLatestRelease } from '../features/system/releaseCheck';
 import type { BuildInfo } from '../features/system/types';
 import type { ChatDeepLink } from '../router/routes';
 
@@ -195,6 +196,10 @@ const AuthenticatedShell: React.FC<AuthenticatedShellProps> = ({
 }) => {
   // buildInfo 保存壳层加载的公开构建版本，侧边栏保持为无请求的共享展示组件。
   const [buildInfo, setBuildInfo] = useState<BuildInfo>({ version: 'dev', commit: 'unknown' });
+  // latestVersion 是 GitHub 上高于当前运行版本的最新 Release 标签，仅用于提示。
+  const latestVersion = useLatestRelease(buildInfo.version);
+  // displayBuildInfo 把更新提示附加到传给导航组件的版本信息上。
+  const displayBuildInfo = { ...buildInfo, latestVersion };
   // hasUnreadChatMessage 保存侧边栏在线聊天入口的服务端/实时聚合未读状态，不因导航动作改变。
   const { hasUnreadChatMessage } = useChatTitleNotification();
 
@@ -232,7 +237,7 @@ const AuthenticatedShell: React.FC<AuthenticatedShellProps> = ({
       onToggleCollapsed={onToggleCollapsed}
       onNavigate={onNavigate}
       onLogout={onLogout}
-      buildInfo={buildInfo}
+      buildInfo={displayBuildInfo}
       hasUnreadChatMessage={hasUnreadChatMessage}
       themePreference={themePreference}
       onCycleTheme={cycleThemePreference}
@@ -261,7 +266,7 @@ const AuthenticatedShell: React.FC<AuthenticatedShellProps> = ({
     <MobileNav
       activeTab={activeTab}
       isAdmin={isAdmin}
-      buildInfo={buildInfo}
+      buildInfo={displayBuildInfo}
       hasUnreadChatMessage={hasUnreadChatMessage}
       onNavigate={onNavigate}
       onLogout={onLogout}

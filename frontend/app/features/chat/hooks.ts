@@ -58,6 +58,10 @@ export type UseChatResult = ChatFeatureState & {
   loadOlderMessages: () => Promise<void>;
   /** 根据滚动位置更新自动滚动策略。 */
   handleMessageScroll: () => void;
+  /** 消息区是否离底部较远，用于显示“回到最新消息”悬浮按钮。 */
+  showJumpToBottom: boolean;
+  /** 平滑滚动到最新一条消息并恢复新消息自动跟随。 */
+  scrollToBottom: () => void;
   /** 发送文本消息。 */
   handleSend: () => Promise<void>;
   /** 发送快捷回复且保留正在编辑的普通消息草稿。 */
@@ -606,6 +610,18 @@ export const useChat = (initialChatLink?: ChatDeepLink): UseChatResult => {
     return subscribeToChatLiveEvents(handleLiveEvent);
   }, [handleLiveMessage]);
 
+  // showJumpToBottom 表示用户已向上翻看历史，需要显示回到底部按钮；由滚动位置驱动，只在跨越阈值时变化。
+  const [showJumpToBottom, setShowJumpToBottom] = useState(false);
+
+  /** 平滑滚动到最新消息并恢复自动跟随。 */
+  const scrollToBottom = useCallback(/* 点击悬浮按钮时回到底部。 */ () => {
+    // container 消息滚动容器。
+    const container = scrollRef.current;
+    if (!container) return;
+    shouldScrollToBottomRef.current = true;
+    container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+  }, []);
+
   /** 根据滚动位置决定新消息是否自动滚到底部。 */
   const handleMessageScroll = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ () => {
     // container 容器。
@@ -614,6 +630,7 @@ export const useChat = (initialChatLink?: ChatDeepLink): UseChatResult => {
     // distanceFromBottom 距离FromBottom，负责当前功能中的对应处理。
     const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
     shouldScrollToBottomRef.current = distanceFromBottom <= 48;
+    setShowJumpToBottom(distanceFromBottom > 240);
   }, []);
 
   useLayoutEffect(/* 当前回调处理用户交互或异步状态变化。 */ () => {
@@ -933,7 +950,7 @@ export const useChat = (initialChatLink?: ChatDeepLink): UseChatResult => {
   return {
     accounts, activeAccountID, activeSessions, selectedSession, activeAccount, messages, search, unreadOnly, draft, loading, messagesLoading, olderLoading, hasOlder, contactsLoading, hasMoreContacts: platformHasMoreContacts[activeAccountID] === true || storedHasMoreContacts[activeAccountID] === true, emojiOpen, sending, error, sendNotice, liveState, pendingImage,
     activeChatID, filteredSessions, scrollRef, imageInputRef, setActiveAccountID, setActiveChatID, setSearch, setUnreadOnly, setDraft, setEmojiOpen,
-		reloadSessions, loadMoreContacts, loadOlderMessages, handleMessageScroll, handleSend, handleQuickReply, handleQuickReplyImage, handleLibraryImage, handleImage, handlePastedImages, confirmSendImage, closeImagePreview, retrySend, retryAvailable: Boolean(retryText || retryImage), deletingChatID, deleteError, deleteConversation, clearDeleteError, acceptOutgoingMessage, unreadForAccount,
+		reloadSessions, loadMoreContacts, loadOlderMessages, handleMessageScroll, showJumpToBottom, scrollToBottom, handleSend, handleQuickReply, handleQuickReplyImage, handleLibraryImage, handleImage, handlePastedImages, confirmSendImage, closeImagePreview, retrySend, retryAvailable: Boolean(retryText || retryImage), deletingChatID, deleteError, deleteConversation, clearDeleteError, acceptOutgoingMessage, unreadForAccount,
     emojiURL, xianyuEmojis, renderXianyuText, formatClock, messageTime,
   };
 };

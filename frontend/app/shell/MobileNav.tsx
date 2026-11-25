@@ -1,4 +1,5 @@
 import React,{ useEffect,useState } from 'react';
+import NewVersionBadge from '../../shared/ui/NewVersionBadge';
 import ThemeToggle from '../../shared/ui/ThemeToggle';
 import type { ThemePreference } from '../../shared/browser/themePreference';
 import type { LucideIcon } from 'lucide-react';
@@ -13,6 +14,8 @@ export interface MobileNavBuildInfo {
   version: string;
   /** commit 是当前服务提交标识，用于在版本旁展示可追溯的构建来源。 */
   commit: string;
+  /** latestVersion 存在时表示 GitHub 有更高的正式版本，只展示提示箭头。 */
+  latestVersion?: string;
 }
 
 /** MobileNavProps 描述移动端底部主导航和“更多”抽屉所需的导航、权限与会话回调。 */
@@ -234,6 +237,7 @@ const MobileNav: React.FC<MobileNavProps> = ({
                   </div>
                   <div className="mt-1 flex items-baseline gap-2">
                     <span className="truncate font-mono text-xs font-bold text-ink">{displayVersion}</span>
+                    {buildInfo.latestVersion && <NewVersionBadge latestVersion={buildInfo.latestVersion} popoverClassName="bottom-full left-0" />}
                     <span className="truncate font-mono text-[10px] text-muted">{buildInfo.commit}</span>
                   </div>
                 </div>

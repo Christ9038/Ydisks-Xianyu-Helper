@@ -1,6 +1,6 @@
 import {
 AlertCircle,Check,CheckCheck,ChevronLeft,ImagePlus,Images,Loader2,MessageCircleMore,PackageSearch,PanelRightClose,PanelRightOpen,
-RefreshCw,Search,Send,Smile,UserRound,Wifi,WifiOff,X,
+ArrowDown,RefreshCw,Search,Send,Smile,UserRound,Wifi,WifiOff,X,
 } from 'lucide-react';
 import React from 'react';
 import Lightbox from 'yet-another-react-lightbox';
@@ -31,7 +31,7 @@ const Chat: React.FC<ChatProps> = ({ libraryImageChooser: LibraryChooser, initia
     messages, search, unreadOnly, draft, loading, messagesLoading, olderLoading, hasOlder, contactsLoading,
     hasMoreContacts, emojiOpen, sending, error, sendNotice, liveState, pendingImage, scrollRef, imageInputRef, setActiveAccountID,
     setActiveChatID, setSearch, setUnreadOnly, setDraft, setEmojiOpen, reloadSessions, loadMoreContacts,
-    loadOlderMessages, handleMessageScroll, handleSend, handleQuickReply, handleQuickReplyImage, handleLibraryImage, handleImage, handlePastedImages, confirmSendImage, closeImagePreview, retrySend, retryAvailable,
+    loadOlderMessages, handleMessageScroll, showJumpToBottom, scrollToBottom, handleSend, handleQuickReply, handleQuickReplyImage, handleLibraryImage, handleImage, handlePastedImages, confirmSendImage, closeImagePreview, retrySend, retryAvailable,
     deletingChatID, deleteError, deleteConversation, clearDeleteError, acceptOutgoingMessage, unreadForAccount, emojiURL, xianyuEmojis, renderXianyuText, formatClock, messageTime,
   } = useChat(initialChatLink);
 
@@ -190,6 +190,7 @@ const Chat: React.FC<ChatProps> = ({ libraryImageChooser: LibraryChooser, initia
                 </div>
                 {/* 备注与快捷回复控件跟随会话标题渲染：移动端备注进入正常文档流，桌面端仍绝对定位在标题行右侧。 */}
                 <ChatMetadataFeature activeAccountID={activeAccountID} selectedSession={selectedSession} quickReplyPanelOpen={quickReplyPanelOpen} closeQuickReplyPanel={/* 当前回调收起右侧快捷回复抽屉。 */ () => setQuickReplyPanelOpen(false)} sendQuickReply={handleQuickReply} sendQuickReplyImage={handleQuickReplyImage} libraryImageChooser={LibraryChooser} sending={sending} accountOnline={activeAccount?.runtime_state === 'online'} />
+                <div className="relative flex min-h-0 flex-1 flex-col">
                 <div ref={scrollRef} onScroll={handleMessageScroll} className="min-h-0 flex-1 space-y-3 overflow-y-auto overflow-x-hidden px-3 py-3 sm:space-y-5 sm:px-6 sm:py-5">
                   {messagesLoading ? <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-sky-500" /></div> : <>
                     {hasOlder && <div className="flex justify-center pb-1">
@@ -245,6 +246,8 @@ const Chat: React.FC<ChatProps> = ({ libraryImageChooser: LibraryChooser, initia
                     );
                     })}
                   </>}
+                </div>
+                {showJumpToBottom && !messagesLoading && <button type="button" onClick={scrollToBottom} title="回到最新消息" aria-label="回到最新消息" className="absolute bottom-3 right-4 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-sky-600 shadow-lg transition hover:bg-sky-50 sm:right-6"><ArrowDown className="h-4 w-4" /></button>}
                 </div>
                 {error && <div className="flex items-center justify-between gap-3 border-t border-red-100 bg-red-50 px-5 py-2 text-xs font-medium text-red-700"><span>{error}</span>{retryAvailable && <button type="button" className="font-bold underline" onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => void retrySend()}>重试发送</button>}</div>}
                 {sendNotice && <div className="border-t border-amber-100 bg-amber-50 px-5 py-2 text-xs font-medium text-amber-800">{sendNotice}</div>}

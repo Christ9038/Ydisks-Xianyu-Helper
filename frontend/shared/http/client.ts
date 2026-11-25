@@ -192,3 +192,17 @@ const errorMessageFromPayload = (payload: unknown, status: number): string => {
   if (isApiErrorResponse(payload)) return payload.message;
   return `请求失败: ${status}`;
 };
+
+/** 读取第三方公开 JSON（不携带本站 Cookie）；失败、超时或取消时抛出错误，调用方自行决定是否静默。 */
+export const getPublicJSON = async <T>(url: string, options: RequestControlOptions = {}): Promise<T> => {
+  // control 合并调用方取消信号与超时。
+  const control = controlledSignal(options.signal, options.timeoutMs ?? defaultRequestTimeoutMs);
+  try {
+    // res 是第三方响应；credentials 固定 omit，避免把站内会话发给外部域名。
+    const res = await fetch(url, { method: 'GET', credentials: 'omit', signal: control.signal, headers: { Accept: 'application/json' } });
+    if (!res.ok) throw new Error(`外部请求失败：HTTP ${res.status}`);
+    return (await res.json()) as T;
+  } finally {
+    control.cleanup();
+  }
+};

@@ -174,6 +174,27 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
     hook.unmount();
   });
 
+  test('向上翻看历史时显示回到底部按钮，点击后滚到底并隐藏', /* 当前回调验证悬浮按钮的显示阈值与回底行为。 */ async () => {
+    // hook 是验证回底悬浮按钮状态的聊天 Hook。
+    const hook = renderHook(/* 当前回调创建聊天 Hook。 */ () => useChat());
+    await waitFor(/* 等待消息加载完成。 */ () => expect(hook.result.current.messagesLoading).toBe(false));
+    // scrollTo 记录回底调用参数；jsdom 不实现该方法。
+    const scrollTo = vi.fn();
+    // container 是模拟的消息滚动容器，距底部 1000px。
+    const container = { scrollHeight: 2000, scrollTop: 500, clientHeight: 500, scrollTo } as unknown as HTMLDivElement;
+    hook.result.current.scrollRef.current = container;
+    act(/* 触发滚动事件。 */ () => hook.result.current.handleMessageScroll());
+    expect(hook.result.current.showJumpToBottom).toBe(true);
+    act(/* 点击回底按钮。 */ () => hook.result.current.scrollToBottom());
+    expect(scrollTo).toHaveBeenCalledWith({ top: 2000, behavior: 'smooth' });
+    Object.assign(container, { scrollTop: 1500 });
+    act(/* 到达底部后的滚动事件。 */ () => hook.result.current.handleMessageScroll());
+    expect(hook.result.current.showJumpToBottom).toBe(false);
+    hook.result.current.scrollRef.current = null;
+    act(/* 容器缺失时回底不报错。 */ () => hook.result.current.scrollToBottom());
+    hook.unmount();
+  });
+
 	test('独立发送器只允许把结果合入当前账号和会话', /* 当前回调验证旧商品请求不能污染切换后的消息列表。 */ async () => {
 		// secondSession 是切换后成为当前上下文的另一条会话。
 		const secondSession: ChatSession = { ...sessionFixture, chat_id: 'chat-2', peer_user_id: 'buyer-2', peer_name: '买家二', last_message: '第二会话' };
