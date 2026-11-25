@@ -13,7 +13,7 @@ CREATE TABLE notification_outbox (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_notification_outbox_channel FOREIGN KEY (channel_id) REFERENCES notification_channels(id) ON DELETE CASCADE
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE INDEX idx_notification_outbox_due ON notification_outbox(status, next_attempt_at, lease_expires_at);
 
 -- +goose Down

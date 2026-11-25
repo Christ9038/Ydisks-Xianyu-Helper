@@ -10,7 +10,7 @@ CREATE TABLE order_ownership_repairs (
     old_fields_json LONGTEXT NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(order_id, old_version)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 按订单首列定位执行痕迹与未完成补偿，避免恢复检查扫描其他订单。
 CREATE INDEX idx_automation_runs_order ON automation_runs(order_id);
@@ -22,7 +22,7 @@ CREATE TABLE order_automation_guards (
     cookie_id VARCHAR(255) NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY(order_id, cookie_id)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 -- 所有运行状态均保守保留；旧运行的重复身份只回填一次。
 INSERT INTO order_automation_guards(order_id, cookie_id)
 SELECT DISTINCT order_id, cookie_id FROM automation_runs

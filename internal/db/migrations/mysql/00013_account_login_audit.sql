@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS account_login_logs (
     updated_cookie_names VARCHAR(500) NOT NULL DEFAULT '',
     duration_ms BIGINT NOT NULL DEFAULT 0,
     created_at BIGINT NOT NULL
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE INDEX idx_account_login_logs_cookie_created
     ON account_login_logs(cookie_id, created_at DESC);

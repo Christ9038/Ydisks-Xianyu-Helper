@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS order_reconciliations (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_order_reconciliations_pending (status, created_at, id)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE INDEX idx_orders_cursor ON orders(cookie_id, deleted_at, created_at DESC, order_id DESC);
 
@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS order_refresh_jobs (
     CONSTRAINT fk_order_refresh_jobs_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     INDEX idx_order_refresh_jobs_user (user_id, created_at, id),
     INDEX idx_order_refresh_jobs_lease (status, lease_expires_at)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS security_audit_logs (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS security_audit_logs (
     outcome VARCHAR(32) NOT NULL DEFAULT 'accepted',
     created_at BIGINT NOT NULL,
     INDEX idx_security_audit_logs_user_created (user_id, created_at, id)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 ALTER TABLE notification_outbox ADD COLUMN uncertain_at BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE notification_outbox ADD COLUMN idempotency_key VARCHAR(255) NULL;
