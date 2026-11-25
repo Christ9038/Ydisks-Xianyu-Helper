@@ -29,10 +29,13 @@ const (
 	maxResponseBytes = 1 << 20
 	// maxErrorBodyBytes 是读取非 2xx 响应体用于提取错误码的上限。
 	maxErrorBodyBytes = 64 << 10
-	// fastGPTBusyRetries 是 FastGPT 返回“该会话正在生成”（409）时最多重试的次数。
-	fastGPTBusyRetries = 2
-	// fastGPTBusyWait 是 FastGPT 会话仍在生成时每次重试前的等待时长，随重试次数线性增加。
+	// fastGPTBusyRetries 是 FastGPT 返回“该会话正在生成”时最多重试的次数。上一轮被新消息打断后，
+	// 平台侧会让被取消的旧请求跑到模型返回为止，真实模型可能需要十几秒，所以重试次数要覆盖这段时间。
+	fastGPTBusyRetries = 5
+	// fastGPTBusyWait 是 FastGPT 会话仍在生成时每次重试前的基础等待时长，随重试次数线性增加。
 	fastGPTBusyWait = 2 * time.Second
+	// fastGPTBusyWaitMax 是单次忙碌等待的上限；总等待仍受调用方上下文（用户配置的会话上限）约束。
+	fastGPTBusyWaitMax = 6 * time.Second
 )
 
 // ErrSessionGone 表示调用方给出的平台会话标识已失效（Dify 会话不存在或已结束），调用方应丢弃它并用空标识重试一次。

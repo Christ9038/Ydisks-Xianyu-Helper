@@ -52,7 +52,18 @@ func FastGPT(ctx context.Context, endpoint Endpoint, request Request) (Result, e
 	return result, err
 }
 
-// fastGPTWithBusyRetry 在平台返回 409（该会话仍在生成，常见于上一轮被新消息中断后）时有限次等待重试，
+// isFastGPTBusy 判断错误是否表示该会话仍在生成。文档写的是 HTTP 409，但实测 FastGPT v4.17.5 返回
+// HTTP 500 加 statusText=chatIsGenerating，所以以平台错误名为准，同时兼容 409。
+func isFastGPTBusy(err error) bool {
+	// statusErr 保存错误链中的平台状态错误。
+	var statusErr *StatusError
+	if !errors.As(err, &statusErr) {
+		return false
+	}
+	return statusErr.Code == http.StatusConflict || statusErr.Reason == "chatIsGenerating"
+}
+
+// fastGPTWithBusyRetry 在该会话仍在生成（常见于上一轮被新消息中断后）时有限次等待重试，
 // 并在自动补全为 /v1 的接口返回 404 时改试 /v2（较新版本的路径）。
 func fastGPTWithBusyRetry(ctx context.Context, endpoint Endpoint, target string, request Request, images []string) (Result, error) {
 	// attempt 是当前已发生的忙碌重试次数。
@@ -67,11 +78,11 @@ func fastGPTWithBusyRetry(ctx context.Context, endpoint Endpoint, target string,
 			}
 			return result, err
 		}
-		if StatusCode(err) != http.StatusConflict || attempt >= fastGPTBusyRetries {
+		if !isFastGPTBusy(err) || attempt >= fastGPTBusyRetries {
 			return result, err
 		}
-		// waitErr 是等待期间上下文结束的错误，此时直接放弃重试。
-		if waitErr := sleep(ctx, fastGPTBusyWait*time.Duration(attempt+1)); waitErr != nil {
+		// waitErr 是等待期间上下文结束的错误，此时直接放弃重试；单次等待线性增加并封顶。
+		if waitErr := sleep(ctx, min(fastGPTBusyWait*time.Duration(attempt+1), fastGPTBusyWaitMax)); waitErr != nil {
 			return Result{}, waitErr
 		}
 	}

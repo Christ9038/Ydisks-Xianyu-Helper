@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -327,6 +328,33 @@ func TestFastGPTRetriesAndFallbacks(t *testing.T) {
 	_, err := FastGPT(context.Background(), endpointFor(server, ""), Request{Text: "x", SessionID: "c"})
 	if StatusCode(err) != 409 || !strings.Contains(err.Error(), "chatIsGenerating") || len(*recorded) != fastGPTBusyRetries+1 {
 		t.Fatalf("重试用尽: %v 请求数=%d", err, len(*recorded))
+	}
+	// 实测形态：FastGPT 忙碌时返回 HTTP 500 加 statusText=chatIsGenerating，同样应重试；
+	// 等待依次为 2s、4s、6s，之后封顶在 6s。
+	waits = nil
+	// busy500 是返回 HTTP 500 加 chatIsGenerating 的处理函数，模拟实测的 FastGPT 忙碌响应。
+	busy500 := func(w http.ResponseWriter, _ int) {
+		w.WriteHeader(500)
+		_, _ = io.WriteString(w, `{"code":500,"statusText":"chatIsGenerating"}`)
+	}
+	server, _ = serve(t, busy500, busy500, busy500, busy500, busy500, ok)
+	// result、err 是连续忙碌五次后第六次成功的调用结果与错误。
+	if result, err := FastGPT(context.Background(), endpointFor(server, ""), Request{Text: "x", SessionID: "c"}); err != nil || result.Text != "好" {
+		t.Fatalf("HTTP 500 忙碌重试后应成功: %+v err=%v", result, err)
+	}
+	// want 是期望的等待序列：线性增长 2s、4s、6s 后封顶在 6s。
+	if want := []time.Duration{2 * time.Second, 4 * time.Second, 6 * time.Second, 6 * time.Second, 6 * time.Second}; !reflect.DeepEqual(waits, want) {
+		t.Fatalf("等待序列应线性增长并封顶: %v", waits)
+	}
+	// 500 但不是忙碌（其他错误名）不重试。
+	other500 := func(w http.ResponseWriter, _ int) {
+		w.WriteHeader(500)
+		_, _ = io.WriteString(w, `{"statusText":"unAuthApiKey"}`)
+	}
+	waits = nil
+	server, recorded = serve(t, other500)
+	if _, err = FastGPT(context.Background(), endpointFor(server, ""), Request{Text: "x", SessionID: "c"}); StatusCode(err) != 500 || len(*recorded) != 1 || len(waits) != 0 {
+		t.Fatalf("非忙碌的 500 不应重试: %v 请求数=%d 等待=%v", err, len(*recorded), waits)
 	}
 	// 等待期间上下文取消：直接返回取消错误。
 	sleep = func(ctx context.Context, _ time.Duration) error { return context.Canceled }
