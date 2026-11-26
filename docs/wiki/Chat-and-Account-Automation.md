@@ -67,11 +67,28 @@ Automatic Reviews/Daily Refresh handles account-level tasks. Automation handles 
 - paid delivery;
 - price change for unpaid orders;
 - review gifts;
-- review reminders;
+- review reminders (see the next section);
 - keyword replies, default replies, and AI replies;
 - delivery templates, which are limited to paid delivery and review gifts.
 
 Official system messages are for platform-event recognition only and should not be configured as ordinary buyer keyword triggers.
+
+## Review requests: writing the review for the buyer
+
+The "review request" rule is scanned once a minute. When an unreviewed order is due, up to three messages are sent in order, with a random pause between them to mimic a human:
+
+1. **Lead-in** (customizable), for example "If you are happy with the product, please leave a review, thanks~".
+2. **Review copy**: a ready-made review the buyer can copy and paste. Pick one source:
+   - **Fixed templates:** a pool of up to 100 templates you can add, delete and reorder. With "random" on, one is picked at random each time; with it off, templates rotate in order by the rule's run count.
+   - **AI generated:** uses the global AI configuration from System Settings (endpoint, key, model), with a style (sincere / warm / concise), a character range (5–200) and optional extra instructions. The AI receives only the item title, never the buyer nickname, order number or amount.
+   - **Mixed:** picks AI or the template pool by the "AI ratio"; if the AI fails it falls back to the pool, so the pool needs at least one template.
+3. **Copy hint** (customizable), for example "I wrote the review for you, just copy the text above~".
+
+Each message can be enabled separately and at least one must be on. Enabling only the lead-in behaves exactly like earlier versions, so existing rules need no change. Consecutive messages wait a random "min–max seconds" (default 5–10, at most 600); the first message is sent as soon as the order is due.
+
+**Timing basis** is either "after shipment" (default) or "after the buyer confirms receipt", which uses the recorded confirmation time; orders not yet confirmed are not requested. The first-wait hours, repeat interval, maximum attempts and lookback window apply to both bases.
+
+The review copy is decided before the first message of each run is sent. If the AI is unavailable or the pool is empty, nothing is sent: the run goes through the existing failure retry, and once retries are exhausted it moves to "manual intervention required" and sends that notification, so a buyer never receives half a set. The "review request" setting in bulk listing and resource-library templates is still a single text message.
 
 ## Quick replies and buyer notes
 

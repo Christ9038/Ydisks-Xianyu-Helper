@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // recordedRequest 保存测试端点收到的一次请求，用于断言协议格式。
@@ -333,5 +334,21 @@ func TestMultipleImagesKeepOrder(t *testing.T) {
 		if strings.Join(got, ",") != strings.Join(urls, ",") {
 			t.Fatalf("%s: 图片顺序错误: %v", protocol, got)
 		}
+	}
+}
+
+// TestNewHTTPClientUsesUnifiedRequestTimeout 验证模型客户端整体超时为 RequestTimeout，且非法地址被拒绝。
+func TestNewHTTPClientUsesUnifiedRequestTimeout(t *testing.T) {
+	// client、err 是按合法地址构造的模型请求客户端及构造错误。
+	client, err := NewHTTPClient("https://api.example.com/v1")
+	if err != nil || client == nil {
+		t.Fatalf("合法地址应构造成功: client=%v err=%v", client, err)
+	}
+	if client.Timeout != RequestTimeout || RequestTimeout != 60*time.Second {
+		t.Fatalf("整体超时应为 60 秒: got=%v const=%v", client.Timeout, RequestTimeout)
+	}
+	// badErr 是非法地址的构造错误，必须非空。
+	if _, badErr := NewHTTPClient("not a url"); badErr == nil {
+		t.Fatal("非法地址必须返回错误")
 	}
 }

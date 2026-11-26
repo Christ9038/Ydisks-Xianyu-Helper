@@ -20,4 +20,6 @@ type CenterDependencies struct {
 	CookieSource func(context.Context, string) (string, error)
 	// APICardFetcher 提供普通 API 卡发货请求能力；为空时 API 卡执行会明确失败。
 	APICardFetcher APICardFetcher
+	// ReviewCopyGenerator 为求评价规则的 AI 好评文案提供生成能力；为空时只能使用固定模板池。
+	ReviewCopyGenerator ReviewCopyGenerator
 }

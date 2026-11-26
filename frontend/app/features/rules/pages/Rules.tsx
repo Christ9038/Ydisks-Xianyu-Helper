@@ -30,6 +30,8 @@ import TemplateVariantEditor from '../components/TemplateVariantEditor';
 import ReplyRuleEditor from '../components/ReplyRuleEditor';
 import AgentReplyPanel from '../components/AgentReplyPanel';
 import ItemGreetingPanel from '../components/ItemGreetingPanel';
+import ReviewPlanEditor from '../components/ReviewPlanEditor';
+import { buildReviewActions,parseReviewPlan } from '../reviewPlan';
 import SearchableSelect from '../../../../shared/ui/SearchableSelect';
 import { useRulesData } from '../hooks';
 import { filterAutomationIssues } from '../issueState';
@@ -1044,8 +1046,23 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                         <h4 className="font-black text-gray-900">求评价计划</h4>
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="md:col-span-3">
+                          <label className="block text-sm font-bold text-gray-700 mb-2">计时起点</label>
+                          <select
+                            aria-label="计时起点"
+                            value={reviewConfig.basis === 'completed' ? 'completed' : 'shipped'}
+                            onChange={/* 当前回调切换求评价计时起点。 */ event => setEditingAutomationRule({
+                              ...editingAutomationRule,
+                              config_json: buildReviewConfig(editingAutomationRule.config_json, { basis: event.target.value === 'completed' ? 'completed' : 'shipped' }),
+                            })}
+                            className="w-full ios-input px-4 py-3 rounded-xl"
+                          >
+                            <option value="shipped">发货后开始计时</option>
+                            <option value="completed">买家确认收货后开始计时</option>
+                          </select>
+                        </div>
                         <div>
-                          <label className="block text-sm font-bold text-gray-700 mb-2">发货后等待小时</label>
+                          <label className="block text-sm font-bold text-gray-700 mb-2">{reviewConfig.basis === 'completed' ? '确认收货后等待小时' : '发货后等待小时'}</label>
                           <input
                             type="number"
                             min="1"
@@ -1090,7 +1107,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                           />
                         </div>
                         <div className="md:col-span-3">
-                          <label className="block text-sm font-bold text-gray-700 mb-2">仅处理最近 N 小时内发货的订单</label>
+                          <label className="block text-sm font-bold text-gray-700 mb-2">仅处理最近 N 小时内{reviewConfig.basis === 'completed' ? '确认收货' : '发货'}的订单</label>
                           <input
                             type="number"
                             min="1"
@@ -1103,21 +1120,15 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                             })}
                             className="w-full ios-input px-4 py-3 rounded-xl"
                           />
-                          <p className="text-xs text-gray-500 mt-2">发货时间早于该窗口的订单不会求评价，避免规则停用后重新启用时给历史订单补发消息。默认值为走完全部求评流程所需时长再加 24 小时；填写值不会小于「发货后等待小时」。</p>
+                          <p className="text-xs text-gray-500 mt-2">计时起点早于该窗口的订单不会求评价，避免规则停用后重新启用时给历史订单补发消息。默认值为走完全部求评流程所需时长再加 24 小时；填写值不会小于「发货后等待小时」。</p>
                         </div>
-                        <div className="md:col-span-3">
-                          <label className="block text-sm font-bold text-gray-700 mb-2">求评价文案</label>
-                          <textarea
-                            value={editingAutomationRule.actions?.find(/* 当前回调处理集合中的单个元素。 */ action => action.action_type === 'send_text')?.message_template || ''}
-                            onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setEditingAutomationRule({
-                              ...editingAutomationRule,
-                              actions: (editingAutomationRule.actions?.length ? editingAutomationRule.actions : cardActionsForTrigger('review_missing_timeout')).map(/* 当前回调处理用户交互或异步状态变化。 */ action =>
-                                action.action_type === 'send_text' ? { ...action, message_template: event.target.value } : action
-                              ),
-                            })}
-                            className="w-full ios-input px-4 py-3 rounded-xl h-28 resize-none"
-                          />
-                        </div>
+                        <ReviewPlanEditor
+                          plan={parseReviewPlan(editingAutomationRule.actions?.length ? editingAutomationRule.actions : cardActionsForTrigger('review_missing_timeout'))}
+                          onChange={/* 当前回调把三段消息编辑结果写回规则动作。 */ plan => setEditingAutomationRule({
+                            ...editingAutomationRule,
+                            actions: buildReviewActions(plan, editingAutomationRule.actions),
+                          })}
+                        />
                       </div>
                     </section>
                   )}

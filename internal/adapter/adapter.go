@@ -215,6 +215,8 @@ func NewRuntimeBundle(store *db.Store, bm *browser.Manager, logger *slog.Logger,
 		OrderDetailFetcher: runtimeAdapter,
 		Notifier:           notifier,
 		APICardFetcher:     newAPIDeliveryClient(store, logger),
+		// 求评价规则的 AI 好评文案复用全局 AI 配置，构造期固定。
+		ReviewCopyGenerator: newReviewCopyGenerator(store),
 	})
 	runtimeAdapter.chat = chatService
 	runtimeAdapter.automation = autoCenter

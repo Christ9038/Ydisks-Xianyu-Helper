@@ -17,6 +17,7 @@ updateShippingRule,
 import { precheckRegexpExpression } from './regexpPrecheck';
 import { finishRuleSubmission,idleRuleSubmitState,startRuleSubmission,type RuleSubmitState } from './interactionState';
 import type { AutomationTriggerType,Card,DefaultReplyForm,DeliveryTemplate,Item,ReplyRule,RulesProps,RulesTab,ShippingRule,ShippingVariant } from './types';
+import { buildReviewActions,parseReviewPlan,validateReviewPlan } from './reviewPlan';
 import { adjustPriceTarget,boolFlag,buildAdjustPriceConfig,buildReviewConfig,cardActionsForTrigger,defaultRuleName,emptyVariant,hasCompleteTemplateBindings,isValidAdjustPrice,parseJSONObject,shouldReplaceGeneratedName,triggerMeta,withAllItemsConfirmation } from './utils';
 import type { ToastValue } from './components/Toast';
 
@@ -414,9 +415,9 @@ export const useRuleActions = ({
       if (isMultiSpecRule && variants.some(/* 当前回调校验多规格字段。 */ variant => !variant.spec_name.trim() || !variant.spec_value.trim())) return alert('多规格商品必须填写每一行的规格名称和规格值');
     }
     if (trigger === 'review_missing_timeout') {
-      // text 保存求评价动作的文案。
-      const text = editingAutomationRule.actions?.find(/* 当前回调查找求评价文案动作。 */ action => action.action_type === 'send_text')?.message_template || '';
-      if (!text.trim()) return alert('请填写求评价文案');
+      // reviewError 保存三段消息的校验错误，空串表示通过。
+      const reviewError = validateReviewPlan(parseReviewPlan(editingAutomationRule.actions?.length ? editingAutomationRule.actions : cardActionsForTrigger(trigger)));
+      if (reviewError) return alert(reviewError);
     }
     // saveActions 保存实际提交的动作列表；拍下改价规则会剔除未填写文案的可选提醒动作。
     let saveActions = editingAutomationRule.actions?.length ? editingAutomationRule.actions : cardActionsForTrigger(trigger, editingAutomationRule.card_group_id || 0);
@@ -430,7 +431,7 @@ export const useRuleActions = ({
     // succeeded 记录保存是否成功。
     let succeeded = false;
     try {
-      await updateShippingRule({ ...editingAutomationRule, trigger_type: trigger, name: (editingAutomationRule.name || '').trim() || defaultRuleName(trigger, selectedRuleItem?.item_title || editingAutomationRule.item_id || ''), config_json: trigger === 'review_missing_timeout' ? buildReviewConfig(editingAutomationRule.config_json) : (editingAutomationRule.config_json || '{}'), actions: trigger === 'order_created' ? saveActions : (editingAutomationRule.actions?.length ? editingAutomationRule.actions : cardActionsForTrigger(trigger, saveVariants[0]?.card_id || editingAutomationRule.card_group_id || 0)), variants: saveVariants });
+      await updateShippingRule({ ...editingAutomationRule, trigger_type: trigger, name: (editingAutomationRule.name || '').trim() || defaultRuleName(trigger, selectedRuleItem?.item_title || editingAutomationRule.item_id || ''), config_json: trigger === 'review_missing_timeout' ? buildReviewConfig(editingAutomationRule.config_json) : (editingAutomationRule.config_json || '{}'), actions: trigger === 'review_missing_timeout' ? buildReviewActions(parseReviewPlan(editingAutomationRule.actions?.length ? editingAutomationRule.actions : cardActionsForTrigger(trigger)), editingAutomationRule.actions, true) : trigger === 'order_created' ? saveActions : (editingAutomationRule.actions?.length ? editingAutomationRule.actions : cardActionsForTrigger(trigger, saveVariants[0]?.card_id || editingAutomationRule.card_group_id || 0)), variants: saveVariants });
       setShowAutomationModal(false);
       await Promise.all([loadAutomationRules(), loadReferenceData()]);
       alert('保存成功');

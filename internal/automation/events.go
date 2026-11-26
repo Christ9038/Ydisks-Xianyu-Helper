@@ -34,6 +34,8 @@ const (
 	// ActionSendTemplate 表示按发货模板渲染并发送多条消息。
 	ActionSendTemplate = "send_template"
 	ActionSendText     = "send_text"
+	// ActionSendReviewCopy 表示发送求评价规则预先确定的好评文案，仅用于超时未评价求评价规则。
+	ActionSendReviewCopy = "send_review_copy"
 	// ActionAdjustPrice 表示把待付款订单价格修改为动作配置中的目标价格。
 	ActionAdjustPrice = "adjust_price"
 )

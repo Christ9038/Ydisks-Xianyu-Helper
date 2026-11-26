@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"strconv"
 	"strings"
 	"time"
@@ -147,6 +148,8 @@ type centerDependencies struct {
 	cookieSrc func(context.Context, string) (string, error)
 	// apiFetcher 提供普通 API 卡发货请求能力。
 	apiFetcher APICardFetcher
+	// reviewCopyGenerator 是构造期固定的 AI 好评文案生成器，可能为空。
+	reviewCopyGenerator ReviewCopyGenerator
 }
 
 // New 构造使用默认协议实现的自动化中心。
@@ -182,12 +185,13 @@ func NewWithDependencies(store *db.Store, senders SenderProvider, logger *slog.L
 		store:   store,
 		senders: senders,
 		dependencies: centerDependencies{
-			mtop:              client,
-			accountTaskClient: accountTaskClient,
-			fetcher:           dependencies.OrderDetailFetcher,
-			notifier:          dependencies.Notifier,
-			cookieSrc:         dependencies.CookieSource,
-			apiFetcher:        dependencies.APICardFetcher,
+			mtop:                client,
+			accountTaskClient:   accountTaskClient,
+			fetcher:             dependencies.OrderDetailFetcher,
+			notifier:            dependencies.Notifier,
+			cookieSrc:           dependencies.CookieSource,
+			apiFetcher:          dependencies.APICardFetcher,
+			reviewCopyGenerator: dependencies.ReviewCopyGenerator,
 		},
 		logger: logger.With("subsys", "automation"),
 	}
@@ -238,6 +242,7 @@ func NewWithDependencies(store *db.Store, senders SenderProvider, logger *slog.L
 		audit:                    center.audit,
 		prepareTask:              center.prepareTask,
 		actionDelaySeconds:       center.actionDelaySeconds,
+		resolveReviewCopy:        center.resolveReviewCopy,
 		accountAutomationAllowed: center.accountAutomationAllowed,
 		accountSenderReady:       center.accountSenderReady,
 		deferTask:                center.deferTask,
@@ -539,6 +544,17 @@ func (c *Center) notifyRunNeedsReview(ctx context.Context, run db.AutomationRun,
 // delay_override 字段时自动使用卡密上的默认延时。
 // actionDelaySeconds 封装动作延迟秒数业务协调。
 func (c *Center) actionDelaySeconds(ctx context.Context, action db.AutomationAction) (int, error) {
+	// delay 是不含随机上浮的固定延迟秒数；err 是卡密组读取失败原因。
+	delay, err := c.baseActionDelaySeconds(ctx, action)
+	if err != nil {
+		return 0, err
+	}
+	// 文本类动作在固定延迟上叠加随机上浮，模拟人工节奏；延迟任务写入后恢复执行不会重新抽取。
+	return delay + actionJitterSeconds(action, rand.IntN), nil
+}
+
+// baseActionDelaySeconds 返回不含随机上浮的动作延迟秒数。
+func (c *Center) baseActionDelaySeconds(ctx context.Context, action db.AutomationAction) (int, error) {
 	if action.ActionType == ActionSendTemplate {
 		return action.DelaySeconds, nil
 	}

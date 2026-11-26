@@ -47,6 +47,9 @@ const ActionSendTemplate = "send_template"
 // ActionSendText 表示发送文本动作。
 const ActionSendText = "send_text"
 
+// ActionSendReviewCopy 表示发送求评价规则预先确定的好评文案，仅用于超时未评价规则。
+const ActionSendReviewCopy = "send_review_copy"
+
 // ActionAdjustPrice 表示把待付款订单价格修改为目标价格的动作。
 const ActionAdjustPrice = "adjust_price"
 
@@ -450,6 +453,10 @@ type ruleActionFlags struct {
 	hasSendTemplate bool
 	// hasSendText 表示是否存在启用的文本动作。
 	hasSendText bool
+	// hasSendReviewCopy 表示是否存在启用的好评文案动作。
+	hasSendReviewCopy bool
+	// reviewCopyCount 统计好评文案动作总数（含停用），每条规则最多一个。
+	reviewCopyCount int
 	// hasConfirmShipment 表示是否存在启用的确认发货动作。
 	hasConfirmShipment bool
 	// hasAdjustPrice 表示是否存在启用的订单改价动作。
@@ -520,6 +527,19 @@ func (s *RuleService) normalizeDraftActions(ctx context.Context, userID int64, t
 				return nil, flags, errors.New("发送文本动作必须填写文案")
 			}
 			flags.hasSendText = flags.hasSendText || enabled
+		case ActionSendReviewCopy:
+			if triggerType != TriggerReviewMissingTimeout {
+				return nil, flags, errors.New("好评文案动作仅支持超时未评价求评价规则")
+			}
+			// copyErr 表示好评文案来源配置不合法。
+			if copyErr := validateReviewCopyConfig(draftAction.ConfigJSON); copyErr != nil {
+				return nil, flags, copyErr
+			}
+			flags.reviewCopyCount++
+			if flags.reviewCopyCount > 1 {
+				return nil, flags, errors.New("每条求评价规则最多只能有一个好评文案动作")
+			}
+			flags.hasSendReviewCopy = flags.hasSendReviewCopy || enabled
 		case ActionAdjustPrice:
 			// priceErr 表示改价动作目标价格缺失或格式非法。
 			if priceErr := validateAdjustPriceConfig(draftAction.ConfigJSON); priceErr != nil {
@@ -540,6 +560,10 @@ func (s *RuleService) normalizeDraftActions(ctx context.Context, userID int64, t
 		}
 		if !isJSONObject(draftAction.ConfigJSON) {
 			return nil, flags, errors.New("动作配置必须是 JSON 对象")
+		}
+		// jitterErr 表示文本类动作的随机延迟上浮超出范围。
+		if jitterErr := validateActionJitter(draftAction); jitterErr != nil {
+			return nil, flags, jitterErr
 		}
 		if draftAction.ActionType == ActionSendTemplate {
 			// 进入此处前已通过 isJSONObject 校验，配置来源可编码 JSON，因此不会产生写入错误。
@@ -711,8 +735,8 @@ func validateTriggerActionCombination(triggerType string, flags ruleActionFlags)
 		if flags.hasConfirmShipment || flags.hasSendCard || flags.hasAdjustPrice {
 			return errors.New("求评价规则只能发送文本")
 		}
-		if !flags.hasSendText {
-			return errors.New("求评价规则至少需要一个已启用的文本动作")
+		if !flags.hasSendText && !flags.hasSendReviewCopy {
+			return errors.New("求评价规则至少需要一个已启用的文本或好评文案动作")
 		}
 	}
 	return nil

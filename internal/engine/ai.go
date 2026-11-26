@@ -9,15 +9,12 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/llmclient"
-	"xianyu-go/internal/netguard"
 )
 
 // defaultAIBaseURL 用于本次流程后续判断的defaultAIBaseURL
@@ -73,10 +70,9 @@ func modelUserInput(m ChatMessage) (string, []string) {
 	return m.Text + "\n" + llmclient.ImagePrompt, images
 }
 
-// newAIHTTPClient 用于本次流程后续判断的newAIHTTPClient
-var newAIHTTPClient = func(baseURL string) (*http.Client, error) {
-	return netguard.ConfiguredEndpointHTTPClient(baseURL, 30*time.Second)
-}
+// newAIHTTPClient 按用户配置的模型地址构造 AI 调用使用的 HTTP 客户端，整体与响应头超时均为 llmclient.RequestTimeout；
+// 声明为变量以便测试注入失败或本地客户端。
+var newAIHTTPClient = llmclient.NewHTTPClient
 
 // AIReplierImpl AI 回复实现。
 type AIReplierImpl struct {
@@ -196,8 +192,8 @@ func (a *AIReplierImpl) Reply(ctx context.Context, m ChatMessage) (*ReplyResult,
 		userText, images = modelUserInput(m)
 	}
 
-	// aiCtx、cancel 是模型调用的上下文及其取消函数：随买家新消息到达而取消，另受 30 秒总时长约束。
-	aiCtx, cancel := context.WithTimeout(m.Turn.Context(ctx), 30*time.Second)
+	// aiCtx、cancel 是模型调用的上下文及其取消函数：随买家新消息到达而取消，另受 llmclient.RequestTimeout（60 秒）总时长约束。
+	aiCtx, cancel := context.WithTimeout(m.Turn.Context(ctx), llmclient.RequestTimeout)
 	defer cancel()
 	// completion、err 保存模型结果与调用错误；端点拒绝图片时 llmclient 已自动降级为纯文字重试一次。
 	completion, err := llmclient.Complete(aiCtx, llmclient.Endpoint{
@@ -303,35 +299,40 @@ type globalAIConfig struct {
 
 // globalAIConfig 封装globalAI配置业务协调。
 func (a *AIReplierImpl) globalAIConfig(ctx context.Context) (*globalAIConfig, error) {
+	return loadGlobalAIConfig(ctx, a.store, a.cookieID)
+}
+
+// loadGlobalAIConfig 读取并规范化全局 AI 配置；cookieID 用于敏感设置读取审计。聊天 AI 回复与好评文案生成共用。
+func loadGlobalAIConfig(ctx context.Context, store *db.Store, cookieID string) (*globalAIConfig, error) {
 	// apiKey、err 用于本次流程后续判断的apiKey、err
-	apiKey, err := a.store.ReadSensitiveSettingForAccount(ctx, a.cookieID, "ai_api_key", "settings.use", "ai_reply")
+	apiKey, err := store.ReadSensitiveSettingForAccount(ctx, cookieID, "ai_api_key", "settings.use", "ai_reply")
 	if err != nil {
 		return nil, err
 	}
 	// baseURL、err 用于本次流程后续判断的baseURL、err
-	baseURL, err := a.store.Settings.Get(ctx, "ai_api_url")
+	baseURL, err := store.Settings.Get(ctx, "ai_api_url")
 	if err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(baseURL) == "" {
-		baseURL, err = a.store.Settings.Get(ctx, "ai_base_url")
+		baseURL, err = store.Settings.Get(ctx, "ai_base_url")
 		if err != nil {
 			return nil, err
 		}
 	}
 	// model、err 用于本次流程后续判断的model、err
-	model, err := a.store.Settings.Get(ctx, "ai_model")
+	model, err := store.Settings.Get(ctx, "ai_model")
 	if err != nil {
 		return nil, err
 	}
 
 	// rawProtocol、vision 分别是协议与图片识别开关的原始设置值。
-	rawProtocol, err := a.store.Settings.Get(ctx, "ai_api_protocol")
+	rawProtocol, err := store.Settings.Get(ctx, "ai_api_protocol")
 	if err != nil {
 		return nil, err
 	}
 	// vision 是全局“识别买家图片”开关的原始字符串；err 是读取失败原因，读取失败按关闭处理。
-	vision, err := a.store.Settings.Get(ctx, "ai_vision_enabled")
+	vision, err := store.Settings.Get(ctx, "ai_vision_enabled")
 	if err != nil {
 		return nil, err
 	}

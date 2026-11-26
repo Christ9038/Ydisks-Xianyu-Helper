@@ -33,6 +33,10 @@ make build      # go build ./cmd/server
 make test       # go test ./...
 make test-server       # go test ./internal/server
 make test-server-race  # server 生命周期与凭证并发 smoke race
+# 对 engine / adapter / automation 等大包做全量 -race 时必须显式加 -timeout 40m（Go 默认 10 分钟必超时）：
+#   go test -race -count=1 -timeout 40m ./internal/engine ./internal/adapter ./internal/automation
+# 2026-11-25 实测（含 #114 求评价新增用例）：engine 约 24 分钟、adapter 约 21 分钟、automation 约 36 分钟，均无数据竞争。
+# 日常只对改动相关的用例跑 -race（例如 -run 'ReviewFlow|ReviewCopy'），全量竞态回归留到发布前。
 make smoke      # 构建并启动真实二进制，经 HTTP 验证健康/初始化/登录/核心列表/前端首页/优雅退出（临时 SQLite）
 make vet        # go vet ./...
 make api-generate # regenerate frontend/shared/api-contract/generated/schema.ts from api/openapi.yaml

@@ -95,6 +95,18 @@ func ConfiguredEndpointHTTPClient(rawBaseURL string, timeout time.Duration) (*ht
 	return ConfiguredHTTPClient(timeout), nil
 }
 
+// ConfiguredEndpointHTTPClientWithTimeouts 校验用户配置的 HTTP(S) 基础地址并返回策略客户端，
+// 与 ConfiguredEndpointHTTPClient 的区别是允许调用方指定响应头超时。
+// 非流式的大模型请求要等整段回复生成完才会返回响应头，默认 10 秒的响应头上限会先于总超时触发，
+// 此类调用应让 responseHeaderTimeout 不小于 timeout；TLS 握手与拨号仍沿用 10 秒上限。
+func ConfiguredEndpointHTTPClientWithTimeouts(rawBaseURL string, timeout, responseHeaderTimeout time.Duration) (*http.Client, error) {
+	// err 表示用户配置地址的格式校验错误；地址不合法时不创建客户端。
+	if err := validateConfiguredEndpointURL(rawBaseURL); err != nil {
+		return nil, err
+	}
+	return policyHTTPClient(defaultOutboundPolicy, timeout, responseHeaderTimeout, 10*time.Second), nil
+}
+
 // PolicyHTTPClient 返回绑定指定运行时策略的 HTTP 客户端，测试和组合根可使用它隔离全局默认值。
 func PolicyHTTPClient(policy *OutboundPolicy, timeout time.Duration) *http.Client {
 	if policy == nil {

@@ -126,8 +126,8 @@ type platformFlow struct {
 	adminID int64
 }
 
-// newPlatformFlow 创建平台流程环境：本地账号保存模拟器签发的 Cookie，自动化中心的全部平台请求都发往模拟器。
-func newPlatformFlow(t *testing.T) *platformFlow {
+// newPlatformFlow 创建平台流程环境：本地账号保存模拟器签发的 Cookie，自动化中心的全部平台请求都发往模拟器；customize 可追加额外依赖。
+func newPlatformFlow(t *testing.T, customize ...func(*CenterDependencies, *db.Store)) *platformFlow {
 	t.Helper()
 	// store、cleanup 是隔离存储及其关闭函数；夹具默认开启自动确认发货。
 	store, cleanup := newAutomationTestStore(t)
@@ -149,10 +149,15 @@ func newPlatformFlow(t *testing.T) *platformFlow {
 	client := gateway.Client()
 	// sender 是在线发送器替身。
 	sender := &platformSender{gateway: gateway}
-	// center 是注入了真实协议客户端的自动化中心。
-	center := NewWithDependencies(store, platformSenderProvider{sender: sender}, nil, CenterDependencies{
+	// dependencies 是注入真实协议客户端的自动化中心依赖；customize 允许个别用例追加额外依赖（例如 AI 文案生成器）。
+	dependencies := CenterDependencies{
 		MTop: client, AccountTaskClient: client, OrderDetailFetcher: platformOrderDetailFetcher{client: client, store: store},
-	})
+	}
+	for /* apply 是一个依赖定制函数。 */ _, apply := range customize {
+		apply(&dependencies, store)
+	}
+	// center 是注入了真实协议客户端的自动化中心。
+	center := NewWithDependencies(store, platformSenderProvider{sender: sender}, nil, dependencies)
 	return &platformFlow{t: t, ctx: ctx, gateway: gateway, store: store, center: center, sender: sender, adminID: admin.ID}
 }
 

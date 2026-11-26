@@ -36,11 +36,18 @@ const (
 	anthropicDefaultMaxTokens = 16000
 	// openAITemperature 是 OpenAI 协议下沿用的采样温度；Anthropic 新模型不接受采样参数，因此该协议不发送。
 	openAITemperature = 0.7
-	// defaultTimeout 是调用方没有提供 HTTP 客户端时构造受限客户端使用的整体超时。
-	defaultTimeout = 30 * time.Second
+	// RequestTimeout 是一次大模型请求从发出到读完响应的整体超时。请求为非流式，响应头与响应体几乎同时返回，
+	// 因此不再单独设置更短的响应头超时，整段等待都受这一个时长约束。
+	RequestTimeout = 60 * time.Second
 	// ImagePrompt 是买家发送图片且图片被一并发给模型时使用的文字部分，避免把占位符“[图片]”当作正文。
 	ImagePrompt = "买家发送了一张图片，请结合图片内容回复。"
 )
+
+// NewHTTPClient 按用户配置的模型服务地址构造受限 HTTP 客户端：整体超时与响应头超时都是 RequestTimeout，
+// 地址不合法时返回错误且不创建客户端。
+func NewHTTPClient(baseURL string) (*http.Client, error) {
+	return netguard.ConfiguredEndpointHTTPClientWithTimeouts(baseURL, RequestTimeout, RequestTimeout)
+}
 
 // 以下错误供调用方区分配置问题与上游问题。
 var (
@@ -128,7 +135,7 @@ func Complete(ctx context.Context, endpoint Endpoint, request Request) (Result, 
 	endpoint.Protocol, endpoint.BaseURL = protocol, baseURL
 	if endpoint.HTTPClient == nil {
 		// client 是按用户配置地址构造的受限客户端；地址不合法时不发出请求。
-		client, clientErr := netguard.ConfiguredEndpointHTTPClient(baseURL, defaultTimeout)
+		client, clientErr := NewHTTPClient(baseURL)
 		if clientErr != nil {
 			return Result{}, fmt.Errorf("AI API 地址无效: %w", clientErr)
 		}
@@ -260,7 +267,7 @@ func ListAnthropicModels(ctx context.Context, endpoint Endpoint) ([]string, erro
 	endpoint.BaseURL = baseURL
 	if endpoint.HTTPClient == nil {
 		// client、err 是按用户配置地址构造的受限客户端。
-		client, err := netguard.ConfiguredEndpointHTTPClient(baseURL, defaultTimeout)
+		client, err := NewHTTPClient(baseURL)
 		if err != nil {
 			return nil, fmt.Errorf("AI API 地址无效: %w", err)
 		}

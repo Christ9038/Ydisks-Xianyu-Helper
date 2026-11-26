@@ -586,7 +586,7 @@ func recoveryNeedsSender(task Task, rule db.AutomationRule, cursor int) bool {
 		return false
 	}
 	switch actions[cursor].ActionType {
-	case ActionSendText, ActionSendCard, ActionSendTemplate:
+	case ActionSendText, ActionSendCard, ActionSendTemplate, ActionSendReviewCopy:
 		return true
 	default:
 		return false
@@ -610,6 +610,16 @@ func reviewRequestRuleDue(order db.Order, rule db.AutomationRule) bool {
 	}
 	// baseRaw 用于本次流程后续判断的base原始
 	baseRaw := firstNonEmpty(order.ShippedAt, order.UpdatedAt, order.CreatedAt)
+	if cfg.Basis == reviewBasisCompleted {
+		// 以买家确认收货时间为计时起点；尚未确认收货的订单不求评价。
+		if strings.TrimSpace(order.CompletedAt) == "" {
+			return false
+		}
+		baseRaw = order.CompletedAt
+	} else if !order.SystemShipped && strings.TrimSpace(order.CompletedAt) != "" {
+		// 查询为支持“确认收货后”规则放宽了发货条件；按发货计时的规则仍只处理系统发货订单。
+		return false
+	}
 	// shippedAt 是订单发货时间基点，回溯窗口始终以它为准，与是否已求评过无关。
 	shippedAt := parseDBTime(baseRaw)
 	// 规则停用期间积压的旧订单在重新启用时不得被补发：发货已超出回溯窗口的订单一律跳过。
@@ -637,7 +647,12 @@ type reviewRuleConfig struct {
 	MaxAttempts         int
 	// MaxLookbackHours 是回溯窗口小时数：发货时间早于该窗口的订单不再求评价；0 表示使用默认值。
 	MaxLookbackHours int
+	// Basis 是首次等待的计时起点：shipped（默认，发货时间）或 completed（买家确认收货时间）。
+	Basis string
 }
+
+// reviewBasisCompleted 表示求评价按买家确认收货时间计时。
+const reviewBasisCompleted = "completed"
 
 // effectiveLookbackHours 返回实际生效的回溯窗口小时数。
 //
@@ -667,6 +682,10 @@ func parseReviewRuleConfig(raw string) reviewRuleConfig {
 	var m map[string]any
 	if json.Unmarshal([]byte(raw), &m) != nil {
 		return cfg
+	}
+	// basis 是规则配置的计时起点字符串，缺省或非法按发货计时。
+	if basis, _ := m["basis"].(string); strings.TrimSpace(basis) == reviewBasisCompleted {
+		cfg.Basis = reviewBasisCompleted
 	}
 	if // v 用于本次流程后续判断的v
 	v := intFromAny(m["after_shipped_hours"]); v > 0 {

@@ -7,6 +7,7 @@ Card,
 ShippingRule,
 ShippingVariant,
 } from './api';
+import { summarizeReviewPlan } from './reviewPlan';
 import type { TriggerMeta } from './types';
 
 // triggerMeta 是自动化触发类型的统一展示元数据，供列表和编辑器复用。
@@ -38,7 +39,7 @@ export const triggerMeta: Record<AutomationTriggerType, TriggerMeta> = {
   review_missing_timeout: {
     label: '超时未评价求评价',
     shortLabel: '求评价',
-    description: '计划任务扫描已发货未评价订单，到期后发送求评价文案。',
+    description: '计划任务扫描未评价订单（可按发货或确认收货计时），到期后依次发送引导语、好评文案和复制提示。',
     flow: ['计划任务扫描', '已发货未评价', '达到等待时间', '发送提醒'],
     accent: 'amber',
     icon: Clock3,
@@ -113,16 +114,19 @@ export const reviewLookbackHours = (raw?: string) => {
 };
 
 // buildReviewConfig 规范化求评价规则的时间参数，并应用编辑器的局部修改。
-export const buildReviewConfig = (raw?: string, patch: Record<string, number> = {}) => {
+export const buildReviewConfig = (raw?: string, patch: Record<string, number | string> = {}) => {
   // current 是求评价配置的已有字段。
   const current = parseJSONObject(raw);
   // lookback 仅在用户显式配置过时写回，未配置时保持后端按其他字段推导的默认窗口。
   const lookback = Number(current.max_lookback_hours) > 0 ? { max_lookback_hours: Number(current.max_lookback_hours) } : {};
+  // basis 是首次等待的计时起点：completed 为买家确认收货，其余按发货计时（缺省，兼容历史规则）。
+  const basis = current.basis === 'completed' ? { basis: 'completed' } : {};
   return JSON.stringify({
     after_shipped_hours: Number(current.after_shipped_hours || 72),
     repeat_interval_hours: Number(current.repeat_interval_hours || 24),
     max_attempts: Number(current.max_attempts || 1),
     ...lookback,
+    ...basis,
     ...patch,
   });
 };
@@ -210,10 +214,7 @@ export const actionSummary = (rule: ShippingRule) => {
     return target ? `拍下后改价为 ¥${target}` : '未配置目标价格';
   }
   if (rule.trigger_type === 'review_missing_timeout') {
-    return rule.actions?.find(
-      // 文案动作匹配器只查找发送文字动作。
-      action => action.action_type === 'send_text',
-    )?.message_template || '发送求评价文案';
+    return summarizeReviewPlan(rule.actions);
   }
   // cards 是当前规则中的卡密或模板动作列表。
   const cards = (rule.actions || []).filter(

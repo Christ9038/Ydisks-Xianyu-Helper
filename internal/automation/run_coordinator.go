@@ -35,6 +35,8 @@ type automationRunCoordinator struct {
 	prepareTask func(context.Context, Task) (Task, error)
 	// actionDelaySeconds 计算当前动作的有效延迟时间。
 	actionDelaySeconds func(context.Context, db.AutomationAction) (int, error)
+	// resolveReviewCopy 在求评价运行发出第一条消息前确定好评文案；为空表示不支持该动作。
+	resolveReviewCopy func(context.Context, int64, Task, db.AutomationAction) (string, error)
 	// accountAutomationAllowed 检查账号是否仍允许执行外部自动化动作。
 	accountAutomationAllowed func(context.Context, string) (bool, error)
 	// accountSenderReady 判断账号是否已具备可立即发送消息的闲鱼 WebSocket 连接。
@@ -424,6 +426,10 @@ func (r automationRunCoordinator) executeRunActionLoop(ctx context.Context, task
 	// pendingUncertainty 保存「消息动作结果不确定但已放行后续幂等状态动作」的待收口信息；非空表示循环结束时必须收口为人工核对。
 	// 优先从任务快照恢复：收尾动作带延迟时上一次调用已带着标记返回，内存状态丢失，只能靠快照把收口带过延迟。
 	pendingUncertainty := restorePendingUncertaintyForRun(task, sent)
+	// 好评文案必须在本次运行发出任何消息之前确定，失败时零发送；已确定的文案写入任务快照，延迟与重试沿用。
+	if copyErr := r.ensureReviewCopy(ctx, &task, ruleID, run, actions); copyErr != nil {
+		return sent, false, copyErr
+	}
 	// cursor 表示当前动作在计划中的位置。
 	for cursor := run.ActionCursor; cursor < len(actions); cursor++ {
 		// action 是当前待执行的动作定义。
@@ -658,9 +664,37 @@ func tagTemplateDeliverySkips(proof shipmentDeliveryProof, actionIndex int) ship
 // actionNeedsOnlineSender 判断动作是否会向买家发送消息；这类动作必须先确认账号 WebSocket 已就绪，避免 API 卡密已领取但无法投递。
 func actionNeedsOnlineSender(action db.AutomationAction) bool {
 	switch action.ActionType {
-	case ActionSendCard, ActionSendTemplate, ActionSendText:
+	case ActionSendCard, ActionSendTemplate, ActionSendText, ActionSendReviewCopy:
 		return true
 	default:
 		return false
 	}
+}
+
+// ensureReviewCopy 在尚未确定好评文案时，为计划中待执行的 send_review_copy 动作确定文案并写入任务快照。
+// 解析失败返回明确“未发送”的错误：运行进入既有的失败重试流程，重试耗尽后转人工核对并通知。
+func (r automationRunCoordinator) ensureReviewCopy(ctx context.Context, task *Task, ruleID int64, run *db.AutomationRun, actions []db.AutomationAction) error {
+	if rawReviewCopy(*task) != "" {
+		return nil
+	}
+	for /* index 表示动作在冻结计划中的位置；action 是对应动作。 */ index := run.ActionCursor; index < len(actions); index++ {
+		action := actions[index]
+		if action.ActionType != ActionSendReviewCopy || !action.Enabled {
+			continue
+		}
+		if r.resolveReviewCopy == nil {
+			return fmt.Errorf("%w: 好评文案能力未装配", ErrMessageNotSent)
+		}
+		// text 是本次运行确定的好评文案；err 是解析失败原因，按确定未发送处理。
+		text, err := r.resolveReviewCopy(ctx, ruleID, *task, action)
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrMessageNotSent, err)
+		}
+		if task.Raw == nil {
+			task.Raw = map[string]any{}
+		}
+		task.Raw[reviewCopyRawKey] = text
+		return nil
+	}
+	return nil
 }

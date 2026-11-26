@@ -347,3 +347,45 @@ func TestConfiguredHTTPClientLimitsResponseBody(t *testing.T) {
 		t.Fatal("超大响应应返回大小限制错误")
 	}
 }
+
+// TestConfiguredEndpointHTTPClientWithTimeoutsHonorsHeaderTimeout 验证调用方可单独放宽响应头超时：
+// 服务端延迟返回响应头时，较短的响应头超时失败，不短于延迟的响应头超时成功，非法地址被拒绝。
+func TestConfiguredEndpointHTTPClientWithTimeoutsHonorsHeaderTimeout(t *testing.T) {
+	// original 保存测试前的全局默认值，避免影响同一进程中的其他测试。
+	original := DefaultPublicOnly()
+	t.Cleanup(func() { SetDefaultPublicOnly(original) })
+	// 回环地址的测试服务端需要放开公网限制。
+	SetDefaultPublicOnly(false)
+	// server 模拟非流式模型端点：生成完整回复前不返回响应头。
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(400 * time.Millisecond)
+		_, _ = io.WriteString(w, "ok")
+	}))
+	t.Cleanup(server.Close)
+
+	// badErr 是非法地址的构造错误，必须非空。
+	if _, badErr := ConfiguredEndpointHTTPClientWithTimeouts("://bad", time.Second, time.Second); badErr == nil {
+		t.Fatal("非法地址必须返回错误")
+	}
+	// shortClient、shortErr 是响应头超时短于服务端延迟的客户端及构造错误，请求应当超时。
+	shortClient, shortErr := ConfiguredEndpointHTTPClientWithTimeouts(server.URL, 5*time.Second, 100*time.Millisecond)
+	if shortErr != nil {
+		t.Fatal(shortErr)
+	}
+	// shortResp、getErr 是短超时请求的响应与错误；成功即说明超时没有生效。
+	if shortResp, getErr := shortClient.Get(server.URL); getErr == nil {
+		_ = shortResp.Body.Close()
+		t.Fatal("响应头超时短于服务端延迟时应失败")
+	}
+	// longClient、longErr 是响应头超时与整体超时一致的客户端及构造错误，应当等到响应。
+	longClient, longErr := ConfiguredEndpointHTTPClientWithTimeouts(server.URL, 5*time.Second, 5*time.Second)
+	if longErr != nil {
+		t.Fatal(longErr)
+	}
+	// resp、respErr 是长超时请求的响应与错误，必须成功。
+	resp, respErr := longClient.Get(server.URL)
+	if respErr != nil {
+		t.Fatalf("响应头超时放宽后应成功: %v", respErr)
+	}
+	_ = resp.Body.Close()
+}

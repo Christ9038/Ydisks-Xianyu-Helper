@@ -146,6 +146,8 @@ func summarizeAction(action db.AutomationAction, result actionExecutionResult) s
 		return fmt.Sprintf("发送发货模板「%s」（%d 条消息）", action.DeliveryTemplateName, len(action.TemplateMessages))
 	case ActionSendText:
 		return "发送文本消息"
+	case ActionSendReviewCopy:
+		return "发送好评文案"
 	case ActionConfirmShipment:
 		return "确认发货"
 	case ActionAdjustPrice:

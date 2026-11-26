@@ -114,6 +114,17 @@ export default defineConfig({
           ) {
             return 'rules-reply-controls';
           }
+          // 求评价三段消息的编辑器与解析校验模型独立分片，避免模板池与 AI 配置表单挤占规则主页面预算。
+          if (
+            modulePath.includes('/app/features/rules/components/ReviewPlanEditor.') ||
+            modulePath.includes('/app/features/rules/reviewPlan.')
+          ) {
+            return 'rules-review-plan';
+          }
+          // 发货规格变体编辑器只在规则编辑弹窗中使用，独立分片为规则主页面保留预算余量。
+          if (modulePath.includes('/app/features/rules/components/TemplateVariantEditor.')) {
+            return 'rules-variant-editor';
+          }
           // 手动地点选择只在发布表单中使用，独立静态分片可控制商品页主分片预算并保留 feature 边界。
           if (
             modulePath.includes('/app/features/items/manualLocation.') ||

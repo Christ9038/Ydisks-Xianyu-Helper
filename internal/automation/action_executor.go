@@ -138,9 +138,15 @@ func (e *automationActionExecutor) executeActionWithProof(ctx context.Context, t
 	case ActionSendTemplate:
 		// result 保存模板消息已发送数量和按实际发送顺序拼接的确认发货凭证。
 		return e.sendTemplate(ctx, task, action)
-	case ActionSendText:
-		// text 是渲染后的文字动作内容。
+	case ActionSendText, ActionSendReviewCopy:
+		// text 是渲染后的文字动作内容；好评文案动作使用运行开始前已确定的文案，不再次渲染。
 		text := renderTemplate(action.MessageTemplate, task)
+		if action.ActionType == ActionSendReviewCopy {
+			text = rawReviewCopy(task)
+			if strings.TrimSpace(text) == "" {
+				return actionExecutionResult{}, fmt.Errorf("%w: 好评文案尚未确定", ErrMessageNotSent)
+			}
+		}
 		if strings.TrimSpace(text) == "" {
 			return actionExecutionResult{}, nil
 		}

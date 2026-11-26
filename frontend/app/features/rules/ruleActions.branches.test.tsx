@@ -127,11 +127,35 @@ describe('useRuleActions 分支', /* 当前套件覆盖校验提示、异常路�
     act(/* 当前回调打开评价规则。 */ () => hook.result.current.openNewAutomationRule('review_missing_timeout'));
     act(/* 当前回调清空求评价文案。 */ () => hook.result.current.setEditingAutomationRule(/* draft 是当前草稿。 */ draft => ({ ...draft, actions: [{ action_type: 'send_text', message_template: ' ', enabled: true, sort_order: 1 }] })));
     await act(/* 当前回调保存评价规则。 */ async () => hook.result.current.handleSaveAutomationRule());
-    expect(alertMock).toHaveBeenLastCalledWith('请填写求评价文案');
+    expect(alertMock).toHaveBeenLastCalledWith('请填写引导语');
     act(/* 当前回调切换到改价规则。 */ () => hook.result.current.handleTriggerChange('order_created'));
     act(/* 当前回调写入非法价格。 */ () => hook.result.current.updateAdjustPriceTarget('0'));
     await act(/* 当前回调保存非法改价。 */ async () => hook.result.current.handleSaveAutomationRule());
     expect(alertMock).toHaveBeenLastCalledWith('请填写 0.01 到 1000000 元、最多两位小数的目标价格');
+    hook.unmount();
+  });
+
+  test('求评价三段消息保存时只提交启用动作并清理模板池', /* 当前回调覆盖三段消息的保存载荷与好评文案校验。 */ async () => {
+    // hook 是规则动作。
+    const hook = setup();
+    act(/* 当前回调打开评价规则。 */ () => hook.result.current.openNewAutomationRule('review_missing_timeout'));
+    // copyAction 是启用的好评文案动作，模板池含空白条目。
+    const copyAction = { action_type: 'send_review_copy' as const, enabled: true, sort_order: 2, config_json: JSON.stringify({ source: 'pool', pool: [' ', '很好用'], random: true }) };
+    act(/* 当前回调写入引导语与好评文案动作。 */ () => hook.result.current.setEditingAutomationRule(/* draft 是当前草稿。 */ draft => ({
+      ...draft, actions: [{ action_type: 'send_text', message_template: '亲，麻烦评价', enabled: true, sort_order: 1 }, copyAction],
+    })));
+    await act(/* 当前回调保存三段规则。 */ async () => hook.result.current.handleSaveAutomationRule());
+    // saved 是提交给接口的规则。
+    const saved = vi.mocked(api.updateShippingRule).mock.calls.at(-1)?.[0];
+    expect(saved?.actions?.map(/* 当前回调取动作类型。 */ action => action.action_type)).toEqual(['send_text', 'send_review_copy']);
+    expect(JSON.parse(saved?.actions?.[1].config_json || '{}').pool).toEqual(['很好用']);
+    expect(saved?.actions?.[1].delay_seconds).toBeGreaterThanOrEqual(0);
+
+    act(/* 当前回调把模板池清空。 */ () => hook.result.current.setEditingAutomationRule(/* draft 是当前草稿。 */ draft => ({
+      ...draft, actions: [{ ...copyAction, config_json: JSON.stringify({ source: 'pool', pool: [] }) }],
+    })));
+    await act(/* 当前回调再次保存。 */ async () => hook.result.current.handleSaveAutomationRule());
+    expect(alertMock).toHaveBeenLastCalledWith('请至少添加一条好评模板');
     hook.unmount();
   });
 
